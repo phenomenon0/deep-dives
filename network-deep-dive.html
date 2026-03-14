@@ -1,0 +1,2073 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Network Stack — What Happens After send()</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+    --white: #e8e8f0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.03) 2px,
+      rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 2rem;
+    display: flex;
+    gap: 1.2rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.2s, text-shadow 0.2s;
+    padding: 0.3rem 0;
+  }
+  nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+  nav .nav-title {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 1rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.3);
+  }
+
+  .content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+  }
+
+  .hero {
+    text-align: center;
+    padding: 4rem 0 5rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4rem;
+    position: relative;
+  }
+  .hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3.2rem;
+    font-weight: 600;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+  }
+  .hero .subtitle {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 560px;
+    margin: 0 auto;
+  }
+  .hero .blink {
+    display: inline-block;
+    animation: blink 1s step-end infinite;
+    color: var(--green);
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  section {
+    margin-bottom: 5rem;
+    padding-top: 1rem;
+  }
+  h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: var(--green);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: 0.02em;
+  }
+  h3 {
+    font-size: 1.25rem;
+    color: var(--cyan);
+    margin: 2.5rem 0 1rem;
+    font-weight: 600;
+  }
+  h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 2rem 0 0.8rem;
+  }
+  p { margin-bottom: 1rem; }
+
+  .drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4rem;
+    line-height: 0.8;
+    padding: 0.1em 0.15em 0 0;
+    color: var(--green);
+    font-weight: 600;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+  }
+
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    padding: 0.12em 0.4em;
+    border-radius: 3px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem 1.4rem;
+    overflow-x: auto;
+    margin: 1.2rem 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px;
+    line-height: 1.55;
+    position: relative;
+  }
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+  }
+  .cm { color: var(--text-dim); }
+  .kw { color: var(--magenta); }
+  .ty { color: var(--cyan); }
+  .st { color: var(--green); }
+  .nm { color: var(--yellow); }
+  .fn { color: var(--blue); }
+  .pp { color: var(--orange); }
+  .label {
+    position: absolute;
+    top: 0.3rem; right: 0.7rem;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    opacity: 0.5;
+  }
+
+  .diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+  }
+  .diagram pre {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text);
+  }
+  .diagram pre code { color: var(--text); }
+  .diagram-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--green-dim);
+    margin-bottom: 0.8rem;
+    display: block;
+  }
+
+  .power {
+    background: var(--bg-card);
+    border-left: 3px solid var(--green);
+    padding: 1.2rem 1.4rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .power-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.3rem;
+  }
+  .power p { margin-bottom: 0; font-size: 0.95rem; }
+  .power.danger { border-left-color: var(--red); }
+  .power.danger .power-label { color: var(--red); }
+  .power.hack { border-left-color: var(--magenta); }
+  .power.hack .power-label { color: var(--magenta); }
+  .power.wild { border-left-color: var(--orange); }
+  .power.wild .power-label { color: var(--orange); }
+  .power.zen { border-left-color: var(--cyan); }
+  .power.zen .power-label { color: var(--cyan); }
+
+  .mem-row {
+    display: flex;
+    gap: 1px;
+    margin: 0.4rem 0;
+    flex-wrap: wrap;
+  }
+  .mc {
+    width: 30px; height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 600;
+    border-radius: 2px;
+  }
+  .mc.g { background: var(--green); color: var(--bg); }
+  .mc.c { background: var(--cyan); color: var(--bg); }
+  .mc.m { background: var(--magenta); color: var(--bg); }
+  .mc.o { background: var(--orange); color: var(--bg); }
+  .mc.r { background: var(--red); color: var(--bg); }
+  .mc.y { background: var(--yellow); color: var(--bg); }
+  .mc.b { background: var(--blue); color: var(--bg); }
+  .mc.d { background: var(--text-dim); color: var(--bg); opacity: 0.3; }
+  .mc.e { background: transparent; border: 1px dashed var(--border); color: var(--text-dim); }
+  .mc.w { background: var(--white); color: var(--bg); }
+  .mc.p { background: var(--purple); color: #fff; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.88rem;
+  }
+  th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    text-align: left;
+    padding: 0.5rem 0.7rem;
+    border-bottom: 2px solid var(--border);
+  }
+  td {
+    padding: 0.45rem 0.7rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:hover { background: rgba(0,255,136,0.02); }
+
+  details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1rem 0;
+    overflow: hidden;
+  }
+  details summary {
+    padding: 0.7rem 1.1rem;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--green);
+    user-select: none;
+    transition: background 0.2s;
+  }
+  details summary:hover { background: rgba(0,255,136,0.04); }
+  details[open] summary { border-bottom: 1px solid var(--border); }
+  details .det { padding: 1.1rem; }
+  details pre { margin: 0.8rem 0; }
+
+  .vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .vs-col {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.1rem;
+  }
+  .vs-col h4 { margin-top: 0; }
+
+  .glitch {
+    position: relative;
+    display: inline-block;
+  }
+  .glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+  .glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 2s infinite linear alternate-reverse;
+    clip-path: inset(0 0 65% 0);
+  }
+  .glitch::after {
+    color: var(--magenta);
+    animation: glitch-2 3s infinite linear alternate-reverse;
+    clip-path: inset(65% 0 0 0);
+  }
+  @keyframes glitch-1 {
+    0%, 95% { transform: translateX(0); }
+    96% { transform: translateX(-2px); }
+    97% { transform: translateX(2px); }
+    98% { transform: translateX(-1px); }
+    100% { transform: translateX(0); }
+  }
+  @keyframes glitch-2 {
+    0%, 93% { transform: translateX(0); }
+    94% { transform: translateX(2px); }
+    96% { transform: translateX(-2px); }
+    98% { transform: translateX(1px); }
+    100% { transform: translateX(0); }
+  }
+
+  .ticker {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--green);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    display: inline-block;
+    text-shadow: 0 0 6px rgba(0,255,136,0.3);
+  }
+
+  .try-this { background: rgba(0,255,136,0.04); border-left: 3px solid var(--green-dim); padding: 1rem 1.2rem; margin: 1.5rem 0; border-radius: 0 6px 6px 0; }
+  .try-this .try-label { font-family: 'JetBrains Mono', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--green-dim); margin-bottom: 0.5rem; }
+
+  .lang-tabs { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; margin: 1.2rem 0; overflow: hidden; }
+  .lang-tabs input[type="radio"] { display: none; }
+  .lang-tabs label { display: inline-block; padding: 0.5rem 1.2rem; font-family: 'JetBrains Mono', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim); cursor: pointer; border-bottom: 2px solid transparent; transition: color 0.2s, border-color 0.2s; }
+  .lang-tabs label:hover { color: var(--green); }
+  .lang-tabs .tab-bar { border-bottom: 1px solid var(--border); padding: 0 0.5rem; }
+  .lang-tabs .tab-content { display: none; }
+  .lang-tabs .tab-content pre { margin: 0; border: none; border-radius: 0; }
+
+  .lang-tabs input.tc:checked ~ .tab-content.c,
+  .lang-tabs input.tpy:checked ~ .tab-content.py,
+  .lang-tabs input.tgo:checked ~ .tab-content.go,
+  .lang-tabs input.trs:checked ~ .tab-content.rs { display: block; }
+
+  .lang-tabs input:nth-of-type(1):checked ~ .tab-bar label:nth-child(1),
+  .lang-tabs input:nth-of-type(2):checked ~ .tab-bar label:nth-child(2),
+  .lang-tabs input:nth-of-type(3):checked ~ .tab-bar label:nth-child(3),
+  .lang-tabs input:nth-of-type(4):checked ~ .tab-bar label:nth-child(4) {
+    color: var(--green);
+    background: rgba(0,255,136,0.06);
+    border-bottom: 2px solid var(--green);
+  }
+
+  @media (max-width: 700px) {
+    .vs { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2rem; }
+    .content { padding: 4rem 1rem 4rem; }
+    nav { font-size: 10px; gap: 0.8rem; padding: 0.4rem 1rem; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="nav-title">&gt;_ NETWORK</span>
+  <a href="#ch1">socket</a>
+  <a href="#ch2">send</a>
+  <a href="#ch3">receive</a>
+  <a href="#ch4">anatomy</a>
+  <a href="#ch5">tcp-fsm</a>
+  <a href="#ch6">sk_buff</a>
+  <a href="#ch7">raw</a>
+  <a href="#ch8">zero-copy</a>
+  <a href="#ch9">syscalls</a>
+  <a href="#ch10">nic</a>
+  <a href="#ch11">congestion</a>
+  <a href="#ch12">offloads</a>
+  <a href="#ch13">ebpf</a>
+  <a href="#ch14">tools</a>
+</nav>
+
+<div class="content">
+
+<div class="hero">
+  <h1><span class="glitch" data-text="THE NETWORK STACK">THE NETWORK STACK</span></h1>
+  <div class="subtitle">Every byte you send crosses seven layers of abstraction before it becomes light on a fiber. From socket syscalls to DMA ring buffers &mdash; the full journey.<span class="blink">_</span></div>
+</div>
+
+<!-- ============================================================ -->
+<section id="ch1">
+<h2>// 01 &mdash; the socket</h2>
+
+<p class="drop-cap">When you call <code>socket(AF_INET, SOCK_STREAM, 0)</code>, the kernel builds a small empire of data structures on your behalf. A socket is not a connection. It is not a port. It is a <em>file descriptor</em> that happens to speak TCP. The syscall path is short and surgical: <code>sys_socket()</code> &rarr; <code>sock_create()</code> &rarr; <code>inet_create()</code>. Three function calls. About 10 microseconds. And when it returns, you have a number &mdash; say, 3 &mdash; that is your handle to a universe of kernel state.</p>
+
+<h3>Two Structs, One Socket</h3>
+
+<p>The kernel maintains two separate structures for every socket. The first is <code>struct socket</code> &mdash; the VFS (Virtual File System) interface. This is what makes sockets behave like files: you can <code>read()</code>, <code>write()</code>, <code>select()</code>, and <code>close()</code> them. The second is <code>struct sock</code> (often called <code>sk</code>) &mdash; the protocol-level state machine. This is where the real action lives.</p>
+
+<div class="diagram">
+<span class="diagram-label">Socket Architecture</span>
+<pre><code>
+  userspace:  fd = 3
+                │
+  ┌─────────────▼──────────────┐
+  │     <span class="ty">struct file</span>              │   VFS layer
+  │       f_op = &socket_ops   │
+  │       private = ─────────────────┐
+  └────────────────────────────┘     │
+                                     ▼
+  ┌──────────────────────────────────────┐
+  │     <span class="ty">struct socket</span>                      │   BSD socket layer
+  │       state  = SS_UNCONNECTED       │
+  │       type   = SOCK_STREAM          │
+  │       ops    = &inet_stream_ops     │
+  │       sk     = ─────────────────────────┐
+  └──────────────────────────────────────┘   │
+                                             ▼
+  ┌──────────────────────────────────────────────┐
+  │     <span class="ty">struct sock</span> (sk)                          │
+  │       sk_state        = TCP_CLOSE            │   Protocol state
+  │       sk_prot         = &tcp_prot            │
+  │       sk_receive_queue  (incoming data)      │
+  │       sk_write_queue    (outgoing data)      │
+  │       sk_wmem_alloc     (write buffer used)  │
+  │       sk_rmem_alloc     (read buffer used)   │
+  │       sk_sndbuf         (max send buffer)    │
+  │       sk_rcvbuf         (max recv buffer)    │
+  └──────────────────────────────────────────────┘
+</code></pre>
+</div>
+
+<p>The <code>sk_prot</code> field is a function pointer table. For TCP sockets it points to <code>tcp_prot</code>, for UDP it points to <code>udp_prot</code>. This is how the kernel implements polymorphism in C &mdash; a vtable, hand-rolled. When you call <code>send()</code>, the kernel doesn't check whether you have a TCP or UDP socket with an if-statement. It just calls <code>sk->sk_prot->sendmsg()</code>, and the right function runs.</p>
+
+<div class="power">
+<div class="power-label">Key Insight</div>
+<p>Sockets are files. That is not a metaphor &mdash; it is a literal implementation detail. Every socket gets a <code>struct file</code>, an inode, and a dentry. This is why <code>epoll</code>, <code>select</code>, and <code>read/write</code> all work on sockets. The VFS does not care what is behind the file descriptor.</p>
+</div>
+
+<h3>Creating a Socket in Four Languages</h3>
+
+<div class="lang-tabs">
+  <input type="radio" class="tc" id="sock-c" name="sock" checked>
+  <input type="radio" class="tpy" id="sock-py" name="sock">
+  <input type="radio" class="tgo" id="sock-go" name="sock">
+  <input type="radio" class="trs" id="sock-rs" name="sock">
+  <div class="tab-bar">
+    <label for="sock-c">C</label>
+    <label for="sock-py">Python</label>
+    <label for="sock-go">Go</label>
+    <label for="sock-rs">Rust</label>
+  </div>
+  <div class="tab-content c"><pre><code><span class="pp">#include</span> <span class="st">&lt;sys/socket.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;netinet/in.h&gt;</span>
+
+<span class="ty">int</span> fd = <span class="fn">socket</span>(AF_INET, SOCK_STREAM, <span class="nm">0</span>);
+<span class="cm">// fd is now a file descriptor (e.g., 3)</span>
+<span class="cm">// Kernel has allocated: struct file + struct socket + struct sock</span>
+
+<span class="kw">struct</span> <span class="ty">sockaddr_in</span> addr = {
+    .sin_family = AF_INET,
+    .sin_port   = <span class="fn">htons</span>(<span class="nm">8080</span>),
+    .sin_addr   = { .s_addr = INADDR_ANY }
+};
+<span class="fn">bind</span>(fd, (<span class="kw">struct</span> <span class="ty">sockaddr</span> *)&amp;addr, <span class="kw">sizeof</span>(addr));
+<span class="fn">listen</span>(fd, <span class="nm">128</span>);  <span class="cm">// backlog = 128</span></code></pre></div>
+  <div class="tab-content py"><pre><code><span class="kw">import</span> socket
+
+<span class="cm"># Python wraps the syscall in an object</span>
+sock = socket.<span class="fn">socket</span>(socket.AF_INET, socket.SOCK_STREAM)
+sock.<span class="fn">setsockopt</span>(socket.SOL_SOCKET, socket.SO_REUSEADDR, <span class="nm">1</span>)
+sock.<span class="fn">bind</span>((<span class="st">'0.0.0.0'</span>, <span class="nm">8080</span>))
+sock.<span class="fn">listen</span>(<span class="nm">128</span>)
+
+<span class="cm"># Under the hood: same syscall sequence</span>
+<span class="cm"># socket() → bind() → listen()</span>
+<span class="cm"># sock.fileno() returns the raw fd</span>
+<span class="fn">print</span>(<span class="st">f"fd = </span>{sock.<span class="fn">fileno</span>()}<span class="st">"</span>)  <span class="cm"># e.g., 3</span></code></pre></div>
+  <div class="tab-content go"><pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"net"</span>
+    <span class="st">"log"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="cm">// Go abstracts sockets into net.Listener</span>
+    ln, err := net.<span class="fn">Listen</span>(<span class="st">"tcp"</span>, <span class="st">":8080"</span>)
+    <span class="kw">if</span> err != <span class="nm">nil</span> {
+        log.<span class="fn">Fatal</span>(err)
+    }
+    <span class="kw">defer</span> ln.<span class="fn">Close</span>()
+    <span class="cm">// Internally: socket() + bind() + listen()</span>
+    <span class="cm">// Go's netpoller uses epoll underneath</span>
+}</code></pre></div>
+  <div class="tab-content rs"><pre><code><span class="kw">use</span> std::net::<span class="ty">TcpListener</span>;
+
+<span class="kw">fn</span> <span class="fn">main</span>() -> std::io::<span class="ty">Result</span>&lt;()&gt; {
+    <span class="cm">// Rust's TcpListener wraps the socket fd</span>
+    <span class="kw">let</span> listener = <span class="ty">TcpListener</span>::<span class="fn">bind</span>(<span class="st">"0.0.0.0:8080"</span>)?;
+
+    <span class="cm">// Same syscall sequence: socket → bind → listen</span>
+    <span class="kw">for</span> stream <span class="kw">in</span> listener.<span class="fn">incoming</span>() {
+        <span class="kw">let</span> _conn = stream?;
+        <span class="cm">// Each accept() returns a new fd</span>
+    }
+    <span class="ty">Ok</span>(())
+}</code></pre></div>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch2">
+<h2>// 02 &mdash; the send path</h2>
+
+<p class="drop-cap">You call <code>send(fd, buffer, 1500, 0)</code>. That single line triggers a cascade that touches five layers of kernel code, copies your data once, adds 54 bytes of headers, and ends with a DMA engine firing photons down a wire. The whole thing takes about 2 microseconds on modern hardware. Let us trace every step.</p>
+
+<h3>Stage A: Syscall Entry</h3>
+
+<p>The <code>send()</code> libc wrapper executes <code>syscall</code> with <code>__NR_sendto</code> in RAX. The CPU transitions to Ring 0, loads the kernel stack, and dispatches to <code>sys_sendto()</code>. This function finds your socket via the file descriptor table: <code>fdget(fd)</code> &rarr; <code>struct file</code> &rarr; <code>struct socket</code>. Then it calls <code>sock_sendmsg()</code>, which dispatches through the protocol ops to <code>tcp_sendmsg()</code>.</p>
+
+<h3>Stage B: TCP Layer</h3>
+
+<p>TCP's job is to copy your data into kernel buffers and segment it. First, <code>copy_from_user()</code> moves your 1500 bytes from userspace into kernel memory. Then TCP checks the Maximum Segment Size (MSS) &mdash; typically 1460 bytes for Ethernet (1500 MTU minus 20 bytes IP header minus 20 bytes TCP header). Your 1500 bytes become two segments: 1460 + 40. Each gets a TCP header prepended: source port, dest port, sequence number, ACK, window, checksum.</p>
+
+<h3>Stage C: IP Layer</h3>
+
+<p>Each segment descends to <code>ip_queue_xmit()</code>. The routing table is consulted: which interface? which gateway? The IP header is prepended: version, TTL (typically 64), protocol (6 = TCP), source IP, destination IP. If the resulting packet exceeds the MTU, IP fragmentation kicks in &mdash; but TCP already sized segments to avoid this.</p>
+
+<h3>Stage D: Link Layer</h3>
+
+<p>The Ethernet frame header is prepended: 6-byte destination MAC, 6-byte source MAC, 2-byte EtherType (0x0800 for IPv4). That is 14 bytes. The NIC will also append a 4-byte FCS (Frame Check Sequence) on transmit.</p>
+
+<h3>Stage E: DMA &amp; Transmit</h3>
+
+<p>The network driver writes a TX descriptor to the NIC's transmit ring buffer. This descriptor contains the DMA address of the packet data and its length. The driver bumps the ring's tail pointer. The NIC notices, DMA-reads the packet data from system memory, and transmits it on the wire.</p>
+
+<div class="diagram">
+<span class="diagram-label">Full Send Path: 1500 bytes of user data</span>
+<pre><code>
+  <span class="fn">send</span>(fd, buf, <span class="nm">1500</span>, <span class="nm">0</span>)
+    │
+    ▼
+  <span class="ty">sys_sendto()</span>
+    │  fdget(fd) → struct socket → struct sock
+    ▼
+  <span class="ty">tcp_sendmsg()</span>
+    │  copy_from_user(buf, 1500)
+    │  Segment 1: 1460 bytes + 20B TCP header
+    │  Segment 2:   40 bytes + 20B TCP header
+    ▼
+  <span class="ty">ip_queue_xmit()</span>  (called twice)
+    │  Route lookup → dev = eth0
+    │  Prepend 20B IP header
+    │  Seg 1: 1460 + 20 TCP + 20 IP = 1500 bytes
+    │  Seg 2:   40 + 20 TCP + 20 IP =   80 bytes
+    ▼
+  <span class="ty">dev_queue_xmit()</span>
+    │  Prepend 14B Ethernet header
+    │  Frame 1: 14 + 1500 = 1514 bytes
+    │  Frame 2: 14 +   80 =   94 bytes
+    ▼
+  <span class="ty">NIC TX Ring</span>
+    │  Write descriptor: {dma_addr, len, flags}
+    │  Bump tail pointer
+    ▼
+  <span class="ty">DMA engine</span> reads data from RAM → wire
+</code></pre>
+</div>
+
+<div class="power zen">
+<div class="power-label">Cost Analysis</div>
+<p>Total cost: 2 context switches (user &rarr; kernel &rarr; user), 1 data copy (<code>copy_from_user</code>), ~2 route lookups, and 2 DMA writes. The data copy is the expensive part &mdash; 1500 bytes at memory bandwidth is ~200ns. The syscall overhead itself is about 100ns. Everything else is pointer arithmetic.</p>
+</div>
+
+<h3>Nagle's Algorithm &amp; TCP_NODELAY</h3>
+
+<p>If you call <code>send(fd, "H", 1, 0)</code> followed by <code>send(fd, "i", 1, 0)</code>, Nagle's algorithm will buffer the second byte and wait up to 200ms hoping more data arrives. It coalesces small writes into larger segments. This is great for throughput but terrible for latency-sensitive protocols like gaming, SSH, or HTTP/2. Disable it with <code>setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &amp;one, sizeof(one))</code>.</p>
+
+<div class="power danger">
+<div class="power-label">The Nagle + Delayed ACK Disaster</div>
+<p>When Nagle's algorithm (sender) meets delayed ACK (receiver), you get a 200ms latency spike on small writes. The sender buffers the second write, waiting for an ACK. The receiver delays its ACK, waiting for more data or a 200ms timer. Both sides are waiting for the other. This is the single most common networking performance bug in applications. Fix: set <code>TCP_NODELAY</code> on latency-sensitive sockets.</p>
+</div>
+
+<h3>send() in Four Languages</h3>
+
+<div class="lang-tabs">
+  <input type="radio" class="tc" id="send-c" name="send" checked>
+  <input type="radio" class="tpy" id="send-py" name="send">
+  <input type="radio" class="tgo" id="send-go" name="send">
+  <input type="radio" class="trs" id="send-rs" name="send">
+  <div class="tab-bar">
+    <label for="send-c">C</label>
+    <label for="send-py">Python</label>
+    <label for="send-go">Go</label>
+    <label for="send-rs">Rust</label>
+  </div>
+  <div class="tab-content c"><pre><code><span class="cm">// Disable Nagle, then send</span>
+<span class="ty">int</span> one = <span class="nm">1</span>;
+<span class="fn">setsockopt</span>(fd, IPPROTO_TCP, TCP_NODELAY, &amp;one, <span class="kw">sizeof</span>(one));
+
+<span class="ty">char</span> buf[<span class="nm">1500</span>];
+<span class="fn">memset</span>(buf, <span class="st">'A'</span>, <span class="nm">1500</span>);
+<span class="ty">ssize_t</span> n = <span class="fn">send</span>(fd, buf, <span class="nm">1500</span>, <span class="nm">0</span>);
+<span class="cm">// n == 1500 (or less if buffer full)</span>
+<span class="cm">// Kernel: copy_from_user → TCP segment → IP → Ethernet → DMA</span></code></pre></div>
+  <div class="tab-content py"><pre><code><span class="kw">import</span> socket
+
+sock.<span class="fn">setsockopt</span>(socket.IPPROTO_TCP, socket.TCP_NODELAY, <span class="nm">1</span>)
+data = <span class="st">b'A'</span> * <span class="nm">1500</span>
+sock.<span class="fn">sendall</span>(data)  <span class="cm"># loops until all bytes sent</span>
+<span class="cm"># sendall() handles partial writes for you</span>
+<span class="cm"># send() can return less than len(data)</span></code></pre></div>
+  <div class="tab-content go"><pre><code>conn, _ := net.<span class="fn">Dial</span>(<span class="st">"tcp"</span>, <span class="st">"server:8080"</span>)
+
+<span class="cm">// Go sets TCP_NODELAY by default!</span>
+<span class="cm">// To disable: conn.(*net.TCPConn).SetNoDelay(false)</span>
+
+buf := <span class="fn">make</span>([]<span class="ty">byte</span>, <span class="nm">1500</span>)
+n, err := conn.<span class="fn">Write</span>(buf)
+<span class="cm">// Write calls send() internally</span>
+<span class="cm">// Go's netpoller handles EAGAIN transparently</span></code></pre></div>
+  <div class="tab-content rs"><pre><code><span class="kw">use</span> std::io::<span class="ty">Write</span>;
+<span class="kw">use</span> std::net::<span class="ty">TcpStream</span>;
+
+<span class="kw">let</span> <span class="kw">mut</span> stream = <span class="ty">TcpStream</span>::<span class="fn">connect</span>(<span class="st">"server:8080"</span>)?;
+stream.<span class="fn">set_nodelay</span>(<span class="nm">true</span>)?;
+
+<span class="kw">let</span> buf = [<span class="nm">0x41u8</span>; <span class="nm">1500</span>];  <span class="cm">// 1500 bytes of 'A'</span>
+stream.<span class="fn">write_all</span>(&amp;buf)?;    <span class="cm">// loops on partial writes</span></code></pre></div>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch3">
+<h2>// 03 &mdash; the receive path</h2>
+
+<p class="drop-cap">Receiving is the mirror image of sending, but more complex because it is interrupt-driven and must handle arbitrary arrival order at line rate. A 10Gbps NIC can deliver 14.8 million packets per second. The kernel has about 67 nanoseconds to process each one. Here is how it manages.</p>
+
+<h3>Stage A: DMA Write</h3>
+
+<p>Before any packet arrives, the driver has pre-allocated a ring of page-sized buffers and told the NIC their DMA addresses. When a packet arrives, the NIC DMA-writes the frame directly into one of these pre-allocated buffers. No CPU involvement yet &mdash; the NIC owns the memory.</p>
+
+<h3>Stage B: Hardware Interrupt (MSI-X)</h3>
+
+<p>The NIC raises a hardware interrupt. On modern hardware this is MSI-X &mdash; Message Signaled Interrupts &mdash; which targets a specific CPU core. The interrupt handler is tiny: it disables further interrupts for this queue and schedules a NAPI poll. That is all. ~100 nanoseconds.</p>
+
+<h3>Stage C: NAPI Polling</h3>
+
+<p>The softirq handler calls <code>net_rx_action()</code>, which polls the NIC for completed RX descriptors. It processes up to a budget of 64 packets per poll cycle. This is the key optimization: instead of one interrupt per packet, NAPI batches them. At high load, the system never leaves poll mode &mdash; it is essentially busy-waiting, which is faster than interrupt overhead.</p>
+
+<h3>Stage D-E: sk_buff &amp; Protocol Processing</h3>
+
+<p>For each received frame, the driver allocates an <code>sk_buff</code> and points it at the DMA buffer. Then the stack processes bottom-up: the Ethernet header is parsed (EtherType determines next protocol), the IP header is validated (checksum, TTL, routing), and the TCP header is processed (sequence numbers, ACK generation, window updates).</p>
+
+<h3>Stage F-G: Delivery &amp; Wakeup</h3>
+
+<p>The completed sk_buff is appended to the socket's <code>sk_receive_queue</code>. If a process is sleeping in <code>recv()</code>, the kernel wakes it up via the socket's wait queue. The process then calls <code>copy_to_user()</code> to move data from kernel buffer to userspace.</p>
+
+<div class="diagram">
+<span class="diagram-label">Full Receive Path</span>
+<pre><code>
+  Wire → NIC
+    │
+    ▼
+  <span class="ty">DMA write</span> → pre-allocated RX ring buffer
+    │
+    ▼
+  <span class="ty">MSI-X interrupt</span> → target CPU core
+    │  Disable IRQ, schedule NAPI
+    ▼
+  <span class="ty">net_rx_action()</span>  NAPI poll (budget=64)
+    │  For each completed descriptor:
+    │    Allocate sk_buff, point to DMA buffer
+    ▼
+  <span class="ty">eth_type_trans()</span>  Parse Ethernet header
+    │  Strip 14B → EtherType 0x0800 → IP
+    ▼
+  <span class="ty">ip_rcv()</span>  Validate IP header
+    │  Checksum, routing, reassembly if fragmented
+    │  Protocol field 6 → TCP
+    ▼
+  <span class="ty">tcp_v4_rcv()</span>  TCP processing
+    │  Lookup socket by 4-tuple
+    │  Sequence check, ACK generation, window update
+    ▼
+  <span class="ty">sk_receive_queue</span>  Append to socket queue
+    │
+    ▼
+  <span class="ty">wake_up()</span> → sleeping process
+    │
+    ▼
+  <span class="fn">recv</span>(fd, buf, len, <span class="nm">0</span>)
+    │  copy_to_user(sk_buff→data, buf, len)
+    ▼
+  Userspace has the data
+</code></pre>
+</div>
+
+<div class="power wild">
+<div class="power-label">GRO: Generic Receive Offload</div>
+<p>Before protocol processing, GRO combines multiple small packets belonging to the same flow into one large sk_buff. If 10 back-to-back 1460-byte TCP segments arrive, GRO merges them into one 14600-byte sk_buff. The TCP stack processes it once instead of ten times. This is the receive-side equivalent of TSO.</p>
+</div>
+
+<h3>Interrupt vs Polling: The NAPI Trade-off</h3>
+
+<p>At low packet rates, interrupts are efficient: the CPU sleeps between packets. At high rates, the interrupt overhead dominates. NAPI switches between modes dynamically:</p>
+
+<table>
+<tr><th>Packet Rate</th><th>Mode</th><th>Behavior</th></tr>
+<tr><td>&lt; 1,000 pps</td><td>Interrupt-driven</td><td>NIC interrupts CPU per packet, CPU sleeps between</td></tr>
+<tr><td>1,000 - 100,000 pps</td><td>Hybrid</td><td>Interrupt triggers poll cycle, processes batch, re-enables interrupt</td></tr>
+<tr><td>&gt; 100,000 pps</td><td>Busy polling</td><td>CPU never stops polling, never re-enables interrupts</td></tr>
+</table>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<pre><code><span class="cm"># Enable busy polling (poll for 50μs before sleeping)</span>
+sysctl net.core.busy_poll=<span class="nm">50</span>
+
+<span class="cm"># Per-socket busy poll</span>
+setsockopt(fd, SOL_SOCKET, SO_BUSY_POLL, &amp;fifty, sizeof(fifty));
+
+<span class="cm"># Monitor softirq CPU usage (NET_RX = network receive)</span>
+watch -n 1 cat /proc/softirqs | grep NET_RX</code></pre>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch4">
+<h2>// 04 &mdash; packet anatomy</h2>
+
+<p class="drop-cap">Every packet on an Ethernet network is a Russian doll of headers. Each layer wraps the previous one, adding its own metadata. To truly understand networking, you need to see every byte. No abstractions. No hand-waving. Let us dissect a complete TCP/IP packet, byte by byte.</p>
+
+<h3>Ethernet Frame Header (14 bytes)</h3>
+
+<h4>Destination MAC (bytes 0-5)</h4>
+<div class="mem-row">
+  <div class="mc c">D0</div><div class="mc c">D1</div><div class="mc c">D2</div><div class="mc c">D3</div><div class="mc c">D4</div><div class="mc c">D5</div>
+  <div class="mc m">S0</div><div class="mc m">S1</div><div class="mc m">S2</div><div class="mc m">S3</div><div class="mc m">S4</div><div class="mc m">S5</div>
+  <div class="mc o">08</div><div class="mc o">00</div>
+</div>
+<p><span style="color:var(--cyan)">Cyan</span>: Destination MAC (6 bytes) &mdash; <span style="color:var(--magenta)">Magenta</span>: Source MAC (6 bytes) &mdash; <span style="color:var(--orange)">Orange</span>: EtherType (0x0800 = IPv4)</p>
+
+<h3>IPv4 Header (20 bytes)</h3>
+
+<div class="mem-row">
+  <div class="mc g">45</div><div class="mc g">00</div><div class="mc y">05</div><div class="mc y">DC</div>
+  <div class="mc p">ID</div><div class="mc p">ID</div><div class="mc r">40</div><div class="mc r">00</div>
+  <div class="mc b">40</div><div class="mc b">06</div><div class="mc w">CK</div><div class="mc w">SM</div>
+  <div class="mc o">S0</div><div class="mc o">S1</div><div class="mc o">S2</div><div class="mc o">S3</div>
+  <div class="mc m">D0</div><div class="mc m">D1</div><div class="mc m">D2</div><div class="mc m">D3</div>
+</div>
+<p><span style="color:var(--green)">0x45</span>: Version 4, IHL 5 (20 bytes). <span style="color:var(--yellow)">Total Length</span>: 1500 (0x05DC). <span style="color:var(--blue)">TTL=64, Protocol=6</span> (TCP). <span style="color:var(--orange)">Source IP</span>. <span style="color:var(--magenta)">Dest IP</span>.</p>
+
+<h3>TCP Header (20 bytes)</h3>
+
+<div class="mem-row">
+  <div class="mc c">SP</div><div class="mc c">SP</div><div class="mc m">DP</div><div class="mc m">DP</div>
+  <div class="mc g">SE</div><div class="mc g">Q#</div><div class="mc g">SE</div><div class="mc g">Q#</div>
+  <div class="mc y">AC</div><div class="mc y">K#</div><div class="mc y">AC</div><div class="mc y">K#</div>
+  <div class="mc b">OF</div><div class="mc b">FL</div><div class="mc o">WN</div><div class="mc o">WN</div>
+  <div class="mc w">CK</div><div class="mc w">SM</div><div class="mc r">UR</div><div class="mc r">GP</div>
+</div>
+<p><span style="color:var(--cyan)">Source Port</span> (2B). <span style="color:var(--magenta)">Dest Port</span> (2B). <span style="color:var(--green)">Sequence Number</span> (4B). <span style="color:var(--yellow)">ACK Number</span> (4B). <span style="color:var(--blue)">Data Offset+Flags</span> (2B). <span style="color:var(--orange)">Window</span> (2B). <span style="color:var(--white)">Checksum</span> (2B). <span style="color:var(--red)">Urgent Pointer</span> (2B).</p>
+
+<h3>Complete Frame: 1514 Bytes</h3>
+
+<div class="diagram">
+<span class="diagram-label">Full Ethernet Frame Layout</span>
+<pre><code>
+  ┌──────────┬──────────┬──────────┬─────────────────────┐
+  │ Ethernet │   IPv4   │   TCP    │      Payload        │
+  │  14 B    │   20 B   │   20 B   │     1460 B          │
+  └──────────┴──────────┴──────────┴─────────────────────┘
+  │◄──────────────── 1514 bytes total ──────────────────►│
+                                     (+ 4B FCS by NIC)
+</code></pre>
+</div>
+
+<table>
+<tr><th>Layer</th><th>Offset</th><th>Size</th><th>Key Fields</th></tr>
+<tr><td>Ethernet</td><td>0</td><td>14</td><td>Dst MAC, Src MAC, EtherType</td></tr>
+<tr><td>IPv4</td><td>14</td><td>20</td><td>Version, TTL, Protocol, Src/Dst IP</td></tr>
+<tr><td>TCP</td><td>34</td><td>20</td><td>Src/Dst Port, Seq, Ack, Flags, Window</td></tr>
+<tr><td>Payload</td><td>54</td><td>1460</td><td>Application data (MSS)</td></tr>
+<tr><td><em>FCS</em></td><td>1514</td><td>4</td><td>CRC32 (added by NIC hardware)</td></tr>
+</table>
+
+<div class="power">
+<div class="power-label">The 54-Byte Tax</div>
+<p>Every TCP packet on Ethernet pays a 54-byte overhead: 14 (Ethernet) + 20 (IP) + 20 (TCP). For a 1500-byte MTU, your maximum payload is 1460 bytes &mdash; that is the MSS. For a 64-byte minimum Ethernet frame, you get just 10 bytes of payload. Small packets are catastrophically inefficient.</p>
+</div>
+
+<h3>TCP Flags Visualized</h3>
+
+<p>The TCP flags byte lives at byte offset 13 of the TCP header (byte 47 of the complete frame). Each bit controls a specific behavior. In the wild, you will see these combinations most often:</p>
+
+<div class="mem-row">
+  <div class="mc e">CWR</div><div class="mc e">ECE</div><div class="mc r">URG</div><div class="mc y">ACK</div><div class="mc g">PSH</div><div class="mc e">RST</div><div class="mc c">SYN</div><div class="mc m">FIN</div>
+</div>
+
+<table>
+<tr><th>Combination</th><th>Binary</th><th>Hex</th><th>Meaning</th></tr>
+<tr><td>SYN</td><td>00000010</td><td>0x02</td><td>Connection request</td></tr>
+<tr><td>SYN+ACK</td><td>00010010</td><td>0x12</td><td>Connection accepted</td></tr>
+<tr><td>ACK</td><td>00010000</td><td>0x10</td><td>Acknowledgment (most common flag)</td></tr>
+<tr><td>PSH+ACK</td><td>00011000</td><td>0x18</td><td>Data push + ack (normal data transfer)</td></tr>
+<tr><td>FIN+ACK</td><td>00010001</td><td>0x11</td><td>Connection close</td></tr>
+<tr><td>RST</td><td>00000100</td><td>0x04</td><td>Connection reset (abort)</td></tr>
+</table>
+
+<h3>A Real Packet: HTTP GET</h3>
+
+<p>Here is a real 74-byte TCP SYN packet as it appears on the wire &mdash; the first packet of an HTTP connection to port 80:</p>
+
+<h4>Ethernet Header (bytes 0-13)</h4>
+<div class="mem-row">
+  <div class="mc c">ff</div><div class="mc c">ff</div><div class="mc c">ff</div><div class="mc c">ff</div><div class="mc c">ff</div><div class="mc c">ff</div>
+  <div class="mc m">00</div><div class="mc m">1a</div><div class="mc m">2b</div><div class="mc m">3c</div><div class="mc m">4d</div><div class="mc m">5e</div>
+  <div class="mc o">08</div><div class="mc o">00</div>
+</div>
+
+<h4>IP Header (bytes 14-33)</h4>
+<div class="mem-row">
+  <div class="mc g">45</div><div class="mc g">00</div><div class="mc y">00</div><div class="mc y">3c</div>
+  <div class="mc p">a2</div><div class="mc p">1f</div><div class="mc r">40</div><div class="mc r">00</div>
+  <div class="mc b">40</div><div class="mc b">06</div><div class="mc w">b1</div><div class="mc w">e6</div>
+  <div class="mc o">c0</div><div class="mc o">a8</div><div class="mc o">01</div><div class="mc o">64</div>
+  <div class="mc m">5d</div><div class="mc m">b8</div><div class="mc m">d8</div><div class="mc m">22</div>
+</div>
+<p>Source: <span style="color:var(--orange)">192.168.1.100</span> (0xc0a80164). Dest: <span style="color:var(--magenta)">93.184.216.34</span> (0x5db8d822). TTL: <span style="color:var(--blue)">64</span>. Total length: <span style="color:var(--yellow)">60</span> bytes (IP header + TCP header + options).</p>
+
+<h4>TCP Header (bytes 34-53)</h4>
+<div class="mem-row">
+  <div class="mc c">c3</div><div class="mc c">58</div><div class="mc m">00</div><div class="mc m">50</div>
+  <div class="mc g">a1</div><div class="mc g">b2</div><div class="mc g">c3</div><div class="mc g">d4</div>
+  <div class="mc y">00</div><div class="mc y">00</div><div class="mc y">00</div><div class="mc y">00</div>
+  <div class="mc b">a0</div><div class="mc b">02</div><div class="mc o">fa</div><div class="mc o">f0</div>
+  <div class="mc w">00</div><div class="mc w">00</div><div class="mc r">00</div><div class="mc r">00</div>
+</div>
+<p>Source port: <span style="color:var(--cyan)">50008</span> (0xc358). Dest port: <span style="color:var(--magenta)">80</span> (0x0050). Flags: <span style="color:var(--blue)">0x002 = SYN</span>. Window: <span style="color:var(--orange)">64240</span>. Data offset: 10 (40 bytes = 20 header + 20 options).</p>
+
+<details>
+<summary>Full IPv4 Header Field Reference</summary>
+<div class="det">
+<table>
+<tr><th>Field</th><th>Offset</th><th>Bits</th><th>Purpose</th></tr>
+<tr><td>Version</td><td>0</td><td>4</td><td>Always 4 for IPv4</td></tr>
+<tr><td>IHL</td><td>0</td><td>4</td><td>Header length in 32-bit words (usually 5 = 20 bytes)</td></tr>
+<tr><td>DSCP</td><td>1</td><td>6</td><td>Differentiated Services (QoS)</td></tr>
+<tr><td>ECN</td><td>1</td><td>2</td><td>Explicit Congestion Notification</td></tr>
+<tr><td>Total Length</td><td>2</td><td>16</td><td>Entire packet size in bytes (max 65535)</td></tr>
+<tr><td>Identification</td><td>4</td><td>16</td><td>Fragment reassembly ID</td></tr>
+<tr><td>Flags</td><td>6</td><td>3</td><td>DF (Don't Fragment), MF (More Fragments)</td></tr>
+<tr><td>Fragment Offset</td><td>6</td><td>13</td><td>Position in reassembled datagram</td></tr>
+<tr><td>TTL</td><td>8</td><td>8</td><td>Hop limit (decremented each router)</td></tr>
+<tr><td>Protocol</td><td>9</td><td>8</td><td>6=TCP, 17=UDP, 1=ICMP</td></tr>
+<tr><td>Header Checksum</td><td>10</td><td>16</td><td>One's complement of header</td></tr>
+<tr><td>Source IP</td><td>12</td><td>32</td><td>Sender's IP address</td></tr>
+<tr><td>Destination IP</td><td>16</td><td>32</td><td>Receiver's IP address</td></tr>
+</table>
+</div>
+</details>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch5">
+<h2>// 05 &mdash; the TCP state machine</h2>
+
+<p class="drop-cap">TCP is a state machine with 11 states. Every connection traverses a subset of them in a precisely defined order. Understanding these states is the difference between staring blankly at <code>ss</code> output and actually knowing what is wrong with your server. The three most important scenarios: opening a connection, exchanging data, and closing it.</p>
+
+<h3>The 11 States</h3>
+
+<table>
+<tr><th>State</th><th>Who</th><th>Meaning</th></tr>
+<tr><td><code>CLOSED</code></td><td>Both</td><td>No connection exists</td></tr>
+<tr><td><code>LISTEN</code></td><td>Server</td><td>Waiting for incoming SYN</td></tr>
+<tr><td><code>SYN_SENT</code></td><td>Client</td><td>SYN sent, waiting for SYN-ACK</td></tr>
+<tr><td><code>SYN_RECV</code></td><td>Server</td><td>SYN received, SYN-ACK sent</td></tr>
+<tr><td><code>ESTABLISHED</code></td><td>Both</td><td>Connection open, data flows</td></tr>
+<tr><td><code>FIN_WAIT_1</code></td><td>Closer</td><td>FIN sent, waiting for ACK</td></tr>
+<tr><td><code>FIN_WAIT_2</code></td><td>Closer</td><td>FIN ACKed, waiting for peer's FIN</td></tr>
+<tr><td><code>CLOSE_WAIT</code></td><td>Peer</td><td>Received FIN, waiting for app to close</td></tr>
+<tr><td><code>CLOSING</code></td><td>Both</td><td>Both sent FIN simultaneously</td></tr>
+<tr><td><code>LAST_ACK</code></td><td>Peer</td><td>FIN sent after CLOSE_WAIT, waiting for ACK</td></tr>
+<tr><td><code>TIME_WAIT</code></td><td>Closer</td><td>Waiting 2&times;MSL before recycling port</td></tr>
+</table>
+
+<h3>Three-Way Handshake (Active Open)</h3>
+
+<div class="diagram">
+<span class="diagram-label">Connection Establishment</span>
+<pre><code>
+  Client                                 Server
+  ──────                                 ──────
+  CLOSED                                 CLOSED
+    │                                      │
+    │         socket(), bind(), listen()   │
+    │                                      ▼
+    │                                    LISTEN
+    │                                      │
+    │──────── SYN (seq=x) ───────────────►│
+    ▼                                      │
+  SYN_SENT                                │
+    │                                      ▼
+    │                                    SYN_RECV
+    │◄─────── SYN-ACK (seq=y, ack=x+1) ──│
+    ▼                                      │
+  ESTABLISHED                              │
+    │                                      │
+    │──────── ACK (ack=y+1) ─────────────►│
+    │                                      ▼
+    │                                    ESTABLISHED
+</code></pre>
+</div>
+
+<h3>Connection Teardown</h3>
+
+<div class="diagram">
+<span class="diagram-label">Four-Way Close</span>
+<pre><code>
+  Active Closer                          Passive Side
+  ─────────────                          ────────────
+  ESTABLISHED                            ESTABLISHED
+    │                                      │
+    │──────── FIN ────────────────────────►│
+    ▼                                      │
+  FIN_WAIT_1                               ▼
+    │                                    CLOSE_WAIT
+    │◄─────── ACK ────────────────────────│
+    ▼                                      │
+  FIN_WAIT_2                               │  (app calls close())
+    │                                      │
+    │◄─────── FIN ────────────────────────│
+    │                                      ▼
+    │                                    LAST_ACK
+    │──────── ACK ────────────────────────►│
+    ▼                                      ▼
+  TIME_WAIT                              CLOSED
+    │
+    │  (wait 2 × MSL = 60-120 seconds)
+    ▼
+  CLOSED
+</code></pre>
+</div>
+
+<div class="power danger">
+<div class="power-label">TIME_WAIT: The Silent Killer</div>
+<p>A server handling 10,000 short-lived connections per second accumulates TIME_WAIT sockets at terrifying speed. Each one holds a 4-tuple (src IP, src port, dst IP, dst port) hostage for 60 seconds. That is 600,000 sockets in TIME_WAIT. You will run out of ephemeral ports (default range: 32768-60999 = ~28,000 ports). Fix: <code>net.ipv4.tcp_tw_reuse = 1</code> lets the kernel reuse TIME_WAIT sockets for outgoing connections. Or use <code>SO_REUSEADDR</code> for servers.</p>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Watch TCP states in real time while making connections:</p>
+<pre><code><span class="cm"># Terminal 1: watch states</span>
+watch -n 0.5 <span class="st">'ss -tan | awk "{print \$1}" | sort | uniq -c | sort -rn'</span>
+
+<span class="cm"># Terminal 2: generate connections</span>
+<span class="kw">for</span> i <span class="kw">in</span> $(<span class="fn">seq</span> <span class="nm">100</span>); <span class="kw">do</span> curl -s http://localhost:8080/ &amp; <span class="kw">done</span></code></pre>
+</div>
+
+<h3>The SYN Queue &amp; Accept Queue</h3>
+
+<p>During the handshake, the kernel maintains two queues. The <strong>SYN queue</strong> (also called the half-open queue) holds connections in SYN_RECV state &mdash; the server has received a SYN and sent SYN-ACK but not yet received the final ACK. The <strong>accept queue</strong> (also called the completed connection queue) holds fully established connections waiting for the application to call <code>accept()</code>. The <code>listen()</code> backlog parameter controls the accept queue size.</p>
+
+<div class="diagram">
+<span class="diagram-label">SYN Queue → Accept Queue Flow</span>
+<pre><code>
+  Client SYN ──────►  ┌───────────────┐
+                      │   SYN Queue   │  Half-open connections
+  Server sends        │  (SYN_RECV)   │  Size: net.ipv4.tcp_max_syn_backlog
+  SYN-ACK             └───────┬───────┘
+                              │ Client ACK arrives
+                              ▼
+                      ┌───────────────┐
+                      │ Accept Queue  │  Fully established
+                      │ (ESTABLISHED) │  Size: min(backlog, somaxconn)
+                      └───────┬───────┘
+                              │ Application calls accept()
+                              ▼
+                      New file descriptor returned
+</code></pre>
+</div>
+
+<div class="power danger">
+<div class="power-label">SYN Flood Attack</div>
+<p>An attacker sends thousands of SYN packets with spoofed source IPs. The server fills its SYN queue with SYN_RECV entries, each waiting for an ACK that will never arrive. Legitimate connections get dropped. Defense: <code>SYN cookies</code> (<code>net.ipv4.tcp_syncookies = 1</code>) encode the connection state in the sequence number itself, eliminating the need for a SYN queue entry entirely. The server only allocates resources after receiving a valid ACK.</p>
+</div>
+
+<details>
+<summary>TCP state transitions in /proc/net/tcp</summary>
+<div class="det">
+<table>
+<tr><th>Hex</th><th>State</th><th>Notes</th></tr>
+<tr><td>01</td><td>ESTABLISHED</td><td>Most common &mdash; active data transfer</td></tr>
+<tr><td>02</td><td>SYN_SENT</td><td>Client connecting, brief</td></tr>
+<tr><td>03</td><td>SYN_RECV</td><td>Server handshake in progress</td></tr>
+<tr><td>04</td><td>FIN_WAIT_1</td><td>Close initiated</td></tr>
+<tr><td>05</td><td>FIN_WAIT_2</td><td>Half-closed</td></tr>
+<tr><td>06</td><td>TIME_WAIT</td><td>Lingering after close (60-120s)</td></tr>
+<tr><td>07</td><td>CLOSE</td><td>Fully closed</td></tr>
+<tr><td>08</td><td>CLOSE_WAIT</td><td>Peer closed, app hasn't &mdash; <strong>often a bug!</strong></td></tr>
+<tr><td>09</td><td>LAST_ACK</td><td>Waiting for final ACK</td></tr>
+<tr><td>0A</td><td>LISTEN</td><td>Server socket</td></tr>
+<tr><td>0B</td><td>CLOSING</td><td>Simultaneous close (rare)</td></tr>
+</table>
+<p>A growing count of CLOSE_WAIT sockets almost always indicates an application bug &mdash; the remote side has closed the connection, but your application never called <code>close()</code> on its end. Memory leaks follow.</p>
+</div>
+</details>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch6">
+<h2>// 06 &mdash; sk_buff internals</h2>
+
+<p class="drop-cap">The <code>sk_buff</code> is the most important data structure in the Linux network stack. Every packet, in every direction, at every layer, is represented by one. The genius of its design is this: headers are prepended <em>without copying</em> the payload. Ever. The secret is four pointers and a block of pre-allocated headroom.</p>
+
+<h3>The Four Pointers</h3>
+
+<p>Every sk_buff has four pointers into a contiguous block of memory: <code>head</code>, <code>data</code>, <code>tail</code>, and <code>end</code>. The <code>head</code> and <code>end</code> pointers are fixed &mdash; they mark the allocated region. The <code>data</code> and <code>tail</code> pointers move as headers are added or removed.</p>
+
+<div class="diagram">
+<span class="diagram-label">sk_buff Memory Layout</span>
+<pre><code>
+  head ──────► ┌──────────────────────────────┐
+               │         headroom             │  ← reserved for headers
+               │         (128 bytes)          │
+  data ──────► ├──────────────────────────────┤
+               │                              │
+               │         packet data          │  ← actual content
+               │                              │
+  tail ──────► ├──────────────────────────────┤
+               │         tailroom             │  ← unused
+  end  ──────► └──────────────────────────────┘
+</code></pre>
+</div>
+
+<h3>The Zero-Copy Header Trick</h3>
+
+<p>When TCP wants to add its 20-byte header, it does not copy the payload and insert bytes before it. It simply moves the <code>data</code> pointer backward by 20 bytes and writes the TCP header into that space. The payload stays exactly where it is. Same for IP (20 bytes back) and Ethernet (14 bytes back). This is the <code>skb_push()</code> operation.</p>
+
+<div class="diagram">
+<span class="diagram-label">Header Prepend: skb_push() in Action</span>
+<pre><code>
+  <span class="cm">Step 1: After payload write (1460 bytes)</span>
+  head ─► ┌──────────────┐
+          │  headroom    │  128 bytes free
+  data ─► ├──────────────┤
+          │  payload     │  1460 bytes
+  tail ─► ├──────────────┤
+          │  tailroom    │
+  end  ─► └──────────────┘
+
+  <span class="cm">Step 2: skb_push(skb, 20) — TCP header</span>
+  head ─► ┌──────────────┐
+          │  headroom    │  108 bytes free
+  data ─► ├──────────────┤
+          │  <span class="m">TCP header</span>  │  20 bytes ← written here
+          ├──────────────┤
+          │  payload     │  1460 bytes (UNMOVED)
+  tail ─► ├──────────────┤
+  end  ─► └──────────────┘
+
+  <span class="cm">Step 3: skb_push(skb, 20) — IP header</span>
+  head ─► ┌──────────────┐
+          │  headroom    │  88 bytes free
+  data ─► ├──────────────┤
+          │  <span class="c">IP header</span>   │  20 bytes
+          ├──────────────┤
+          │  <span class="m">TCP header</span>  │  20 bytes
+          ├──────────────┤
+          │  payload     │  1460 bytes (UNMOVED)
+  tail ─► ├──────────────┤
+  end  ─► └──────────────┘
+
+  <span class="cm">Step 4: skb_push(skb, 14) — Ethernet header</span>
+  head ─► ┌──────────────┐
+          │  headroom    │  74 bytes free
+  data ─► ├──────────────┤
+          │  <span class="o">Eth header</span>  │  14 bytes
+          ├──────────────┤
+          │  <span class="c">IP header</span>   │  20 bytes
+          ├──────────────┤
+          │  <span class="m">TCP header</span>  │  20 bytes
+          ├──────────────┤
+          │  payload     │  1460 bytes (STILL UNMOVED)
+  tail ─► ├──────────────┤
+  end  ─► └──────────────┘
+</code></pre>
+</div>
+
+<div class="power hack">
+<div class="power-label">Why This Matters</div>
+<p>On a 10Gbps link processing 14.8 million packets per second, each avoided memcpy saves ~200ns. That is 2.96 seconds of CPU time saved <em>per second</em>. The skb_push() trick reduces header prepend from O(n) copy to O(1) pointer arithmetic. This is why the kernel pre-allocates headroom &mdash; it knows headers will be added later.</p>
+</div>
+
+<h3>sk_buff Key Fields</h3>
+
+<table>
+<tr><th>Field</th><th>Type</th><th>Purpose</th></tr>
+<tr><td><code>head</code></td><td>unsigned char *</td><td>Start of allocated buffer (fixed)</td></tr>
+<tr><td><code>data</code></td><td>unsigned char *</td><td>Start of current protocol data (moves)</td></tr>
+<tr><td><code>tail</code></td><td>sk_buff_data_t</td><td>End of current data (moves)</td></tr>
+<tr><td><code>end</code></td><td>sk_buff_data_t</td><td>End of allocated buffer (fixed)</td></tr>
+<tr><td><code>len</code></td><td>unsigned int</td><td>Length of data (tail - data)</td></tr>
+<tr><td><code>protocol</code></td><td>__be16</td><td>Link-layer protocol (ETH_P_IP, etc.)</td></tr>
+<tr><td><code>transport_header</code></td><td>sk_buff_data_t</td><td>Offset to TCP/UDP header</td></tr>
+<tr><td><code>network_header</code></td><td>sk_buff_data_t</td><td>Offset to IP header</td></tr>
+<tr><td><code>mac_header</code></td><td>sk_buff_data_t</td><td>Offset to Ethernet header</td></tr>
+<tr><td><code>dev</code></td><td>struct net_device *</td><td>Network interface</td></tr>
+<tr><td><code>sk</code></td><td>struct sock *</td><td>Owning socket</td></tr>
+</table>
+
+<h3>skb_pull(): The Receive Side</h3>
+
+<p>On the receive path, the operation is reversed. <code>skb_pull(skb, 14)</code> advances the <code>data</code> pointer forward by 14 bytes, effectively stripping the Ethernet header and exposing the IP header. The Ethernet bytes are still in memory &mdash; they are just "behind" the data pointer now. Each layer strips its own header and passes the rest upward.</p>
+
+<h3>TSO: Let the NIC Segment</h3>
+
+<p>With TCP Segmentation Offload, the kernel can hand the NIC a single sk_buff containing 65,536 bytes of payload. The NIC hardware splits it into 45 separate 1460-byte TCP segments, each with correct sequence numbers and checksums. One sk_buff in, 45 frames out. The CPU does the work of one packet instead of forty-five.</p>
+
+<div class="diagram">
+<span class="diagram-label">TSO: One sk_buff → 45 Frames</span>
+<pre><code>
+  Kernel builds ONE sk_buff:
+  ┌────────┬────────┬────────┬──────────────────────────────┐
+  │ Eth 14 │ IP 20  │ TCP 20 │    Payload: 65,536 bytes     │
+  └────────┴────────┴────────┴──────────────────────────────┘
+                    │
+                    │  DMA to NIC
+                    ▼
+  NIC hardware segments into 45 frames:
+  ┌────┬────┬────┬──────────┐
+  │ E  │ IP │TCP │ 1460 B   │  Frame 1  (seq = N)
+  ├────┼────┼────┼──────────┤
+  │ E  │ IP │TCP │ 1460 B   │  Frame 2  (seq = N+1460)
+  ├────┼────┼────┼──────────┤
+  │ E  │ IP │TCP │ 1460 B   │  Frame 3  (seq = N+2920)
+  ├────┼────┼────┼──────────┤
+  │    │    │    │   ...     │  ...
+  ├────┼────┼────┼──────────┤
+  │ E  │ IP │TCP │  776 B   │  Frame 45 (seq = N+64240)
+  └────┴────┴────┴──────────┘
+
+  Each frame gets unique: seq#, IP ID, checksum
+  All computed by NIC hardware
+</code></pre>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch7">
+<h2>// 07 &mdash; raw sockets</h2>
+
+<p class="drop-cap">Normal sockets are polite. They ask the kernel to handle TCP, IP, and Ethernet on their behalf. Raw sockets are not polite. With <code>socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ALL))</code>, you bypass the entire protocol stack and talk directly to the network interface. Every packet on the wire arrives in your buffer &mdash; Ethernet header and all. This is how tcpdump, Wireshark, and every packet sniffer works.</p>
+
+<h3>Capturing Everything</h3>
+
+<div class="lang-tabs">
+  <input type="radio" class="tc" id="raw-c" name="raw" checked>
+  <input type="radio" class="tpy" id="raw-py" name="raw">
+  <input type="radio" class="tgo" id="raw-go" name="raw">
+  <input type="radio" class="trs" id="raw-rs" name="raw">
+  <div class="tab-bar">
+    <label for="raw-c">C</label>
+    <label for="raw-py">Python</label>
+    <label for="raw-go">Go</label>
+    <label for="raw-rs">Rust</label>
+  </div>
+  <div class="tab-content c"><pre><code><span class="pp">#include</span> <span class="st">&lt;sys/socket.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;linux/if_packet.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;net/ethernet.h&gt;</span>
+
+<span class="cm">// Capture ALL packets on ALL interfaces</span>
+<span class="ty">int</span> raw = <span class="fn">socket</span>(AF_PACKET, SOCK_RAW, <span class="fn">htons</span>(ETH_P_ALL));
+<span class="kw">if</span> (raw &lt; <span class="nm">0</span>) <span class="fn">perror</span>(<span class="st">"Need root/CAP_NET_RAW"</span>);
+
+<span class="ty">unsigned char</span> buf[<span class="nm">65536</span>];
+<span class="kw">while</span> (<span class="nm">1</span>) {
+    <span class="ty">ssize_t</span> n = <span class="fn">recv</span>(raw, buf, <span class="kw">sizeof</span>(buf), <span class="nm">0</span>);
+    <span class="kw">struct</span> <span class="ty">ethhdr</span> *eth = (<span class="kw">struct</span> <span class="ty">ethhdr</span> *)buf;
+    <span class="fn">printf</span>(<span class="st">"proto=0x%04x len=%zd\n"</span>,
+           <span class="fn">ntohs</span>(eth-&gt;h_proto), n);
+}</code></pre></div>
+  <div class="tab-content py"><pre><code><span class="kw">import</span> socket, struct
+
+<span class="cm"># Requires root or CAP_NET_RAW</span>
+raw = socket.<span class="fn">socket</span>(socket.AF_PACKET, socket.SOCK_RAW,
+                     socket.<span class="fn">htons</span>(<span class="nm">3</span>))  <span class="cm"># ETH_P_ALL = 3</span>
+
+<span class="kw">while</span> <span class="nm">True</span>:
+    pkt, addr = raw.<span class="fn">recvfrom</span>(<span class="nm">65536</span>)
+    <span class="cm"># First 14 bytes = Ethernet header</span>
+    dst_mac = <span class="st">':'</span>.<span class="fn">join</span>(<span class="st">f'{b:02x}'</span> <span class="kw">for</span> b <span class="kw">in</span> pkt[<span class="nm">0</span>:<span class="nm">6</span>])
+    src_mac = <span class="st">':'</span>.<span class="fn">join</span>(<span class="st">f'{b:02x}'</span> <span class="kw">for</span> b <span class="kw">in</span> pkt[<span class="nm">6</span>:<span class="nm">12</span>])
+    ethertype = struct.<span class="fn">unpack</span>(<span class="st">'!H'</span>, pkt[<span class="nm">12</span>:<span class="nm">14</span>])[<span class="nm">0</span>]
+    <span class="fn">print</span>(<span class="st">f'{src_mac} → {dst_mac}  0x{ethertype:04x}  {len(pkt)}B'</span>)</code></pre></div>
+  <div class="tab-content go"><pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"fmt"</span>
+    <span class="st">"syscall"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="cm">// AF_PACKET = 17, SOCK_RAW = 3, ETH_P_ALL = 0x0003</span>
+    fd, _ := syscall.<span class="fn">Socket</span>(<span class="nm">17</span>, <span class="nm">3</span>, <span class="fn">htons</span>(<span class="nm">3</span>))
+    buf := <span class="fn">make</span>([]<span class="ty">byte</span>, <span class="nm">65536</span>)
+    <span class="kw">for</span> {
+        n, _, _ := syscall.<span class="fn">Recvfrom</span>(fd, buf, <span class="nm">0</span>)
+        fmt.<span class="fn">Printf</span>(<span class="st">"len=%d ethertype=0x%02x%02x\n"</span>,
+            n, buf[<span class="nm">12</span>], buf[<span class="nm">13</span>])
+    }
+}
+
+<span class="kw">func</span> <span class="fn">htons</span>(v <span class="ty">uint16</span>) <span class="ty">int</span> {
+    <span class="kw">return</span> <span class="ty">int</span>((v&lt;&lt;<span class="nm">8</span>) | (v&gt;&gt;<span class="nm">8</span>))
+}</code></pre></div>
+  <div class="tab-content rs"><pre><code><span class="kw">use</span> libc::{socket, AF_PACKET, SOCK_RAW, recv};
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">unsafe</span> {
+        <span class="cm">// ETH_P_ALL = 0x0003, htons(3) = 0x0300</span>
+        <span class="kw">let</span> fd = <span class="fn">socket</span>(AF_PACKET, SOCK_RAW, <span class="nm">0x0300</span>);
+        <span class="kw">let</span> <span class="kw">mut</span> buf = [<span class="nm">0u8</span>; <span class="nm">65536</span>];
+
+        <span class="kw">loop</span> {
+            <span class="kw">let</span> n = <span class="fn">recv</span>(fd, buf.<span class="fn">as_mut_ptr</span>() <span class="kw">as</span> _, buf.<span class="fn">len</span>(), <span class="nm">0</span>);
+            <span class="kw">if</span> n &gt; <span class="nm">14</span> {
+                <span class="fn">println!</span>(<span class="st">"len={} type=0x{:02x}{:02x}"</span>,
+                    n, buf[<span class="nm">12</span>], buf[<span class="nm">13</span>]);
+            }
+        }
+    }
+}</code></pre></div>
+</div>
+
+<h3>BPF: Kernel-Side Packet Filtering</h3>
+
+<p>Receiving all packets is expensive. BPF (Berkeley Packet Filter) lets you attach a bytecode program to the socket. The kernel runs it on every packet <em>before</em> copying to userspace. Packets that don't match are dropped in-kernel. tcpdump compiles your filter expression (<code>tcp port 80</code>) into BPF bytecode automatically.</p>
+
+<pre><code><span class="cm">// BPF program: accept only TCP packets (IP protocol 6)</span>
+<span class="kw">struct</span> <span class="ty">sock_filter</span> code[] = {
+    { <span class="nm">0x28</span>, <span class="nm">0</span>, <span class="nm">0</span>, <span class="nm">0x0000000c</span> },  <span class="cm">// ldh [12]  — EtherType</span>
+    { <span class="nm">0x15</span>, <span class="nm">0</span>, <span class="nm">3</span>, <span class="nm">0x00000800</span> },  <span class="cm">// jeq 0x0800 (IPv4) → next, else skip 3</span>
+    { <span class="nm">0x30</span>, <span class="nm">0</span>, <span class="nm">0</span>, <span class="nm">0x00000017</span> },  <span class="cm">// ldb [23]  — IP protocol field</span>
+    { <span class="nm">0x15</span>, <span class="nm">0</span>, <span class="nm">1</span>, <span class="nm">0x00000006</span> },  <span class="cm">// jeq 6 (TCP) → accept, else drop</span>
+    { <span class="nm">0x06</span>, <span class="nm">0</span>, <span class="nm">0</span>, <span class="nm">0x00040000</span> },  <span class="cm">// ret 262144 — accept</span>
+    { <span class="nm">0x06</span>, <span class="nm">0</span>, <span class="nm">0</span>, <span class="nm">0x00000000</span> },  <span class="cm">// ret 0      — drop</span>
+};
+<span class="kw">struct</span> <span class="ty">sock_fprog</span> prog = { <span class="nm">6</span>, code };
+<span class="fn">setsockopt</span>(raw, SOL_SOCKET, SO_ATTACH_FILTER, &amp;prog, <span class="kw">sizeof</span>(prog));</code></pre>
+
+<div class="power wild">
+<div class="power-label">Performance Impact</div>
+<p>Without BPF filters, a raw socket on a busy 10Gbps link can flood userspace with 14.8M packets/sec, most of which your program doesn't care about. With a BPF filter, the kernel drops irrelevant packets at ~5ns each, never copying them. The difference: 100% CPU vs. 2% CPU.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch8">
+<h2>// 08 &mdash; zero-copy networking</h2>
+
+<p class="drop-cap">In the traditional send path, your data is copied at least once: from your userspace buffer into a kernel sk_buff via <code>copy_from_user()</code>. On a 10Gbps link saturating at 1.25 GB/s, that copy alone consumes an entire CPU core. Zero-copy techniques eliminate this, and each generation of the idea gets more radical.</p>
+
+<h3>1. sendfile() &mdash; File to Socket</h3>
+
+<p>Available since Linux 2.4. Moves data from a file directly to a socket without ever touching userspace. The kernel reads file pages into the page cache, then passes those pages directly to the NIC's DMA engine. The web server never sees the bytes.</p>
+
+<div class="vs">
+<div class="vs-col">
+<h4>Traditional: 4 Copies</h4>
+<pre><code>disk → page cache     <span class="cm">(DMA)</span>
+page cache → user buf <span class="cm">(CPU)</span>
+user buf → sk_buff    <span class="cm">(CPU)</span>
+sk_buff → NIC         <span class="cm">(DMA)</span></code></pre>
+</div>
+<div class="vs-col">
+<h4>sendfile(): 2 Copies</h4>
+<pre><code>disk → page cache     <span class="cm">(DMA)</span>
+page cache → NIC      <span class="cm">(DMA)</span>
+
+<span class="cm">Zero CPU copies!</span>
+<span class="cm">2 syscalls → 1 syscall</span></code></pre>
+</div>
+</div>
+
+<h3>2. splice() &mdash; Pipe-Based</h3>
+
+<p>Linux 2.6.17 introduced <code>splice()</code>, which moves data between two file descriptors through an in-kernel pipe buffer. No userspace copy. More flexible than sendfile &mdash; works between any pair of fds, not just file-to-socket.</p>
+
+<h3>3. io_uring &mdash; Batched Async I/O</h3>
+
+<p>Since Linux 5.1, io_uring lets you submit dozens of send/recv operations in a single syscall. Two shared ring buffers (submission queue and completion queue) between kernel and userspace, mapped with mmap. The kernel polls the SQ without any syscall at all when <code>IORING_SETUP_SQPOLL</code> is set. Zero syscalls per I/O operation.</p>
+
+<h3>4. MSG_ZEROCOPY &mdash; Direct DMA</h3>
+
+<p>Linux 4.14. Pass <code>MSG_ZEROCOPY</code> flag to <code>send()</code>. The NIC's DMA engine reads directly from your userspace buffer. No copy at all. The catch: the kernel must notify you when the DMA is complete so you don't modify the buffer. This comes via an ancillary message on the error queue.</p>
+
+<h3>5. XDP &mdash; Before sk_buff</h3>
+
+<p>Linux 4.8. XDP (eXpress Data Path) processes packets at the NIC driver level, <em>before</em> sk_buff allocation. An eBPF program runs on each raw packet and can drop, redirect, or pass it. No memory allocation. No protocol processing. Sub-microsecond per packet.</p>
+
+<table>
+<tr><th>Technique</th><th>Kernel</th><th>CPU Copies</th><th>Syscalls</th><th>Best For</th></tr>
+<tr><td>Traditional</td><td>any</td><td>2</td><td>read+write</td><td>Simple apps</td></tr>
+<tr><td>sendfile()</td><td>2.4+</td><td>0</td><td>1</td><td>Static file serving</td></tr>
+<tr><td>splice()</td><td>2.6.17+</td><td>0</td><td>2</td><td>Proxying, fd-to-fd</td></tr>
+<tr><td>io_uring</td><td>5.1+</td><td>0-1</td><td>0-1</td><td>High-throughput servers</td></tr>
+<tr><td>MSG_ZEROCOPY</td><td>4.14+</td><td>0</td><td>1</td><td>Large sends (&gt;10KB)</td></tr>
+<tr><td>XDP</td><td>4.8+</td><td>0</td><td>0</td><td>Packet filtering, DDoS</td></tr>
+</table>
+
+<div class="power">
+<div class="power-label">When Zero-Copy Hurts</div>
+<p>Zero-copy is not free. MSG_ZEROCOPY has page-pinning overhead (~5&mu;s) and completion notification cost. For sends smaller than ~10KB, the notification overhead exceeds the copy cost. sendfile() requires the data to be in a file. io_uring has a learning curve that makes your eyes bleed. Pick the right tool for your workload.</p>
+</div>
+
+<h3>sendfile() in Practice</h3>
+
+<div class="lang-tabs">
+  <input type="radio" class="tc" id="zc-c" name="zc" checked>
+  <input type="radio" class="tpy" id="zc-py" name="zc">
+  <input type="radio" class="tgo" id="zc-go" name="zc">
+  <input type="radio" class="trs" id="zc-rs" name="zc">
+  <div class="tab-bar">
+    <label for="zc-c">C</label>
+    <label for="zc-py">Python</label>
+    <label for="zc-go">Go</label>
+    <label for="zc-rs">Rust</label>
+  </div>
+  <div class="tab-content c"><pre><code><span class="pp">#include</span> <span class="st">&lt;sys/sendfile.h&gt;</span>
+
+<span class="cm">// Send a file to a socket: zero CPU copies</span>
+<span class="ty">int</span> file_fd = <span class="fn">open</span>(<span class="st">"bigfile.bin"</span>, O_RDONLY);
+<span class="ty">struct stat</span> st;
+<span class="fn">fstat</span>(file_fd, &amp;st);
+
+<span class="ty">off_t</span> offset = <span class="nm">0</span>;
+<span class="fn">sendfile</span>(socket_fd, file_fd, &amp;offset, st.st_size);
+<span class="cm">// Data goes: disk → page cache → NIC (DMA to DMA)</span>
+<span class="cm">// Never touches userspace memory</span></code></pre></div>
+  <div class="tab-content py"><pre><code><span class="kw">import</span> os
+
+<span class="cm"># Python 3.3+ exposes sendfile()</span>
+file_fd = os.<span class="fn">open</span>(<span class="st">'bigfile.bin'</span>, os.O_RDONLY)
+file_size = os.<span class="fn">fstat</span>(file_fd).st_size
+
+<span class="cm"># Kernel-level zero-copy transfer</span>
+os.<span class="fn">sendfile</span>(socket_fd, file_fd, <span class="nm">0</span>, file_size)
+os.<span class="fn">close</span>(file_fd)</code></pre></div>
+  <div class="tab-content go"><pre><code><span class="cm">// Go uses sendfile automatically when you</span>
+<span class="cm">// io.Copy from a *os.File to a *net.TCPConn</span>
+
+file, _ := os.<span class="fn">Open</span>(<span class="st">"bigfile.bin"</span>)
+<span class="kw">defer</span> file.<span class="fn">Close</span>()
+
+<span class="cm">// This triggers sendfile() under the hood!</span>
+io.<span class="fn">Copy</span>(conn, file)
+<span class="cm">// Go's runtime detects file→socket and optimizes</span></code></pre></div>
+  <div class="tab-content rs"><pre><code><span class="kw">use</span> std::fs::<span class="ty">File</span>;
+<span class="kw">use</span> std::io::copy;
+
+<span class="cm">// Rust's std::io::copy uses splice/sendfile</span>
+<span class="cm">// when source is a File and dest is a TcpStream</span>
+<span class="kw">let</span> <span class="kw">mut</span> file = <span class="ty">File</span>::<span class="fn">open</span>(<span class="st">"bigfile.bin"</span>)?;
+<span class="fn">copy</span>(&amp;<span class="kw">mut</span> file, &amp;<span class="kw">mut</span> stream)?;
+<span class="cm">// Since Rust 1.64, this uses copy_file_range/sendfile</span></code></pre></div>
+</div>
+
+<div class="diagram">
+<span class="diagram-label">Traditional vs sendfile() Data Path</span>
+<pre><code>
+  <span class="r">Traditional (4 data movements):</span>
+  disk ──DMA──► page cache ──CPU──► user buffer ──CPU──► sk_buff ──DMA──► NIC
+
+  <span class="g">sendfile() (2 data movements):</span>
+  disk ──DMA──► page cache ──────────────────────────────DMA──► NIC
+                    │
+                    └── TCP/IP headers added to sk_buff,
+                        but payload pages are shared via
+                        scatter-gather DMA (no copy)
+</code></pre>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch9">
+<h2>// 09 &mdash; network syscalls</h2>
+
+<p class="drop-cap">Every network operation, no matter how your language wraps it, eventually becomes a syscall. Understanding the cost and semantics of each one is the foundation of writing fast network code. Here is every important network syscall, with approximate costs on modern hardware.</p>
+
+<h3>The Syscall Catalog</h3>
+
+<table>
+<tr><th>Syscall</th><th>Cost</th><th>What It Does</th></tr>
+<tr><td><code>socket()</code></td><td>~10&mu;s</td><td>Allocate struct socket + sock + file descriptor</td></tr>
+<tr><td><code>bind()</code></td><td>~5&mu;s</td><td>Map local IP:port to socket, claim port in hash table</td></tr>
+<tr><td><code>listen()</code></td><td>&lt;1&mu;s</td><td>Set socket state to LISTEN, allocate accept queue (backlog)</td></tr>
+<tr><td><code>accept()</code></td><td>~500ns*</td><td>Dequeue from accept queue, return new fd. *Blocks if empty</td></tr>
+<tr><td><code>connect()</code></td><td>~50-100ms</td><td>Initiate 3-way handshake. Dominated by network RTT</td></tr>
+<tr><td><code>send()</code></td><td>~200-500ns</td><td>copy_from_user + enqueue to write buffer</td></tr>
+<tr><td><code>recv()</code></td><td>~200-500ns</td><td>Dequeue from receive buffer + copy_to_user</td></tr>
+<tr><td><code>close()</code></td><td>~1&mu;s</td><td>Send FIN, release socket resources</td></tr>
+<tr><td><code>epoll_create</code></td><td>~5&mu;s</td><td>Create epoll instance (red-black tree + ready list)</td></tr>
+<tr><td><code>epoll_ctl</code></td><td>~1&mu;s</td><td>Add/modify/delete fd in epoll (O(log n) tree op)</td></tr>
+<tr><td><code>epoll_wait</code></td><td>~500ns*</td><td>Return ready fds. O(k) where k = number ready. *Blocks if none</td></tr>
+</table>
+
+<h3>Why epoll Wins</h3>
+
+<p>With 10,000 connections, <code>select()</code> copies a 10,000-bit bitmap to kernel and back <em>every call</em>, then the kernel scans all 10,000 fds linearly. That is O(n) per call. <code>poll()</code> is the same but with a struct array instead of a bitmap. <code>epoll</code> uses a red-black tree to track fds and maintains a ready list. When you call <code>epoll_wait()</code>, it just returns the ready list &mdash; O(k) where k is the number of active connections, typically &lt;&lt; n.</p>
+
+<div class="vs">
+<div class="vs-col">
+<h4>select/poll: O(n)</h4>
+<pre><code><span class="cm">// Every call:</span>
+<span class="cm">// 1. Copy n fds to kernel</span>
+<span class="cm">// 2. Scan ALL n fds</span>
+<span class="cm">// 3. Copy results back</span>
+<span class="cm">// 10,000 fds → 10,000 checks</span>
+<span class="cm">// Even if only 3 are ready</span></code></pre>
+</div>
+<div class="vs-col">
+<h4>epoll: O(k)</h4>
+<pre><code><span class="cm">// Setup once: O(log n) per fd</span>
+<span class="cm">// Each epoll_wait:</span>
+<span class="cm">// 1. Return ready list</span>
+<span class="cm">// 2. Only k items (ready fds)</span>
+<span class="cm">// 10,000 fds, 3 ready → 3 items</span>
+<span class="cm">// No scanning, no copying</span></code></pre>
+</div>
+</div>
+
+<h3>epoll in Practice</h3>
+
+<div class="lang-tabs">
+  <input type="radio" class="tc" id="epoll-c" name="epoll" checked>
+  <input type="radio" class="tpy" id="epoll-py" name="epoll">
+  <input type="radio" class="tgo" id="epoll-go" name="epoll">
+  <input type="radio" class="trs" id="epoll-rs" name="epoll">
+  <div class="tab-bar">
+    <label for="epoll-c">C</label>
+    <label for="epoll-py">Python</label>
+    <label for="epoll-go">Go</label>
+    <label for="epoll-rs">Rust</label>
+  </div>
+  <div class="tab-content c"><pre><code><span class="ty">int</span> epfd = <span class="fn">epoll_create1</span>(<span class="nm">0</span>);
+<span class="kw">struct</span> <span class="ty">epoll_event</span> ev = { .events = EPOLLIN, .data.fd = listen_fd };
+<span class="fn">epoll_ctl</span>(epfd, EPOLL_CTL_ADD, listen_fd, &amp;ev);
+
+<span class="kw">struct</span> <span class="ty">epoll_event</span> events[<span class="nm">1024</span>];
+<span class="kw">while</span> (<span class="nm">1</span>) {
+    <span class="ty">int</span> n = <span class="fn">epoll_wait</span>(epfd, events, <span class="nm">1024</span>, -<span class="nm">1</span>);
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i &lt; n; i++) {
+        <span class="kw">if</span> (events[i].data.fd == listen_fd) {
+            <span class="ty">int</span> client = <span class="fn">accept</span>(listen_fd, <span class="nm">NULL</span>, <span class="nm">NULL</span>);
+            ev.data.fd = client;
+            <span class="fn">epoll_ctl</span>(epfd, EPOLL_CTL_ADD, client, &amp;ev);
+        } <span class="kw">else</span> {
+            <span class="fn">handle_client</span>(events[i].data.fd);
+        }
+    }
+}</code></pre></div>
+  <div class="tab-content py"><pre><code><span class="kw">import</span> select
+
+epoll = select.<span class="fn">epoll</span>()
+epoll.<span class="fn">register</span>(server_fd, select.EPOLLIN)
+
+<span class="kw">while</span> <span class="nm">True</span>:
+    events = epoll.<span class="fn">poll</span>()  <span class="cm"># blocks until ready</span>
+    <span class="kw">for</span> fd, event <span class="kw">in</span> events:
+        <span class="kw">if</span> fd == server_fd:
+            conn, addr = server.<span class="fn">accept</span>()
+            epoll.<span class="fn">register</span>(conn.<span class="fn">fileno</span>(), select.EPOLLIN)
+        <span class="kw">elif</span> event &amp; select.EPOLLIN:
+            data = connections[fd].<span class="fn">recv</span>(<span class="nm">4096</span>)
+            <span class="kw">if</span> <span class="kw">not</span> data:
+                epoll.<span class="fn">unregister</span>(fd)</code></pre></div>
+  <div class="tab-content go"><pre><code><span class="cm">// Go uses epoll internally via the netpoller.</span>
+<span class="cm">// Every goroutine doing net I/O is multiplexed</span>
+<span class="cm">// onto epoll automatically. You never call it directly.</span>
+
+ln, _ := net.<span class="fn">Listen</span>(<span class="st">"tcp"</span>, <span class="st">":8080"</span>)
+<span class="kw">for</span> {
+    conn, _ := ln.<span class="fn">Accept</span>()  <span class="cm">// parks goroutine on epoll</span>
+    <span class="kw">go</span> <span class="kw">func</span>(c net.<span class="ty">Conn</span>) {
+        buf := <span class="fn">make</span>([]<span class="ty">byte</span>, <span class="nm">4096</span>)
+        <span class="kw">for</span> {
+            n, err := c.<span class="fn">Read</span>(buf) <span class="cm">// parks on epoll</span>
+            <span class="kw">if</span> err != <span class="nm">nil</span> { <span class="kw">return</span> }
+            c.<span class="fn">Write</span>(buf[:n])
+        }
+    }(conn)
+}</code></pre></div>
+  <div class="tab-content rs"><pre><code><span class="cm">// Using mio (low-level epoll wrapper)</span>
+<span class="kw">use</span> mio::{<span class="ty">Events</span>, <span class="ty">Poll</span>, <span class="ty">Interest</span>, <span class="ty">Token</span>};
+<span class="kw">use</span> mio::net::<span class="ty">TcpListener</span>;
+
+<span class="kw">let</span> <span class="kw">mut</span> poll = <span class="ty">Poll</span>::<span class="fn">new</span>()?;
+<span class="kw">let</span> <span class="kw">mut</span> events = <span class="ty">Events</span>::<span class="fn">with_capacity</span>(<span class="nm">1024</span>);
+<span class="kw">let</span> <span class="kw">mut</span> server = <span class="ty">TcpListener</span>::<span class="fn">bind</span>(addr)?;
+
+poll.<span class="fn">registry</span>().<span class="fn">register</span>(
+    &amp;<span class="kw">mut</span> server, <span class="ty">Token</span>(<span class="nm">0</span>), <span class="ty">Interest</span>::READABLE)?;
+
+<span class="kw">loop</span> {
+    poll.<span class="fn">poll</span>(&amp;<span class="kw">mut</span> events, <span class="nm">None</span>)?;
+    <span class="kw">for</span> event <span class="kw">in</span> events.<span class="fn">iter</span>() {
+        <span class="kw">match</span> event.<span class="fn">token</span>() {
+            <span class="ty">Token</span>(<span class="nm">0</span>) =&gt; { <span class="cm">/* accept */</span> }
+            _ =&gt; { <span class="cm">/* handle client */</span> }
+        }
+    }
+}</code></pre></div>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch10">
+<h2>// 10 &mdash; the NIC &amp; DMA</h2>
+
+<p class="drop-cap">The Network Interface Card is not a dumb pipe. It is a small computer with its own processor, its own memory, and a DMA engine that reads and writes system RAM without CPU involvement. The interface between the driver and the NIC is a pair of ring buffers &mdash; one for transmit, one for receive. Understanding these rings is understanding the physical boundary between software and wire.</p>
+
+<h3>Ring Buffer Architecture</h3>
+
+<div class="diagram">
+<span class="diagram-label">TX Ring Buffer</span>
+<pre><code>
+              head (NIC reads here)
+              ▼
+  ┌─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┐
+  │ <span class="g">TX0</span> │ <span class="g">TX1</span> │ <span class="c">TX2</span> │ <span class="c">TX3</span> │ <span class="c">TX4</span> │     │     │     │
+  └─────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┘
+                                  ▲
+                                  tail (driver writes here)
+
+  Each descriptor: { dma_addr, length, flags, status }
+
+  <span class="g">Green</span>  = transmitted (NIC done, driver can reclaim)
+  <span class="c">Cyan</span>   = pending     (driver wrote, NIC hasn't sent yet)
+  Empty  = available   (driver can write new descriptors)
+
+  Flow:
+  1. Driver writes descriptor at tail, bumps tail
+  2. NIC reads descriptor at head, DMA-reads packet data
+  3. NIC transmits on wire, sets status=DONE, bumps head
+  4. Driver reclaims completed descriptors
+</code></pre>
+</div>
+
+<div class="diagram">
+<span class="diagram-label">RX Ring Buffer</span>
+<pre><code>
+              head (driver reads here)
+              ▼
+  ┌─────┬─────┬─────┬─────┬─────┬─────┬─────┬─────┐
+  │ <span class="g">RX0</span> │ <span class="g">RX1</span> │ <span class="g">RX2</span> │     │     │ <span class="m">RX5</span> │ <span class="m">RX6</span> │ <span class="m">RX7</span> │
+  └─────┴─────┴─────┴─────┴─────┴─────┴─────┴─────┘
+                              ▲
+                              tail (NIC writes here)
+
+  <span class="g">Green</span>   = received  (NIC wrote, driver can process)
+  <span class="m">Magenta</span> = pre-alloc (driver set up, NIC can fill)
+  Empty   = consumed  (driver processed, needs re-alloc)
+</code></pre>
+</div>
+
+<h3>Interrupt Coalescing</h3>
+
+<p>Without coalescing, the NIC fires one interrupt per received packet. At 14.8M pps, that is 14.8M interrupts per second &mdash; the CPU spends all its time handling interrupts and never processes any packets. Interrupt coalescing batches them: "fire one interrupt after 100 microseconds <em>or</em> 32 received packets, whichever comes first."</p>
+
+<h3>RSS: Receive Side Scaling</h3>
+
+<p>Modern NICs have multiple RX queues (typically 8-32), each with its own ring buffer and interrupt targeting a different CPU core. The NIC hashes the packet's 4-tuple (src IP, dst IP, src port, dst port) using a Toeplitz hash and routes the packet to a queue based on the hash. This distributes load across cores without software intervention. All packets from the same flow always go to the same queue, preserving ordering.</p>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<pre><code><span class="cm"># Check ring buffer sizes</span>
+ethtool -g eth0
+
+<span class="cm"># Check interrupt coalescing settings</span>
+ethtool -c eth0
+
+<span class="cm"># Check RSS hash configuration</span>
+ethtool -x eth0
+
+<span class="cm"># See per-queue statistics</span>
+ethtool -S eth0 | grep -E <span class="st">'(tx|rx)_queue'</span>
+
+<span class="cm"># Increase ring buffer size (reduces drops under load)</span>
+ethtool -G eth0 rx <span class="nm">4096</span> tx <span class="nm">4096</span></code></pre>
+</div>
+
+<div class="power">
+<div class="power-label">Ring Size Trade-Off</div>
+<p>Larger rings absorb traffic bursts without dropping packets but consume more memory (each RX slot holds a 2KB+ page) and increase latency (more packets buffered before processing). Default is often 256-512 descriptors. High-throughput servers typically set 2048-4096. Monitor <code>ethtool -S eth0 | grep drop</code> to know when you need bigger rings.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch11">
+<h2>// 11 &mdash; congestion control</h2>
+
+<p class="drop-cap">TCP does not blast data as fast as the NIC can transmit. It regulates itself with a congestion window (<code>cwnd</code>) that limits how much unacknowledged data can be in flight. The effective window is <code>min(rwnd, cwnd)</code> &mdash; the smaller of what the receiver advertises and what the sender's congestion algorithm allows. Getting this right is the difference between a 10Gbps link running at 10Gbps and running at 100Mbps.</p>
+
+<h3>Slow Start &amp; Congestion Avoidance</h3>
+
+<p>Every TCP connection begins with slow start. The cwnd starts at 10 MSS (14,600 bytes since Linux 2.6.39, previously 1-4 MSS). Each ACK doubles the cwnd &mdash; exponential growth. When cwnd hits <code>ssthresh</code> (slow start threshold), TCP switches to congestion avoidance: linear growth, adding 1 MSS per RTT.</p>
+
+<div class="diagram">
+<span class="diagram-label">Congestion Window Growth</span>
+<pre><code>
+  cwnd
+  (MSS)
+   64 │                              ╱ congestion avoidance
+      │                            ╱   (linear: +1 MSS/RTT)
+   32 │                     ╱─────╱
+      │                   ╱
+   16 │              ╱───╱ ← ssthresh
+      │            ╱
+    8 │       ╱───╱
+      │     ╱
+    4 │  ╱─╱  slow start
+      │╱      (exponential: ×2/RTT)
+   10 ├──┬──┬──┬──┬──┬──┬──┬──┬──► RTT
+      0  1  2  3  4  5  6  7  8
+</code></pre>
+</div>
+
+<h3>CUBIC vs BBR</h3>
+
+<div class="vs">
+<div class="vs-col">
+<h4>CUBIC (Linux Default)</h4>
+<p><strong>Loss-based.</strong> Uses a cubic function to probe for bandwidth. After a loss, it remembers the window size (W<sub>max</sub>) and uses a cubic curve to approach it again:</p>
+<pre><code>cwnd(t) = C(t - K)³ + W_max
+
+<span class="cm">K = cubic_root(W_max * β / C)</span>
+<span class="cm">β = 0.7 (multiplicative decrease)</span>
+<span class="cm">C = 0.4 (scaling constant)</span></code></pre>
+<p>Aggressive near W<sub>max</sub>, cautious elsewhere. Excellent for high-BDP links.</p>
+</div>
+<div class="vs-col">
+<h4>BBR (Google)</h4>
+<p><strong>Model-based.</strong> Measures two things: maximum bandwidth (BtlBw) and minimum RTT (RTprop). Paces packets at BtlBw to keep exactly one BDP in flight:</p>
+<pre><code>rate = BtlBw
+inflight = BtlBw × RTprop
+
+<span class="cm">Probes bandwidth: 1.25× for 1 RTT</span>
+<span class="cm">Probes RTT: drains queue every 10s</span></code></pre>
+<p>Does not rely on packet loss. Keeps buffers unfilled. Better on lossy links.</p>
+</div>
+</div>
+
+<h3>Loss Detection &amp; Recovery</h3>
+
+<p><strong>Fast Retransmit:</strong> 3 duplicate ACKs trigger immediate retransmission without waiting for the RTO timer. <strong>SACK</strong> (Selective Acknowledgment) tells the sender exactly which segments were received, so it retransmits only the missing ones instead of everything after the gap. <strong>RTO</strong> (Retransmission Timeout) doubles with each timeout: 200ms &rarr; 400ms &rarr; 800ms &rarr; 1.6s &rarr; ... up to 120 seconds.</p>
+
+<h3>Window Scaling (RFC 1323)</h3>
+
+<p>TCP's window field is 16 bits &mdash; max 65,535 bytes. On a 10Gbps link with 50ms RTT, the bandwidth-delay product is 62.5 MB. Window scaling adds a shift count (0-14) negotiated during the handshake. A shift of 7 gives a max window of 65535 &times; 128 = ~8MB. A shift of 14 gives ~1GB.</p>
+
+<div class="power zen">
+<div class="power-label">Choosing a Congestion Algorithm</div>
+<p>Use <code>sysctl net.ipv4.tcp_congestion_control=bbr</code> for internet-facing servers with lossy links. Keep CUBIC for data center traffic with clean links. BBR v2 fixes fairness issues with v1. Always measure before switching &mdash; <code>ss -ti</code> shows cwnd, rtt, and retransmits per connection.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch12">
+<h2>// 12 &mdash; hardware offloads</h2>
+
+<p class="drop-cap">Your NIC is not just a transceiver. Modern NICs are programmable packet processors that can compute checksums, segment large payloads, merge small packets, and distribute traffic across CPU cores. Every operation offloaded to hardware is one less thing the CPU has to do. On a 100Gbps NIC, hardware offloads are not optional &mdash; they are the only way to keep up.</p>
+
+<h3>TSO: TCP Segmentation Offload</h3>
+
+<p>Without TSO, the kernel creates one sk_buff per TCP segment (1460 bytes each). To send 64KB, that is 45 sk_buffs, 45 TCP headers, 45 IP headers. With TSO, the kernel hands the NIC <em>one</em> 64KB sk_buff with a single set of headers. The NIC's hardware segments it into 45 frames, computing unique sequence numbers and checksums for each. CPU savings: ~97%.</p>
+
+<h3>GRO: Generic Receive Offload</h3>
+
+<p>The inverse of TSO. When 45 back-to-back segments arrive from the same flow, GRO merges them into a single large sk_buff before passing it up the stack. The TCP layer processes one 64KB packet instead of 45 small ones. This reduces per-packet processing overhead by a factor proportional to the coalescing ratio.</p>
+
+<h3>Checksum Offload</h3>
+
+<p>Computing a TCP/UDP checksum over 1460 bytes costs ~200ns of CPU time. At 14.8M pps, that is 3 seconds of CPU per second. With checksum offload, the NIC computes the checksum in hardware on transmit and validates it on receive. The kernel writes a placeholder checksum and sets a flag in the sk_buff.</p>
+
+<h3>RSS &amp; RPS</h3>
+
+<p><strong>RSS</strong> (Receive Side Scaling) is the hardware version: the NIC hashes the 4-tuple and steers packets to different RX queues/CPUs. <strong>RPS</strong> (Receive Packet Steering) is the software fallback: a hash computed in the driver steers processing to a target CPU via inter-processor interrupt. RSS is faster (no IPI), but RPS works on NICs without multi-queue support.</p>
+
+<table>
+<tr><th>Offload</th><th>Direction</th><th>Saves</th><th>Check With</th></tr>
+<tr><td>TSO</td><td>TX</td><td>~45x fewer segments built by CPU</td><td><code>ethtool -k eth0 | grep tcp-segmentation</code></td></tr>
+<tr><td>GSO</td><td>TX</td><td>Software fallback for TSO</td><td><code>ethtool -k eth0 | grep generic-segmentation</code></td></tr>
+<tr><td>GRO</td><td>RX</td><td>~45x fewer packets processed</td><td><code>ethtool -k eth0 | grep generic-receive</code></td></tr>
+<tr><td>TX Checksum</td><td>TX</td><td>~200ns/pkt CPU time</td><td><code>ethtool -k eth0 | grep tx-checksum</code></td></tr>
+<tr><td>RX Checksum</td><td>RX</td><td>~200ns/pkt CPU time</td><td><code>ethtool -k eth0 | grep rx-checksum</code></td></tr>
+<tr><td>RSS</td><td>RX</td><td>Multi-core distribution</td><td><code>ethtool -l eth0</code></td></tr>
+</table>
+
+<div class="power danger">
+<div class="power-label">When Offloads Bite</div>
+<p>TSO and GRO create packets larger than the MTU &mdash; up to 64KB. If you capture packets with tcpdump on the sending machine, you will see 64KB TCP segments that cannot possibly fit on the wire. This is normal: the NIC segments them after capture. But it confuses debugging. Use <code>ethtool -K eth0 tso off gro off</code> temporarily to see real wire-sized packets during debugging.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch13">
+<h2>// 13 &mdash; eBPF &amp; XDP</h2>
+
+<p class="drop-cap">Imagine injecting your own code into the kernel's packet processing pipeline. Not a kernel module &mdash; those can crash the system. A verified, sandboxed, JIT-compiled program that runs at near-native speed inside the kernel. That is eBPF. And when you attach it at the earliest possible point &mdash; the NIC driver's receive path, before sk_buff allocation &mdash; that is XDP. Together they let you process 10 million packets per second on a single core.</p>
+
+<h3>XDP Hook Point</h3>
+
+<div class="diagram">
+<span class="diagram-label">XDP in the Receive Path</span>
+<pre><code>
+  Packet arrives at NIC
+         │
+         ▼
+  DMA write to RX ring buffer
+         │
+         ▼
+  ┌──────────────────────────────┐
+  │     <span class="m">XDP program runs HERE</span>      │  ← Before sk_buff allocation
+  │                              │     Before protocol processing
+  │  Return:                     │     Before netfilter/iptables
+  │    XDP_DROP   → discard      │
+  │    XDP_PASS   → normal path  │     Sub-microsecond per packet
+  │    XDP_TX     → bounce back  │
+  │    XDP_REDIRECT → fwd to fd  │
+  └──────────────────────────────┘
+         │ (XDP_PASS)
+         ▼
+  Allocate sk_buff
+         │
+         ▼
+  Normal network stack processing
+</code></pre>
+</div>
+
+<h3>The eBPF Verifier</h3>
+
+<p>Before your program runs in the kernel, the verifier proves it is safe. No unbounded loops (all loops must have a provable upper bound). Every memory access is bounds-checked. No reading uninitialized memory. The verifier walks every possible execution path. If it cannot prove safety, your program is rejected. This is how eBPF avoids the kernel module stability problem.</p>
+
+<h3>XDP Program Example</h3>
+
+<pre><code><span class="pp">#include</span> <span class="st">&lt;linux/bpf.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;bpf/bpf_helpers.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;linux/if_ether.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;linux/ip.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;arpa/inet.h&gt;</span>
+
+<span class="cm">// Drop all TCP packets, pass everything else</span>
+SEC(<span class="st">"xdp"</span>)
+<span class="ty">int</span> <span class="fn">xdp_drop_tcp</span>(<span class="kw">struct</span> <span class="ty">xdp_md</span> *ctx) {
+    <span class="ty">void</span> *data     = (<span class="ty">void</span> *)(<span class="ty">long</span>)ctx-&gt;data;
+    <span class="ty">void</span> *data_end = (<span class="ty">void</span> *)(<span class="ty">long</span>)ctx-&gt;data_end;
+
+    <span class="cm">// Parse Ethernet header</span>
+    <span class="kw">struct</span> <span class="ty">ethhdr</span> *eth = data;
+    <span class="kw">if</span> ((<span class="ty">void</span> *)(eth + <span class="nm">1</span>) &gt; data_end)
+        <span class="kw">return</span> XDP_PASS;
+
+    <span class="kw">if</span> (eth-&gt;h_proto != <span class="fn">htons</span>(ETH_P_IP))
+        <span class="kw">return</span> XDP_PASS;
+
+    <span class="cm">// Parse IP header</span>
+    <span class="kw">struct</span> <span class="ty">iphdr</span> *ip = (<span class="ty">void</span> *)(eth + <span class="nm">1</span>);
+    <span class="kw">if</span> ((<span class="ty">void</span> *)(ip + <span class="nm">1</span>) &gt; data_end)
+        <span class="kw">return</span> XDP_PASS;
+
+    <span class="cm">// Protocol 6 = TCP</span>
+    <span class="kw">if</span> (ip-&gt;protocol == <span class="nm">6</span>)
+        <span class="kw">return</span> XDP_DROP;  <span class="cm">// Drop TCP at wire speed</span>
+
+    <span class="kw">return</span> XDP_PASS;
+}
+
+<span class="ty">char</span> _license[] SEC(<span class="st">"license"</span>) = <span class="st">"GPL"</span>;</code></pre>
+
+<h3>Loading &amp; Attaching</h3>
+
+<pre><code><span class="cm"># Compile the XDP program</span>
+clang -O2 -target bpf -c xdp_drop_tcp.c -o xdp_drop_tcp.o
+
+<span class="cm"># Attach to interface</span>
+ip link set dev eth0 xdp obj xdp_drop_tcp.o sec xdp
+
+<span class="cm"># Verify it is loaded</span>
+ip link show eth0  <span class="cm"># look for "xdp" in output</span>
+
+<span class="cm"># Remove</span>
+ip link set dev eth0 xdp off</code></pre>
+
+<h3>eBPF Maps</h3>
+
+<p>Maps are the communication channel between eBPF programs and userspace. Hash maps for lookup tables, ring buffers for event streaming, per-CPU arrays for lock-free counters. An XDP program can increment a per-CPU packet counter, and a userspace daemon can read the aggregated count &mdash; all without locks, without syscalls, at millions of operations per second.</p>
+
+<h3>eBPF Map Example: Per-IP Packet Counter</h3>
+
+<pre><code><span class="cm">// Define a hash map: IP address → packet count</span>
+<span class="kw">struct</span> {
+    __uint(<span class="fn">type</span>, BPF_MAP_TYPE_PERCPU_HASH);
+    __uint(max_entries, <span class="nm">65536</span>);
+    __type(key, <span class="ty">__u32</span>);     <span class="cm">// source IP</span>
+    __type(value, <span class="ty">__u64</span>);   <span class="cm">// packet count</span>
+} <span class="fn">ip_count</span> SEC(<span class="st">".maps"</span>);
+
+SEC(<span class="st">"xdp"</span>)
+<span class="ty">int</span> <span class="fn">xdp_count</span>(<span class="kw">struct</span> <span class="ty">xdp_md</span> *ctx) {
+    <span class="kw">struct</span> <span class="ty">ethhdr</span> *eth = (<span class="ty">void</span> *)(<span class="ty">long</span>)ctx-&gt;data;
+    <span class="kw">if</span> ((<span class="ty">void</span> *)(eth + <span class="nm">1</span>) &gt; (<span class="ty">void</span> *)(<span class="ty">long</span>)ctx-&gt;data_end)
+        <span class="kw">return</span> XDP_PASS;
+    <span class="kw">if</span> (eth-&gt;h_proto != <span class="fn">htons</span>(ETH_P_IP))
+        <span class="kw">return</span> XDP_PASS;
+
+    <span class="kw">struct</span> <span class="ty">iphdr</span> *ip = (<span class="ty">void</span> *)(eth + <span class="nm">1</span>);
+    <span class="kw">if</span> ((<span class="ty">void</span> *)(ip + <span class="nm">1</span>) &gt; (<span class="ty">void</span> *)(<span class="ty">long</span>)ctx-&gt;data_end)
+        <span class="kw">return</span> XDP_PASS;
+
+    <span class="ty">__u32</span> src = ip-&gt;saddr;
+    <span class="ty">__u64</span> *count = <span class="fn">bpf_map_lookup_elem</span>(&amp;ip_count, &amp;src);
+    <span class="kw">if</span> (count) {
+        (*count)++;
+    } <span class="kw">else</span> {
+        <span class="ty">__u64</span> init = <span class="nm">1</span>;
+        <span class="fn">bpf_map_update_elem</span>(&amp;ip_count, &amp;src, &amp;init, BPF_ANY);
+    }
+    <span class="kw">return</span> XDP_PASS;
+}</code></pre>
+
+<h3>XDP Modes</h3>
+
+<table>
+<tr><th>Mode</th><th>Performance</th><th>How</th></tr>
+<tr><td><strong>Native</strong> (driver)</td><td>Fastest (~24 Mpps)</td><td>Runs in NIC driver before sk_buff. Requires driver support (i40e, mlx5, ixgbe, virtio-net).</td></tr>
+<tr><td><strong>Generic</strong> (skb)</td><td>Slower (~3 Mpps)</td><td>Runs after sk_buff allocation. Works with any NIC but loses the speed advantage.</td></tr>
+<tr><td><strong>Offloaded</strong></td><td>Wire speed</td><td>Runs on NIC hardware itself (Netronome SmartNICs). eBPF bytecode compiled to NIC firmware.</td></tr>
+</table>
+
+<div class="power hack">
+<div class="power-label">Real-World XDP</div>
+<p>Facebook uses XDP for load balancing (Katran), dropping 10M+ malicious packets per second per server. Cloudflare uses XDP for DDoS mitigation, processing packets in ~25 nanoseconds each. Cilium uses eBPF for Kubernetes networking, replacing iptables entirely. This is not a toy &mdash; it is production infrastructure at planetary scale.</p>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<pre><code><span class="cm"># List all loaded eBPF programs</span>
+bpftool prog list
+
+<span class="cm"># Show XDP programs attached to interfaces</span>
+bpftool net show
+
+<span class="cm"># Dump map contents</span>
+bpftool map dump id <span class="nm">42</span>
+
+<span class="cm"># Attach XDP program in native mode</span>
+ip link set dev eth0 xdp obj prog.o sec xdp
+
+<span class="cm"># Attach in generic (skb) mode (any NIC)</span>
+ip link set dev eth0 xdpgeneric obj prog.o sec xdp</code></pre>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch14">
+<h2>// 14 &mdash; practical tools</h2>
+
+<p class="drop-cap">Theory without tools is philosophy. Here is the hacker's toolkit for understanding, debugging, and tuning the network stack. Every tool listed here ships with a standard Linux distribution or is one package install away. Master these and you can diagnose any network problem from application to wire.</p>
+
+<h3>tcpdump &mdash; Packet Capture</h3>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<pre><code><span class="cm"># Capture TCP packets on port 80, show hex + ASCII</span>
+tcpdump -i eth0 -X tcp port <span class="nm">80</span>
+
+<span class="cm"># Capture to file for Wireshark analysis</span>
+tcpdump -i any -w capture.pcap -s <span class="nm">0</span> <span class="st">'host 10.0.0.1 and port 443'</span>
+
+<span class="cm"># Show TCP handshakes only (SYN/SYN-ACK/ACK)</span>
+tcpdump -i eth0 <span class="st">'tcp[tcpflags] & (tcp-syn|tcp-fin) != 0'</span>
+
+<span class="cm"># Count packets per second</span>
+tcpdump -i eth0 -q 2&gt;/dev/null | pv -l &gt; /dev/null</code></pre>
+</div>
+
+<h3>ss &mdash; Socket Statistics</h3>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<pre><code><span class="cm"># All TCP connections with extended info</span>
+ss -tni
+
+<span class="cm"># Show connections in TIME_WAIT state</span>
+ss -tan state time-wait | wc -l
+
+<span class="cm"># Show send/receive buffer usage per socket</span>
+ss -tm
+
+<span class="cm"># Find which process owns a connection</span>
+ss -tnp | grep <span class="st">':8080'</span>
+
+<span class="cm"># Show TCP internal state (cwnd, rtt, retransmits)</span>
+ss -ti dst <span class="nm">10.0.0.1</span></code></pre>
+</div>
+
+<h3>strace &mdash; Syscall Tracing</h3>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<pre><code><span class="cm"># Trace network syscalls with timing</span>
+strace -e trace=network -T -p <span class="nm">$(pidof nginx)</span>
+
+<span class="cm"># Show only connect() calls with latency</span>
+strace -e connect -T -f -p <span class="nm">$(pidof curl)</span>
+
+<span class="cm"># Count syscalls by type</span>
+strace -c -e trace=network -p <span class="nm">$(pidof myserver)</span></code></pre>
+</div>
+
+<h3>/proc/net/tcp &mdash; Raw Connection State</h3>
+
+<pre><code><span class="cm"># Each line = one TCP connection</span>
+<span class="cm"># Columns: local_addr, remote_addr, state, tx_queue, rx_queue, ...</span>
+cat /proc/net/tcp | head -5
+
+<span class="cm"># State codes: 01=ESTABLISHED, 02=SYN_SENT, 06=TIME_WAIT, 0A=LISTEN</span>
+<span class="cm"># Addresses are hex, little-endian: 0100007F:1F90 = 127.0.0.1:8080</span></code></pre>
+
+<h3>ethtool &mdash; NIC Configuration</h3>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<pre><code><span class="cm"># Check all offloads</span>
+ethtool -k eth0
+
+<span class="cm"># Check ring buffer sizes</span>
+ethtool -g eth0
+
+<span class="cm"># Check link speed and driver</span>
+ethtool eth0
+
+<span class="cm"># NIC statistics (drops, errors, per-queue stats)</span>
+ethtool -S eth0 | grep -E <span class="st">'(drop|error|miss)'</span>
+
+<span class="cm"># Interrupt coalescing</span>
+ethtool -c eth0</code></pre>
+</div>
+
+<h3>bpftrace &mdash; Live Kernel Tracing</h3>
+
+<pre><code><span class="cm"># Trace every TCP retransmit with source/dest</span>
+bpftrace -e <span class="st">'tracepoint:tcp:tcp_retransmit_skb {
+    printf("retransmit: %s:%d → %s:%d\n",
+        ntop(args->saddr), args->sport,
+        ntop(args->daddr), args->dport);
+}'</span>
+
+<span class="cm"># Histogram of TCP receive latency</span>
+bpftrace -e <span class="st">'kprobe:tcp_rcv_established { @start[tid] = nsecs; }
+kretprobe:tcp_rcv_established /@start[tid]/ {
+    @us = hist((nsecs - @start[tid]) / 1000);
+    delete(@start[tid]);
+}'</span></code></pre>
+
+<h3>Kernel Tuning</h3>
+
+<table>
+<tr><th>Parameter</th><th>Default</th><th>Tuned</th><th>Effect</th></tr>
+<tr><td><code>net.core.rmem_max</code></td><td>212992</td><td>16777216</td><td>Max receive buffer (16MB)</td></tr>
+<tr><td><code>net.core.wmem_max</code></td><td>212992</td><td>16777216</td><td>Max send buffer (16MB)</td></tr>
+<tr><td><code>net.ipv4.tcp_rmem</code></td><td>4096 131072 6291456</td><td>4096 131072 16777216</td><td>TCP auto-tuning range</td></tr>
+<tr><td><code>net.ipv4.tcp_wmem</code></td><td>4096 16384 4194304</td><td>4096 65536 16777216</td><td>TCP send auto-tuning</td></tr>
+<tr><td><code>net.ipv4.tcp_fastopen</code></td><td>1</td><td>3</td><td>TFO for client+server</td></tr>
+<tr><td><code>net.ipv4.tcp_tw_reuse</code></td><td>0</td><td>1</td><td>Reuse TIME_WAIT sockets</td></tr>
+<tr><td><code>net.core.somaxconn</code></td><td>4096</td><td>65535</td><td>Max listen backlog</td></tr>
+<tr><td><code>net.ipv4.tcp_congestion_control</code></td><td>cubic</td><td>bbr</td><td>Congestion algorithm</td></tr>
+</table>
+
+<div class="power">
+<div class="power-label">The Debugging Flow</div>
+<p>When something is wrong: (1) <code>ss -tni</code> to see connection states, buffer sizes, retransmits. (2) <code>ethtool -S eth0</code> to check for NIC drops. (3) <code>tcpdump</code> to see actual packets. (4) <code>strace</code> to see what the application is doing. (5) <code>bpftrace</code> to trace kernel functions. This order goes from cheapest to most invasive. Start cheap.</p>
+</div>
+
+</section>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,2006 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GPU Compute — How Silicon Thinks in Parallel</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+    --white: #e8e8f0;
+}
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', 'Georgia', serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+}
+
+body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(
+        0deg,
+        rgba(0,0,0,0.03) 0px,
+        rgba(0,0,0,0.03) 1px,
+        transparent 1px,
+        transparent 2px
+    );
+    pointer-events: none;
+    z-index: 9999;
+}
+
+nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    background: rgba(10,10,15,0.85);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.6rem 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    overflow-x: auto;
+    white-space: nowrap;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+nav .nav-title {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 0.5rem;
+    flex-shrink: 0;
+}
+
+nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    transition: color 0.2s;
+    flex-shrink: 0;
+}
+
+nav a:hover { color: var(--green); }
+
+.content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 5rem 1.5rem 4rem;
+}
+
+.hero {
+    text-align: center;
+    padding: 4rem 0 5rem;
+}
+
+.hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3.5rem;
+    font-weight: 700;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.3);
+    margin-bottom: 1rem;
+}
+
+.hero .subtitle {
+    font-family: 'Source Serif 4', serif;
+    font-size: 1.15rem;
+    color: var(--text-dim);
+    font-style: italic;
+}
+
+.blink { animation: blink 1s step-end infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+section { margin-bottom: 5rem; }
+
+h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.4rem;
+    color: var(--green);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.5rem;
+    margin-bottom: 1.5rem;
+    text-shadow: 0 0 20px rgba(0,255,136,0.2);
+}
+
+h3 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.1rem;
+    color: var(--cyan);
+    margin: 2rem 0 0.8rem;
+}
+
+h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 1.5rem 0 0.5rem;
+}
+
+p { margin-bottom: 1rem; }
+
+.drop-cap::first-letter {
+    float: left;
+    font-size: 4rem;
+    line-height: 0.8;
+    padding-right: 0.6rem;
+    padding-top: 0.15rem;
+    color: var(--green);
+    text-shadow: 0 0 15px rgba(0,255,136,0.3);
+    font-weight: 700;
+}
+
+pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px;
+    line-height: 1.6;
+    margin: 1.2rem 0;
+    position: relative;
+}
+
+code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.88em;
+}
+
+p code, li code {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.15em 0.4em;
+    font-size: 0.85em;
+}
+
+.cm { color: var(--text-dim); }
+.kw { color: var(--magenta); }
+.ty { color: var(--cyan); }
+.st { color: var(--green); }
+.nm { color: var(--yellow); }
+.fn { color: var(--blue); }
+.pp { color: var(--orange); }
+
+.label {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.8rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+}
+
+.diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem;
+    margin: 1.5rem 0;
+}
+
+.diagram pre {
+    border: none;
+    margin: 0;
+    padding: 0;
+    background: none;
+}
+
+.power {
+    border-left: 3px solid var(--green-dim);
+    background: rgba(0,255,136,0.04);
+    padding: 1rem 1.2rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+}
+
+.power.danger { border-left-color: var(--red); background: rgba(255,51,68,0.04); }
+.power.hack { border-left-color: var(--magenta); background: rgba(255,0,170,0.04); }
+.power.wild { border-left-color: var(--orange); background: rgba(255,136,0,0.04); }
+.power.zen { border-left-color: var(--cyan); background: rgba(0,221,255,0.04); }
+
+.mem-row { display: flex; gap: 1px; margin: 0.5rem 0; flex-wrap: wrap; }
+.mc {
+    width: 30px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    border-radius: 2px;
+}
+.mc.g { background: rgba(0,255,136,0.25); color: var(--green); }
+.mc.c { background: rgba(0,221,255,0.25); color: var(--cyan); }
+.mc.m { background: rgba(255,0,170,0.25); color: var(--magenta); }
+.mc.o { background: rgba(255,136,0,0.25); color: var(--orange); }
+.mc.r { background: rgba(255,51,68,0.25); color: var(--red); }
+.mc.y { background: rgba(255,221,0,0.25); color: var(--yellow); }
+.mc.b { background: rgba(68,136,255,0.25); color: var(--blue); }
+.mc.d { background: rgba(106,106,126,0.15); color: var(--text-dim); }
+.mc.e { background: rgba(106,106,126,0.06); color: var(--text-dim); }
+.mc.w { background: rgba(232,232,240,0.15); color: var(--white); }
+.mc.p { background: rgba(170,68,255,0.25); color: var(--purple); }
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.92rem;
+}
+
+th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--green);
+    text-align: left;
+    padding: 0.6rem 0.8rem;
+    border-bottom: 2px solid var(--border);
+}
+
+td {
+    padding: 0.5rem 0.8rem;
+    border-bottom: 1px solid var(--border);
+}
+
+tr:hover td { background: rgba(0,255,136,0.03); }
+
+details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1.2rem 0;
+}
+
+summary {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--green);
+    padding: 0.8rem 1.2rem;
+    cursor: pointer;
+}
+
+details[open] summary { border-bottom: 1px solid var(--border); }
+details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
+
+.vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+}
+
+.glitch {
+    position: relative;
+    display: inline-block;
+}
+
+.glitch::before,
+.glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 3s infinite linear alternate-reverse;
+    clip-path: inset(0 0 80% 0);
+}
+
+.glitch::after {
+    color: var(--magenta);
+    animation: glitch-2 2.5s infinite linear alternate-reverse;
+    clip-path: inset(80% 0 0 0);
+}
+
+@keyframes glitch-1 {
+    0%, 90% { transform: translate(0); }
+    92% { transform: translate(-3px, 1px); }
+    94% { transform: translate(3px, -1px); }
+    96% { transform: translate(-2px, 2px); }
+    100% { transform: translate(0); }
+}
+
+@keyframes glitch-2 {
+    0%, 88% { transform: translate(0); }
+    90% { transform: translate(2px, -1px); }
+    93% { transform: translate(-3px, 2px); }
+    96% { transform: translate(1px, -2px); }
+    100% { transform: translate(0); }
+}
+
+.ticker {
+    display: inline;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--green);
+    text-shadow: 0 0 8px rgba(0,255,136,0.3);
+}
+
+.try-this { background: rgba(0,255,136,0.04); border-left: 3px solid var(--green-dim); padding: 1rem 1.2rem; margin: 1.5rem 0; border-radius: 0 6px 6px 0; }
+.try-this .try-label { font-family: 'JetBrains Mono', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--green-dim); margin-bottom: 0.5rem; }
+
+.lang-tabs { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; margin: 1.2rem 0; overflow: hidden; }
+.lang-tabs input[type="radio"] { display: none; }
+.lang-tabs label { display: inline-block; padding: 0.5rem 1.2rem; font-family: 'JetBrains Mono', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim); cursor: pointer; border-bottom: 2px solid transparent; transition: color 0.2s, border-color 0.2s; }
+.lang-tabs label:hover { color: var(--green); }
+.lang-tabs .tab-bar { border-bottom: 1px solid var(--border); padding: 0 0.5rem; }
+.lang-tabs .tab-content { display: none; }
+.lang-tabs .tab-content pre { margin: 0; border: none; border-radius: 0; }
+
+.lang-tabs input.tc:checked ~ .tab-bar label[for$="-c"] { color: var(--green); border-bottom-color: var(--green); }
+.lang-tabs input.tpy:checked ~ .tab-bar label[for$="-py"] { color: var(--green); border-bottom-color: var(--green); }
+.lang-tabs input.ttr:checked ~ .tab-bar label[for$="-tr"] { color: var(--green); border-bottom-color: var(--green); }
+.lang-tabs input.tc:checked ~ .tab-content.c { display: block; }
+.lang-tabs input.tpy:checked ~ .tab-content.py { display: block; }
+.lang-tabs input.ttr:checked ~ .tab-content.tr { display: block; }
+
+a { color: var(--cyan); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+strong { color: var(--white); }
+
+@media (max-width: 700px) {
+    .hero h1 { font-size: 2rem; }
+    .vs { grid-template-columns: 1fr; }
+    nav { font-size: 10px; gap: 1rem; }
+    body { font-size: 16px; }
+    pre { font-size: 12px; padding: 0.8rem; }
+    .mc { width: 22px; height: 18px; font-size: 7px; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+    <span class="nav-title">&gt;_ GPU</span>
+    <a href="#ch1">machine model</a>
+    <a href="#ch2">SMs</a>
+    <a href="#ch3">warps</a>
+    <a href="#ch4">memory</a>
+    <a href="#ch5">launch</a>
+    <a href="#ch6">occupancy</a>
+    <a href="#ch7">coalescing</a>
+    <a href="#ch8">bank conflicts</a>
+    <a href="#ch9">warp prims</a>
+    <a href="#ch10">tensor cores</a>
+    <a href="#ch11">optimization</a>
+    <a href="#ch12">pcie wall</a>
+    <a href="#ch13">debug</a>
+    <a href="#ch14">timeline</a>
+</nav>
+
+<div class="content">
+
+<div class="hero">
+    <h1><span class="glitch" data-text="GPU COMPUTE">GPU COMPUTE</span></h1>
+    <div class="subtitle">Thousands of cores, none of them smart. But together they reshape the world.<br>From warps to tensor cores &mdash; how the GPU actually works.<span class="blink">_</span></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch1">
+<h2>// 01 &mdash; The Machine Model</h2>
+
+<p class="drop-cap">A modern CPU core is a Formula 1 car. It has a branch predictor that guesses the future with 97% accuracy, an out-of-order execution engine that rearranges your instructions for maximum speed, and a cache hierarchy so deep it could hide a submarine. One core does one thing at blistering speed. An H100 GPU, meanwhile, has 18,432 cores&mdash;and not a single one of them can predict a branch. The GPU isn't a faster car. It's an army of bicycles.</p>
+
+<p>This distinction is fundamental. CPUs are <strong>latency-optimized</strong>: every transistor budget decision is aimed at making a single thread of execution complete as fast as possible. Deep pipelines. Speculative execution. Hardware prefetching. Register renaming. These are monuments to the religion of low latency.</p>
+
+<p>GPUs are <strong>throughput-optimized</strong>. They don't care how long any one operation takes. They care about how many operations finish per second. And the trick is simple: when one thread stalls waiting for memory, switch to another thread <em>instantly</em>&mdash;zero overhead context switches, because every thread's registers are permanently resident on-chip.</p>
+
+<div class="diagram">
+<pre>
+  <span class="cm">CPU: Few Fast Cores                    GPU: Many Simple Cores</span>
+
+  ┌─────────────────────┐               ┌─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┬─┐
+  │  ┌───────────────┐  │               │ │ │ │ │ │ │ │ │ │ │ │ │
+  │  │   Core 0      │  │               ├─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┤
+  │  │  Branch Pred   │  │               │ │ │ │ │ │ │ │ │ │ │ │ │
+  │  │  OOO Engine    │  │               ├─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┤
+  │  │  256-bit SIMD  │  │               │ │ │ │ │ │ │ │ │ │ │ │ │
+  │  │  Big L1/L2     │  │               ├─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┤
+  │  └───────────────┘  │               │ │ │ │ │ │ │ │ │ │ │ │ │
+  │  ┌───────────────┐  │               ├─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┤
+  │  │   Core 1      │  │               │ │ │ │ │ │ │ │ │ │ │ │ │
+  │  │  (same)       │  │               ├─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┼─┤
+  │  └───────────────┘  │               │ │ │ │ │ │ │ │ │ │ │ │ │
+  │       ...×16        │               │     ...×18,432 (H100)    │
+  └─────────────────────┘               └─┴─┴─┴─┴─┴─┴─┴─┴─┴─┴─┴─┘
+
+  <span class="st">Latency: ~1 ns/op</span>                     <span class="st">Latency: ~5 ns/op</span>
+  <span class="fn">Throughput: ~500 GFLOPS</span>               <span class="fn">Throughput: ~990 TFLOPS (FP16)</span>
+</pre>
+</div>
+
+<p>A CPU hides latency by predicting the future. A GPU hides latency by doing other work while it waits. When thread group A stalls on a memory fetch that will take 500 cycles, the warp scheduler simply switches to thread group B&mdash;no saving state, no pipeline flush. Thread B's registers were already there, resident in the register file. The switch is literally free.</p>
+
+<div class="power">
+<strong>Key Insight:</strong> GPUs don't make individual operations faster. They make <em>all</em> operations happen simultaneously. A single GPU thread is 5&ndash;10&times; slower than a single CPU thread. But when you have 18,432 of them running in lockstep, throughput wins by three orders of magnitude.
+</div>
+
+<h3>When GPUs Win (and When They Don't)</h3>
+
+<p>GPUs dominate when the workload is <strong>data-parallel</strong>: same operation, applied independently across millions of elements. Matrix multiplication. Image convolution. Monte Carlo simulation. These map naturally to the GPU's architecture.</p>
+
+<p>GPUs struggle with <strong>serial dependencies</strong>. If step N depends on the result of step N&minus;1, all those thousands of cores sit idle except one. Recursive tree walks, complex state machines, branchy business logic&mdash;these are CPU territory. The rule of thumb: if your algorithm's parallelism scales with the data size (more data = more independent operations), it's a GPU candidate. If the algorithm is inherently sequential regardless of data size, keep it on the CPU.</p>
+
+<p>The real world usually sits between these extremes. A graph neural network has both parallel operations (node feature updates) and serial dependencies (message passing rounds). An LLM has massive matrix multiplies (parallel) interleaved with attention (partially serial). The art of GPU programming is decomposing your problem to maximize the parallel fraction.</p>
+
+<table>
+<tr><th>Dimension</th><th>CPU</th><th>GPU</th></tr>
+<tr><td>Cores</td><td>8&ndash;128 (fast)</td><td>10,000&ndash;20,000 (simple)</td></tr>
+<tr><td>Clock speed</td><td>3&ndash;5.8 GHz</td><td>1.5&ndash;2.5 GHz</td></tr>
+<tr><td>Branch prediction</td><td>Advanced</td><td>None</td></tr>
+<tr><td>Out-of-order</td><td>Yes</td><td>No</td></tr>
+<tr><td>Context switch</td><td>~microseconds</td><td>Zero cost</td></tr>
+<tr><td>Peak FP32</td><td>~2 TFLOPS</td><td>~67 TFLOPS (H100)</td></tr>
+</table>
+
+<h3>The Latency-Hiding Trick</h3>
+
+<p>Consider a memory access that takes 500 clock cycles. A CPU with 8 threads would stall&mdash;even with hyper-threading, you've only got a handful of contexts to switch between. A GPU SM with 2,048 resident threads has <strong>64 warps</strong> waiting to execute. At roughly 5&ndash;8 instructions per warp before the next stall, that's 300+ instructions of useful work while one warp waits. The memory latency is completely hidden.</p>
+
+<p>This only works because thread context is <strong>never saved or restored</strong>. All 2,048 threads have their registers physically present in the register file simultaneously. A "context switch" is just the warp scheduler pointing at a different instruction. It costs exactly zero cycles. Think about what this means for the silicon budget: an H100 dedicates roughly 27 MB of die area to register files across all 144 SMs. That's more on-chip storage than most CPUs have in their entire L3 cache&mdash;and it's the fastest memory on the chip.</p>
+
+<div class="diagram">
+<pre>
+  <span class="fn">Latency Hiding via Warp Switching</span>
+
+  Cycle:  0       500      1000     1500     2000
+  Warp 0: <span class="st">████</span><span class="d">░░░░░░░░░░░░</span><span class="st">████</span><span class="d">░░░░░░░░░░░░</span><span class="st">████</span>
+  Warp 1:     <span class="kw">████</span><span class="d">░░░░░░░░░░░░</span><span class="kw">████</span><span class="d">░░░░░░░░░░░░</span>
+  Warp 2:         <span class="nm">████</span><span class="d">░░░░░░░░░░░░</span><span class="nm">████</span><span class="d">░░░░░░░░</span>
+  Warp 3:             <span class="fn">████</span><span class="d">░░░░░░░░░░░░</span><span class="fn">████</span><span class="d">░░░░</span>
+   ...
+  Warp N:                 <span class="pp">████</span><span class="d">░░░░░░░░░░░░</span><span class="pp">████</span>
+
+  <span class="st">████</span> = executing   <span class="d">░░░░</span> = waiting for memory
+  <span class="cm">With enough warps, the SM is never idle.</span>
+</pre>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Run <code>nvidia-smi</code> while your GPU is idle, then while running a memory-bound kernel, then a compute-bound kernel. Compare the GPU utilization, memory bandwidth utilization, and SM activity metrics. Use <code>nvidia-smi dmon -s pucvmet</code> for continuous monitoring.</p>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch2">
+<h2>// 02 &mdash; Streaming Multiprocessors</h2>
+
+<p class="drop-cap">The Streaming Multiprocessor is the GPU's fundamental building block. Everything above it&mdash;the GPU as a whole&mdash;is just a collection of SMs sharing a memory bus. Everything below it&mdash;individual CUDA cores&mdash;are just ALUs that do what the SM's scheduler tells them. If you understand the SM, you understand the GPU.</p>
+
+<p>An SM is not a CPU core. It's closer to a <strong>tiny computer</strong> with its own register file, shared memory, instruction cache, and multiple execution pipelines. A Hopper SM is divided into four quadrants called <strong>processing blocks</strong>, each with its own warp scheduler, 32 FP32 cores, 16 INT32 cores, a tensor core, and a load/store unit.</p>
+
+<div class="diagram">
+<pre>
+  <span class="fn">┌──────────────── Hopper SM (1 of 144) ──────────────────┐</span>
+  │                                                        │
+  │  ┌─────────────┐  ┌─────────────┐                     │
+  │  │ <span class="cy">Quadrant 0</span>   │  │ <span class="cy">Quadrant 1</span>   │    <span class="cm">Instruction</span>    │
+  │  │ Warp Sched  │  │ Warp Sched  │    <span class="cm">Cache (128KB)</span>  │
+  │  │ 32× FP32    │  │ 32× FP32    │                     │
+  │  │ 16× INT32   │  │ 16× INT32   │    <span class="st">Register File</span>  │
+  │  │ 1× Tensor   │  │ 1× Tensor   │    <span class="st">65,536 × 32-bit</span>│
+  │  │ 8× LD/ST    │  │ 8× LD/ST    │                     │
+  │  │ 4× SFU      │  │ 4× SFU      │    <span class="kw">Shared Memory</span>  │
+  │  └─────────────┘  └─────────────┘    <span class="kw">up to 228 KB</span>   │
+  │  ┌─────────────┐  ┌─────────────┐                     │
+  │  │ <span class="cy">Quadrant 2</span>   │  │ <span class="cy">Quadrant 3</span>   │    <span class="fn">L1 Cache</span>      │
+  │  │ Warp Sched  │  │ Warp Sched  │    <span class="fn">256 KB</span>         │
+  │  │ 32× FP32    │  │ 32× FP32    │                     │
+  │  │ 16× INT32   │  │ 16× INT32   │    <span class="pp">Tex Units</span>      │
+  │  │ 1× Tensor   │  │ 1× Tensor   │    <span class="pp">4×</span>             │
+  │  │ 8× LD/ST    │  │ 8× LD/ST    │                     │
+  │  │ 4× SFU      │  │ 4× SFU      │                     │
+  │  └─────────────┘  └─────────────┘                     │
+  │                                                        │
+  │  <span class="nm">Total: 128 FP32  ·  64 INT32  ·  4 Tensor Cores</span>       │
+  └────────────────────────────────────────────────────────┘
+</pre>
+</div>
+
+<h3>SM Components in Detail</h3>
+
+<p><strong>CUDA Cores (FP32/INT32 ALUs)</strong> &mdash; These are simple arithmetic units. An FP32 core can execute one single-precision floating-point add or multiply per clock. That's it. No branch prediction, no instruction decode&mdash;just pure math. 128 of them per SM on Hopper.</p>
+
+<p><strong>Special Function Units (SFUs)</strong> &mdash; Hardware implementations of transcendental functions: <code>sin</code>, <code>cos</code>, <code>exp</code>, <code>sqrt</code>, reciprocal. Much faster than software approximation but lower throughput&mdash;only 16 per SM.</p>
+
+<p><strong>Load/Store Units</strong> &mdash; Handle memory operations, calculating addresses and issuing requests to the memory system. 32 per SM on Hopper. These units are independent of the compute ALUs, which is why the scheduler can dual-issue a math instruction and a memory instruction in the same clock cycle.</p>
+
+<p><strong>Texture Units</strong> &mdash; Originally for graphics, but still useful for compute. They provide hardware-accelerated 2D/3D interpolation and boundary clamping. Four texture units per SM on Hopper, each capable of filtering 4 texels per clock.</p>
+
+<p><strong>Warp Schedulers</strong> &mdash; Each quadrant has one. Every cycle, the warp scheduler picks an eligible warp (one not stalled on a memory fetch or dependency) and issues its next instruction. On Hopper, each scheduler can dual-issue: one math instruction and one memory instruction in the same clock.</p>
+
+<h3>SM Resources Across Generations</h3>
+
+<table>
+<tr><th>Resource</th><th>Volta (V100)</th><th>Ampere (A100)</th><th>Hopper (H100)</th></tr>
+<tr><td>FP32 Cores/SM</td><td>64</td><td>64 (128 w/ INT path)</td><td>128</td></tr>
+<tr><td>Tensor Cores/SM</td><td>8</td><td>4 (3rd gen)</td><td>4 (4th gen)</td></tr>
+<tr><td>Registers/SM</td><td>65,536</td><td>65,536</td><td>65,536</td></tr>
+<tr><td>Shared Mem/SM</td><td>96 KB</td><td>164 KB</td><td>228 KB</td></tr>
+<tr><td>L1 Cache/SM</td><td>128 KB</td><td>192 KB</td><td>256 KB</td></tr>
+<tr><td>Warp Schedulers</td><td>4</td><td>4</td><td>4</td></tr>
+<tr><td>Total SMs</td><td>80</td><td>108</td><td>144</td></tr>
+<tr><td>Total FP32 Cores</td><td>5,120</td><td>6,912</td><td>18,432</td></tr>
+</table>
+
+<div class="power zen">
+<strong>Why Registers Matter:</strong> Each SM has 65,536 32-bit registers&mdash;that's 256 KB of register file, larger than any CPU's. Registers are the fastest storage on the GPU (zero extra latency). When a kernel uses 32 registers per thread with 2,048 threads per SM, it consumes all 65,536. Use more registers per thread? Fewer threads can be active. This is the occupancy tradeoff.
+</div>
+
+<h3>Warp Scheduler Deep Dive</h3>
+
+<p>Each warp scheduler maintains a pool of eligible warps&mdash;those not waiting on a memory fetch, a synchronization barrier, or a data dependency. Every single cycle, the scheduler selects one eligible warp and issues its next instruction. On Hopper, each of the 4 schedulers can <strong>dual-issue</strong>: one integer/float instruction and one memory instruction in the same clock, provided both pipelines are free.</p>
+
+<p>The critical insight: the warp scheduler has <strong>zero-cycle switching cost</strong> because it doesn't swap registers. All warps' registers live simultaneously in the register file. "Switching" is just changing which set of 32 register addresses the ALU reads from. This is fundamentally different from CPU context switching, where the OS must save and restore thousands of bytes of state.</p>
+
+<h3>SM Partitioning on Hopper</h3>
+
+<p>The Hopper SM's four quadrants aren't just an organizational convenience&mdash;they have real hardware implications. Each quadrant has its own:</p>
+
+<ul style="margin: 0.5rem 0 1rem 1.5rem;">
+<li><strong>Warp scheduler</strong> &mdash; independently selects and issues instructions</li>
+<li><strong>Register file partition</strong> &mdash; 16,384 registers (1/4 of 65,536)</li>
+<li><strong>FP32 datapath</strong> &mdash; 32 CUDA cores</li>
+<li><strong>Tensor Core</strong> &mdash; one 4th-gen unit</li>
+</ul>
+
+<p>Shared memory, L1 cache, and the texture units are shared across all four quadrants. A warp is permanently assigned to one quadrant and never migrates. This means a block of 256 threads (8 warps) will have 2 warps per quadrant.</p>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Query your GPU's SM details programmatically: <code>cudaDeviceGetAttribute(&amp;val, cudaDevAttrMultiProcessorCount, 0)</code> returns SM count. Combine with <code>cudaDevAttrMaxThreadsPerMultiProcessor</code>, <code>cudaDevAttrMaxRegistersPerMultiprocessor</code>, and <code>cudaDevAttrMaxSharedMemoryPerMultiprocessor</code> to understand your specific GPU's limits.</p>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch3">
+<h2>// 03 &mdash; Warps &amp; SIMT</h2>
+
+<p class="drop-cap">Thirty-two threads walk into a bar. They all order the same drink. That's a warp. The GPU's execution model is <strong>SIMT</strong>&mdash;Single Instruction, Multiple Thread. Every clock cycle, a warp scheduler issues one instruction to 32 threads simultaneously. They all execute the same opcode on different data. No thread gets to go rogue and do something different.</p>
+
+<p>Or can they? Here's where it gets interesting. What happens when your code has an <code>if/else</code>?</p>
+
+<h3>Warp Divergence</h3>
+
+<p>When threads within a warp take different branches, the hardware doesn't have separate instruction pointers for each thread. Instead, it <strong>serializes</strong>: first execute the <code>if</code> path with diverging threads masked off, then execute the <code>else</code> path with the other threads masked off. Both paths execute, but with some threads doing nothing.</p>
+
+<div class="mem-row">
+    <div class="mc g">T0</div><div class="mc g">T1</div><div class="mc d">T2</div><div class="mc g">T3</div>
+    <div class="mc d">T4</div><div class="mc g">T5</div><div class="mc g">T6</div><div class="mc d">T7</div>
+    <div class="mc g">T8</div><div class="mc g">T9</div><div class="mc d">10</div><div class="mc g">11</div>
+    <div class="mc d">12</div><div class="mc d">13</div><div class="mc g">14</div><div class="mc g">15</div>
+    <div class="mc g">16</div><div class="mc d">17</div><div class="mc g">18</div><div class="mc d">19</div>
+    <div class="mc g">20</div><div class="mc g">21</div><div class="mc d">22</div><div class="mc g">23</div>
+    <div class="mc d">24</div><div class="mc g">25</div><div class="mc g">26</div><div class="mc d">27</div>
+    <div class="mc g">28</div><div class="mc d">29</div><div class="mc g">30</div><div class="mc g">31</div>
+</div>
+<p style="font-size:0.85rem; color: var(--text-dim); text-align: center;"><span style="color:var(--green);">green</span> = active on <code>if</code> path &nbsp;|&nbsp; <span style="color:var(--text-dim);">dim</span> = masked (idle but still consuming a slot)</p>
+
+<p>In the worst case, an <code>if/else</code> inside a warp achieves only <strong>50% efficiency</strong>: half the threads execute each path, meaning the warp takes twice as long. Nest a few conditionals and you can tank performance to near zero.</p>
+
+<div class="vs">
+<div>
+<h4>Divergent (bad)</h4>
+<pre><code><span class="cm">// Threads in same warp diverge</span>
+<span class="kw">if</span> (threadIdx.x % <span class="nm">2</span> == <span class="nm">0</span>) {
+    result = <span class="fn">heavy_math</span>(a);
+} <span class="kw">else</span> {
+    result = <span class="fn">other_math</span>(b);
+}
+<span class="cm">// 50% efficiency: both paths run</span></code></pre>
+</div>
+<div>
+<h4>Non-divergent (good)</h4>
+<pre><code><span class="cm">// Divergence aligned to warp boundary</span>
+<span class="kw">if</span> (threadIdx.x / <span class="nm">32</span> == <span class="nm">0</span>) {
+    result = <span class="fn">heavy_math</span>(a);
+} <span class="kw">else</span> {
+    result = <span class="fn">other_math</span>(b);
+}
+<span class="cm">// 100%: each warp takes one path</span></code></pre>
+</div>
+</div>
+
+<h3>Reconvergence</h3>
+
+<p>After divergent branches complete, threads <strong>reconverge</strong> at the Immediate Post-Dominator (IPD)&mdash;the first instruction guaranteed to be reached by all threads regardless of which branch they took. Pre-Volta GPUs used a hardware stack; since Volta, <strong>Independent Thread Scheduling</strong> allows threads to diverge and reconverge at finer granularity.</p>
+
+<div class="power hack">
+<strong>The Divergence Rule:</strong> If you must branch, make sure all 32 threads within each warp take the same path. Divergence between warps is free&mdash;different warps are independent. Divergence <em>within</em> a warp is where you pay. Structure your data so that nearby thread indices make the same decision.
+</div>
+
+<h3>Predication: How the Hardware Does It</h3>
+
+<p>When a warp encounters a branch, the hardware doesn't actually "skip" threads. Instead, it uses <strong>predication</strong>: every instruction carries a predicate mask. Threads whose predicate is false still occupy the pipeline slot&mdash;they just don't write their result. The instruction is issued, the ALU computes, but the write-back is suppressed. This is why divergence costs time: both paths truly execute.</p>
+
+<pre><code><span class="cm">// PTX-level view of divergent code</span>
+<span class="cm">// The compiler converts if/else into predicated instructions:</span>
+
+<span class="kw">setp</span>.eq.s32  p, %r1, <span class="nm">0</span>;        <span class="cm">// set predicate p if r1 == 0</span>
+<span class="kw">@p</span>   <span class="fn">add</span>.f32   %f3, %f1, %f2;   <span class="cm">// execute only if p is true</span>
+<span class="kw">@!p</span>  <span class="fn">mul</span>.f32   %f3, %f1, %f2;   <span class="cm">// execute only if p is false</span></code></pre>
+
+<p>For short branches (a few instructions), the compiler may predicate both sides and avoid divergence entirely. For longer branches, it uses the mask-and-serialize approach. The threshold is architecture-dependent, but as a rule: if your branch body is under ~7 instructions, predication often eliminates the cost.</p>
+
+<p>Since Volta's Independent Thread Scheduling, the reconvergence model changed significantly. Each thread now has its own program counter and call stack, allowing threads to diverge at arbitrary points and reconverge at arbitrary points&mdash;not just at the post-dominator. This enables cooperative patterns like producer-consumer within a warp, which would deadlock on pre-Volta hardware.</p>
+
+<p>The practical impact: warp-synchronous code that relied on implicit lockstep behavior (common in pre-Volta CUDA) may break on Volta+. You must use explicit <code>__syncwarp()</code> or <code>__shfl_sync()</code> (with the mask parameter) to guarantee synchronization. Old code that "worked" without barriers was actually relying on undefined behavior.</p>
+
+<details>
+<summary>Warp divergence in real workloads</summary>
+<div>
+<p>In practice, some divergence is unavoidable. Edge cases in image processing, boundary conditions in stencil codes, and early-exit conditions all cause divergence. The key is minimizing it and being aware of the cost.</p>
+<p><strong>Sorting trick:</strong> If your data has a property that determines the branch (e.g., positive vs negative values), sort the data by that property before processing. Adjacent elements will take the same branch, aligning divergence to warp boundaries.</p>
+<p><strong>Compaction trick:</strong> Use <code>__ballot_sync()</code> and warp-level primitives to compact elements that need different processing into separate arrays. Process each array with a divergence-free kernel.</p>
+</div>
+</details>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Write a kernel that computes different functions for odd vs even elements. First, use <code>threadIdx.x % 2</code> (divergent). Then restructure so elements 0&ndash;31 take one path and 32&ndash;63 take the other. Profile both with Nsight Compute&mdash;watch the "Warp Stall" and "Branch Efficiency" metrics.</p>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch4">
+<h2>// 04 &mdash; The Memory Hierarchy</h2>
+
+<p class="drop-cap">If you learn nothing else from this deep-dive, learn this chapter. The memory hierarchy is the single most important thing to understand about GPU programming. Your kernel's performance is almost never limited by compute&mdash;it's limited by how fast you can feed data to the ALUs. On an H100, the compute units can consume <span class="ticker">990 TFLOPS</span> of FP16, but global memory delivers only 3.35 TB/s. Do the math: at 2 bytes per FP16 value, that's 1.67 trillion values per second from memory, but the ALUs want 990 trillion operations per second. You're starved by a factor of ~300.</p>
+
+<h3>The Hierarchy</h3>
+
+<div class="diagram">
+<pre>
+                    <span class="st">▲ FASTER, SMALLER</span>
+
+           ┌──────────────────┐
+           │    <span class="nm">REGISTERS</span>      │   <span class="nm">~8 TB/s  ·  0 cycles  ·  255/thread</span>
+           │   256 KB per SM   │
+           └────────┬─────────┘
+                    │
+           ┌────────┴─────────┐
+           │  <span class="kw">SHARED MEMORY</span>   │   <span class="kw">~19 TB/s  ·  ~23 cycles  ·  228 KB/SM</span>
+           │   + L1 CACHE      │
+           └────────┬─────────┘
+                    │
+           ┌────────┴─────────┐
+           │    <span class="fn">L2 CACHE</span>      │   <span class="fn">~12 TB/s  ·  ~150 cycles  ·  50 MB</span>
+           └────────┬─────────┘
+                    │
+      ┌─────────────┴──────────────┐
+      │       <span class="pp">GLOBAL MEMORY</span>        │   <span class="pp">3.35 TB/s  ·  ~500 cycles  ·  80 GB</span>
+      │         (HBM3)             │
+      └────────────────────────────┘
+
+                    <span class="r">▼ SLOWER, BIGGER</span>
+</pre>
+</div>
+
+<table>
+<tr><th>Level</th><th>Bandwidth</th><th>Latency</th><th>Size (H100)</th><th>Scope</th></tr>
+<tr><td>Registers</td><td>~8 TB/s</td><td>0&ndash;1 cycles</td><td>256 KB/SM</td><td>Per thread</td></tr>
+<tr><td>Shared Memory</td><td>~19 TB/s</td><td>~23 cycles</td><td>Up to 228 KB/SM</td><td>Per block</td></tr>
+<tr><td>L1 Cache</td><td>~19 TB/s</td><td>~33 cycles</td><td>256 KB/SM (combined)</td><td>Per SM</td></tr>
+<tr><td>L2 Cache</td><td>~12 TB/s</td><td>~150 cycles</td><td>50 MB</td><td>All SMs</td></tr>
+<tr><td>Global (HBM3)</td><td>3.35 TB/s</td><td>~500 cycles</td><td>80 GB</td><td>All SMs</td></tr>
+</table>
+
+<h3>What Each Level Means for Your Code</h3>
+
+<p><strong>Registers</strong> are your fastest friends. Local variables, loop counters, intermediate results&mdash;these live in registers. But you get at most 255 per thread, and every register you use reduces the number of warps the SM can host simultaneously.</p>
+
+<p><strong>Shared memory</strong> is programmer-managed L1. You explicitly load data into it with <code>__shared__</code> declarations. All threads in a block can read/write it, making it perfect for inter-thread communication and data reuse. This is where tiling lives.</p>
+
+<p><strong>L1 cache</strong> on Hopper shares the same physical SRAM as shared memory. You can configure the split: more shared memory means less L1, and vice versa. The compiler and runtime handle L1 transparently.</p>
+
+<p><strong>L2 cache</strong> sits between all SMs and global memory. 50 MB on H100&mdash;large enough to hold working sets for many kernels. All SMs share it. Hopper introduced <strong>L2 cache partitioning</strong>: you can reserve a portion of L2 for a specific kernel's data using <code>cudaAccessPolicyWindow</code>, preventing other kernels from evicting your hot data.</p>
+
+<p><strong>Global memory (HBM)</strong> is the GPU's main memory. 80 GB of HBM3 on H100, accessed via a 5120-bit bus. Massive bandwidth by CPU standards, but a bottleneck for GPU compute. Every global memory access costs ~500 clock cycles. HBM (High Bandwidth Memory) achieves its throughput by stacking DRAM dies vertically and connecting them with thousands of through-silicon vias (TSVs). The H100's HBM3 uses a 5120-bit memory interface&mdash;compare that to a CPU's 128-bit DDR5 channel.</p>
+
+<div class="mem-row">
+    <div class="mc y">R</div><div class="mc y">R</div><div class="mc y">R</div><div class="mc y">R</div>
+    <div class="mc e">&middot;</div>
+    <div class="mc m">S</div><div class="mc m">S</div><div class="mc m">S</div><div class="mc m">S</div><div class="mc m">S</div><div class="mc m">S</div><div class="mc m">S</div><div class="mc m">S</div>
+    <div class="mc e">&middot;</div>
+    <div class="mc c">L1</div><div class="mc c">L1</div><div class="mc c">L1</div><div class="mc c">L1</div><div class="mc c">L1</div><div class="mc c">L1</div>
+    <div class="mc e">&middot;</div>
+    <div class="mc b">L2</div><div class="mc b">L2</div><div class="mc b">L2</div><div class="mc b">L2</div><div class="mc b">L2</div><div class="mc b">L2</div><div class="mc b">L2</div><div class="mc b">L2</div>
+</div>
+<p style="font-size:0.85rem; color: var(--text-dim); text-align: center;">
+    <span style="color:var(--yellow);">R</span>=Registers &nbsp;
+    <span style="color:var(--magenta);">S</span>=Shared &nbsp;
+    <span style="color:var(--cyan);">L1</span>=L1 Cache &nbsp;
+    <span style="color:var(--blue);">L2</span>=L2 Cache
+</p>
+
+<div class="power wild">
+<strong>The Arithmetic Intensity Rule:</strong> Your kernel's performance is determined by its <em>arithmetic intensity</em>&mdash;ops per byte loaded from memory. If your kernel does 1 FLOP per byte loaded from HBM, it can achieve at most 3.35 TFLOPS (limited by the 3.35 TB/s bandwidth). You need ~300 FLOPs per byte to actually saturate the H100's compute. Matrix multiply achieves this. Vector add does not.
+</div>
+
+<h3>Constant and Texture Memory</h3>
+
+<p>Two specialized memory spaces deserve mention. <strong>Constant memory</strong> is a 64 KB read-only region cached aggressively. When all threads in a warp read the same constant address, it's broadcast in a single cycle. Perfect for lookup tables, kernel parameters, and coefficients.</p>
+
+<p><strong>Texture memory</strong> goes through specialized hardware (texture units) that provides free 2D spatial locality optimization, hardware interpolation, and clamping. Originally designed for graphics, it's useful in any workload with 2D access patterns: image processing, physical simulation grids, and stencil computations.</p>
+
+<h3>Local Memory: The Silent Killer</h3>
+
+<p>When a thread uses more registers than available, the compiler "spills" excess variables to <strong>local memory</strong>. Despite the name, local memory is physically stored in global memory (HBM)&mdash;it just has per-thread addressing. A register spill turns a zero-cycle access into a ~500-cycle access. This is why Nsight Compute's "register spill" metric is so important to monitor.</p>
+
+<pre><code><span class="cm">// This array is too large for registers → spills to local memory</span>
+<span class="ty">float</span> big_array[<span class="nm">256</span>];  <span class="cm">// 256 × 4 bytes = 1 KB per thread!</span>
+<span class="cm">// With 1024 threads/block → 1 MB of local memory per block</span>
+<span class="cm">// Each access: ~500 cycles instead of 0 cycles</span></code></pre>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Compile your kernel with <code>nvcc --ptxas-options=-v</code> to see register usage, shared memory, and spill statistics per kernel. If you see <code>bytes spill stores</code> greater than zero, your kernel is using local memory. Try reducing register pressure by breaking the kernel into smaller functions or using <code>__launch_bounds__</code>.</p>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch5">
+<h2>// 05 &mdash; Kernel Launch</h2>
+
+<p class="drop-cap">The triple-chevron syntax is CUDA's signature move: <code>kernel&lt;&lt;&lt;grid, block&gt;&gt;&gt;(args)</code>. Those two parameters define the execution geometry. They determine how many threads will run, how they'll be grouped, and how they'll map to the hardware. Getting this right is the difference between a kernel that saturates the GPU and one that leaves 90% of it idle.</p>
+
+<h3>The Thread Hierarchy</h3>
+
+<p>A <strong>thread</strong> is the smallest unit of execution. 32 threads form a <strong>warp</strong> (hardware-level; you never explicitly create warps). Threads are grouped by the programmer into <strong>blocks</strong> (aka thread blocks or CTAs). Blocks are grouped into a <strong>grid</strong>. The runtime assigns blocks to SMs. You cannot control which SM runs which block.</p>
+
+<div class="diagram">
+<pre>
+  <span class="fn">GRID</span> (all blocks)
+  ┌──────────────────────────────────────────────┐
+  │  <span class="kw">Block(0,0)</span>    <span class="kw">Block(1,0)</span>    <span class="kw">Block(2,0)</span>    │
+  │  ┌──────────┐ ┌──────────┐ ┌──────────┐    │
+  │  │<span class="st">T0 T1..T31</span>│ │<span class="st">T0 T1..T31</span>│ │<span class="st">T0 T1..T31</span>│    │
+  │  │<span class="st">  warp 0  </span>│ │<span class="st">  warp 0  </span>│ │<span class="st">  warp 0  </span>│    │
+  │  │<span class="nm">T32..  T63</span>│ │<span class="nm">T32..  T63</span>│ │<span class="nm">T32..  T63</span>│    │
+  │  │<span class="nm">  warp 1  </span>│ │<span class="nm">  warp 1  </span>│ │<span class="nm">  warp 1  </span>│    │
+  │  │   ...     │ │   ...     │ │   ...     │    │
+  │  └──────────┘ └──────────┘ └──────────┘    │
+  │  <span class="kw">Block(0,1)</span>    <span class="kw">Block(1,1)</span>    <span class="kw">Block(2,1)</span>    │
+  │  └──────────┘ └──────────┘ └──────────┘    │
+  └──────────────────────────────────────────────┘
+</pre>
+</div>
+
+<h3>The Index Calculation</h3>
+
+<p>The most common line in all of CUDA:</p>
+
+<pre><code><span class="ty">int</span> idx = <span class="fn">blockDim</span>.x * <span class="fn">blockIdx</span>.x + <span class="fn">threadIdx</span>.x;</code></pre>
+
+<p>This gives each thread a unique global index. <code>threadIdx</code> is the thread's position within its block (0 to blockDim-1). <code>blockIdx</code> is the block's position within the grid. <code>blockDim</code> is the number of threads per block.</p>
+
+<h3>Vector Add &mdash; The Hello World</h3>
+
+<div class="lang-tabs">
+    <input type="radio" class="tc" id="t1-c" name="t1" checked>
+    <input type="radio" class="tpy" id="t1-py" name="t1">
+    <input type="radio" class="ttr" id="t1-tr" name="t1">
+    <div class="tab-bar">
+        <label for="t1-c">CUDA C</label>
+        <label for="t1-py">Python</label>
+        <label for="t1-tr">Triton</label>
+    </div>
+    <div class="tab-content c"><pre><code><span class="pp">__global__</span> <span class="kw">void</span> <span class="fn">vec_add</span>(<span class="ty">float</span> *a, <span class="ty">float</span> *b, <span class="ty">float</span> *c, <span class="ty">int</span> n) {
+    <span class="ty">int</span> idx = <span class="fn">blockDim</span>.x * <span class="fn">blockIdx</span>.x + <span class="fn">threadIdx</span>.x;
+    <span class="kw">if</span> (idx &lt; n)
+        c[idx] = a[idx] + b[idx];
+}
+
+<span class="cm">// Launch: 256 threads/block, enough blocks to cover n</span>
+<span class="ty">int</span> blocks = (n + <span class="nm">255</span>) / <span class="nm">256</span>;
+<span class="fn">vec_add</span>&lt;&lt;&lt;blocks, <span class="nm">256</span>&gt;&gt;&gt;(d_a, d_b, d_c, n);</code></pre></div>
+    <div class="tab-content py"><pre><code><span class="kw">from</span> numba <span class="kw">import</span> cuda
+<span class="kw">import</span> numpy <span class="kw">as</span> np
+
+<span class="pp">@cuda.jit</span>
+<span class="kw">def</span> <span class="fn">vec_add</span>(a, b, c, n):
+    idx = cuda.blockDim.x * cuda.blockIdx.x + cuda.threadIdx.x
+    <span class="kw">if</span> idx &lt; n:
+        c[idx] = a[idx] + b[idx]
+
+<span class="cm"># Launch</span>
+threads_per_block = <span class="nm">256</span>
+blocks = (n + threads_per_block - <span class="nm">1</span>) // threads_per_block
+<span class="fn">vec_add</span>[blocks, threads_per_block](d_a, d_b, d_c, n)</code></pre></div>
+    <div class="tab-content tr"><pre><code><span class="kw">import</span> triton
+<span class="kw">import</span> triton.language <span class="kw">as</span> tl
+
+<span class="pp">@triton.jit</span>
+<span class="kw">def</span> <span class="fn">vec_add_kernel</span>(a_ptr, b_ptr, c_ptr, n,
+                   <span class="ty">BLOCK_SIZE</span>: tl.constexpr):
+    pid = tl.<span class="fn">program_id</span>(<span class="nm">0</span>)
+    offsets = pid * <span class="ty">BLOCK_SIZE</span> + tl.<span class="fn">arange</span>(<span class="nm">0</span>, <span class="ty">BLOCK_SIZE</span>)
+    mask = offsets &lt; n
+    a = tl.<span class="fn">load</span>(a_ptr + offsets, mask=mask)
+    b = tl.<span class="fn">load</span>(b_ptr + offsets, mask=mask)
+    tl.<span class="fn">store</span>(c_ptr + offsets, a + b, mask=mask)
+
+<span class="cm"># Launch</span>
+grid = <span class="kw">lambda</span> meta: (triton.<span class="fn">cdiv</span>(n, meta[<span class="st">'BLOCK_SIZE'</span>]),)
+<span class="fn">vec_add_kernel</span>[grid](a, b, c, n, <span class="ty">BLOCK_SIZE</span>=<span class="nm">1024</span>)</code></pre></div>
+</div>
+
+<div class="power">
+<strong>Block Size Rules of Thumb:</strong> Always use a multiple of 32 (warp size). Common choices: 128, 256, 512. Maximum 1024 threads per block. Maximum 2048 threads per SM. More threads per block means more shared memory consumption but potentially better occupancy.
+</div>
+
+<h3>Multi-Dimensional Grids and Blocks</h3>
+
+<p>Both grids and blocks can be 1D, 2D, or 3D. For image processing, a 2D block of <code>(32, 8)</code> naturally maps to a 32&times;8 pixel tile. For volumetric data, a 3D block of <code>(8, 8, 4)</code> maps to a small cube. The index calculation generalizes:</p>
+
+<pre><code><span class="cm">// 2D grid, 2D block — common for image/matrix operations</span>
+<span class="ty">int</span> x = blockIdx.x * blockDim.x + threadIdx.x;
+<span class="ty">int</span> y = blockIdx.y * blockDim.y + threadIdx.y;
+<span class="ty">int</span> idx = y * width + x;
+
+<span class="cm">// 3D grid — common for physics simulations</span>
+<span class="ty">int</span> x = blockIdx.x * blockDim.x + threadIdx.x;
+<span class="ty">int</span> y = blockIdx.y * blockDim.y + threadIdx.y;
+<span class="ty">int</span> z = blockIdx.z * blockDim.z + threadIdx.z;
+<span class="ty">int</span> idx = z * (width * height) + y * width + x;</code></pre>
+
+<h3>Grid-Stride Loops</h3>
+
+<p>What if your data has more elements than threads in your grid? Use a <strong>grid-stride loop</strong>: each thread processes multiple elements, striding by the total number of threads. This pattern is more flexible than launching exactly enough threads, and it naturally handles arbitrary data sizes.</p>
+
+<pre><code><span class="pp">__global__</span> <span class="kw">void</span> <span class="fn">process</span>(<span class="ty">float</span> *data, <span class="ty">int</span> n) {
+    <span class="ty">int</span> stride = blockDim.x * gridDim.x;
+    <span class="kw">for</span> (<span class="ty">int</span> i = blockDim.x * blockIdx.x + threadIdx.x;
+         i &lt; n; i += stride) {
+        data[i] = <span class="fn">sqrtf</span>(data[i]);  <span class="cm">// each thread handles multiple elements</span>
+    }
+}</code></pre>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Launch a vector add with block sizes of 32, 128, 256, 512, and 1024 on a large array (100M elements). Profile each with <code>nsys profile</code>. You'll see diminishing returns above 256 for this memory-bound kernel.</p>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch6">
+<h2>// 06 &mdash; Occupancy</h2>
+
+<p class="drop-cap">Occupancy is the ratio of active warps to the maximum number of warps an SM can support. On Hopper, each SM can hold up to 64 warps (2,048 threads). If your kernel configuration results in only 32 active warps, your occupancy is 50%. The intuition is simple: higher occupancy means more warps available to hide memory latency. But intuition and reality diverge in interesting ways.</p>
+
+<h3>The Three Limiters</h3>
+
+<p>Three resources determine how many warps can be active on an SM:</p>
+
+<p><strong>1. Registers per thread.</strong> Each SM has 65,536 registers. If your kernel uses 64 registers per thread, each warp (32 threads) consumes 2,048 registers. Max warps = 65,536 / 2,048 = 32 warps = 50% occupancy.</p>
+
+<p><strong>2. Shared memory per block.</strong> If your block uses 96 KB of shared memory and the SM has 228 KB, you can fit at most 2 blocks per SM. If each block has 256 threads (8 warps), that's only 16 warps = 25% occupancy.</p>
+
+<p><strong>3. Threads per block.</strong> Max 2,048 threads per SM. If your block has 1,024 threads, at most 2 blocks per SM. If 512 threads, up to 4 blocks.</p>
+
+<table>
+<tr><th>Regs/Thread</th><th>Warps/SM</th><th>Occupancy</th><th>Comment</th></tr>
+<tr><td>32</td><td>64</td><td>100%</td><td>Maximum warps, might spill to local memory</td></tr>
+<tr><td>48</td><td>42</td><td>66%</td><td>Good balance for many kernels</td></tr>
+<tr><td>64</td><td>32</td><td>50%</td><td>Common for compute-heavy kernels</td></tr>
+<tr><td>96</td><td>21</td><td>33%</td><td>Heavy kernel, still viable</td></tr>
+<tr><td>128</td><td>16</td><td>25%</td><td>Register-heavy, may still be optimal</td></tr>
+<tr><td>255</td><td>8</td><td>12.5%</td><td>Maximum registers, minimal occupancy</td></tr>
+</table>
+
+<h3>The Occupancy Paradox</h3>
+
+<p>Here's the plot twist: <strong>100% occupancy does not mean maximum performance</strong>. Sometimes a kernel with 50% occupancy that uses more registers per thread (keeping values in fast registers instead of spilling to slow local memory) outperforms the same kernel constrained to fewer registers at 100% occupancy.</p>
+
+<p>The key metric isn't occupancy&mdash;it's <strong>achieved bandwidth</strong> or <strong>achieved compute throughput</strong>. Occupancy is a means, not an end.</p>
+
+<div class="lang-tabs">
+    <input type="radio" class="tc" id="t4-c" name="t4" checked>
+    <input type="radio" class="tpy" id="t4-py" name="t4">
+    <input type="radio" class="ttr" id="t4-tr" name="t4">
+    <div class="tab-bar">
+        <label for="t4-c">CUDA C</label>
+        <label for="t4-py">Python</label>
+        <label for="t4-tr">Triton</label>
+    </div>
+    <div class="tab-content c"><pre><code><span class="cm">// Use __launch_bounds__ to hint the compiler</span>
+<span class="cm">// maxThreadsPerBlock, minBlocksPerSM</span>
+<span class="pp">__global__ __launch_bounds__(256, 4)</span>
+<span class="kw">void</span> <span class="fn">my_kernel</span>(<span class="ty">float</span> *data) {
+    <span class="cm">// Compiler will use at most 64 regs/thread</span>
+    <span class="cm">// to ensure 4 blocks × 256 threads fit on SM</span>
+    <span class="cm">// 4 × 256 = 1024 threads → 32 warps → 50% occupancy</span>
+}
+
+<span class="cm">// Or limit registers directly at compile time:</span>
+<span class="cm">// nvcc --maxrregcount=40 kernel.cu</span></code></pre></div>
+    <div class="tab-content py"><pre><code><span class="cm"># Numba: control registers via max_registers kwarg</span>
+<span class="pp">@cuda.jit</span>(max_registers=<span class="nm">40</span>)
+<span class="kw">def</span> <span class="fn">my_kernel</span>(data):
+    idx = cuda.grid(<span class="nm">1</span>)
+    <span class="cm"># Numba limits register usage for this kernel</span>
+    <span class="cm"># Higher occupancy at the cost of potential spills</span>
+    data[idx] = data[idx] * <span class="nm">2.0</span>
+
+<span class="cm"># Check occupancy programmatically</span>
+max_threads = cuda.<span class="fn">get_current_device</span>().MAX_THREADS_PER_BLOCK
+<span class="fn">print</span>(<span class="st">f"Max threads per block: </span>{max_threads}<span class="st">"</span>)</code></pre></div>
+    <div class="tab-content tr"><pre><code><span class="cm"># Triton auto-tunes block size and num_warps</span>
+<span class="pp">@triton.autotune</span>(
+    configs=[
+        triton.<span class="fn">Config</span>({<span class="st">'BLOCK'</span>: <span class="nm">128</span>}, num_warps=<span class="nm">4</span>),
+        triton.<span class="fn">Config</span>({<span class="st">'BLOCK'</span>: <span class="nm">256</span>}, num_warps=<span class="nm">4</span>),
+        triton.<span class="fn">Config</span>({<span class="st">'BLOCK'</span>: <span class="nm">512</span>}, num_warps=<span class="nm">8</span>),
+        triton.<span class="fn">Config</span>({<span class="st">'BLOCK'</span>: <span class="nm">1024</span>}, num_warps=<span class="nm">8</span>),
+    ],
+    key=[<span class="st">'n'</span>],
+)
+<span class="pp">@triton.jit</span>
+<span class="kw">def</span> <span class="fn">auto_kernel</span>(x_ptr, n, <span class="ty">BLOCK</span>: tl.constexpr):
+    <span class="cm"># Triton picks the best config automatically</span>
+    pid = tl.<span class="fn">program_id</span>(<span class="nm">0</span>)
+    offs = pid * <span class="ty">BLOCK</span> + tl.<span class="fn">arange</span>(<span class="nm">0</span>, <span class="ty">BLOCK</span>)
+    mask = offs &lt; n
+    x = tl.<span class="fn">load</span>(x_ptr + offs, mask=mask)
+    tl.<span class="fn">store</span>(x_ptr + offs, x * <span class="nm">2</span>, mask=mask)</code></pre></div>
+</div>
+
+<div class="power zen">
+<strong>Occupancy Sweet Spot:</strong> Most kernels perform well between 50% and 75% occupancy. Below 25%, you likely don't have enough warps to hide memory latency. Above 75%, you're probably constraining register usage for diminishing returns. Use <code>--maxrregcount</code> to experiment with different register limits and profile each.
+</div>
+
+<details>
+<summary>Calculating Occupancy: A Worked Example</summary>
+<div>
+<p>Kernel config: 256 threads/block, 48 registers/thread, 8 KB shared memory/block. Target: H100 SM.</p>
+<p><strong>Register limit:</strong> 256 threads × 48 regs = 12,288 regs/block. 65,536 / 12,288 = 5 blocks max.</p>
+<p><strong>Shared memory limit:</strong> 228 KB / 8 KB = 28 blocks max.</p>
+<p><strong>Thread limit:</strong> 2,048 / 256 = 8 blocks max.</p>
+<p><strong>Blocks per SM:</strong> min(5, 28, 8) = <strong>5 blocks</strong></p>
+<p><strong>Active warps:</strong> 5 × (256/32) = 40 warps</p>
+<p><strong>Occupancy:</strong> 40 / 64 = <strong>62.5%</strong></p>
+<p>The bottleneck here is registers. Reducing to 40 regs/thread would allow 6 blocks (75% occupancy).</p>
+</div>
+</details>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch7">
+<h2>// 07 &mdash; Memory Coalescing</h2>
+
+<p class="drop-cap">When a warp executes a load instruction, 32 threads each request a memory address. The memory controller examines these 32 addresses and tries to combine them into as few <strong>128-byte cache line</strong> transactions as possible. If all 32 threads access consecutive 4-byte floats starting at a 128-byte aligned address, that's one transaction. If they access random locations scattered across memory, that's up to 32 transactions. The performance difference is <strong>not subtle</strong>&mdash;it's 10&times; to 32&times;.</p>
+
+<h3>Coalesced Access Pattern</h3>
+
+<p>Thread <em>k</em> accesses address <code>base + k * sizeof(float)</code>. All 32 accesses fall within a single 128-byte cache line (32 × 4 = 128 bytes). One memory transaction serves the entire warp.</p>
+
+<div class="mem-row">
+    <div class="mc g">T0</div><div class="mc g">T1</div><div class="mc g">T2</div><div class="mc g">T3</div>
+    <div class="mc g">T4</div><div class="mc g">T5</div><div class="mc g">T6</div><div class="mc g">T7</div>
+    <div class="mc g">T8</div><div class="mc g">T9</div><div class="mc g">10</div><div class="mc g">11</div>
+    <div class="mc g">12</div><div class="mc g">13</div><div class="mc g">14</div><div class="mc g">15</div>
+    <div class="mc g">16</div><div class="mc g">17</div><div class="mc g">18</div><div class="mc g">19</div>
+    <div class="mc g">20</div><div class="mc g">21</div><div class="mc g">22</div><div class="mc g">23</div>
+    <div class="mc g">24</div><div class="mc g">25</div><div class="mc g">26</div><div class="mc g">27</div>
+    <div class="mc g">28</div><div class="mc g">29</div><div class="mc g">30</div><div class="mc g">31</div>
+</div>
+<p style="font-size:0.85rem; color: var(--text-dim); text-align: center;">1 transaction &mdash; all 32 threads in one 128-byte cache line</p>
+
+<h3>Strided Access Pattern</h3>
+
+<p>Thread <em>k</em> accesses <code>base + k * stride * sizeof(float)</code> where stride &gt; 1. With stride=2, you need 2 cache lines. With stride=32, every thread hits a different cache line: 32 transactions for 32 values.</p>
+
+<div class="mem-row">
+    <div class="mc g">T0</div><div class="mc d">&middot;</div><div class="mc g">T1</div><div class="mc d">&middot;</div>
+    <div class="mc g">T2</div><div class="mc d">&middot;</div><div class="mc g">T3</div><div class="mc d">&middot;</div>
+    <div class="mc g">T4</div><div class="mc d">&middot;</div><div class="mc g">T5</div><div class="mc d">&middot;</div>
+    <div class="mc g">T6</div><div class="mc d">&middot;</div><div class="mc g">T7</div><div class="mc d">&middot;</div>
+    <div class="mc g">T8</div><div class="mc d">&middot;</div><div class="mc g">T9</div><div class="mc d">&middot;</div>
+    <div class="mc g">10</div><div class="mc d">&middot;</div><div class="mc g">11</div><div class="mc d">&middot;</div>
+    <div class="mc g">12</div><div class="mc d">&middot;</div><div class="mc g">13</div><div class="mc d">&middot;</div>
+    <div class="mc g">14</div><div class="mc d">&middot;</div><div class="mc g">15</div><div class="mc d">&middot;</div>
+</div>
+<p style="font-size:0.85rem; color: var(--text-dim); text-align: center;">Stride-2: 2 transactions &mdash; half the bytes fetched are wasted</p>
+
+<h3>Array of Structures vs Structure of Arrays</h3>
+
+<div class="vs">
+<div>
+<h4>AoS (bad for GPU)</h4>
+<pre><code><span class="kw">struct</span> <span class="ty">Particle</span> {
+    <span class="ty">float</span> x, y, z, w;
+};
+<span class="cm">// particle[i].x → stride-4 access</span>
+<span class="cm">// Threads read x values 16 bytes apart</span></code></pre>
+</div>
+<div>
+<h4>SoA (good for GPU)</h4>
+<pre><code><span class="kw">struct</span> <span class="ty">Particles</span> {
+    <span class="ty">float</span> *x, *y, *z, *w;
+};
+<span class="cm">// x[i] → stride-1 access</span>
+<span class="cm">// Threads read x values 4 bytes apart</span></code></pre>
+</div>
+</div>
+
+<div class="power danger">
+<strong>The Coalescing Tax:</strong> An uncoalesced access pattern doesn't just waste bandwidth&mdash;it also wastes cache space. Each unnecessary 128-byte fetch evicts useful data from L1/L2. The compound effect can make a kernel 10&ndash;32&times; slower. Always lay out your data so that consecutive threads access consecutive addresses.
+</div>
+
+<h3>Measuring Coalescing Efficiency</h3>
+
+<p>Nsight Compute reports two key metrics: <code>l1tex__t_sectors_pipe_lsu_mem_global_op_ld.avg</code> (average sectors requested per load) and the ideal minimum. For perfectly coalesced FP32 loads, 32 threads &times; 4 bytes = 128 bytes = 4 sectors (each sector is 32 bytes). If you see 32 sectors average, every thread is hitting a different cache line.</p>
+
+<div class="lang-tabs">
+    <input type="radio" class="tc" id="t5-c" name="t5" checked>
+    <input type="radio" class="tpy" id="t5-py" name="t5">
+    <input type="radio" class="ttr" id="t5-tr" name="t5">
+    <div class="tab-bar">
+        <label for="t5-c">CUDA C</label>
+        <label for="t5-py">Python</label>
+        <label for="t5-tr">Triton</label>
+    </div>
+    <div class="tab-content c"><pre><code><span class="cm">// Matrix transpose — naive (uncoalesced writes)</span>
+<span class="pp">__global__</span> <span class="kw">void</span> <span class="fn">transpose_naive</span>(<span class="ty">float</span> *out, <span class="ty">float</span> *in, <span class="ty">int</span> N) {
+    <span class="ty">int</span> x = blockIdx.x * <span class="nm">32</span> + threadIdx.x;
+    <span class="ty">int</span> y = blockIdx.y * <span class="nm">32</span> + threadIdx.y;
+    <span class="kw">if</span> (x &lt; N &amp;&amp; y &lt; N)
+        out[x * N + y] = in[y * N + x]; <span class="cm">// write is stride-N!</span>
+}
+
+<span class="cm">// Matrix transpose — tiled (coalesced reads AND writes)</span>
+<span class="pp">__global__</span> <span class="kw">void</span> <span class="fn">transpose_tiled</span>(<span class="ty">float</span> *out, <span class="ty">float</span> *in, <span class="ty">int</span> N) {
+    <span class="pp">__shared__</span> <span class="ty">float</span> tile[<span class="nm">32</span>][<span class="nm">33</span>]; <span class="cm">// +1 padding for bank conflicts</span>
+    <span class="ty">int</span> x = blockIdx.x * <span class="nm">32</span> + threadIdx.x;
+    <span class="ty">int</span> y = blockIdx.y * <span class="nm">32</span> + threadIdx.y;
+    <span class="kw">if</span> (x &lt; N &amp;&amp; y &lt; N)
+        tile[threadIdx.y][threadIdx.x] = in[y * N + x]; <span class="cm">// coalesced read</span>
+    <span class="fn">__syncthreads</span>();
+    x = blockIdx.y * <span class="nm">32</span> + threadIdx.x; <span class="cm">// swap block indices</span>
+    y = blockIdx.x * <span class="nm">32</span> + threadIdx.y;
+    <span class="kw">if</span> (x &lt; N &amp;&amp; y &lt; N)
+        out[y * N + x] = tile[threadIdx.x][threadIdx.y]; <span class="cm">// coalesced write</span>
+}</code></pre></div>
+    <div class="tab-content py"><pre><code><span class="pp">@cuda.jit</span>
+<span class="kw">def</span> <span class="fn">transpose_tiled</span>(out, inp, N):
+    tile = cuda.shared.array((<span class="nm">32</span>, <span class="nm">33</span>), dtype=float32)
+    tx, ty = cuda.threadIdx.x, cuda.threadIdx.y
+    x = cuda.blockIdx.x * <span class="nm">32</span> + tx
+    y = cuda.blockIdx.y * <span class="nm">32</span> + ty
+    <span class="kw">if</span> x &lt; N <span class="kw">and</span> y &lt; N:
+        tile[ty, tx] = inp[y, x]
+    cuda.<span class="fn">syncthreads</span>()
+    x = cuda.blockIdx.y * <span class="nm">32</span> + tx
+    y = cuda.blockIdx.x * <span class="nm">32</span> + ty
+    <span class="kw">if</span> x &lt; N <span class="kw">and</span> y &lt; N:
+        out[y, x] = tile[tx, ty]</code></pre></div>
+    <div class="tab-content tr"><pre><code><span class="pp">@triton.jit</span>
+<span class="kw">def</span> <span class="fn">transpose_kernel</span>(in_ptr, out_ptr, N,
+                    <span class="ty">BLOCK</span>: tl.constexpr):
+    pid_x = tl.<span class="fn">program_id</span>(<span class="nm">0</span>)
+    pid_y = tl.<span class="fn">program_id</span>(<span class="nm">1</span>)
+    offs_x = pid_x * <span class="ty">BLOCK</span> + tl.<span class="fn">arange</span>(<span class="nm">0</span>, <span class="ty">BLOCK</span>)
+    offs_y = pid_y * <span class="ty">BLOCK</span> + tl.<span class="fn">arange</span>(<span class="nm">0</span>, <span class="ty">BLOCK</span>)
+    <span class="cm"># Load tile (coalesced along x)</span>
+    src = tl.<span class="fn">load</span>(in_ptr + offs_y[:, <span class="kw">None</span>] * N + offs_x[<span class="kw">None</span>, :])
+    <span class="cm"># Store transposed (coalesced along y)</span>
+    tl.<span class="fn">store</span>(out_ptr + offs_x[:, <span class="kw">None</span>] * N + offs_y[<span class="kw">None</span>, :],
+            tl.<span class="fn">trans</span>(src))</code></pre></div>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Profile both the naive and tiled transpose with Nsight Compute on a 4096&times;4096 matrix. Compare the <code>dram__bytes_read</code> metric. The naive version will read ~2&times; the actual data size due to wasted cache lines. The tiled version will be within a few percent of optimal.</p>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch8">
+<h2>// 08 &mdash; Bank Conflicts</h2>
+
+<p class="drop-cap">Shared memory is divided into 32 <strong>banks</strong>, each 4 bytes wide. Consecutive 32-bit words map to consecutive banks: address 0 goes to bank 0, address 4 to bank 1, address 8 to bank 2, and so on. Bank 32 wraps around to bank 0. When all 32 threads in a warp access different banks, the entire operation completes in a single cycle. When two or more threads access <em>different addresses</em> in the <em>same bank</em>, those accesses are serialized.</p>
+
+<h3>How Banks Are Laid Out</h3>
+
+<div class="diagram">
+<pre>
+  <span class="cm">Address:  0x00  0x04  0x08  0x0C  ...  0x7C</span>
+  <span class="fn">Bank:       0     1     2     3   ...    31</span>
+
+  <span class="cm">Address:  0x80  0x84  0x88  0x8C  ...  0xFC</span>
+  <span class="fn">Bank:       0     1     2     3   ...    31</span>    <span class="cm">(wraps)</span>
+
+  <span class="cm">Address:  0x100 0x104 0x108 0x10C ...  0x17C</span>
+  <span class="fn">Bank:       0     1     2     3   ...    31</span>    <span class="cm">(wraps again)</span>
+</pre>
+</div>
+
+<h3>Conflict Examples</h3>
+
+<h4>No Conflict &mdash; Linear Access</h4>
+<p>Thread <em>k</em> reads <code>smem[k]</code>. Each thread hits a different bank.</p>
+
+<div class="mem-row">
+    <div class="mc g">B0</div><div class="mc g">B1</div><div class="mc g">B2</div><div class="mc g">B3</div>
+    <div class="mc g">B4</div><div class="mc g">B5</div><div class="mc g">B6</div><div class="mc g">B7</div>
+    <div class="mc g">B8</div><div class="mc g">B9</div><div class="mc g">10</div><div class="mc g">11</div>
+    <div class="mc g">12</div><div class="mc g">13</div><div class="mc g">14</div><div class="mc g">15</div>
+    <div class="mc g">16</div><div class="mc g">17</div><div class="mc g">18</div><div class="mc g">19</div>
+    <div class="mc g">20</div><div class="mc g">21</div><div class="mc g">22</div><div class="mc g">23</div>
+    <div class="mc g">24</div><div class="mc g">25</div><div class="mc g">26</div><div class="mc g">27</div>
+    <div class="mc g">28</div><div class="mc g">29</div><div class="mc g">30</div><div class="mc g">31</div>
+</div>
+<p style="font-size:0.85rem; color: var(--text-dim); text-align: center;">0-way conflict &mdash; 1 cycle</p>
+
+<h4>32-Way Conflict &mdash; Column Access</h4>
+<p>Thread <em>k</em> reads <code>smem[k * 32]</code>. Every thread hits bank 0. Fully serialized.</p>
+
+<div class="mem-row">
+    <div class="mc r">B0</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div>
+    <div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div>
+    <div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div>
+    <div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div>
+    <div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div>
+    <div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div>
+    <div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div>
+    <div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div>
+</div>
+<p style="font-size:0.85rem; color: var(--text-dim); text-align: center;">32-way conflict &mdash; 32 cycles (all threads hit bank 0)</p>
+
+<h3>The Padding Fix</h3>
+
+<p>The classic solution for matrix transpose or column-major access: <strong>pad each row</strong> by one element. Instead of <code>__shared__ float tile[32][32]</code>, use <code>__shared__ float tile[32][33]</code>. The extra column shifts each row's bank alignment by one, eliminating conflicts.</p>
+
+<pre><code><span class="cm">// 32-way bank conflict on column access</span>
+<span class="pp">__shared__</span> <span class="ty">float</span> tile[<span class="nm">32</span>][<span class="nm">32</span>];
+<span class="cm">// Thread k reads tile[k][col] → all hit same bank</span>
+
+<span class="cm">// Fixed: pad by 1</span>
+<span class="pp">__shared__</span> <span class="ty">float</span> tile[<span class="nm">32</span>][<span class="nm">33</span>];  <span class="cm">// +1 padding</span>
+<span class="cm">// Now tile[k][col] hits bank (k + col) % 32 → conflict-free</span></code></pre>
+
+<div class="power">
+<strong>Broadcast Exception:</strong> If multiple threads read the <em>exact same address</em> in the same bank, that's not a conflict&mdash;it's a <strong>broadcast</strong>. The hardware fetches the value once and distributes it to all requesting threads in a single cycle. Only <em>different addresses</em> in the <em>same bank</em> cause serialization.
+</div>
+
+<h3>2-Way Conflict Example</h3>
+
+<p>Thread <em>k</em> reads <code>smem[k * 2]</code>. Even threads hit banks 0, 2, 4... and odd threads hit banks 1, 3, 5... But thread 0 and thread 16 both hit bank 0. Thread 1 and thread 17 both hit bank 2. Each bank is accessed by exactly 2 threads: a 2-way conflict that takes 2 cycles instead of 1.</p>
+
+<div class="mem-row">
+    <div class="mc o">B0</div><div class="mc e">&middot;</div><div class="mc o">B2</div><div class="mc e">&middot;</div>
+    <div class="mc o">B4</div><div class="mc e">&middot;</div><div class="mc o">B6</div><div class="mc e">&middot;</div>
+    <div class="mc o">B8</div><div class="mc e">&middot;</div><div class="mc o">10</div><div class="mc e">&middot;</div>
+    <div class="mc o">12</div><div class="mc e">&middot;</div><div class="mc o">14</div><div class="mc e">&middot;</div>
+    <div class="mc o">16</div><div class="mc e">&middot;</div><div class="mc o">18</div><div class="mc e">&middot;</div>
+    <div class="mc o">20</div><div class="mc e">&middot;</div><div class="mc o">22</div><div class="mc e">&middot;</div>
+    <div class="mc o">24</div><div class="mc e">&middot;</div><div class="mc o">26</div><div class="mc e">&middot;</div>
+    <div class="mc o">28</div><div class="mc e">&middot;</div><div class="mc o">30</div><div class="mc e">&middot;</div>
+</div>
+<p style="font-size:0.85rem; color: var(--text-dim); text-align: center;">2-way conflict &mdash; 2 cycles (threads 0&amp;16 share bank 0, threads 1&amp;17 share bank 2, etc.)</p>
+
+<h3>64-bit (double) Access</h3>
+
+<p>When accessing 64-bit values (<code>double</code>, <code>long long</code>), each access spans two consecutive banks. Linear access <code>smem[k]</code> where <code>smem</code> is <code>double*</code> results in thread <em>k</em> accessing banks <em>2k</em> and <em>2k+1</em>. Threads 0&ndash;15 use banks 0&ndash;31, and threads 16&ndash;31 conflict with threads 0&ndash;15. Result: automatic 2-way conflict for any linear access pattern on 64-bit data.</p>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Write a kernel that reads a column of a 32&times;32 shared memory matrix. Profile with Nsight Compute and look at the <code>l1tex__data_bank_conflicts_pipe_lsu</code> metric. Then add the +1 padding and profile again. The metric should drop to zero.</p>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch9">
+<h2>// 09 &mdash; Warp-Level Primitives</h2>
+
+<p class="drop-cap">Before warp-level primitives, if thread 5 wanted a value from thread 12, it had to go through shared memory: write to a shared address, call <code>__syncthreads()</code>, then read. That's at least 23 cycles of latency plus a synchronization barrier. Warp shuffle instructions let threads exchange values directly through the register file in a single instruction. No shared memory. No barriers. Just a whisper between threads.</p>
+
+<h3>Shuffle Operations</h3>
+
+<pre><code><span class="cm">// Get the value of 'val' from lane 'srcLane'</span>
+<span class="ty">int</span> result = <span class="fn">__shfl_sync</span>(<span class="nm">0xFFFFFFFF</span>, val, srcLane);
+
+<span class="cm">// Get value from lane (myLane + delta)</span>
+<span class="ty">int</span> result = <span class="fn">__shfl_down_sync</span>(<span class="nm">0xFFFFFFFF</span>, val, delta);
+
+<span class="cm">// Get value from lane (myLane - delta)</span>
+<span class="ty">int</span> result = <span class="fn">__shfl_up_sync</span>(<span class="nm">0xFFFFFFFF</span>, val, delta);
+
+<span class="cm">// Get value from lane (myLane XOR laneMask)</span>
+<span class="ty">int</span> result = <span class="fn">__shfl_xor_sync</span>(<span class="nm">0xFFFFFFFF</span>, val, laneMask);</code></pre>
+
+<div class="diagram">
+<pre>
+  <span class="fn">__shfl_down_sync(0xFF, val, 1)</span> — Each thread gets value from thread+1
+
+  Lane:   0    1    2    3    4    5    6    7
+  Val:  [<span class="st">10</span>] [<span class="st">20</span>] [<span class="st">30</span>] [<span class="st">40</span>] [<span class="st">50</span>] [<span class="st">60</span>] [<span class="st">70</span>] [<span class="st">80</span>]
+           ╲    ╲    ╲    ╲    ╲    ╲    ╲
+  Result: [<span class="nm">20</span>] [<span class="nm">30</span>] [<span class="nm">40</span>] [<span class="nm">50</span>] [<span class="nm">60</span>] [<span class="nm">70</span>] [<span class="nm">80</span>] [<span class="nm">80</span>]
+
+  <span class="fn">__shfl_xor_sync(0xFF, val, 1)</span> — Butterfly exchange
+
+  Lane:   0    1    2    3    4    5    6    7
+  Val:  [<span class="st">10</span>] [<span class="st">20</span>] [<span class="st">30</span>] [<span class="st">40</span>] [<span class="st">50</span>] [<span class="st">60</span>] [<span class="st">70</span>] [<span class="st">80</span>]
+          ╲  ╱    ╲  ╱    ╲  ╱    ╲  ╱
+  Result: [<span class="nm">20</span>] [<span class="nm">10</span>] [<span class="nm">40</span>] [<span class="nm">30</span>] [<span class="nm">60</span>] [<span class="nm">50</span>] [<span class="nm">80</span>] [<span class="nm">70</span>]
+</pre>
+</div>
+
+<h3>Warp-Level Reduction</h3>
+
+<p>The classic use case: summing 32 values across a warp without shared memory.</p>
+
+<div class="lang-tabs">
+    <input type="radio" class="tc" id="t2-c" name="t2" checked>
+    <input type="radio" class="tpy" id="t2-py" name="t2">
+    <input type="radio" class="ttr" id="t2-tr" name="t2">
+    <div class="tab-bar">
+        <label for="t2-c">CUDA C</label>
+        <label for="t2-py">Python</label>
+        <label for="t2-tr">Triton</label>
+    </div>
+    <div class="tab-content c"><pre><code><span class="pp">__device__</span> <span class="ty">float</span> <span class="fn">warp_reduce_sum</span>(<span class="ty">float</span> val) {
+    <span class="kw">for</span> (<span class="ty">int</span> offset = <span class="nm">16</span>; offset > <span class="nm">0</span>; offset >>= <span class="nm">1</span>)
+        val += <span class="fn">__shfl_down_sync</span>(<span class="nm">0xFFFFFFFF</span>, val, offset);
+    <span class="kw">return</span> val;  <span class="cm">// Result valid in lane 0 only</span>
+}
+<span class="cm">// 5 instructions, ~10 cycles. No shared memory needed.</span>
+<span class="cm">// Log2(32) = 5 steps to reduce 32 values.</span></code></pre></div>
+    <div class="tab-content py"><pre><code><span class="pp">@cuda.jit</span>(<span class="st">'float32(float32)'</span>, device=<span class="nm">True</span>)
+<span class="kw">def</span> <span class="fn">warp_reduce_sum</span>(val):
+    <span class="cm"># Numba supports shuffle intrinsics via inline PTX</span>
+    <span class="kw">for</span> offset <span class="kw">in</span> [<span class="nm">16</span>, <span class="nm">8</span>, <span class="nm">4</span>, <span class="nm">2</span>, <span class="nm">1</span>]:
+        val += cuda.<span class="fn">shfl_down_sync</span>(<span class="nm">0xFFFFFFFF</span>, val, offset)
+    <span class="kw">return</span> val</code></pre></div>
+    <div class="tab-content tr"><pre><code><span class="cm"># Triton abstracts warp-level ops</span>
+<span class="cm"># Reduction is a first-class operation:</span>
+<span class="pp">@triton.jit</span>
+<span class="kw">def</span> <span class="fn">reduce_kernel</span>(x_ptr, out_ptr, n,
+                  <span class="ty">BLOCK</span>: tl.constexpr):
+    offsets = tl.<span class="fn">arange</span>(<span class="nm">0</span>, <span class="ty">BLOCK</span>)
+    mask = offsets &lt; n
+    x = tl.<span class="fn">load</span>(x_ptr + offsets, mask=mask)
+    total = tl.<span class="fn">sum</span>(x, axis=<span class="nm">0</span>)  <span class="cm"># warp reduction under the hood</span>
+    tl.<span class="fn">store</span>(out_ptr, total)</code></pre></div>
+</div>
+
+<h3>Voting Functions</h3>
+
+<pre><code><span class="cm">// Does ANY thread in the warp satisfy the predicate?</span>
+<span class="ty">int</span> any = <span class="fn">__any_sync</span>(<span class="nm">0xFFFFFFFF</span>, predicate);
+
+<span class="cm">// Do ALL threads satisfy it?</span>
+<span class="ty">int</span> all = <span class="fn">__all_sync</span>(<span class="nm">0xFFFFFFFF</span>, predicate);
+
+<span class="cm">// Get a 32-bit mask: bit k = 1 if thread k's predicate is true</span>
+<span class="ty">unsigned</span> mask = <span class="fn">__ballot_sync</span>(<span class="nm">0xFFFFFFFF</span>, predicate);
+<span class="ty">int</span> count = <span class="fn">__popc</span>(mask);  <span class="cm">// population count → how many true</span></code></pre>
+
+<div class="power hack">
+<strong>Warp Shuffle Speedup:</strong> A warp-level reduction takes 5 instructions and ~10 cycles. A shared-memory reduction needs at least 5 <code>__syncthreads()</code> calls at ~23 cycles each, plus shared memory loads and stores. Warp shuffles are 10&times; faster for intra-warp communication. Use them whenever all communicating threads are within the same warp.
+</div>
+
+<h3>Cooperative Groups</h3>
+
+<p>Since CUDA 9, <strong>Cooperative Groups</strong> provide a flexible synchronization model beyond the rigid <code>__syncthreads()</code>. You can create groups at any granularity: a tile of 4 threads, a full warp, a block, or even the entire grid.</p>
+
+<pre><code><span class="pp">#include</span> <span class="st">&lt;cooperative_groups.h&gt;</span>
+<span class="kw">namespace</span> cg = cooperative_groups;
+
+<span class="pp">__global__</span> <span class="kw">void</span> <span class="fn">flexible_sync_kernel</span>(<span class="ty">float</span> *data) {
+    <span class="cm">// Create a group for this thread's warp</span>
+    cg::thread_block block = cg::<span class="fn">this_thread_block</span>();
+    cg::thread_block_tile&lt;<span class="nm">16</span>&gt; tile16 = cg::<span class="fn">tiled_partition</span>&lt;<span class="nm">16</span>&gt;(block);
+
+    <span class="cm">// Reduce within a 16-thread tile</span>
+    <span class="ty">float</span> val = data[block.<span class="fn">thread_rank</span>()];
+    <span class="kw">for</span> (<span class="ty">int</span> i = tile16.<span class="fn">size</span>() / <span class="nm">2</span>; i > <span class="nm">0</span>; i >>= <span class="nm">1</span>)
+        val += tile16.<span class="fn">shfl_down</span>(val, i);
+
+    <span class="cm">// Only lane 0 of each tile has the result</span>
+    <span class="kw">if</span> (tile16.<span class="fn">thread_rank</span>() == <span class="nm">0</span>)
+        data[block.<span class="fn">thread_rank</span>()] = val;
+}</code></pre>
+
+<p>Cooperative Groups are especially useful for algorithms that need synchronization at non-standard granularities&mdash;like reducing across 16 threads, or synchronizing only threads that passed a particular branch. They also enable <strong>grid-level synchronization</strong> for algorithms like multi-block reductions and iterative solvers, eliminating the need for multiple kernel launches.</p>
+
+<h3>Active Mask Awareness</h3>
+
+<p>The first parameter to all sync intrinsics is a <strong>mask</strong> specifying which threads participate. <code>0xFFFFFFFF</code> means all 32 threads. But what if some threads have already exited the kernel, or were never launched (the last warp in a grid often has inactive threads)? Use <code>__activemask()</code> to query which threads are actually active, or better yet, use <code>__ballot_sync()</code> with a true predicate to get a reliable active mask.</p>
+
+<pre><code><span class="cm">// DANGEROUS: assumes all 32 threads are active</span>
+<span class="ty">float</span> sum = <span class="fn">__shfl_down_sync</span>(<span class="nm">0xFFFFFFFF</span>, val, <span class="nm">1</span>);
+
+<span class="cm">// SAFE: only include threads that are actually executing</span>
+<span class="ty">unsigned</span> active = <span class="fn">__ballot_sync</span>(<span class="nm">0xFFFFFFFF</span>, <span class="nm">1</span>);
+<span class="ty">float</span> sum = <span class="fn">__shfl_down_sync</span>(active, val, <span class="nm">1</span>);</code></pre>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Implement a block-level reduction using three approaches: (1) shared memory with <code>__syncthreads()</code>, (2) warp shuffles for the final 32 elements, (3) cooperative groups with tiled partitions. Profile all three. The hybrid approach (shared memory for inter-warp, shuffles for intra-warp) typically wins.</p>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch10">
+<h2>// 10 &mdash; Tensor Cores</h2>
+
+<p class="drop-cap">Tensor Cores are the GPU's secret weapon for AI. A single Tensor Core performs a 4&times;4 matrix multiply-accumulate in one clock cycle. That's 64 fused multiply-add operations&mdash;per core, per cycle. An H100 has 576 Tensor Cores (4 per SM &times; 144 SMs), delivering <span class="ticker">1,979 TFLOPS</span> of FP16 compute with structural sparsity. For context, an H100's regular FP32 CUDA cores deliver 67 TFLOPS. Tensor Cores are 30&times; faster for the operations they support.</p>
+
+<h3>How They Work</h3>
+
+<p>The fundamental operation is <strong>D = A &times; B + C</strong>, where A, B, C, and D are matrices. In the original V100 implementation, A and B are FP16, and C/D are FP32. The multiplication happens in reduced precision, but the accumulation preserves full precision.</p>
+
+<div class="diagram">
+<pre>
+  <span class="fn">D = A × B + C</span>
+
+  <span class="kw">A (FP16)</span>           <span class="kw">B (FP16)</span>          <span class="st">C (FP32)</span>          <span class="nm">D (FP32)</span>
+  ┌───┬───┬───┬───┐ ┌───┬───┬───┬───┐ ┌───┬───┬───┬───┐ ┌───┬───┬───┬───┐
+  │   │   │   │   │ │   │   │   │   │ │   │   │   │   │ │   │   │   │   │
+  ├───┼───┼───┼───┤ ├───┼───┼───┼───┤ ├───┼───┼───┼───┤ ├───┼───┼───┼───┤
+  │   │   │   │   │×│   │   │   │   │+│   │   │   │   │=│   │   │   │   │
+  ├───┼───┼───┼───┤ ├───┼───┼───┼───┤ ├───┼───┼───┼───┤ ├───┼───┼───┼───┤
+  │   │   │   │   │ │   │   │   │   │ │   │   │   │   │ │   │   │   │   │
+  ├───┼───┼───┼───┤ ├───┼───┼───┼───┤ ├───┼───┼───┼───┤ ├───┼───┼───┼───┤
+  │   │   │   │   │ │   │   │   │   │ │   │   │   │   │ │   │   │   │   │
+  └───┴───┴───┴───┘ └───┴───┴───┴───┘ └───┴───┴───┴───┘ └───┴───┴───┴───┘
+         4×4                4×4               4×4               4×4
+
+  <span class="nm">= 64 FMA operations per Tensor Core per clock cycle</span>
+</pre>
+</div>
+
+<h3>WMMA API</h3>
+
+<p>You don't program individual 4&times;4 operations. The WMMA (Warp Matrix Multiply-Accumulate) API operates on larger tiles&mdash;typically 16&times;16&mdash;distributed across all 32 threads of a warp.</p>
+
+<pre><code><span class="pp">#include</span> <span class="st">&lt;mma.h&gt;</span>
+<span class="kw">using namespace</span> nvcuda::wmma;
+
+<span class="cm">// Declare fragments (distributed across warp threads)</span>
+fragment&lt;matrix_a, <span class="nm">16</span>, <span class="nm">16</span>, <span class="nm">16</span>, <span class="ty">half</span>, row_major&gt; a_frag;
+fragment&lt;matrix_b, <span class="nm">16</span>, <span class="nm">16</span>, <span class="nm">16</span>, <span class="ty">half</span>, col_major&gt; b_frag;
+fragment&lt;accumulator, <span class="nm">16</span>, <span class="nm">16</span>, <span class="nm">16</span>, <span class="ty">float</span>&gt;         c_frag;
+
+<span class="cm">// Initialize accumulator to zero</span>
+<span class="fn">fill_fragment</span>(c_frag, <span class="nm">0.0f</span>);
+
+<span class="cm">// Load A and B from shared memory</span>
+<span class="fn">load_matrix_sync</span>(a_frag, smem_a, <span class="nm">16</span>);
+<span class="fn">load_matrix_sync</span>(b_frag, smem_b, <span class="nm">16</span>);
+
+<span class="cm">// D = A × B + C  (entire warp cooperates)</span>
+<span class="fn">mma_sync</span>(c_frag, a_frag, b_frag, c_frag);
+
+<span class="cm">// Store result</span>
+<span class="fn">store_matrix_sync</span>(smem_c, c_frag, <span class="nm">16</span>, mem_row_major);</code></pre>
+
+<h3>Supported Precisions Across Generations</h3>
+
+<table>
+<tr><th>Precision</th><th>Volta (V100)</th><th>Ampere (A100)</th><th>Hopper (H100)</th><th>Blackwell</th></tr>
+<tr><td>FP16 &times; FP16 → FP32</td><td>125 TFLOPS</td><td>312 TFLOPS</td><td>990 TFLOPS</td><td>2,250 TFLOPS</td></tr>
+<tr><td>BF16 &times; BF16 → FP32</td><td>&mdash;</td><td>312 TFLOPS</td><td>990 TFLOPS</td><td>2,250 TFLOPS</td></tr>
+<tr><td>TF32 &times; TF32 → FP32</td><td>&mdash;</td><td>156 TFLOPS</td><td>495 TFLOPS</td><td>1,125 TFLOPS</td></tr>
+<tr><td>FP8 &times; FP8 → FP32</td><td>&mdash;</td><td>&mdash;</td><td>1,979 TFLOPS</td><td>4,500 TFLOPS</td></tr>
+<tr><td>FP4 &times; FP4 → FP32</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td><td>9,000 TFLOPS</td></tr>
+<tr><td>INT8 &times; INT8 → INT32</td><td>&mdash;</td><td>624 TOPS</td><td>1,979 TOPS</td><td>4,500 TOPS</td></tr>
+</table>
+
+<div class="power">
+<strong>Why Tensor Cores Matter for Everyone:</strong> You don't need to write WMMA code manually. Libraries like cuBLAS, cuDNN, and PyTorch automatically dispatch to Tensor Cores when matrix dimensions are multiples of 16 and data types are FP16/BF16. The catch: your matrices must be padded to multiples of 16 for best performance. An oddly-shaped 17&times;17 matrix gets padded to 32&times;32 internally.
+</div>
+
+<h3>TF32: The Sneaky Default</h3>
+
+<p>Ampere introduced TF32 (TensorFloat-32)&mdash;a format with the range of FP32 (8 exponent bits) but the precision of FP16 (10 mantissa bits). Tensor Cores treat FP32 inputs as TF32 by <strong>default</strong> since Ampere. This means your <code>torch.matmul</code> on FP32 tensors silently uses Tensor Cores with TF32 precision. For most deep learning, this is fine. For scientific computing, it can introduce subtle errors.</p>
+
+<pre><code><span class="cm"># PyTorch: control TF32 behavior</span>
+<span class="kw">import</span> torch
+torch.backends.cuda.matmul.allow_tf32 = <span class="nm">True</span>   <span class="cm"># default since PyTorch 1.12</span>
+torch.backends.cudnn.allow_tf32 = <span class="nm">True</span>          <span class="cm"># default</span>
+
+<span class="cm"># Disable for full FP32 precision:</span>
+torch.backends.cuda.matmul.allow_tf32 = <span class="nm">False</span>  <span class="cm"># uses FP32 CUDA cores (slower)</span></code></pre>
+
+<h3>Structural Sparsity: Free Performance</h3>
+
+<p>Ampere's 2:4 structured sparsity means that for every group of 4 consecutive weights, exactly 2 must be zero. The hardware stores only the non-zero values plus a 2-bit index, halving the memory footprint and doubling Tensor Core throughput. NVIDIA's ASP (Automatic SParsity) tool can prune a trained model to 2:4 sparsity with minimal accuracy loss (typically &lt;1%).</p>
+
+<div class="diagram">
+<pre>
+  <span class="fn">2:4 Structured Sparsity</span>
+
+  Dense weights:    [<span class="st">0.5</span>] [<span class="nm">0.0</span>] [<span class="st">0.3</span>] [<span class="nm">0.0</span>] [<span class="nm">0.0</span>] [<span class="st">0.7</span>] [<span class="st">0.1</span>] [<span class="nm">0.0</span>]
+  Sparse storage:   [<span class="st">0.5</span>] [<span class="st">0.3</span>]           [<span class="st">0.7</span>] [<span class="st">0.1</span>]
+  Index metadata:   [<span class="kw">0,2</span>]                 [<span class="kw">1,2</span>]
+
+  <span class="cm">50% storage savings → 2× Tensor Core throughput</span>
+  <span class="cm">H100 FP16 with sparsity: 1,979 TFLOPS (vs 990 dense)</span>
+</pre>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>In PyTorch, check if your matmul is using Tensor Cores: profile with <code>torch.profiler</code> and look for <code>ampere_sgemm</code> (Tensor Core) vs <code>sgemm</code> (CUDA Core) in the trace. Ensure your matrix dimensions are multiples of 16 and your data is FP16 or BF16 for guaranteed Tensor Core usage.</p>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch11">
+<h2>// 11 &mdash; Optimization Patterns</h2>
+
+<p class="drop-cap">Knowing the hardware is necessary but not sufficient. The gap between a naive kernel and an optimized one is routinely 10&ndash;50&times;. This chapter walks through the patterns that close that gap, with real code you can use. Each pattern attacks a specific bottleneck: memory bandwidth, compute utilization, or instruction overhead.</p>
+
+<h3>Tiling: The Most Important Pattern</h3>
+
+<p>Tiling loads a small block of data into shared memory, lets all threads in the block reuse it, then moves to the next tile. For matrix multiplication, this transforms an O(N) memory access pattern into O(N/TILE_SIZE)&mdash;a direct speedup proportional to the tile size.</p>
+
+<div class="lang-tabs">
+    <input type="radio" class="tc" id="t3-c" name="t3" checked>
+    <input type="radio" class="tpy" id="t3-py" name="t3">
+    <input type="radio" class="ttr" id="t3-tr" name="t3">
+    <div class="tab-bar">
+        <label for="t3-c">CUDA C</label>
+        <label for="t3-py">Python</label>
+        <label for="t3-tr">Triton</label>
+    </div>
+    <div class="tab-content c"><pre><code><span class="pp">#define</span> <span class="nm">TILE 32</span>
+
+<span class="pp">__global__</span> <span class="kw">void</span> <span class="fn">matmul_tiled</span>(<span class="ty">float</span> *A, <span class="ty">float</span> *B, <span class="ty">float</span> *C, <span class="ty">int</span> N) {
+    <span class="pp">__shared__</span> <span class="ty">float</span> As[<span class="nm">TILE</span>][<span class="nm">TILE</span>], Bs[<span class="nm">TILE</span>][<span class="nm">TILE</span>];
+    <span class="ty">int</span> row = blockIdx.y * <span class="nm">TILE</span> + threadIdx.y;
+    <span class="ty">int</span> col = blockIdx.x * <span class="nm">TILE</span> + threadIdx.x;
+    <span class="ty">float</span> sum = <span class="nm">0.0f</span>;
+
+    <span class="kw">for</span> (<span class="ty">int</span> t = <span class="nm">0</span>; t &lt; N / <span class="nm">TILE</span>; t++) {
+        <span class="cm">// Cooperative load into shared memory</span>
+        As[threadIdx.y][threadIdx.x] = A[row * N + t * <span class="nm">TILE</span> + threadIdx.x];
+        Bs[threadIdx.y][threadIdx.x] = B[(t * <span class="nm">TILE</span> + threadIdx.y) * N + col];
+        <span class="fn">__syncthreads</span>();
+
+        <span class="cm">// Compute on tile — TILE reuses from shared memory</span>
+        <span class="kw">for</span> (<span class="ty">int</span> k = <span class="nm">0</span>; k &lt; <span class="nm">TILE</span>; k++)
+            sum += As[threadIdx.y][k] * Bs[k][threadIdx.x];
+        <span class="fn">__syncthreads</span>();
+    }
+    C[row * N + col] = sum;
+}</code></pre></div>
+    <div class="tab-content py"><pre><code><span class="pp">@cuda.jit</span>
+<span class="kw">def</span> <span class="fn">matmul_tiled</span>(A, B, C, N):
+    TILE = <span class="nm">32</span>
+    sA = cuda.shared.array((<span class="nm">32</span>, <span class="nm">32</span>), dtype=float32)
+    sB = cuda.shared.array((<span class="nm">32</span>, <span class="nm">32</span>), dtype=float32)
+    tx, ty = cuda.threadIdx.x, cuda.threadIdx.y
+    row = cuda.blockIdx.y * TILE + ty
+    col = cuda.blockIdx.x * TILE + tx
+    acc = <span class="nm">0.0</span>
+
+    <span class="kw">for</span> t <span class="kw">in</span> <span class="fn">range</span>(N // TILE):
+        sA[ty, tx] = A[row, t * TILE + tx]
+        sB[ty, tx] = B[t * TILE + ty, col]
+        cuda.<span class="fn">syncthreads</span>()
+        <span class="kw">for</span> k <span class="kw">in</span> <span class="fn">range</span>(TILE):
+            acc += sA[ty, k] * sB[k, tx]
+        cuda.<span class="fn">syncthreads</span>()
+    C[row, col] = acc</code></pre></div>
+    <div class="tab-content tr"><pre><code><span class="pp">@triton.jit</span>
+<span class="kw">def</span> <span class="fn">matmul_kernel</span>(
+    A, B, C, N,
+    <span class="ty">BLOCK_M</span>: tl.constexpr, <span class="ty">BLOCK_N</span>: tl.constexpr,
+    <span class="ty">BLOCK_K</span>: tl.constexpr,
+):
+    pid_m = tl.<span class="fn">program_id</span>(<span class="nm">0</span>)
+    pid_n = tl.<span class="fn">program_id</span>(<span class="nm">1</span>)
+    offs_m = pid_m * <span class="ty">BLOCK_M</span> + tl.<span class="fn">arange</span>(<span class="nm">0</span>, <span class="ty">BLOCK_M</span>)
+    offs_n = pid_n * <span class="ty">BLOCK_N</span> + tl.<span class="fn">arange</span>(<span class="nm">0</span>, <span class="ty">BLOCK_N</span>)
+    acc = tl.<span class="fn">zeros</span>((<span class="ty">BLOCK_M</span>, <span class="ty">BLOCK_N</span>), dtype=tl.float32)
+
+    <span class="kw">for</span> k <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">0</span>, N, <span class="ty">BLOCK_K</span>):
+        offs_k = k + tl.<span class="fn">arange</span>(<span class="nm">0</span>, <span class="ty">BLOCK_K</span>)
+        a = tl.<span class="fn">load</span>(A + offs_m[:, <span class="kw">None</span>] * N + offs_k[<span class="kw">None</span>, :])
+        b = tl.<span class="fn">load</span>(B + offs_k[:, <span class="kw">None</span>] * N + offs_n[<span class="kw">None</span>, :])
+        acc += tl.<span class="fn">dot</span>(a, b)  <span class="cm"># Uses Tensor Cores automatically!</span>
+
+    tl.<span class="fn">store</span>(C + offs_m[:, <span class="kw">None</span>] * N + offs_n[<span class="kw">None</span>, :], acc)</code></pre></div>
+</div>
+
+<h3>Loop Unrolling</h3>
+
+<p>The GPU's simple cores lack branch predictors. Every loop iteration incurs branch overhead. <code>#pragma unroll</code> tells the compiler to duplicate the loop body, eliminating this overhead at the cost of instruction cache pressure.</p>
+
+<pre><code><span class="cm">// Without unrolling: branch overhead every iteration</span>
+<span class="kw">for</span> (<span class="ty">int</span> k = <span class="nm">0</span>; k &lt; <span class="nm">TILE</span>; k++)
+    sum += As[ty][k] * Bs[k][tx];
+
+<span class="cm">// With unrolling: compiler inlines all 32 iterations</span>
+<span class="pp">#pragma unroll</span>
+<span class="kw">for</span> (<span class="ty">int</span> k = <span class="nm">0</span>; k &lt; <span class="nm">TILE</span>; k++)
+    sum += As[ty][k] * Bs[k][tx];</code></pre>
+
+<h3>Kernel Fusion</h3>
+
+<p>Each kernel launch involves a global memory round-trip: read from HBM, compute, write to HBM. If you chain two kernels, that's two round-trips. Fusing them into one kernel eliminates the intermediate write-and-read, cutting memory traffic in half.</p>
+
+<div class="vs">
+<div>
+<h4>Unfused (2x memory traffic)</h4>
+<pre><code><span class="fn">relu_kernel</span>&lt;&lt;&lt;g,b&gt;&gt;&gt;(x, tmp, n);
+<span class="fn">bias_kernel</span>&lt;&lt;&lt;g,b&gt;&gt;&gt;(tmp, bias, y, n);
+<span class="cm">// x→HBM→tmp→HBM→y  (4 passes)</span></code></pre>
+</div>
+<div>
+<h4>Fused (1x memory traffic)</h4>
+<pre><code><span class="fn">relu_bias_kernel</span>&lt;&lt;&lt;g,b&gt;&gt;&gt;(x, bias, y, n);
+<span class="cm">// x→registers→y  (2 passes)</span>
+<span class="cm">// tmp never touches HBM</span></code></pre>
+</div>
+</div>
+
+<h3>Double Buffering</h3>
+
+<p>Overlap the loading of the next tile with the computation of the current tile. Use two shared memory buffers: while the ALUs compute on buffer A, the load/store units fill buffer B. Next iteration, swap.</p>
+
+<div class="power wild">
+<strong>The Optimization Hierarchy:</strong> Fix these in order: (1) Memory coalescing &mdash; 10&ndash;32&times; impact. (2) Shared memory tiling &mdash; 5&ndash;20&times;. (3) Occupancy tuning &mdash; 1.5&ndash;3&times;. (4) Instruction-level &mdash; 1.1&ndash;1.5&times;. Most people jump straight to (4) while their memory access pattern is a disaster. Profile first. Fix the biggest bottleneck first.
+</div>
+
+<h3>Memory Prefetching</h3>
+
+<p>Load the next iteration's data while computing on the current iteration. This overlaps memory latency with compute, keeping both the ALUs and the memory system busy.</p>
+
+<pre><code><span class="cm">// Prefetch pattern: load next tile while computing current</span>
+<span class="pp">__shared__</span> <span class="ty">float</span> As[<span class="nm">2</span>][<span class="nm">TILE</span>][<span class="nm">TILE</span>]; <span class="cm">// double buffer</span>
+<span class="ty">int</span> buf = <span class="nm">0</span>;
+
+<span class="cm">// Load first tile</span>
+As[buf][ty][tx] = A[row * N + <span class="nm">0</span> * <span class="nm">TILE</span> + tx];
+<span class="fn">__syncthreads</span>();
+
+<span class="kw">for</span> (<span class="ty">int</span> t = <span class="nm">0</span>; t &lt; numTiles; t++) {
+    <span class="cm">// Prefetch NEXT tile into the other buffer</span>
+    <span class="kw">if</span> (t + <span class="nm">1</span> &lt; numTiles)
+        As[buf ^ <span class="nm">1</span>][ty][tx] = A[row * N + (t+<span class="nm">1</span>) * <span class="nm">TILE</span> + tx];
+
+    <span class="cm">// Compute on CURRENT tile</span>
+    <span class="pp">#pragma unroll</span>
+    <span class="kw">for</span> (<span class="ty">int</span> k = <span class="nm">0</span>; k &lt; <span class="nm">TILE</span>; k++)
+        sum += As[buf][ty][k] * Bs[buf][k][tx];
+
+    buf ^= <span class="nm">1</span>;  <span class="cm">// swap buffers</span>
+    <span class="fn">__syncthreads</span>();
+}</code></pre>
+
+<h3>Vectorized Loads</h3>
+
+<p>Load 128 bits (4 floats) in a single instruction using <code>float4</code>. This reduces the number of memory instructions by 4&times; and can better saturate the memory bus.</p>
+
+<pre><code><span class="cm">// Scalar load: 4 separate 32-bit transactions</span>
+<span class="ty">float</span> a = data[idx];
+<span class="ty">float</span> b = data[idx + <span class="nm">1</span>];
+<span class="ty">float</span> c = data[idx + <span class="nm">2</span>];
+<span class="ty">float</span> d = data[idx + <span class="nm">3</span>];
+
+<span class="cm">// Vectorized: single 128-bit transaction</span>
+<span class="ty">float4</span> vec = <span class="kw">reinterpret_cast</span>&lt;<span class="ty">float4</span>*&gt;(data)[idx / <span class="nm">4</span>];
+<span class="cm">// vec.x, vec.y, vec.z, vec.w contain 4 consecutive floats</span>
+
+<span class="cm">// For half precision, use half2 for 2× element throughput:</span>
+<span class="ty">half2</span> h2 = <span class="kw">reinterpret_cast</span>&lt;<span class="ty">half2</span>*&gt;(data)[idx / <span class="nm">2</span>];
+<span class="cm">// Processes 2 half-precision values in one instruction</span>
+<span class="cm">// Combine with __hfma2() for fused multiply-add on 2 values</span></code></pre>
+
+<p>Vectorized loads are especially impactful for memory-bound kernels. The instruction scheduler issues fewer load instructions, leaving more slots for compute operations. On kernels where the bottleneck is instruction issue rate rather than raw bandwidth, this can yield 1.3&ndash;2&times; speedup.</p>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Take a simple element-wise kernel (like ReLU: <code>y = max(x, 0)</code>) and create three versions: (1) naive scalar, (2) float4 vectorized, (3) fused with the next operation in the pipeline. Profile each. The vectorized version typically gains 1.3&ndash;1.5&times;; the fused version gains 1.8&ndash;2&times; over the naive baseline.</p>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch12">
+<h2>// 12 &mdash; The PCIe Wall</h2>
+
+<p class="drop-cap">Your GPU can compute at 67 TFLOPS of FP32. Your CPU connects to it through a PCIe 4.0 &times;16 link delivering 32 GB/s theoretical, roughly 25 GB/s in practice (bidirectional). That's like connecting a fire hydrant to a garden hose. The GPU can process data 2,000&times; faster than you can feed it. This is the PCIe wall, and it's the first thing that kills performance for anyone moving data between host and device.</p>
+
+<h3>The Numbers</h3>
+
+<div class="diagram">
+<pre>
+  <span class="fn">CPU (Host)</span>                                    <span class="fn">GPU (Device)</span>
+  ┌──────────┐                                  ┌──────────┐
+  │          │   <span class="r">PCIe 4.0 ×16</span>                   │          │
+  │  DDR5    │──── <span class="r">~25 GB/s practical</span> ─────────│  HBM3    │
+  │  ~50 GB/s│   <span class="r">~12.5 GB/s per direction</span>       │ 3.35 TB/s│
+  │          │                                  │          │
+  └──────────┘                                  └──────────┘
+
+  <span class="st">NVLink 4.0 (H100): 900 GB/s bidirectional</span>
+  <span class="nm">PCIe 5.0 ×16:      ~50 GB/s theoretical</span>
+  <span class="kw">PCIe 4.0 ×16:      ~25 GB/s practical</span>
+</pre>
+</div>
+
+<table>
+<tr><th>Interconnect</th><th>Theoretical BW</th><th>Practical BW</th><th>Ratio to HBM3</th></tr>
+<tr><td>PCIe 3.0 &times;16</td><td>16 GB/s</td><td>~11 GB/s</td><td>0.3%</td></tr>
+<tr><td>PCIe 4.0 &times;16</td><td>32 GB/s</td><td>~25 GB/s</td><td>0.7%</td></tr>
+<tr><td>PCIe 5.0 &times;16</td><td>64 GB/s</td><td>~50 GB/s</td><td>1.5%</td></tr>
+<tr><td>NVLink 3.0 (A100)</td><td>600 GB/s</td><td>~500 GB/s</td><td>25%</td></tr>
+<tr><td>NVLink 4.0 (H100)</td><td>900 GB/s</td><td>~800 GB/s</td><td>24%</td></tr>
+<tr><td>NVLink 5.0 (Blackwell)</td><td>1,800 GB/s</td><td>~1,500 GB/s</td><td>37%</td></tr>
+</table>
+
+<h3>Memory Transfer Strategies</h3>
+
+<h4>Pageable vs Pinned Memory</h4>
+
+<p>Default <code>malloc()</code> memory is <strong>pageable</strong>. Before the GPU can DMA from it, the driver must first copy it to a pinned (page-locked) staging buffer. This doubles the copy cost. <code>cudaMallocHost()</code> allocates pinned memory directly, eliminating the extra copy. Speedup: 2&times; for large transfers.</p>
+
+<h4>Unified Memory</h4>
+
+<p><code>cudaMallocManaged()</code> creates memory accessible from both CPU and GPU. The runtime automatically migrates pages on demand via the GPU's hardware page-fault mechanism (introduced in Pascal). On first access, a page fault triggers migration of a 64 KB page&mdash;which adds several microseconds of latency. You can use <code>cudaMemPrefetchAsync()</code> to pre-migrate pages before the kernel accesses them, eliminating fault latency. Convenient for prototyping, but explicit memory management still wins for production performance.</p>
+
+<p>Unified memory gets interesting on systems with NVLink-connected GPUs and CPUs (like Grace Hopper). Here, the CPU and GPU share a coherent address space over a high-bandwidth link, and page migration costs are much lower than over PCIe.</p>
+
+<h4>Async Transfers with Streams</h4>
+
+<p>Use <code>cudaMemcpyAsync()</code> with CUDA streams to overlap transfer and compute. While the GPU computes on chunk N, transfer chunk N+1.</p>
+
+<pre><code><span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i &lt; nChunks; i++) {
+    <span class="cm">// Async copy chunk i to device (uses DMA engine)</span>
+    <span class="fn">cudaMemcpyAsync</span>(d_buf, h_buf + i*chunkSize,
+                    chunkSize, cudaMemcpyHostToDevice, stream[i % <span class="nm">2</span>]);
+    <span class="cm">// Launch kernel on chunk i (uses SMs)</span>
+    <span class="fn">kernel</span>&lt;&lt;&lt;grid, block, <span class="nm">0</span>, stream[i % <span class="nm">2</span>]&gt;&gt;&gt;(d_buf, d_out);
+    <span class="cm">// Copy result back (uses DMA engine)</span>
+    <span class="fn">cudaMemcpyAsync</span>(h_out + i*chunkSize, d_out,
+                    chunkSize, cudaMemcpyDeviceToHost, stream[i % <span class="nm">2</span>]);
+}</code></pre>
+
+<div class="power danger">
+<strong>The Golden Rule:</strong> Minimize host&harr;device transfers. Move data to the GPU once, do as much work as possible there, and move results back once. If you're transferring data every frame or every iteration, redesign your pipeline. The fastest transfer is the one that doesn't happen.
+</div>
+
+<h3>CUDA Streams for Overlap</h3>
+
+<p>A <strong>CUDA stream</strong> is a sequence of operations that execute in order on the GPU. Operations in <em>different</em> streams can execute concurrently. The GPU has separate hardware engines for compute (SMs), host-to-device DMA, and device-to-host DMA. With streams, you can run all three simultaneously.</p>
+
+<div class="diagram">
+<pre>
+  <span class="fn">Without Streams (serial):</span>
+  ┌──────────┐┌──────────┐┌──────────┐┌──────────┐┌──────────┐┌──────────┐
+  │ H→D copy ││ Kernel 1 ││ D→H copy ││ H→D copy ││ Kernel 2 ││ D→H copy │
+  └──────────┘└──────────┘└──────────┘└──────────┘└──────────┘└──────────┘
+  Total time: ████████████████████████████████████████████████████████████
+
+  <span class="st">With 2 Streams (overlapped):</span>
+  Stream 0: ┌──────────┐┌──────────┐┌──────────┐
+            │ H→D copy ││ Kernel 1 ││ D→H copy │
+            └──────────┘└──────────┘└──────────┘
+  Stream 1:       ┌──────────┐┌──────────┐┌──────────┐
+                  │ H→D copy ││ Kernel 2 ││ D→H copy │
+                  └──────────┘└──────────┘└──────────┘
+  Total time: ██████████████████████████████████████
+  <span class="nm">Speedup: ~1.5× for this pattern</span>
+</pre>
+</div>
+
+<h3>Zero-Copy Memory</h3>
+
+<h4>Zero-Copy Memory</h4>
+
+<p>Zero-copy maps host memory into the GPU's address space. The GPU reads directly from host memory via PCIe&mdash;no explicit copy needed. Sounds great, but every read goes through the PCIe bottleneck at ~25 GB/s instead of HBM at 3,350 GB/s. Use zero-copy only when: (1) data is read exactly once, (2) the kernel is compute-bound and memory access is a tiny fraction, or (3) the dataset is too large for GPU memory.</p>
+
+<pre><code><span class="ty">float</span> *h_data, *d_data;
+<span class="fn">cudaHostAlloc</span>(&amp;h_data, size, cudaHostAllocMapped);
+<span class="fn">cudaHostGetDevicePointer</span>(&amp;d_data, h_data, <span class="nm">0</span>);
+<span class="cm">// d_data can be used in kernels — reads go over PCIe</span>
+<span class="fn">my_kernel</span>&lt;&lt;&lt;grid, block&gt;&gt;&gt;(d_data);  <span class="cm">// no cudaMemcpy needed</span></code></pre>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Compare three approaches for processing a 1 GB dataset: (1) <code>cudaMalloc</code> + <code>cudaMemcpy</code> + kernel + <code>cudaMemcpy</code> back, (2) <code>cudaMallocManaged</code> unified memory, (3) zero-copy with <code>cudaHostAlloc</code>. Profile with Nsight Systems. For a single-pass kernel, zero-copy can actually win because it avoids the upfront transfer latency.</p>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch13">
+<h2>// 13 &mdash; Debugging &amp; Profiling</h2>
+
+<p class="drop-cap">GPU bugs are a special breed of misery. A race condition in shared memory doesn't segfault&mdash;it silently produces wrong results on every third run. An out-of-bounds global memory access might corrupt a completely unrelated buffer. And the error message you get, if you get one at all, is the infamous <code>cudaErrorIllegalAddress</code> with no stack trace. Welcome to the world of GPU debugging.</p>
+
+<p>The fundamental challenge: you're debugging 18,432 cores executing simultaneously. Traditional single-stepping is meaningless. Printf debugging works (CUDA supports <code>printf()</code> in device code since Fermi) but the output from thousands of threads is overwhelming. You need specialized tools that understand the GPU's execution model.</p>
+
+<h3>Compute Sanitizer</h3>
+
+<p>NVIDIA's Compute Sanitizer is your first line of defense. It's the Valgrind of GPU programming.</p>
+
+<table>
+<tr><th>Tool</th><th>Detects</th><th>Command</th></tr>
+<tr><td><code>memcheck</code></td><td>Out-of-bounds accesses, misaligned accesses, use-after-free</td><td><code>compute-sanitizer --tool memcheck ./app</code></td></tr>
+<tr><td><code>racecheck</code></td><td>Shared memory data races, missing <code>__syncthreads()</code></td><td><code>compute-sanitizer --tool racecheck ./app</code></td></tr>
+<tr><td><code>synccheck</code></td><td>Illegal barrier usage, divergent <code>__syncthreads()</code></td><td><code>compute-sanitizer --tool synccheck ./app</code></td></tr>
+<tr><td><code>initcheck</code></td><td>Reads of uninitialized global/shared memory</td><td><code>compute-sanitizer --tool initcheck ./app</code></td></tr>
+</table>
+
+<h3>Nsight Compute &mdash; Kernel Profiling</h3>
+
+<p>Nsight Compute profiles individual kernel invocations. It tells you exactly what your bottleneck is: memory bandwidth, compute throughput, or latency. The <strong>roofline analysis</strong> shows where your kernel sits relative to the theoretical maximum.</p>
+
+<pre><code><span class="cm"># Profile a specific kernel, collect all metrics</span>
+$ ncu --set full ./my_app
+
+<span class="cm"># Target a specific kernel by name</span>
+$ ncu --kernel-name matmul_tiled --launch-count <span class="nm">1</span> ./my_app
+
+<span class="cm"># Collect only memory metrics</span>
+$ ncu --metrics l1tex__t_bytes,dram__bytes ./my_app</code></pre>
+
+<h3>Nsight Systems &mdash; System-Level View</h3>
+
+<p>Where Nsight Compute zooms into one kernel, Nsight Systems zooms out to see the whole system: CPU activity, GPU kernels, memory transfers, API calls, CUDA streams, all on a unified timeline.</p>
+
+<pre><code><span class="cm"># Full system trace</span>
+$ nsys profile --stats=true ./my_app
+
+<span class="cm"># Capture GPU + CPU + OS events</span>
+$ nsys profile --trace=cuda,nvtx,osrt ./my_app</code></pre>
+
+<h3>Common Pitfalls</h3>
+
+<table>
+<tr><th>Symptom</th><th>Likely Cause</th><th>Tool to Use</th></tr>
+<tr><td>Silent wrong results</td><td>Shared memory race condition</td><td>racecheck</td></tr>
+<tr><td><code>cudaErrorIllegalAddress</code></td><td>Out-of-bounds global memory access</td><td>memcheck</td></tr>
+<tr><td>Results change between runs</td><td>Missing synchronization</td><td>racecheck / synccheck</td></tr>
+<tr><td>Kernel runs but is 100&times; slow</td><td>Uncoalesced memory access</td><td>Nsight Compute (memory metrics)</td></tr>
+<tr><td>GPU utilization near 0%</td><td>Too much host↔device transfer</td><td>Nsight Systems</td></tr>
+<tr><td>Kernel launches fail silently</td><td>Not checking <code>cudaGetLastError()</code></td><td>Add error checking</td></tr>
+<tr><td>NaN/Inf in output</td><td>Uninitialized shared memory</td><td>initcheck</td></tr>
+</table>
+
+<div class="power">
+<strong>The Profiling Strategy:</strong> (1) Run Compute Sanitizer for correctness&mdash;fix all errors first. (2) Profile with Nsight Systems to find the biggest time sink (is it transfer? kernel? CPU?). (3) Zoom into the hottest kernel with Nsight Compute. (4) Identify the bottleneck (memory or compute bound?) and optimize accordingly. Repeat.
+</div>
+
+<h3>Error Checking: The Non-Negotiable</h3>
+
+<p>CUDA kernel launches are <strong>asynchronous</strong>. They return immediately, even if they fail. If you don't check for errors, a failing kernel will silently produce garbage or stale data, and you'll spend hours debugging the wrong thing.</p>
+
+<pre><code><span class="cm">// The bare minimum: check after every kernel launch</span>
+<span class="fn">my_kernel</span>&lt;&lt;&lt;grid, block&gt;&gt;&gt;(args);
+<span class="ty">cudaError_t</span> err = <span class="fn">cudaGetLastError</span>();
+<span class="kw">if</span> (err != cudaSuccess) {
+    <span class="fn">fprintf</span>(stderr, <span class="st">"Kernel launch failed: %s\n"</span>,
+            <span class="fn">cudaGetErrorString</span>(err));
+    <span class="kw">return</span> <span class="nm">-1</span>;
+}
+
+<span class="cm">// Synchronize and check for execution errors</span>
+err = <span class="fn">cudaDeviceSynchronize</span>();
+<span class="kw">if</span> (err != cudaSuccess) {
+    <span class="fn">fprintf</span>(stderr, <span class="st">"Kernel execution failed: %s\n"</span>,
+            <span class="fn">cudaGetErrorString</span>(err));
+}
+
+<span class="cm">// The macro every CUDA project needs:</span>
+<span class="pp">#define CUDA_CHECK(call) do { \</span>
+<span class="pp">    cudaError_t e = (call); \</span>
+<span class="pp">    if (e != cudaSuccess) { \</span>
+<span class="pp">        fprintf(stderr, "CUDA error %s:%d: %s\n", \</span>
+<span class="pp">                __FILE__, __LINE__, cudaGetErrorString(e)); \</span>
+<span class="pp">        exit(EXIT_FAILURE); \</span>
+<span class="pp">    } \</span>
+<span class="pp">} while(0)</span></code></pre>
+
+<h3>Nsight Compute: Reading the Roofline</h3>
+
+<p>The <strong>roofline model</strong> plots your kernel's arithmetic intensity (FLOPs/byte) against its achieved throughput. If your kernel sits on the sloped left side of the roofline, it's <strong>memory-bound</strong>&mdash;optimize memory access. If it sits on the flat ceiling, it's <strong>compute-bound</strong>&mdash;reduce instruction count or use Tensor Cores.</p>
+
+<div class="diagram">
+<pre>
+  <span class="fn">Roofline Model (H100)</span>
+
+  Throughput (TFLOPS)
+       │
+  67.0 │─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─<span class="st">══════════════</span> ← peak FP32 compute
+       │                            <span class="st">╱</span>
+       │                         <span class="st">╱</span>
+       │                      <span class="st">╱</span>     <span class="kw">× Kernel B (compute bound)</span>
+       │                   <span class="st">╱</span>
+       │                <span class="st">╱</span>
+       │    <span class="nm">× Kernel A</span><span class="st">╱</span>              Kernel A: memory bound
+       │  <span class="nm">(mem bound)</span><span class="st">╱</span>               Kernel B: compute bound
+       │           <span class="st">╱</span>
+       │        <span class="st">╱</span>    slope = peak memory bandwidth (3.35 TB/s)
+       │     <span class="st">╱</span>
+       └──────────────────────────────────────────
+       0    1    5   10   20        100       300
+                Arithmetic Intensity (FLOPs/byte)
+</pre>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Deliberately introduce a shared memory race: remove one <code>__syncthreads()</code> from a tiled matmul. Run with <code>compute-sanitizer --tool racecheck</code>. It will pinpoint the exact line and the conflicting threads. Then add back the barrier and verify the race is gone.</p>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch14">
+<h2>// 14 &mdash; Architecture Timeline</h2>
+
+<p class="drop-cap">Every two years, NVIDIA reinvents what a GPU can do. Not incremental improvements&mdash;architectural revolutions. Kepler introduced dynamic parallelism (GPU launching GPU kernels). Volta invented Tensor Cores. Hopper brought the Transformer Engine. Each generation adds a capability that makes the previous one feel like a toy. Here's the lineage.</p>
+
+<table>
+<tr><th>Generation</th><th>Year</th><th>Key Innovation</th><th>FP32 TFLOPS</th><th>Memory BW</th></tr>
+<tr><td><strong>Kepler</strong> (GK110)</td><td>2012</td><td>Dynamic Parallelism, Hyper-Q (32 HW queues)</td><td>5.0</td><td>288 GB/s</td></tr>
+<tr><td><strong>Maxwell</strong> (GM200)</td><td>2014</td><td>Unified memory improvements, 2&times; perf/watt</td><td>6.1</td><td>336 GB/s</td></tr>
+<tr><td><strong>Pascal</strong> (GP100)</td><td>2016</td><td>NVLink, HBM2, unified mem page faults</td><td>10.6</td><td>720 GB/s</td></tr>
+<tr><td><strong>Volta</strong> (GV100)</td><td>2017</td><td>First Tensor Cores, independent thread sched</td><td>15.7</td><td>900 GB/s</td></tr>
+<tr><td><strong>Ampere</strong> (GA100)</td><td>2020</td><td>TF32, structural sparsity 2:4, async copy</td><td>19.5</td><td>2,039 GB/s</td></tr>
+<tr><td><strong>Hopper</strong> (GH100)</td><td>2022</td><td>Transformer Engine, TBC clusters, DPX</td><td>67.0</td><td>3,350 GB/s</td></tr>
+<tr><td><strong>Blackwell</strong> (GB100)</td><td>2024</td><td>FP4, NVLink 1.8 TB/s, confidential compute</td><td>~90</td><td>8,000 GB/s</td></tr>
+</table>
+
+<h3>Key Innovations Explained</h3>
+
+<h4>Kepler — Dynamic Parallelism (2012)</h4>
+<p>Before Kepler, only the CPU could launch GPU kernels. Dynamic Parallelism lets a GPU kernel launch child kernels, enabling recursive algorithms and adaptive workloads without CPU round-trips.</p>
+
+<h4>Volta — Independent Thread Scheduling (2017)</h4>
+<p>Pre-Volta, divergent threads in a warp shared a single program counter. Volta gave each thread its own PC and call stack, enabling fine-grained synchronization patterns like cooperative groups and fixing subtle deadlock bugs in warp-synchronous code.</p>
+
+<h4>Ampere — Async Copy and TF32 (2020)</h4>
+<p>Ampere introduced <code>cp.async</code>&mdash;asynchronous copy from global to shared memory that bypasses registers entirely. Previously, loading data into shared memory required: global load → register → shared store. Async copy removes the register hop, saving register pressure and enabling true overlap of data movement and computation.</p>
+
+<h4>Ampere — Structural Sparsity (2020)</h4>
+<p>Ampere's Tensor Cores support 2:4 structured sparsity: for every 4 consecutive weights, 2 can be zero. The hardware skips the zero multiplications, doubling Tensor Core throughput for sparse models with minimal accuracy loss.</p>
+
+<h4>Hopper — Thread Block Clusters (2022)</h4>
+<p>Thread Block Clusters let you group blocks across SMs and provide direct shared-memory access between them via <strong>Distributed Shared Memory (DSMEM)</strong>. This enables cooperative algorithms that span multiple SMs without going through global memory. A cluster can contain up to 16 blocks, and any thread in the cluster can directly load from any other block's shared memory.</p>
+
+<p>Combined with <strong>TMA (Tensor Memory Accelerator)</strong>, Hopper can perform asynchronous multi-dimensional data copies from global to shared memory with a single instruction. The TMA handles address computation, boundary checking, and data layout transformation in hardware&mdash;freeing the warp scheduler to focus on compute.</p>
+
+<h4>Hopper — Transformer Engine</h4>
+<p>Automatically manages FP8/FP16 mixed precision for transformer layers. It dynamically chooses precision per-layer, per-tensor, maintaining model accuracy while running at FP8 speeds&mdash;2&times; the throughput of FP16.</p>
+
+<h4>Blackwell — FP4 Tensor Cores (2024)</h4>
+<p>Blackwell pushes precision even lower. FP4 Tensor Cores deliver 9,000 TFLOPS&mdash;4.5&times; the FP8 throughput of Hopper. Combined with second-generation Transformer Engine, this enables inference of massive models at unprecedented speeds.</p>
+
+<div class="diagram">
+<pre>
+  <span class="fn">GPU Compute Growth: FP16 Tensor TFLOPS</span>
+
+  Kepler    <span class="d">|</span>
+  Maxwell   <span class="d">|</span>
+  Pascal    <span class="d">|</span>
+  Volta     <span class="d">|</span><span class="st">████</span> 125
+  Ampere    <span class="d">|</span><span class="st">██████████</span> 312
+  Hopper    <span class="d">|</span><span class="st">████████████████████████████████</span> 990
+  Blackwell <span class="d">|</span><span class="st">████████████████████████████████████████████████████████████████████████</span> 2,250
+            <span class="d">└───────────────────────────────────────────────────────────────────────</span>
+</pre>
+</div>
+
+<div class="power zen">
+<strong>The Trend:</strong> Every generation roughly doubles compute density while adding entirely new hardware units (Tensor Cores, DPX, Transformer Engine). Memory bandwidth grows 1.5&ndash;2&times; per generation. The compute-to-bandwidth ratio keeps widening, making data reuse (tiling, fusion, caching) more important with every generation. The GPU that rewards sloppy programming is never coming.
+</div>
+
+<h3>Hopper DPX Instructions</h3>
+
+<p>Hopper added <strong>DPX instructions</strong>&mdash;hardware-accelerated dynamic programming primitives. Operations like <code>min(a + b, c)</code> and <code>max(a + b, c)</code> that form the core of Smith-Waterman (genomics), Floyd-Warshall (shortest paths), and Needleman-Wunsch (sequence alignment) now execute in a single instruction. This yields <strong>7&times; speedup</strong> for dynamic programming kernels compared to Ampere.</p>
+
+<h3>Blackwell's FP4 and the Precision Descent</h3>
+
+<p>The march toward lower precision is relentless. FP32 (2012) to FP16 (2017) to TF32 (2020) to FP8 (2022) to FP4 (2024). Each step halves the memory footprint and doubles the throughput. Blackwell's FP4 Tensor Cores deliver <span class="ticker">9,000 TFLOPS</span>&mdash;a number that would have seemed absurd five years ago. The trick is that model accuracy degrades gracefully with lower precision, especially during inference, where weights can be aggressively quantized.</p>
+
+<p>Blackwell also introduces second-generation <strong>Confidential Computing</strong> support, enabling encrypted computation on GPU data. This matters for cloud deployments where data privacy is non-negotiable. The hardware TEE (Trusted Execution Environment) protects both code and data from even the hypervisor.</p>
+
+<h3>The Compute Stack</h3>
+
+<p>Understanding where your code sits in the software stack matters for performance expectations:</p>
+
+<div class="diagram">
+<pre>
+  <span class="fn">Application Layer</span>
+  ┌──────────────────────────────────────────────┐
+  │  PyTorch / TensorFlow / JAX                  │  ← <span class="cm">you write here</span>
+  ├──────────────────────────────────────────────┤
+  │  cuDNN / cuBLAS / CUTLASS / cuFFT           │  ← <span class="kw">vendor-optimized libs</span>
+  ├──────────────────────────────────────────────┤
+  │  CUDA Runtime API  (cudart)                  │  ← <span class="nm">memory mgmt, launch</span>
+  ├──────────────────────────────────────────────┤
+  │  CUDA Driver API                             │  ← <span class="pp">low-level control</span>
+  ├──────────────────────────────────────────────┤
+  │  PTX (virtual ISA)                           │  ← <span class="st">compiler target</span>
+  ├──────────────────────────────────────────────┤
+  │  SASS (hardware ISA)                         │  ← <span class="fn">actual GPU instructions</span>
+  └──────────────────────────────────────────────┘
+</pre>
+</div>
+
+<p>Each layer adds abstraction. PTX is architecture-independent; SASS is the real machine code, specific to each GPU generation. When you compile with <code>nvcc</code>, it generates PTX, which is then JIT-compiled to SASS at runtime (or ahead-of-time with <code>-gencode</code>). This is why CUDA binaries are forward-compatible: PTX from an older compiler can be JIT-compiled for a newer GPU.</p>
+
+<div class="power hack">
+<strong>The Disassembly Trick:</strong> Use <code>cuobjdump --dump-sass your_binary</code> to see the actual machine instructions your kernel compiles to. Counting SASS instructions gives you a ground-truth view of what the hardware is actually executing. Look for <code>LDG</code> (global load), <code>STS</code> (shared store), <code>FFMA</code> (fused multiply-add), and <code>BAR.SYNC</code> (barrier). This is where optimization theories meet hardware reality.
+</div>
+
+<details>
+<summary>What about AMD and Intel?</summary>
+<div>
+<p>AMD's CDNA architecture (MI250X, MI300X) competes directly with NVIDIA's data center GPUs. MI300X offers 192 GB of HBM3 and 5.3 TB/s bandwidth&mdash;more memory than H100. AMD uses "wavefronts" (64 threads) instead of warps (32), and "Compute Units" instead of SMs. The programming model (ROCm/HIP) is intentionally similar to CUDA.</p>
+<p>Intel's Xe HPC (Ponte Vecchio/Max series) uses a different approach with "EU" execution units and hardware raytracing. Market share remains small but the architecture is interesting.</p>
+<p>CUDA's dominance is as much about the software ecosystem (cuBLAS, cuDNN, TensorRT, Nsight) as about the hardware. ROCm is closing the gap, but the ecosystem moat is wide.</p>
+</div>
+</details>
+
+<h3>The Numbers That Matter</h3>
+
+<p>If you remember nothing else from this chapter, remember these scaling factors across four generations:</p>
+
+<table>
+<tr><th>Metric</th><th>Volta (2017)</th><th>Ampere (2020)</th><th>Hopper (2022)</th><th>Blackwell (2024)</th><th>Growth (V→B)</th></tr>
+<tr><td>FP16 Tensor TFLOPS</td><td>125</td><td>312</td><td>990</td><td>2,250</td><td>18&times;</td></tr>
+<tr><td>HBM Bandwidth</td><td>900 GB/s</td><td>2,039 GB/s</td><td>3,350 GB/s</td><td>8,000 GB/s</td><td>8.9&times;</td></tr>
+<tr><td>HBM Capacity</td><td>32 GB</td><td>80 GB</td><td>80 GB</td><td>192 GB</td><td>6&times;</td></tr>
+<tr><td>NVLink BW</td><td>300 GB/s</td><td>600 GB/s</td><td>900 GB/s</td><td>1,800 GB/s</td><td>6&times;</td></tr>
+<tr><td>Transistors</td><td>21.1B</td><td>54.2B</td><td>80B</td><td>208B</td><td>9.9&times;</td></tr>
+<tr><td>TDP</td><td>300W</td><td>400W</td><td>700W</td><td>1,000W</td><td>3.3&times;</td></tr>
+</table>
+
+<p>Notice the pattern: compute grows faster than bandwidth (18&times; vs 8.9&times;). This means every generation makes memory optimization <em>more</em> important, not less. The gap between "kernel that touches memory efficiently" and "kernel that doesn't" widens with each architecture. The future belongs to algorithms that maximize arithmetic intensity.</p>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Run <code>nvidia-smi -q | grep -i "product name"</code> to find your GPU, then look up its specs. Calculate your GPU's operational intensity ceiling: peak TFLOPS / peak memory bandwidth. For an H100, it's 67 TFLOPS / 3.35 TB/s = ~20 FLOPs/byte. Any kernel with arithmetic intensity below 20 is memory-bound on your hardware. Matrix multiplication (O(N) FLOPs/byte) easily exceeds this; vector add (0.25 FLOPs/byte) never will.</p>
+</div>
+</section>
+
+</div>
+</body>
+</html>
