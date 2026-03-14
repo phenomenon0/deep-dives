@@ -104,6 +104,92 @@
   a { color: var(--blue); text-decoration: none; } a:hover { color: var(--cyan); text-decoration: underline; }
   ul, ol { margin: 0.5rem 0 1rem 1.5rem; } li { margin-bottom: 0.3rem; }
 
+  /* === LANGUAGE TABS === */
+  .lang-tabs {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1.2rem 0;
+    overflow: hidden;
+  }
+  .lang-tabs input[type="radio"] { display: none; }
+  .lang-tabs label {
+    display: inline-block;
+    padding: 0.5rem 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .lang-tabs label:hover { color: var(--green); }
+  .lang-tabs .tab-bar {
+    border-bottom: 1px solid var(--border);
+    padding: 0 0.5rem;
+  }
+  .lang-tabs .tab-content { display: none; }
+  .lang-tabs .tab-content pre { margin: 0; border: none; border-radius: 0; }
+
+  .lang-tabs input.tc:checked ~ .tab-content.c,
+  .lang-tabs input.tpy:checked ~ .tab-content.py,
+  .lang-tabs input.tts:checked ~ .tab-content.ts,
+  .lang-tabs input.tgo:checked ~ .tab-content.go,
+  .lang-tabs input.trs:checked ~ .tab-content.rs { display: block; }
+
+  /* Label highlighting via nth-of-type (inputs are siblings of .tab-bar) */
+  .lang-tabs input:nth-of-type(1):checked ~ .tab-bar label:nth-child(1),
+  .lang-tabs input:nth-of-type(2):checked ~ .tab-bar label:nth-child(2),
+  .lang-tabs input:nth-of-type(3):checked ~ .tab-bar label:nth-child(3),
+  .lang-tabs input:nth-of-type(4):checked ~ .tab-bar label:nth-child(4),
+  .lang-tabs input:nth-of-type(5):checked ~ .tab-bar label:nth-child(5) {
+    color: var(--green);
+    background: rgba(0,255,136,0.06);
+    border-bottom: 2px solid var(--green);
+  }
+
+  /* === TRY-THIS BOX === */
+  .try-this {
+    background: rgba(0, 255, 136, 0.04);
+    border-left: 3px solid var(--green-dim);
+    padding: 1rem 1.2rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .try-this .try-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.5rem;
+  }
+  .try-this pre {
+    margin: 0.5rem 0 0;
+    font-size: 12.5px;
+  }
+  .try-this p { font-size: 0.9rem; margin-bottom: 0.5rem; }
+
+  /* === LANG-NOTE BOX === */
+  .lang-note {
+    background: var(--bg-card);
+    border-left: 3px solid var(--blue);
+    padding: 1rem 1.2rem;
+    margin: 1.2rem 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 0.9rem;
+  }
+  .lang-note .lang-note-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--blue);
+    margin-bottom: 0.3rem;
+  }
+
   @media (max-width: 700px) { .vs { grid-template-columns: 1fr; } .hero h1 { font-size: 2rem; } .content { padding: 4rem 1rem 4rem; } nav { font-size: 10px; gap: 0.8rem; padding: 0.4rem 1rem; } }
 </style>
 </head>
@@ -123,6 +209,8 @@
   <a href="#ch10">error recovery</a>
   <a href="#ch11">dsl</a>
   <a href="#ch12">build it</a>
+  <a href="#ch13">scripting internals</a>
+  <a href="#ch14">parsers in the wild</a>
 </nav>
 
 <div class="content">
@@ -297,6 +385,105 @@
 <div class="power-label">Danger</div>
 <p>Python's <code>re</code>, JavaScript's <code>RegExp</code>, Ruby, PHP, Perl — they all use <em>backtracking</em> engines (PCRE-style). These support features NFA simulation can't (backreferences, lookahead), but at a terrifying cost: pathological patterns cause exponential blowup. The regex <code>(a+)+$</code> on input <code>"aaaaaaaaaaaaaaaaX"</code> takes 2<sup>n</sup> steps. 30 a's = 1 billion steps. This has caused real production outages (Cloudflare, 2019). Use RE2 or Thompson NFA when processing untrusted patterns.</p>
 </div>
+
+<h3>Regex Engines Under the Hood</h3>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-regex" id="tab-c-regex" class="tc" checked>
+  <input type="radio" name="tabs-regex" id="tab-py-regex" class="tpy">
+  <input type="radio" name="tabs-regex" id="tab-ts-regex" class="tts">
+  <input type="radio" name="tabs-regex" id="tab-go-regex" class="tgo">
+  <input type="radio" name="tabs-regex" id="tab-rs-regex" class="trs">
+  <div class="tab-bar">
+    <label for="tab-c-regex">C</label>
+    <label for="tab-py-regex">Python</label>
+    <label for="tab-ts-regex">TypeScript</label>
+    <label for="tab-go-regex">Go</label>
+    <label for="tab-rs-regex">Rust</label>
+  </div>
+  <div class="tab-content c">
+<pre><code><span class="label">C</span><span class="cm">// POSIX regex: regcomp/regexec</span>
+<span class="cm">// Implementation varies by libc:</span>
+<span class="cm">//   glibc  — backtracking (PCRE-style, ReDoS-vulnerable)</span>
+<span class="cm">//   musl   — Thompson NFA (safe, linear time)</span>
+
+<span class="pp">#include</span> <span class="st">&lt;regex.h&gt;</span>
+
+<span class="ty">regex_t</span> re;
+<span class="fn">regcomp</span>(&amp;re, <span class="st">"^[a-z]+[0-9]+$"</span>, REG_EXTENDED);
+<span class="kw">if</span> (<span class="fn">regexec</span>(&amp;re, <span class="st">"hello42"</span>, <span class="nm">0</span>, <span class="nm">NULL</span>, <span class="nm">0</span>) == <span class="nm">0</span>)
+    <span class="fn">printf</span>(<span class="st">"match!\n"</span>);
+<span class="fn">regfree</span>(&amp;re);
+
+<span class="cm">// No backreferences in POSIX ERE.
+// For guaranteed safety, link against musl or use RE2.</span></code></pre>
+  </div>
+  <div class="tab-content py">
+<pre><code><span class="label">Python</span><span class="kw">import</span> re
+
+<span class="cm"># Python's re module uses backtracking NFA (PCRE-style)</span>
+<span class="cm"># Supports backreferences, lookahead — but vulnerable to ReDoS</span>
+
+<span class="cm"># This pattern is CATASTROPHIC on backtracking engines:</span>
+re.<span class="fn">match</span>(<span class="st">r'(a+)+$'</span>, <span class="st">'a'</span> * <span class="nm">25</span> + <span class="st">'X'</span>)  <span class="cm"># hangs — 2^25 paths to try</span>
+
+<span class="cm"># Safe alternative: use Google's re2 binding</span>
+<span class="cm"># pip install google-re2</span>
+<span class="kw">import</span> re2
+re2.<span class="fn">match</span>(<span class="st">r'(a+)+$'</span>, <span class="st">'a'</span> * <span class="nm">25</span> + <span class="st">'X'</span>)  <span class="cm"># instant — Thompson NFA</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+<pre><code><span class="label">TypeScript</span><span class="cm">// V8's Irregexp engine — backtracking with some NFA optimization</span>
+<span class="cm">// Still ReDoS-vulnerable on pathological patterns</span>
+
+<span class="cm">// This hangs in Node.js and browsers:</span>
+/(a+)+$/.<span class="fn">test</span>(<span class="st">'a'</span>.<span class="fn">repeat</span>(<span class="nm">25</span>) + <span class="st">'X'</span>);  <span class="cm">// exponential backtracking</span>
+
+<span class="cm">// V8 added a timeout mechanism in recent versions,</span>
+<span class="cm">// but the fundamental engine is still backtracking.</span>
+<span class="cm">// For untrusted patterns, use the 're2' npm package:</span>
+<span class="kw">import</span> RE2 <span class="kw">from</span> <span class="st">'re2'</span>;
+<span class="kw">const</span> safe = <span class="kw">new</span> <span class="fn">RE2</span>(<span class="st">'(a+)+$'</span>);
+safe.<span class="fn">test</span>(<span class="st">'a'</span>.<span class="fn">repeat</span>(<span class="nm">25</span>) + <span class="st">'X'</span>);  <span class="cm">// instant</span></code></pre>
+  </div>
+  <div class="tab-content go">
+<pre><code><span class="label">Go</span><span class="cm">// Go's regexp package uses Thompson NFA (RE2 algorithm)</span>
+<span class="cm">// Guaranteed O(n*m) — no catastrophic backtracking, EVER</span>
+<span class="cm">// Trade-off: no backreferences</span>
+
+<span class="kw">import</span> <span class="st">"regexp"</span>
+
+<span class="cm">// This runs instantly regardless of input size:</span>
+re := regexp.<span class="fn">MustCompile</span>(<span class="st">`(a+)+$`</span>)
+re.<span class="fn">MatchString</span>(strings.<span class="fn">Repeat</span>(<span class="st">"a"</span>, <span class="nm">10000</span>) + <span class="st">"X"</span>)  <span class="cm">// instant</span>
+
+<span class="cm">// Go chose safety over features.
+// If you need backreferences, use a different approach entirely.</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+<pre><code><span class="label">Rust</span><span class="cm">// regex crate by BurntSushi — Thompson NFA + literal optimization</span>
+<span class="cm">// Guaranteed linear time. No backreferences.</span>
+<span class="cm">// Fastest regex engine in existence for most patterns.</span>
+
+<span class="kw">use</span> regex::<span class="ty">Regex</span>;
+
+<span class="kw">let</span> re = <span class="ty">Regex</span>::<span class="fn">new</span>(<span class="st">r"(a+)+$"</span>).<span class="fn">unwrap</span>();
+re.<span class="fn">is_match</span>(&amp;<span class="st">"a"</span>.<span class="fn">repeat</span>(<span class="nm">10000</span>) + <span class="st">"X"</span>);  <span class="cm">// instant</span>
+
+<span class="cm">// Key optimizations:
+//   - Literal prefix extraction (skips NFA when possible)
+//   - Lazy DFA construction (cached state transitions)
+//   - SIMD-accelerated literal search (memchr, Teddy)
+//   - Bounded memory: DFA cache eviction prevents blowup</span></code></pre>
+  </div>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Watch Python's backtracking engine choke on a pathological pattern:</p>
+<pre><code>python3 -c "import re,time; s='a'*25+'X'; t=time.time(); re.match(r'(a+)+$',s); print(f'Python backtracking: {time.time()-t:.1f}s (catastrophic!)')"</code></pre>
+</div>
+
 </section>
 
 <!-- ============================================================ -->
@@ -494,6 +681,121 @@
   <div class="mc y" style="width:45px">3.14</div>
   <div class="mc r" style="width:35px">EOF</div>
 </div>
+
+<h3>Tokenizers Across Languages</h3>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-lexer" id="tab-c-lexer" class="tc" checked>
+  <input type="radio" name="tabs-lexer" id="tab-py-lexer" class="tpy">
+  <input type="radio" name="tabs-lexer" id="tab-ts-lexer" class="tts">
+  <input type="radio" name="tabs-lexer" id="tab-go-lexer" class="tgo">
+  <input type="radio" name="tabs-lexer" id="tab-rs-lexer" class="trs">
+  <div class="tab-bar">
+    <label for="tab-c-lexer">C</label>
+    <label for="tab-py-lexer">Python</label>
+    <label for="tab-ts-lexer">TypeScript</label>
+    <label for="tab-go-lexer">Go</label>
+    <label for="tab-rs-lexer">Rust</label>
+  </div>
+  <div class="tab-content c">
+<pre><code><span class="label">C</span><span class="cm">// The hand-written lexer above IS the C approach.</span>
+<span class="cm">// advance/peek/at_end + switch on first character.</span>
+<span class="cm">//</span>
+<span class="cm">// For generated lexers, use re2c or flex:</span>
+<span class="cm">//   re2c — compiles regex → goto-based C code (fastest)</span>
+<span class="cm">//   flex — compiles regex → DFA table + driver</span>
+<span class="cm">//</span>
+<span class="cm">// re2c is what PHP, Ninja, and many production lexers use.</span>
+<span class="cm">// It generates zero-overhead C — just gotos and comparisons.</span></code></pre>
+  </div>
+  <div class="tab-content py">
+<pre><code><span class="label">Python</span><span class="kw">import</span> re
+
+<span class="cm"># re.Scanner: list of (pattern, action) tuples</span>
+scanner = re.<span class="fn">Scanner</span>([
+    (<span class="st">r'[0-9]+'</span>,     <span class="kw">lambda</span> s, t: (<span class="st">'NUM'</span>, <span class="fn">int</span>(t))),
+    (<span class="st">r'[a-zA-Z_]+'</span>, <span class="kw">lambda</span> s, t: (<span class="st">'ID'</span>, t)),
+    (<span class="st">r'[+\-*/=]'</span>,   <span class="kw">lambda</span> s, t: (<span class="st">'OP'</span>, t)),
+    (<span class="st">r'\s+'</span>,        <span class="kw">None</span>),  <span class="cm"># skip whitespace</span>
+])
+tokens, _ = scanner.<span class="fn">scan</span>(<span class="st">'x = 42 + y'</span>)
+<span class="cm"># [('ID','x'), ('OP','='), ('NUM',42), ('OP','+'), ('ID','y')]</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+<pre><code><span class="label">TypeScript</span><span class="cm">// Manual charAt scanner — same idea as the C lexer</span>
+
+<span class="kw">function</span> <span class="fn">tokenize</span>(src: <span class="ty">string</span>): <span class="ty">Token</span>[] {
+  <span class="kw">const</span> tokens: <span class="ty">Token</span>[] = [];
+  <span class="kw">let</span> i = <span class="nm">0</span>;
+  <span class="kw">while</span> (i &lt; src.length) {
+    <span class="kw">if</span> (<span class="st">/\s/</span>.<span class="fn">test</span>(src[i])) { i++; <span class="kw">continue</span>; }
+    <span class="kw">if</span> (<span class="st">/[0-9]/</span>.<span class="fn">test</span>(src[i])) {
+      <span class="kw">let</span> n = <span class="st">''</span>;
+      <span class="kw">while</span> (i &lt; src.length &amp;&amp; <span class="st">/[0-9]/</span>.<span class="fn">test</span>(src[i])) n += src[i++];
+      tokens.<span class="fn">push</span>({ type: <span class="st">'NUM'</span>, value: <span class="fn">Number</span>(n) });
+    } <span class="kw">else if</span> (<span class="st">/[a-zA-Z_]/</span>.<span class="fn">test</span>(src[i])) {
+      <span class="kw">let</span> id = <span class="st">''</span>;
+      <span class="kw">while</span> (i &lt; src.length &amp;&amp; <span class="st">/[a-zA-Z0-9_]/</span>.<span class="fn">test</span>(src[i])) id += src[i++];
+      tokens.<span class="fn">push</span>({ type: <span class="st">'ID'</span>, value: id });
+    } <span class="kw">else</span> {
+      tokens.<span class="fn">push</span>({ type: <span class="st">'OP'</span>, value: src[i++] });
+    }
+  }
+  <span class="kw">return</span> tokens;
+}</code></pre>
+  </div>
+  <div class="tab-content go">
+<pre><code><span class="label">Go</span><span class="cm">// text/scanner stdlib — batteries-included tokenizer</span>
+
+<span class="kw">import</span> (
+    <span class="st">"fmt"</span>
+    <span class="st">"strings"</span>
+    <span class="st">"text/scanner"</span>
+)
+
+<span class="kw">var</span> s scanner.<span class="ty">Scanner</span>
+s.<span class="fn">Init</span>(strings.<span class="fn">NewReader</span>(<span class="st">"x = 42 + y"</span>))
+<span class="kw">for</span> tok := s.<span class="fn">Scan</span>(); tok != scanner.<span class="nm">EOF</span>; tok = s.<span class="fn">Scan</span>() {
+    fmt.<span class="fn">Printf</span>(<span class="st">"%s: %q\n"</span>, scanner.<span class="fn">TokenString</span>(tok), s.<span class="fn">TokenText</span>())
+}
+<span class="cm">// Ident: "x"
+// Char: '='
+// Int: "42"
+// Char: '+'
+// Ident: "y"</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+<pre><code><span class="label">Rust</span><span class="cm">// logos crate — derive macro generates a DFA lexer at compile time</span>
+
+<span class="kw">use</span> logos::<span class="ty">Logos</span>;
+
+<span class="pp">#[derive(Logos, Debug, PartialEq)]</span>
+<span class="kw">enum</span> <span class="ty">Token</span> {
+    <span class="pp">#[regex(r"[0-9]+", |lex| lex.slice().parse())]</span>
+    <span class="fn">Num</span>(<span class="ty">i64</span>),
+
+    <span class="pp">#[regex(r"[a-zA-Z_]+")]</span>
+    <span class="fn">Id</span>,
+
+    <span class="pp">#[regex(r"[+\-*/=]")]</span>
+    <span class="fn">Op</span>,
+
+    <span class="pp">#[regex(r"\s+", logos::skip)]</span>
+    <span class="cm">// skip whitespace</span>
+}
+
+<span class="cm">// logos generates a DFA at compile time via proc macro.
+// Zero allocation. ~2 GB/s throughput on modern hardware.
+// The derive macro IS the lexer generator.</span></code></pre>
+  </div>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Python's built-in tokenizer shows you exactly how Python sees its own source code:</p>
+<pre><code>python3 -c "import tokenize,io; [print(t) for t in tokenize.generate_tokens(io.StringIO('x = 42 + y').readline)]"</code></pre>
+</div>
+
 </section>
 
 <!-- ============================================================ -->
@@ -591,6 +893,12 @@
 <div class="power-label">Key Insight</div>
 <p>Recursive descent is <strong>LL(1)</strong>: it looks at one token ahead to decide which rule to apply. If you can always decide by looking at the current token, you're golden. The main limitation: left recursion (<code>expr → expr '+' term</code>) causes infinite recursion. Fix: rewrite as right recursion or iteration, or use Pratt parsing (next chapter).</p>
 </div>
+
+<div class="lang-note">
+<div class="lang-note-label">Recursive Descent in Production</div>
+<p>Almost every major compiler is hand-written recursive descent: <strong>GCC</strong> (switched from Bison in 2004), <strong>Clang</strong>, <strong>V8</strong> (JavaScript), <strong>Go</strong> (<code>go/parser</code>), <strong>Rust</strong> (rustc), <strong>TypeScript</strong>, <strong>Swift</strong>, <strong>Kotlin</strong>. Generated parsers (yacc/bison/ANTLR) dominated in the 1980s-90s but lost ground because hand-written parsers give you full control over error messages, recovery, and incremental parsing. The extra boilerplate is worth it when your error messages are user-facing.</p>
+</div>
+
 </section>
 
 <!-- ============================================================ -->
@@ -679,6 +987,18 @@
 <div class="power-label">Zen</div>
 <p>Pratt parsing is what happens when you take recursive descent and remove the ceremony. Instead of one function per precedence level (<code>parse_additive</code>, <code>parse_multiplicative</code>, <code>parse_unary</code>...), you have one function with a parameter. The binding power table <em>is</em> the grammar. Bob Nystrom's "Pratt Parsers: Expression Parsing Made Easy" is the best explanation ever written.</p>
 </div>
+
+<div class="lang-note">
+<div class="lang-note-label">Pratt Parsing Everywhere</div>
+<p>Pratt parsing (or its close cousin, precedence climbing) powers expression parsing in: <strong>VS Code</strong>'s syntax engine, <strong>Prettier</strong>, <strong>ESLint</strong>, <strong>rustfmt</strong>, <strong>Lua</strong>'s compiler, <strong>SQLite</strong>'s expression parser, and <strong>TypeScript</strong>'s compiler (uses a precedence-climbing variant that's functionally equivalent). If something parses expressions with operator precedence, it's probably Pratt. Bob Nystrom's <em>Crafting Interpreters</em> made it the default teaching approach &mdash; and for good reason. It's the only expression parsing technique where adding a new operator means adding one line to the binding power table.</p>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>See Python's AST for an expression &mdash; the parser already handled precedence for you:</p>
+<pre><code>python3 -c "import ast; print(ast.dump(ast.parse('2+3*4', mode='eval'), indent=2))"</code></pre>
+</div>
+
 </section>
 
 <!-- ============================================================ -->
@@ -931,6 +1251,91 @@ atom ← NUMBER / "(" expr ")"
 <div class="power-label">Zen</div>
 <p>Parser combinators are beautiful because they're <em>compositional</em>. Each combinator is a function, and functions compose. You build a JSON parser by saying "a value is a string OR a number OR an array OR an object, where an array is '[' value (',' value)* ']'." The code reads like the grammar. Haskell's Parsec library made this famous, but the pattern works in any language with first-class functions.</p>
 </div>
+
+<h3>Combinator Libraries Across Languages</h3>
+
+<p>The combinator pattern scales from research languages to production systems &mdash; but the ergonomics vary wildly by language. Some have first-class combinator libraries; others prefer hand-written parsers.</p>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-combinators" id="tab-c-comb" class="tc" checked>
+  <input type="radio" name="tabs-combinators" id="tab-py-comb" class="tpy">
+  <input type="radio" name="tabs-combinators" id="tab-ts-comb" class="tts">
+  <input type="radio" name="tabs-combinators" id="tab-go-comb" class="tgo">
+  <input type="radio" name="tabs-combinators" id="tab-rs-comb" class="trs">
+  <div class="tab-bar">
+    <label for="tab-c-comb">C</label>
+    <label for="tab-py-comb">Python</label>
+    <label for="tab-ts-comb">TypeScript</label>
+    <label for="tab-go-comb">Go</label>
+    <label for="tab-rs-comb">Rust</label>
+  </div>
+  <div class="tab-content c">
+<pre><code><span class="label">C</span><span class="cm">// C doesn't have a dominant combinator library.</span>
+<span class="cm">// You build them by hand, as shown above in this chapter.</span>
+<span class="cm">//</span>
+<span class="cm">// The lack of closures and generics makes the pattern</span>
+<span class="cm">// verbose but explicit:</span>
+<span class="cm">//   - No lambda capture → pass context via void* or structs</span>
+<span class="cm">//   - No generics → ParseResult carries raw pointers</span>
+<span class="cm">//   - No operator overloading → seq2(a, b) not a >> b</span>
+<span class="cm">//</span>
+<span class="cm">// This is fine. C's parser combinator pattern is just</span>
+<span class="cm">// function pointers + structs. You've already seen it.</span></code></pre>
+  </div>
+  <div class="tab-content py">
+<pre><code><span class="label">Python</span><span class="kw">from</span> pyparsing <span class="kw">import</span> Word, nums, oneOf, infixNotation, opAssoc
+
+integer = <span class="fn">Word</span>(nums).<span class="fn">setParseAction</span>(<span class="kw">lambda</span> t: <span class="fn">int</span>(t[<span class="nm">0</span>]))
+expr = <span class="fn">infixNotation</span>(integer, [
+    (<span class="fn">oneOf</span>(<span class="st">'* /'</span>), <span class="nm">2</span>, opAssoc.LEFT),
+    (<span class="fn">oneOf</span>(<span class="st">'+ -'</span>), <span class="nm">2</span>, opAssoc.LEFT),
+])
+<span class="fn">print</span>(expr.<span class="fn">parseString</span>(<span class="st">'2 + 3 * 4'</span>))  <span class="cm"># [[2, '+', [3, '*', 4]]]</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+<pre><code><span class="label">TypeScript</span><span class="cm">// parsimmon-style combinators</span>
+<span class="kw">import</span> P <span class="kw">from</span> <span class="st">'parsimmon'</span>;
+
+<span class="kw">const</span> num = P.<span class="fn">regexp</span>(<span class="st">/[0-9]+/</span>).<span class="fn">map</span>(Number);
+<span class="kw">const</span> op  = P.<span class="fn">regexp</span>(<span class="st">/[+\-*/]/</span>);
+<span class="kw">const</span> expr = P.<span class="fn">seq</span>(num, P.<span class="fn">seq</span>(op, num).<span class="fn">many</span>());
+
+console.<span class="fn">log</span>(expr.<span class="fn">tryParse</span>(<span class="st">'2+3*4'</span>));
+<span class="cm">// [2, [['+', 3], ['*', 4]]]</span></code></pre>
+  </div>
+  <div class="tab-content go">
+<pre><code><span class="label">Go</span><span class="cm">// Go has no dominant combinator library.</span>
+<span class="cm">// Most Go parsers are hand-written recursive descent —</span>
+<span class="cm">// the language culture favors explicit code over DSL-heavy</span>
+<span class="cm">// libraries. participle is the closest alternative:</span>
+<span class="cm">// reflection-based, struct tags define grammar.</span>
+
+<span class="kw">type</span> <span class="ty">Expr</span> <span class="kw">struct</span> {
+    Left  *<span class="ty">Term</span>     <span class="st">`@@`</span>
+    Right []*<span class="ty">OpTerm</span> <span class="st">`@@*`</span>
+}
+
+<span class="cm">// Grammar defined via struct tags — Go's answer to combinators</span>
+parser := participle.<span class="fn">MustBuild</span>[<span class="ty">Expr</span>]()</code></pre>
+  </div>
+  <div class="tab-content rs">
+<pre><code><span class="label">Rust</span><span class="kw">use</span> nom::{<span class="ty">IResult</span>, character::complete::digit1, combinator::map_res};
+
+<span class="kw">fn</span> <span class="fn">parse_num</span>(input: &amp;<span class="ty">str</span>) -&gt; <span class="ty">IResult</span>&lt;&amp;<span class="ty">str</span>, <span class="ty">i64</span>&gt; {
+    <span class="fn">map_res</span>(digit1, <span class="ty">str</span>::parse)(input)
+}
+
+<span class="cm">// Combinators compose: sequence, alt, many, preceded, delimited...</span>
+<span class="cm">// nom's zero-copy parsing makes it as fast as hand-written C</span></code></pre>
+  </div>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Use Python's built-in <code>ast</code> module to see how CPython parses an arithmetic expression into a tree:</p>
+<pre><code>python3 -c "import ast; tree = ast.parse('2 + 3 * 4', mode='eval'); print(ast.dump(tree, indent=2))"</code></pre>
+</div>
+
 </section>
 
 <!-- ============================================================ -->
@@ -1057,6 +1462,15 @@ atom ← NUMBER / "(" expr ")"
 <div class="power-label">Wild</div>
 <p>The fastest path from DSL idea to working implementation: (1) define the token types, (2) write a hand-lexer (chapter 4), (3) write a recursive descent parser (chapter 5), (4) walk the AST and interpret. You can have a working DSL in an afternoon. Compiling to bytecode or native code is only necessary if performance matters — and for most DSLs, it doesn't. Your glyph parser is exactly this: lex directives → recursive descent → AST → resolve references.</p>
 </div>
+
+<div class="lang-note">
+<div class="lang-note-label">Embedded vs External DSLs</div>
+<p><strong>Embedded DSLs</strong> live inside a host language, borrowing its syntax: Ruby blocks (Rake, RSpec, Chef), Kotlin DSL builders (Gradle, Ktor), Elixir macros (Ecto queries), Rust proc macros (<code>serde</code>, <code>clap</code> derive). You get the host language's editor support, type checking, and debugging for free.</p>
+<p><strong>External DSLs</strong> have their own syntax and parser: SQL, regex, HCL (Terraform), GraphQL, your glyph format. More powerful syntax freedom, but you must build tooling from scratch.</p>
+<p><strong>The hybrid</strong>: Rust's proc macros are uniquely powerful because <code>syn</code>/<code>quote</code> give you full access to Rust's AST at compile time. You can invent arbitrary syntax inside <code>macro_rules!</code> or derive macros that compiles to valid Rust. It's an external DSL wearing an embedded DSL's clothes.</p>
+<p>Rule of thumb: if your DSL needs to express computation (conditions, loops, variables), make it embedded. If it's primarily declarative data (schemas, configs, queries), external is cleaner.</p>
+</div>
+
 </section>
 
 <!-- ============================================================ -->
@@ -1261,6 +1675,327 @@ atom ← NUMBER / "(" expr ")"
 <div class="power zen">
 <div class="power-label">Zen</div>
 <p>Every parser is a transformation: unstructured text → structured data. The techniques in this guide — regex for tokens, recursive descent for structure, Pratt for expressions, state machines for protocols — are universal tools. Once you've built a parser from scratch, you'll never look at text the same way again. Every file format, every protocol, every configuration language — you'll see the grammar hiding inside, waiting to be extracted.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch13">
+<h2>13 &mdash; Scripting Language Internals</h2>
+
+<p class="drop-cap">Every scripting language follows the same pipeline we've covered in chapters 4&ndash;11 &mdash; lexing, parsing, AST construction &mdash; but the story doesn't end there. Where compiled languages emit machine code, scripting languages compile to <em>bytecode</em> and run it on a <em>virtual machine</em>. The VM is the execution backend: a loop that fetches an instruction, dispatches it, and repeats. Understanding this pipeline &mdash; and the design choices within it &mdash; explains why languages feel fast or slow, why closures work, and where JIT compilers fit in.</p>
+
+<h3>13.1 &mdash; The Pipeline</h3>
+
+<div class="diagram">
+<span class="diagram-label">Scripting Language Pipeline</span>
+<pre><code>  source &rarr; lexer &rarr; tokens &rarr; parser &rarr; AST &rarr; compiler &rarr; bytecode &rarr; VM loop &rarr; result</code></pre>
+</div>
+
+<p>Python, Lua, Ruby, JavaScript (V8), and PHP 8 all follow this exact pipeline. The front half &mdash; lexer through AST &mdash; is identical to what we built in chapters 4&ndash;7. The back half &mdash; compiler through VM &mdash; is where the real divergence happens. The differences come down to VM architecture and optimization strategy.</p>
+
+<h3>13.2 &mdash; Stack-Based vs Register-Based VMs</h3>
+
+<p>There are two fundamental VM architectures. They differ in how operands are addressed &mdash; implicitly via a stack, or explicitly via named registers.</p>
+
+<p>Consider the expression <code>a + b * c</code>:</p>
+
+<div class="diagram">
+<span class="diagram-label">Stack-Based VM (Python/CPython, Ruby MRI, JVM, .NET CLR)</span>
+<pre><code>  LOAD_FAST  a          <span class="cm"># push a</span>
+  LOAD_FAST  b          <span class="cm"># push b</span>
+  LOAD_FAST  c          <span class="cm"># push c</span>
+  BINARY_MULTIPLY       <span class="cm"># pop b,c &rarr; push b*c</span>
+  BINARY_ADD            <span class="cm"># pop a,(b*c) &rarr; push a+b*c</span></code></pre>
+</div>
+
+<p>Five instructions. Operands are implicit &mdash; they live on the stack. The compiler never needs to worry about register allocation. Simple to generate, but more instructions means more dispatch overhead.</p>
+
+<div class="diagram">
+<span class="diagram-label">Register-Based VM (Lua 5.0+, LuaJIT, Android Dalvik/ART)</span>
+<pre><code>  MUL  R2  R1  R0      <span class="cm"># R2 = b * c</span>
+  ADD  R3  R2  R0      <span class="cm"># R3 = a + b*c</span></code></pre>
+</div>
+
+<p>Two instructions. Operands are explicit &mdash; each instruction names its registers. Fewer dispatches, but the compiler must handle register allocation, and each instruction is wider (more bytes to encode the register operands).</p>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-bytecode" id="tab-py-bytecode" class="tpy" checked>
+  <input type="radio" name="tabs-bytecode" id="tab-ts-bytecode" class="tts">
+  <input type="radio" name="tabs-bytecode" id="tab-go-bytecode" class="tgo">
+  <input type="radio" name="tabs-bytecode" id="tab-rs-bytecode" class="trs">
+  <input type="radio" name="tabs-bytecode" id="tab-c-bytecode" class="tc">
+  <div class="tab-bar">
+    <label for="tab-py-bytecode">Python</label>
+    <label for="tab-ts-bytecode">TypeScript</label>
+    <label for="tab-go-bytecode">Go</label>
+    <label for="tab-rs-bytecode">Rust</label>
+    <label for="tab-c-bytecode">C</label>
+  </div>
+  <div class="tab-content py">
+<pre><code><span class="label">Python</span><span class="kw">import</span> dis
+
+<span class="cm"># CPython's stack-based bytecode</span>
+dis.<span class="fn">dis</span>(<span class="kw">lambda</span> a, b, c: a + b * c)
+
+<span class="cm"># Output:</span>
+<span class="cm">#   LOAD_FAST    0 (a)</span>
+<span class="cm">#   LOAD_FAST    1 (b)</span>
+<span class="cm">#   LOAD_FAST    2 (c)</span>
+<span class="cm">#   BINARY_MULTIPLY</span>
+<span class="cm">#   BINARY_ADD</span>
+<span class="cm">#   RETURN_VALUE</span>
+<span class="cm">#</span>
+<span class="cm"># Stack-based: no register names, all operands</span>
+<span class="cm"># are pushed/popped from the evaluation stack.</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+<pre><code><span class="label">TypeScript</span><span class="cm">// V8's Ignition bytecode (register-based since 2017)</span>
+<span class="cm">// node --print-bytecode -e "function f(a,b,c){return a+b*c}" 2&gt;&amp;1 | head -20</span>
+<span class="cm">//</span>
+<span class="cm">//   Ldar    a1          // load register a1 (b) into accumulator</span>
+<span class="cm">//   Mul     a2, [0]     // acc = acc * a2 (c)</span>
+<span class="cm">//   Add     a0, [1]     // acc = acc + a0 (a)</span>
+<span class="cm">//   Return              // return accumulator</span>
+<span class="cm">//</span>
+<span class="cm">// V8 uses an "accumulator" register — a hybrid:</span>
+<span class="cm">// one implicit operand (accumulator) + one explicit.</span>
+<span class="cm">// Fewer instructions than pure stack, simpler encoding</span>
+<span class="cm">// than full register-based.</span></code></pre>
+  </div>
+  <div class="tab-content go">
+<pre><code><span class="label">Go</span><span class="cm">// Go compiles to native code — no bytecode, no VM.</span>
+<span class="cm">// go build -gcflags='-S' file.go  shows assembly.</span>
+<span class="cm">//</span>
+<span class="cm">// func f(a, b, c int) int { return a + b*c }</span>
+<span class="cm">//</span>
+<span class="cm">//   MOVQ    "".b+16(SP), AX</span>
+<span class="cm">//   IMULQ   "".c+24(SP), AX</span>
+<span class="cm">//   ADDQ    "".a+8(SP), AX</span>
+<span class="cm">//   MOVQ    AX, "".~r0+32(SP)</span>
+<span class="cm">//   RET</span>
+<span class="cm">//</span>
+<span class="cm">// This is real x86-64 assembly, not bytecode.</span>
+<span class="cm">// Different paradigm entirely — no interpreter loop.</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+<pre><code><span class="label">Rust</span><span class="cm">// Rust compiles via LLVM to native code — no bytecode.</span>
+<span class="cm">// cargo rustc -- --emit=llvm-ir   shows LLVM IR.</span>
+<span class="cm">// cargo rustc -- --emit=asm       shows assembly.</span>
+<span class="cm">//</span>
+<span class="cm">// fn f(a: i64, b: i64, c: i64) -&gt; i64 { a + b * c }</span>
+<span class="cm">//</span>
+<span class="cm">//   %1 = mul nsw i64 %b, %c</span>
+<span class="cm">//   %2 = add nsw i64 %1, %a</span>
+<span class="cm">//   ret i64 %2</span>
+<span class="cm">//</span>
+<span class="cm">// LLVM IR looks like register-based bytecode, but it's</span>
+<span class="cm">// an intermediate form compiled to native before execution.</span></code></pre>
+  </div>
+  <div class="tab-content c">
+<pre><code><span class="label">C</span><span class="cm">// C compiles to native — gcc -S -O0 shows assembly.</span>
+<span class="cm">// But C can TARGET a VM: Lua's compiler is written in</span>
+<span class="cm">// C and generates Lua bytecode.</span>
+<span class="cm">//</span>
+<span class="cm">// int f(int a, int b, int c) { return a + b * c; }</span>
+<span class="cm">//</span>
+<span class="cm">//   imull   %edx, %esi      # b * c</span>
+<span class="cm">//   addl    %edi, %esi      # a + (b*c)</span>
+<span class="cm">//   movl    %esi, %eax      # result in return register</span>
+<span class="cm">//   ret</span>
+<span class="cm">//</span>
+<span class="cm">// The C language has no runtime VM. But the C compiler</span>
+<span class="cm">// is the tool used to BUILD most scripting VMs.</span></code></pre>
+  </div>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Inspect CPython's bytecode for an expression:</p>
+<pre><code>python3 -c "import dis; dis.dis(lambda a,b,c: a + b*c)"</code></pre>
+</div>
+
+<h3>13.3 &mdash; Closures and Upvalues</h3>
+
+<p>A closure is a function that captures variables from its enclosing scope. The key problem: when the enclosing function returns, the stack frame is gone. Where does the captured variable live?</p>
+
+<p><strong>Lua's elegant solution</strong>: upvalues. When a nested function references an outer local, Lua creates an <em>upvalue</em> &mdash; an indirection that points to the variable on the stack. When the outer function returns, the variable is "closed over" &mdash; moved from the stack to the heap. The upvalue pointer is updated, and the inner function still works. Robert Ierusalimschy's design is the cleanest closure implementation in any language.</p>
+
+<div class="diagram">
+<span class="diagram-label">Upvalue Lifecycle</span>
+<pre><code>  Before return:   upvalue &rarr; stack slot [n=0]     (variable lives on stack)
+  After return:    upvalue &rarr; heap copy  [n=0]     (stack is gone, value preserved)</code></pre>
+</div>
+
+<p>How other languages handle it:</p>
+
+<table>
+<tr><th>Language</th><th>Capture Semantics</th><th>Key Detail</th></tr>
+<tr><td>Python</td><td>By reference</td><td>Requires <code><span class="kw">nonlocal</span></code> keyword for mutation; without it, assignment creates a new local</td></tr>
+<tr><td>JavaScript</td><td>Entire lexical environment</td><td>V8 does escape analysis to avoid heap-allocating variables that don't escape</td></tr>
+<tr><td>Lua</td><td>Explicit upvalues</td><td>Most elegant implementation &mdash; stack-to-heap promotion on scope exit</td></tr>
+<tr><td>Go</td><td>By reference</td><td>Escape analysis decides stack vs heap allocation</td></tr>
+<tr><td>Rust</td><td><code><span class="ty">Fn</span></code>/<code><span class="ty">FnMut</span></code>/<code><span class="ty">FnOnce</span></code> traits</td><td>Capture by <code>&amp;</code>, <code>&amp;<span class="kw">mut</span></code>, or move &mdash; the type system makes capture semantics explicit</td></tr>
+</table>
+
+<pre><code><span class="label">Python</span><span class="kw">def</span> <span class="fn">make_counter</span>():
+    n = <span class="nm">0</span>
+    <span class="kw">def</span> <span class="fn">inc</span>():
+        <span class="kw">nonlocal</span> n
+        n += <span class="nm">1</span>
+        <span class="kw">return</span> n
+    <span class="kw">return</span> inc
+
+c = <span class="fn">make_counter</span>()
+<span class="fn">print</span>(<span class="fn">c</span>(), <span class="fn">c</span>(), <span class="fn">c</span>())  <span class="cm"># 1 2 3</span></code></pre>
+
+<h3>13.4 &mdash; Garbage Collection</h3>
+
+<table>
+<tr><th>Language</th><th>GC Type</th><th>Pause Behavior</th><th>Key Trick</th></tr>
+<tr><td>CPython</td><td>Refcount + cycle collector</td><td>Deterministic for non-cyclic</td><td><code><span class="fn">__del__</span></code> runs immediately</td></tr>
+<tr><td>Lua</td><td>Incremental mark-sweep</td><td>Short pauses</td><td>Tri-color marking, tunable step size</td></tr>
+<tr><td>V8 (JS)</td><td>Generational (Orinoco)</td><td>Concurrent marking + parallel scavenge</td><td>Nursery/old-gen split, write barriers</td></tr>
+<tr><td>Ruby</td><td>Generational mark-sweep</td><td>Improved since 2.1</td><td>Lazy sweeping, compaction (3.0+)</td></tr>
+<tr><td>Go</td><td>Concurrent tri-color mark-sweep</td><td>Sub-ms pauses</td><td>Not a scripting lang, but notable GC</td></tr>
+<tr><td>Java</td><td>G1/ZGC/Shenandoah</td><td>Near-zero pause (ZGC)</td><td>Region-based, concurrent relocation</td></tr>
+</table>
+
+<div class="lang-note">
+<div class="lang-note-label">Reference Counting vs Tracing</div>
+<p>Python chose refcounting for deterministic cleanup &mdash; files close when the last reference dies, not "eventually." But refcounting can't handle cycles (A&rarr;B&rarr;A), so CPython also has a cycle collector that runs periodically. Most other languages chose tracing GC because it's simpler to implement and handles cycles naturally, at the cost of non-deterministic finalization.</p>
+</div>
+
+<h3>13.5 &mdash; JIT Compilation</h3>
+
+<p>Interpreting bytecode is roughly 10&ndash;100x slower than native code. JIT (Just-In-Time) compilers bridge the gap by compiling hot code paths to machine code at runtime. The key insight: most programs spend most of their time in a small fraction of the code. Compile <em>that</em> fraction and leave the rest interpreted.</p>
+
+<div class="diagram">
+<span class="diagram-label">V8's Tiered Pipeline</span>
+<pre><code>  Source &rarr; Parser &rarr; AST &rarr; Ignition (bytecode interpreter)
+                                  &darr; hot function detected
+                              Sparkplug (baseline JIT, no optimization)
+                                  &darr; still hot
+                              Maglev (mid-tier, some optimization)
+                                  &darr; very hot
+                              TurboFan (full optimizing JIT, speculative)
+                                  &darr; deopt (wrong type assumption)
+                              back to Ignition</code></pre>
+</div>
+
+<p><strong>LuaJIT's trace compiler</strong>: instead of compiling functions, LuaJIT records "traces" &mdash; hot loop iterations. It compiles the trace (a linear sequence of operations) to machine code. If a guard fails (type check, unexpected branch), it falls back to the interpreter. Mike Pall's masterpiece &mdash; often faster than statically compiled C for numerical code.</p>
+
+<p><strong>PyPy's meta-tracing</strong>: write an interpreter in RPython, and PyPy's JIT framework automatically generates a JIT compiler for your language. The interpreter <em>is</em> the specification; the JIT is derived mechanically. A remarkable approach &mdash; you get a JIT "for free" by writing an interpreter in the right way.</p>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Disassemble a recursive function to see CPython's bytecode for control flow:</p>
+<pre><code>python3 -c "import dis; exec('def fib(n):\n if n&lt;2: return n\n return fib(n-1)+fib(n-2)'); dis.dis(fib)"</code></pre>
+</div>
+
+<h3>13.6 &mdash; Single-Pass Compilation</h3>
+
+<p>Lua's compiler is single-pass: it generates bytecode directly during parsing, with no intermediate AST. The parser calls <code><span class="fn">emit_opcode</span>()</code> as it recognizes constructs. This is the same approach we saw in chapter 5 &mdash; recursive descent &mdash; but taken to its logical extreme: the parser <em>is</em> the compiler.</p>
+
+<table>
+<tr><th>Strategy</th><th>Example</th><th>Compiler Size</th><th>Trade-off</th></tr>
+<tr><td>Single-pass</td><td>Lua</td><td>~2,500 lines of C</td><td>Simpler, lower memory, faster compilation, but limits optimization</td></tr>
+<tr><td>Two-pass</td><td>CPython</td><td>~15,000 lines</td><td>AST enables constant folding, dead code elimination</td></tr>
+<tr><td>Many-pass</td><td>V8</td><td>Hundreds of thousands of lines</td><td>Multiple JIT tiers, maximum runtime performance</td></tr>
+</table>
+
+<div class="power zen">
+<div class="power-label">Zen</div>
+<p>Lua's entire compiler &mdash; lexer, parser, code generator &mdash; is 2,500 lines of C. CPython's is 15,000. V8's is hundreds of thousands. Complexity scales linearly with optimization ambition. Most DSLs need Lua-level complexity, not V8-level.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch14">
+<h2>14 &mdash; Parsers in the Wild</h2>
+
+<p class="drop-cap">Theory is beautiful. Production is war. This chapter covers real-world parsers that serve billions of requests, compile millions of programs, and occasionally crash spectacularly. Each case study reveals a parsing technique from the earlier chapters, battle-tested at scale.</p>
+
+<h3>14.1 &mdash; CPython's PEG Migration</h3>
+
+<p>For 30 years (1990&ndash;2020), CPython used an LL(1) parser generated by <code>pgen</code>, a custom parser generator Guido van Rossum wrote for Python's very first release. The grammar lived in <code>Grammar/Grammar</code>, a BNF-like file that <code>pgen</code> compiled into parsing tables. It worked. But LL(1) has a hard constraint: at most one token of lookahead, and no ambiguity in the grammar.</p>
+
+<p>That constraint increasingly chafed. Assignment expressions (<code>:=</code>, the "walrus operator"), <code>match</code> statements, and some starred expressions required awkward grammar workarounds &mdash; synthetic intermediate rules that existed only to satisfy LL(1), making the grammar harder to read and maintain. Some valid Python constructs were parsed with an overly permissive grammar rule and then rejected in a post-parse validation pass &mdash; a code smell that the grammar and the language had drifted apart.</p>
+
+<p>Python 3.9 (PEP 617) replaced the entire front end with a PEG parser designed by Guido van Rossum and Pablo Galindo Salgado. The new grammar file, <code>Grammar/python.gram</code>, uses PEG syntax with ordered choice (<code>/</code>), unlimited lookahead, and left recursion support. A code generator compiles these rules to C &mdash; the generated parser is a recursive descent parser with packrat memoization (chapter 7's technique).</p>
+
+<p>The surprise: the PEG parser is actually <em>faster</em> than the old LL(1) parser. Memoization avoids redundant work that the LL(1) parser paid for through backtracking in its validation passes, and the generated C code has better cache behavior. Python 3.10 removed the old parser entirely.</p>
+
+<div class="power hack">
+<div class="power-label">Hack</div>
+<p>Python's grammar file <code>Grammar/python.gram</code> is ~700 lines of PEG rules that compile to ~30,000 lines of C. The grammar is readable; the generated parser is not. This is the parser generator bargain &mdash; and why CPython chose PEG over hand-writing a recursive descent parser.</p>
+</div>
+
+<h3>14.2 &mdash; V8's Lazy Parsing</h3>
+
+<p>V8 doesn't parse all JavaScript upfront. When it encounters a function definition, it makes a bet: will this function be called soon, or never? If V8 guesses "not soon," it <em>pre-parses</em> the function &mdash; a fast scan that validates syntax and finds scope boundaries but doesn't build an AST or generate bytecode. Only when the function is actually called does V8 fully parse it (lazy compilation).</p>
+
+<p>This is critical for page load performance. A typical web page loads megabytes of JavaScript but only executes a fraction on first paint. Pre-parsing the rest saves significant time and memory &mdash; no AST nodes allocated, no bytecode generated, no constant pool built for code that may never run.</p>
+
+<div class="diagram">
+<span class="diagram-label">V8 Lazy Parsing</span>
+<pre><code>  <span class="kw">function</span> <span class="fn">foo</span>() { ... }   <span class="cm">&larr; pre-parsed (fast): syntax ok, scopes found</span>
+  <span class="fn">foo</span>();                   <span class="cm">&larr; now full-parse: AST &rarr; Ignition bytecode</span>
+  <span class="kw">function</span> <span class="fn">bar</span>() { ... }   <span class="cm">&larr; pre-parsed, never called &rarr; never fully parsed</span></code></pre>
+</div>
+
+<p>The cost: if V8 guesses wrong (pre-parses a function that's called immediately), it pays double &mdash; pre-parse then full-parse. IIFEs <code>(function(){...})()</code> are hinted as "eager" to avoid this penalty. V8 also uses heuristics: functions that are arguments to <code>.forEach</code>, <code>.map</code>, etc. are parsed eagerly because they're almost always called immediately.</p>
+
+<h3>14.3 &mdash; tree-sitter: Incremental Parsing</h3>
+
+<p>Most parsers start from scratch every time. Change one character in a 10,000-line file, and the parser re-lexes and re-parses the entire thing. tree-sitter doesn't. It re-parses only the parts of the file that changed &mdash; edit-aware incremental parsing.</p>
+
+<p>The key insight: tree-sitter's output is a concrete syntax tree (CST) stored as a persistent data structure. When you edit a character, tree-sitter receives the edit description (position, old text, new text) and re-parses only the affected subtree, reusing all unchanged nodes. This achieves sub-millisecond re-parse on keystroke for any supported language.</p>
+
+<p>tree-sitter is used by Neovim (since 0.5), Helix, Zed, GitHub code navigation, Emacs 29+, and dozens of other tools. It's built on GLR parsing (generalized LR) &mdash; a parser that can handle ambiguous grammars by maintaining multiple parse stacks simultaneously. This is necessary for languages like C++ where some constructs are genuinely ambiguous without semantic information (is <code>T(x)</code> a function call or a cast?).</p>
+
+<div class="lang-note">
+<div class="lang-note-label">tree-sitter's Meta-DSL</div>
+<p>tree-sitter grammars are written in JavaScript &mdash; a DSL for defining grammars. The grammar JavaScript file is executed by Node.js to produce a JSON grammar description, which the tree-sitter CLI compiles to a C parser. The generated C code is checked into the repo &mdash; no build-time dependency on tree-sitter itself. As of 2025, there are tree-sitter grammars for 200+ languages.</p>
+</div>
+
+<h3>14.4 &mdash; Parsing Binary Formats</h3>
+
+<p>Binary format parsing is still parsing &mdash; the same state machine principles from chapter 8. The critical difference: no lexer needed. In text parsing, the lexer handles character-level details (is this a number or identifier?). In binary parsing, the "tokens" are type tags read directly from bytes. The first byte <em>is</em> the token.</p>
+
+<p><strong>Protobuf</strong> uses tag-length-value (TLV) framing. Each field has a wire type (varint, 64-bit, length-delimited, etc.) embedded in the tag byte. Deserialization is schema-driven &mdash; the parser needs the <code>.proto</code> definition to interpret field numbers. Without the schema, you can parse the structure but not the semantics.</p>
+
+<p><strong>MessagePack/CBOR</strong> use self-describing type tags. The first byte tells you the type AND sometimes the value (fixint, fixstr, fixarray). No schema needed &mdash; the format is self-describing. Your cowrie format uses this same pattern: inline types (0x40&ndash;0xEF) encode both the type and small values in a single byte.</p>
+
+<table>
+<tr><th>Aspect</th><th>Text (JSON, glyph)</th><th>Binary (protobuf, cowrie)</th></tr>
+<tr><td>Lexer needed</td><td>Yes</td><td>No (type tags are "tokens")</td></tr>
+<tr><td>Human readable</td><td>Yes</td><td>No</td></tr>
+<tr><td>Schema required</td><td>Optional</td><td>Depends (protobuf: yes, msgpack: no)</td></tr>
+<tr><td>Parse speed</td><td>Slower (char-by-char)</td><td>Faster (fixed-width reads)</td></tr>
+<tr><td>Error messages</td><td>Easy (line:col)</td><td>Hard (byte offset)</td></tr>
+<tr><td>Streaming</td><td>Harder (need to find boundaries)</td><td>Easier (length-prefixed)</td></tr>
+</table>
+
+<h3>14.5 &mdash; The Billion-Dollar Regex</h3>
+
+<p><strong>Cloudflare outage, July 2, 2019.</strong> A single WAF regex rule caused catastrophic backtracking, taking down Cloudflare's entire network for 27 minutes. The regex was a standard-looking security pattern, but its <code>(.*)*</code> structure created exponential backtracking in the PCRE engine. One regex, 27 minutes of global downtime.</p>
+
+<p><strong>Stack Overflow, July 2016.</strong> A regex in the Markdown renderer caused 100% CPU on certain posts. The pattern worked fine on normal input but exploded on adversarial strings. The fix was to rewrite the regex with possessive quantifiers and atomic groups &mdash; PCRE features that prevent backtracking.</p>
+
+<p><strong>ReDoS attacks</strong> (Regular Expression Denial of Service) exploit this systematically. Attackers craft input that triggers exponential backtracking in PCRE-style engines. Any regex with nested quantifiers <code>(a+)+</code>, alternation with overlap <code>(a|a)*</code>, or <code>.*(pattern).*</code> is potentially vulnerable. The attack surface is enormous: every regex in every WAF, rate limiter, input validator, and markdown renderer.</p>
+
+<p>The fix is from chapter 2: use Thompson NFA engines (RE2, Go <code>regexp</code>, Rust <code>regex</code>) for any regex that processes untrusted input. They guarantee O(n&times;m) time &mdash; no backtracking, no catastrophic blowup. The Thompson construction we covered isn't just theory; it's a security boundary.</p>
+
+<div class="power danger">
+<div class="power-label">Danger</div>
+<p>Every regex in your WAF, rate limiter, input validator, or markdown renderer is a potential DoS vector if you're using a backtracking engine (PCRE, Python <code>re</code>, JavaScript <code>RegExp</code>, Ruby, PHP). Audit them. Switch to RE2/Go/Rust <code>regex</code> for untrusted input. Or set a timeout &mdash; .NET's <code>Regex</code> class supports <code>TimeSpan</code> limits, and Python 3.11 added <code>re.TIMEOUT</code>.</p>
+</div>
+
+<div class="power zen">
+<div class="power-label">Zen</div>
+<p>Every program that reads structured input is a parser. Your HTTP server parses requests. Your shell parses commands. Your editor parses source code. The techniques in these chapters &mdash; finite automata, recursive descent, Pratt parsing, error recovery &mdash; are not academic exercises. They're the atoms of software. Build them once, and you'll recognize them everywhere.</p>
 </div>
 
 </section>
