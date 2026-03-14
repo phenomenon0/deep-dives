@@ -369,6 +369,91 @@
     text-shadow: 0 0 6px rgba(0,255,136,0.3);
   }
 
+  /* === LANGUAGE TABS === */
+  .lang-tabs {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1.2rem 0;
+    overflow: hidden;
+  }
+  .lang-tabs input[type="radio"] { display: none; }
+  .lang-tabs label {
+    display: inline-block;
+    padding: 0.5rem 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .lang-tabs label:hover { color: var(--green); }
+  .lang-tabs .tab-bar {
+    border-bottom: 1px solid var(--border);
+    padding: 0 0.5rem;
+  }
+  .lang-tabs .tab-content { display: none; }
+  .lang-tabs .tab-content pre { margin: 0; border: none; border-radius: 0; }
+
+  .lang-tabs input.tc:checked ~ .tab-content.c,
+  .lang-tabs input.tpy:checked ~ .tab-content.py,
+  .lang-tabs input.tts:checked ~ .tab-content.ts,
+  .lang-tabs input.tgo:checked ~ .tab-content.go,
+  .lang-tabs input.trs:checked ~ .tab-content.rs { display: block; }
+
+  .lang-tabs input:nth-of-type(1):checked ~ .tab-bar label:nth-child(1),
+  .lang-tabs input:nth-of-type(2):checked ~ .tab-bar label:nth-child(2),
+  .lang-tabs input:nth-of-type(3):checked ~ .tab-bar label:nth-child(3),
+  .lang-tabs input:nth-of-type(4):checked ~ .tab-bar label:nth-child(4),
+  .lang-tabs input:nth-of-type(5):checked ~ .tab-bar label:nth-child(5) {
+    color: var(--green);
+    background: rgba(0,255,136,0.06);
+    border-bottom: 2px solid var(--green);
+  }
+
+  /* === TRY-THIS BOX === */
+  .try-this {
+    background: rgba(0, 255, 136, 0.04);
+    border-left: 3px solid var(--green-dim);
+    padding: 1rem 1.2rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .try-this .try-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.5rem;
+  }
+  .try-this pre {
+    margin: 0.5rem 0 0;
+    font-size: 12.5px;
+  }
+  .try-this p { font-size: 0.9rem; margin-bottom: 0.5rem; }
+
+  /* === LANG-NOTE BOX === */
+  .lang-note {
+    background: var(--bg-card);
+    border-left: 3px solid var(--blue);
+    padding: 1rem 1.2rem;
+    margin: 1.2rem 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 0.9rem;
+  }
+  .lang-note .lang-note-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--blue);
+    margin-bottom: 0.3rem;
+  }
+
   @media (max-width: 700px) {
     .vs { grid-template-columns: 1fr; }
     .hero h1 { font-size: 2rem; }
@@ -392,6 +477,8 @@
   <a href="#ch9">quantization</a>
   <a href="#ch10">weights</a>
   <a href="#ch11">decision</a>
+  <a href="#ch12">creative uses</a>
+  <a href="#ch13">archaeology</a>
 </nav>
 
 <div class="content">
@@ -507,6 +594,17 @@
 <div class="power zen">
 <div class="power-label">Zen: The Compression Test</div>
 <p>Entropy works as a file classifier. Calculate the entropy: if it is near 8.0 bits/byte, the data is compressed, encrypted, or truly random. Under 6, there is significant structure to exploit. Tools like <code>binwalk</code> and <code>ent</code> use entropy plots to find encrypted or compressed sections inside firmware images.</p>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Calculate byte-level entropy of a short string:</p>
+<pre><code>python3 -c "import math,collections; d=b'AAABBBCCDDDDDDEE'; c=collections.Counter(d); n=len(d); h=-sum((v/n)*math.log2(v/n) for v in c.values()); print(f'entropy={h:.3f} bits/byte (max 8.0)')"</code></pre>
+</div>
+
+<div class="lang-note">
+<div class="lang-note-label">Entropy Tools Across Languages</div>
+<p>Python: <code>collections.Counter</code> + <code>math.log2</code> over byte frequencies. Go: <code>math.Log2</code> over a frequency table built from a byte slice. Rust: the <code>entropy</code> crate, or compute manually with iterators. CLI tools: <code>ent</code> gives per-file entropy, <code>binwalk --entropy</code> plots entropy across offsets &mdash; invaluable for firmware and binary analysis.</p>
 </div>
 
 </section>
@@ -831,6 +929,85 @@
 <p>Huffman must use an integer number of bits per symbol. If a symbol's ideal cost is 2.3 bits, Huffman rounds to 2 or 3. This wastes up to 1 bit per symbol. For small alphabets with skewed distributions, the waste adds up. Arithmetic coding and its modern successor tANS assign fractional bits. We will meet tANS in the Zstandard chapter.</p>
 </div>
 
+<div class="lang-tabs">
+  <input type="radio" name="tabs-huffman" id="huff-py" class="tpy" checked>
+  <input type="radio" name="tabs-huffman" id="huff-ts" class="tts">
+  <input type="radio" name="tabs-huffman" id="huff-go" class="tgo">
+  <input type="radio" name="tabs-huffman" id="huff-rs" class="trs">
+  <div class="tab-bar">
+    <label for="huff-py">Python</label>
+    <label for="huff-ts">TypeScript</label>
+    <label for="huff-go">Go</label>
+    <label for="huff-rs">Rust</label>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">import</span> heapq
+<span class="kw">from</span> collections <span class="kw">import</span> Counter
+
+<span class="kw">def</span> <span class="fn">huffman</span>(data):
+    freq = Counter(data)
+    heap = [[f, [sym, <span class="st">''</span>]] <span class="kw">for</span> sym, f <span class="kw">in</span> freq.items()]
+    heapq.<span class="fn">heapify</span>(heap)
+    <span class="kw">while</span> <span class="fn">len</span>(heap) &gt; <span class="nm">1</span>:
+        lo = heapq.<span class="fn">heappop</span>(heap)
+        hi = heapq.<span class="fn">heappop</span>(heap)
+        <span class="kw">for</span> pair <span class="kw">in</span> lo[<span class="nm">1</span>:]: pair[<span class="nm">1</span>] = <span class="st">'0'</span> + pair[<span class="nm">1</span>]
+        <span class="kw">for</span> pair <span class="kw">in</span> hi[<span class="nm">1</span>:]: pair[<span class="nm">1</span>] = <span class="st">'1'</span> + pair[<span class="nm">1</span>]
+        heapq.<span class="fn">heappush</span>(heap, [lo[<span class="nm">0</span>]+hi[<span class="nm">0</span>]] + lo[<span class="nm">1</span>:] + hi[<span class="nm">1</span>:])
+    <span class="kw">return</span> <span class="fn">sorted</span>(heap[<span class="nm">0</span>][<span class="nm">1</span>:], key=<span class="kw">lambda</span> p: (<span class="fn">len</span>(p[<span class="nm">1</span>]), p))
+
+<span class="kw">for</span> sym, code <span class="kw">in</span> <span class="fn">huffman</span>(<span class="st">'ABRACADABRA'</span>):
+    <span class="fn">print</span>(f<span class="st">'{sym}: {code}'</span>)
+<span class="cm"># A: 0   B: 10   R: 110   C: 1110   D: 1111</span><span class="label">python</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="kw">function</span> <span class="fn">huffman</span>(data: <span class="ty">string</span>): <span class="ty">Map</span>&lt;<span class="ty">string</span>, <span class="ty">string</span>&gt; {
+  <span class="kw">const</span> freq = <span class="kw">new</span> <span class="ty">Map</span>&lt;<span class="ty">string</span>, <span class="ty">number</span>&gt;();
+  <span class="kw">for</span> (<span class="kw">const</span> ch <span class="kw">of</span> data) freq.<span class="fn">set</span>(ch, (freq.<span class="fn">get</span>(ch) ?? <span class="nm">0</span>) + <span class="nm">1</span>);
+
+  <span class="kw">type</span> <span class="ty">Node</span> = { freq: <span class="ty">number</span>; sym?: <span class="ty">string</span>; left?: <span class="ty">Node</span>; right?: <span class="ty">Node</span> };
+  <span class="kw">const</span> nodes: <span class="ty">Node</span>[] = [...freq].<span class="fn">map</span>(([sym, f]) =&gt; ({ freq: f, sym }));
+  nodes.<span class="fn">sort</span>((a, b) =&gt; a.freq - b.freq);
+
+  <span class="kw">while</span> (nodes.length &gt; <span class="nm">1</span>) {
+    <span class="kw">const</span> [a, b] = [nodes.<span class="fn">shift</span>()!, nodes.<span class="fn">shift</span>()!];
+    <span class="kw">const</span> parent = { freq: a.freq + b.freq, left: a, right: b };
+    <span class="kw">const</span> idx = nodes.<span class="fn">findIndex</span>(n =&gt; n.freq &gt;= parent.freq);
+    nodes.<span class="fn">splice</span>(idx === -<span class="nm">1</span> ? nodes.length : idx, <span class="nm">0</span>, parent);
+  }
+  <span class="cm">// ... walk tree to extract codes</span>
+}<span class="label">typescript</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="kw">type</span> <span class="ty">Node</span> <span class="kw">struct</span> {
+    freq  <span class="ty">int</span>
+    sym   <span class="ty">byte</span>
+    left  *<span class="ty">Node</span>
+    right *<span class="ty">Node</span>
+}
+<span class="kw">type</span> <span class="ty">Heap</span> []*<span class="ty">Node</span>
+<span class="kw">func</span> (h <span class="ty">Heap</span>) <span class="fn">Len</span>() <span class="ty">int</span>           { <span class="kw">return</span> <span class="fn">len</span>(h) }
+<span class="kw">func</span> (h <span class="ty">Heap</span>) <span class="fn">Less</span>(i, j <span class="ty">int</span>) <span class="ty">bool</span> { <span class="kw">return</span> h[i].freq &lt; h[j].freq }
+<span class="cm">// ... standard heap.Interface, then build tree</span><span class="label">go</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="kw">use</span> std::cmp::<span class="ty">Reverse</span>;
+<span class="kw">use</span> std::collections::<span class="ty">BinaryHeap</span>;
+
+<span class="kw">let mut</span> heap: <span class="ty">BinaryHeap</span>&lt;<span class="ty">Reverse</span>&lt;(<span class="ty">usize</span>, <span class="ty">Box</span>&lt;<span class="ty">Node</span>&gt;)&gt;&gt; = freq
+    .<span class="fn">into_iter</span>()
+    .<span class="fn">map</span>(|(sym, f)| <span class="ty">Reverse</span>((f, <span class="ty">Box</span>::<span class="fn">new</span>(<span class="ty">Node</span>::<span class="fn">Leaf</span>(sym)))))
+    .<span class="fn">collect</span>();
+<span class="cm">// Pop two smallest, merge, push back &mdash; same algorithm, different heap</span><span class="label">rust</span></code></pre>
+  </div>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>See character frequencies in action:</p>
+<pre><code>python3 -c "from collections import Counter; print(Counter('ABRACADABRA').most_common())"</code></pre>
+</div>
+
 </section>
 
 <!-- ============================================================ -->
@@ -1030,6 +1207,55 @@
 <p>DEFLATE is not the best compressor by any modern metric. Zstd beats it on ratio AND speed. But DEFLATE is <em>everywhere</em>: every browser, every OS, every runtime. PNG requires it, HTTP supports it, ZIP uses it. That install base is an unbreakable moat. When you need "works on literally any device," DEFLATE is your answer.</p>
 </div>
 
+<div class="lang-tabs">
+  <input type="radio" name="tabs-deflate" id="defl-py" class="tpy" checked>
+  <input type="radio" name="tabs-deflate" id="defl-ts" class="tts">
+  <input type="radio" name="tabs-deflate" id="defl-go" class="tgo">
+  <input type="radio" name="tabs-deflate" id="defl-rs" class="trs">
+  <div class="tab-bar">
+    <label for="defl-py">Python</label>
+    <label for="defl-ts">TypeScript</label>
+    <label for="defl-go">Go</label>
+    <label for="defl-rs">Rust</label>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">import</span> zlib
+data = <span class="st">b'the quick brown fox jumps over the lazy dog'</span> * <span class="nm">100</span>
+compressed = zlib.<span class="fn">compress</span>(data, level=<span class="nm">6</span>)
+<span class="fn">print</span>(f<span class="st">'{len(data)} → {len(compressed)} bytes ({len(data)/len(compressed):.1f}x)'</span>)
+<span class="cm"># 4400 → 56 bytes (78.6x)</span>
+<span class="kw">assert</span> zlib.<span class="fn">decompress</span>(compressed) == data<span class="label">python</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="kw">import</span> { deflateSync, inflateSync } <span class="kw">from</span> <span class="st">'node:zlib'</span>;
+<span class="kw">const</span> data = <span class="ty">Buffer</span>.<span class="fn">from</span>(<span class="st">'the quick brown fox '</span>.<span class="fn">repeat</span>(<span class="nm">100</span>));
+<span class="kw">const</span> compressed = <span class="fn">deflateSync</span>(data);
+console.<span class="fn">log</span>(<span class="st">`${data.length} → ${compressed.length} (${(data.length/compressed.length).toFixed(1)}x)`</span>);<span class="label">typescript</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="kw">var</span> buf bytes.<span class="ty">Buffer</span>
+w, _ := flate.<span class="fn">NewWriter</span>(&amp;buf, flate.<span class="ty">DefaultCompression</span>)
+w.<span class="fn">Write</span>(data)
+w.<span class="fn">Close</span>()
+fmt.<span class="fn">Printf</span>(<span class="st">"%d → %d bytes\n"</span>, <span class="fn">len</span>(data), buf.<span class="fn">Len</span>())<span class="label">go</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="kw">use</span> flate2::write::<span class="ty">DeflateEncoder</span>;
+<span class="kw">use</span> flate2::<span class="ty">Compression</span>;
+<span class="kw">use</span> std::io::<span class="ty">Write</span>;
+
+<span class="kw">let mut</span> encoder = <span class="ty">DeflateEncoder</span>::<span class="fn">new</span>(<span class="ty">Vec</span>::<span class="fn">new</span>(), <span class="ty">Compression</span>::<span class="fn">default</span>());
+encoder.<span class="fn">write_all</span>(data)?;
+<span class="kw">let</span> compressed = encoder.<span class="fn">finish</span>()?;<span class="label">rust</span></code></pre>
+  </div>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Compress repeated text and see the ratio:</p>
+<pre><code>python3 -c "import zlib; d=b'hello world '*1000; c=zlib.compress(d); print(f'{len(d)} -> {len(c)} bytes ({len(d)/len(c):.1f}x ratio)')"</code></pre>
+</div>
+
 </section>
 
 <!-- ============================================================ -->
@@ -1146,6 +1372,52 @@
 
 <div class="ticker">tANS = FRACTIONAL BITS &bull; DICTIONARY = SMALL DATA &bull; DECOMPRESS > 1 GB/s ALWAYS</div>
 
+<div class="lang-tabs">
+  <input type="radio" name="tabs-zstd" id="zstd-py" class="tpy" checked>
+  <input type="radio" name="tabs-zstd" id="zstd-ts" class="tts">
+  <input type="radio" name="tabs-zstd" id="zstd-go" class="tgo">
+  <input type="radio" name="tabs-zstd" id="zstd-rs" class="trs">
+  <div class="tab-bar">
+    <label for="zstd-py">Python</label>
+    <label for="zstd-ts">TypeScript</label>
+    <label for="zstd-go">Go</label>
+    <label for="zstd-rs">Rust</label>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">import</span> zstandard <span class="kw">as</span> zstd
+cctx = zstd.<span class="fn">ZstdCompressor</span>(level=<span class="nm">3</span>)
+data = <span class="st">b'{"user":"alice","action":"login"}'</span> * <span class="nm">10000</span>
+compressed = cctx.<span class="fn">compress</span>(data)
+<span class="fn">print</span>(f<span class="st">'{len(data)/1024:.0f}KB → {len(compressed)} bytes ({len(data)/len(compressed):.0f}x)'</span>)
+
+<span class="cm"># Dictionary mode for small payloads:</span>
+dict_data = zstd.<span class="fn">ZstdCompressionDict</span>(<span class="st">b'{"user":"","action":""}'</span>)
+cctx_d = zstd.<span class="fn">ZstdCompressor</span>(dict_data=dict_data)<span class="label">python</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="cm">// Node.js &mdash; using the fzstd package</span>
+<span class="kw">import</span> { compress, decompress } <span class="kw">from</span> <span class="st">'fzstd'</span>;
+<span class="kw">const</span> data = <span class="kw">new</span> <span class="ty">TextEncoder</span>().<span class="fn">encode</span>(<span class="st">'repeated data '</span>.<span class="fn">repeat</span>(<span class="nm">1000</span>));
+<span class="kw">const</span> compressed = <span class="fn">compress</span>(data);
+console.<span class="fn">log</span>(<span class="st">`${data.length} → ${compressed.length}`</span>);<span class="label">typescript</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="kw">import</span> <span class="st">"github.com/klauspost/compress/zstd"</span>
+encoder, _ := zstd.<span class="fn">NewWriter</span>(<span class="kw">nil</span>, zstd.<span class="fn">WithEncoderLevel</span>(zstd.<span class="ty">SpeedDefault</span>))
+compressed := encoder.<span class="fn">EncodeAll</span>(data, <span class="kw">nil</span>)<span class="label">go</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="kw">let</span> compressed = zstd::<span class="fn">encode_all</span>(&amp;data[..], <span class="nm">3</span>)?; <span class="cm">// level 3</span>
+<span class="kw">let</span> decompressed = zstd::<span class="fn">decode_all</span>(&amp;compressed[..])?;
+<span class="fn">assert_eq!</span>(data, decompressed);<span class="label">rust</span></code></pre>
+  </div>
+</div>
+
+<div class="lang-note">
+<div class="lang-note-label">Dictionary Training</div>
+<p><code>zstd --train</code> on a corpus of similar files generates a dictionary that dramatically improves compression of small payloads (JSON API responses, log lines). All language bindings support dictionary mode. The dictionary must be shared between compressor and decompressor.</p>
+</div>
+
 </section>
 
 <!-- ============================================================ -->
@@ -1240,6 +1512,69 @@
 </div>
 
 <div class="ticker">LZ4 DECODE: ~4 GB/s &bull; NO ENTROPY CODING &bull; BYTE-ALIGNED &bull; SIMPLER = FASTER</div>
+
+<h3>When Compression Is Faster Than No Compression</h3>
+
+<p>The counterintuitive truth: reading compressed data and decompressing it can be <em>faster</em> than reading uncompressed data. LZ4 decompresses at ~4 GB/s &mdash; faster than most storage can deliver raw bytes.</p>
+
+<table>
+<tr><th>Scenario</th><th>Raw Size</th><th>Transfer</th><th>Compressed</th><th>Decompress</th><th>Total</th><th>Speedup</th></tr>
+<tr><td>SSD &rarr; RAM (3 GB/s)</td><td>1 GB</td><td>333 ms</td><td>400 MB (2.5x)</td><td>100 ms</td><td>233 ms</td><td>1.4x faster</td></tr>
+<tr><td>NVMe &rarr; RAM (7 GB/s)</td><td>1 GB</td><td>143 ms</td><td>400 MB</td><td>100 ms</td><td>157 ms</td><td>~same</td></tr>
+<tr><td>HDD &rarr; RAM (200 MB/s)</td><td>1 GB</td><td>5000 ms</td><td>400 MB</td><td>100 ms</td><td>2100 ms</td><td>2.4x faster</td></tr>
+<tr><td>Network (1 Gbps)</td><td>1 GB</td><td>8000 ms</td><td>400 MB</td><td>100 ms</td><td>3300 ms</td><td>2.4x faster</td></tr>
+<tr><td>Network (100 Mbps)</td><td>1 GB</td><td>80000 ms</td><td>400 MB</td><td>100 ms</td><td>32100 ms</td><td>2.5x faster</td></tr>
+</table>
+
+<p>The slower the I/O, the bigger the win. LZ4 decompression at 4 GB/s means the decompression cost is effectively free &mdash; you are always I/O-bound.</p>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-lz4" id="lz4-py" class="tpy" checked>
+  <input type="radio" name="tabs-lz4" id="lz4-ts" class="tts">
+  <input type="radio" name="tabs-lz4" id="lz4-go" class="tgo">
+  <input type="radio" name="tabs-lz4" id="lz4-rs" class="trs">
+  <div class="tab-bar">
+    <label for="lz4-py">Python</label>
+    <label for="lz4-ts">TypeScript</label>
+    <label for="lz4-go">Go</label>
+    <label for="lz4-rs">Rust</label>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">import</span> lz4.frame, time
+data = <span class="st">b'\x00'</span> * <span class="nm">100_000_000</span>  <span class="cm"># 100MB of zeros</span>
+t = time.<span class="fn">time</span>()
+compressed = lz4.frame.<span class="fn">compress</span>(data)
+ct = time.<span class="fn">time</span>() - t
+t = time.<span class="fn">time</span>()
+lz4.frame.<span class="fn">decompress</span>(compressed)
+dt = time.<span class="fn">time</span>() - t
+<span class="fn">print</span>(f<span class="st">'Compress: {len(data)/ct/1e9:.1f} GB/s'</span>)
+<span class="fn">print</span>(f<span class="st">'Decompress: {len(data)/dt/1e9:.1f} GB/s'</span>)
+<span class="fn">print</span>(f<span class="st">'Ratio: {len(data)/len(compressed):.0f}x'</span>)<span class="label">python</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="kw">import</span> * <span class="kw">as</span> lz4 <span class="kw">from</span> <span class="st">'lz4js'</span>;
+<span class="kw">const</span> compressed = lz4.<span class="fn">compress</span>(data);
+<span class="kw">const</span> decompressed = lz4.<span class="fn">decompress</span>(compressed);<span class="label">typescript</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="kw">import</span> <span class="st">"github.com/pierrec/lz4/v4"</span>
+<span class="kw">var</span> buf bytes.<span class="ty">Buffer</span>
+w := lz4.<span class="fn">NewWriter</span>(&amp;buf)
+w.<span class="fn">Write</span>(data)
+w.<span class="fn">Close</span>()<span class="label">go</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="kw">let</span> compressed = lz4_flex::<span class="fn">compress_prepend_size</span>(&amp;data);
+<span class="kw">let</span> decompressed = lz4_flex::<span class="fn">decompress_size_prepended</span>(&amp;compressed)?;<span class="label">rust</span></code></pre>
+  </div>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Compare speed vs ratio with zlib (lz4 may not be installed &mdash; zlib still shows the tradeoff):</p>
+<pre><code>python3 -c "import zlib,time; d=bytes(range(256))*100000; t=time.time(); c=zlib.compress(d,1); print(f'zlib: {len(d)/len(c):.1f}x in {time.time()-t:.3f}s')"</code></pre>
+</div>
 
 </section>
 
@@ -1348,6 +1683,71 @@
 <div class="power zen">
 <div class="power-label">Zen: Transforms Don't Compress</div>
 <p>BWT and MTF produce output the exact same size as input. They <em>rearrange</em> data to make it more compressible by the next stage. The best way to compress data is often not a better compressor but a better representation. Remember this when designing binary formats.</p>
+</div>
+
+<h3>Multi-Language Delta Coding</h3>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-delta" id="delta-py" class="tpy" checked>
+  <input type="radio" name="tabs-delta" id="delta-ts" class="tts">
+  <input type="radio" name="tabs-delta" id="delta-go" class="tgo">
+  <input type="radio" name="tabs-delta" id="delta-rs" class="trs">
+  <div class="tab-bar">
+    <label for="delta-py">Python</label>
+    <label for="delta-ts">TypeScript</label>
+    <label for="delta-go">Go</label>
+    <label for="delta-rs">Rust</label>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">def</span> <span class="fn">delta_encode</span>(data):
+    <span class="kw">return</span> [data[<span class="nm">0</span>]] + [b - a <span class="kw">for</span> a, b <span class="kw">in</span> <span class="fn">zip</span>(data, data[<span class="nm">1</span>:])]
+
+<span class="kw">def</span> <span class="fn">delta_decode</span>(deltas):
+    out = [deltas[<span class="nm">0</span>]]
+    <span class="kw">for</span> d <span class="kw">in</span> deltas[<span class="nm">1</span>:]:
+        out.<span class="fn">append</span>(out[-<span class="nm">1</span>] + d)
+    <span class="kw">return</span> out
+
+timestamps = [<span class="nm">1710000000</span>, <span class="nm">1710000060</span>, <span class="nm">1710000120</span>, <span class="nm">1710000185</span>, <span class="nm">1710000240</span>]
+encoded = <span class="fn">delta_encode</span>(timestamps)
+<span class="fn">print</span>(f<span class="st">'raw:   {timestamps}'</span>)
+<span class="fn">print</span>(f<span class="st">'delta: {encoded}'</span>)
+<span class="cm"># raw:   [1710000000, 1710000060, 1710000120, 1710000185, 1710000240]</span>
+<span class="cm"># delta: [1710000000, 60, 60, 65, 55]  &larr; clusters near 60, highly compressible</span><span class="label">python</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="kw">function</span> <span class="fn">deltaEncode</span>(data: <span class="ty">number</span>[]): <span class="ty">number</span>[] {
+  <span class="kw">return</span> [data[<span class="nm">0</span>], ...data.<span class="fn">slice</span>(<span class="nm">1</span>).<span class="fn">map</span>((v, i) =&gt; v - data[i])];
+}
+<span class="kw">function</span> <span class="fn">deltaDecode</span>(deltas: <span class="ty">number</span>[]): <span class="ty">number</span>[] {
+  <span class="kw">const</span> out = [deltas[<span class="nm">0</span>]];
+  <span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">1</span>; i &lt; deltas.length; i++) out.<span class="fn">push</span>(out[i-<span class="nm">1</span>] + deltas[i]);
+  <span class="kw">return</span> out;
+}<span class="label">typescript</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="kw">func</span> <span class="fn">deltaEncode</span>(data []<span class="ty">int64</span>) []<span class="ty">int64</span> {
+    out := <span class="fn">make</span>([]<span class="ty">int64</span>, <span class="fn">len</span>(data))
+    out[<span class="nm">0</span>] = data[<span class="nm">0</span>]
+    <span class="kw">for</span> i := <span class="nm">1</span>; i &lt; <span class="fn">len</span>(data); i++ {
+        out[i] = data[i] - data[i-<span class="nm">1</span>]
+    }
+    <span class="kw">return</span> out
+}<span class="label">go</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="kw">fn</span> <span class="fn">delta_encode</span>(data: &amp;[<span class="ty">i64</span>]) -&gt; <span class="ty">Vec</span>&lt;<span class="ty">i64</span>&gt; {
+    <span class="kw">let mut</span> out = <span class="fn">vec!</span>[data[<span class="nm">0</span>]];
+    out.<span class="fn">extend</span>(data.<span class="fn">windows</span>(<span class="nm">2</span>).<span class="fn">map</span>(|w| w[<span class="nm">1</span>] - w[<span class="nm">0</span>]));
+    out
+}<span class="label">rust</span></code></pre>
+  </div>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Generate a uniform timestamp series and delta-encode it:</p>
+<pre><code>python3 -c "ts=[1710000000+i*60 for i in range(10)]; d=[ts[0]]+[b-a for a,b in zip(ts,ts[1:])]; print(f'raw: {ts[:5]}...\ndelta: {d[:5]}...')"</code></pre>
 </div>
 
 </section>
@@ -1690,9 +2090,311 @@
 
 <div class="ticker">ENTROPY = FLOOR &bull; LZ77 = COPY HISTORY &bull; tANS = FRACTIONAL BITS &bull; QUANTIZE + COMPRESS = BOTH</div>
 
-<p style="text-align:center;color:var(--text-dim);margin-top:4rem;font-style:italic;">Every byte you save is a byte the bus does not have to move, the disk does not have to store, and the network does not have to transmit. Compression is not an optimization &mdash; it is a multiplier on everything else you build.</p>
+<div class="lang-note">
+<div class="lang-note-label">Compression Libraries by Language</div>
+<table>
+<tr><th>Language</th><th>zstd</th><th>LZ4</th><th>DEFLATE/gzip</th><th>Brotli</th></tr>
+<tr><td><strong>Python</strong></td><td><code>zstandard</code> (C binding)</td><td><code>lz4</code></td><td><code>zlib</code> (stdlib)</td><td><code>brotli</code></td></tr>
+<tr><td><strong>TypeScript</strong></td><td><code>fzstd</code> / <code>@aspect/zstd</code></td><td><code>lz4js</code></td><td><code>node:zlib</code> (stdlib)</td><td><code>node:zlib</code> (stdlib)</td></tr>
+<tr><td><strong>Go</strong></td><td><code>klauspost/compress/zstd</code></td><td><code>pierrec/lz4</code></td><td><code>compress/flate</code> (stdlib)</td><td><code>andybalholm/brotli</code></td></tr>
+<tr><td><strong>Rust</strong></td><td><code>zstd</code> crate</td><td><code>lz4_flex</code></td><td><code>flate2</code></td><td><code>brotli</code></td></tr>
+<tr><td><strong>C</strong></td><td><code>libzstd</code> (reference)</td><td><code>liblz4</code> (reference)</td><td><code>zlib</code> (reference)</td><td>Google's <code>brotli</code></td></tr>
+</table>
+<p>klauspost's Go zstd is a pure-Go implementation that's 80-90% the speed of the C reference. The Rust <code>zstd</code> crate wraps the C library via FFI. <code>lz4_flex</code> is pure Rust and competitive with C.</p>
+</div>
 
 </section>
+
+<!-- ============================================================ -->
+<section id="ch12">
+<h2>// 12 &mdash; Creative Uses of Compression</h2>
+
+<p class="drop-cap">Compression isn't just about making files smaller. The same information-theoretic machinery &mdash; entropy, redundancy, distance metrics &mdash; turns out to be a Swiss army knife for problems that don't look like compression at all. This chapter collects the most surprising applications.</p>
+
+<h3>12.1 &mdash; Compression as a Speed-Up</h3>
+
+<p>The counterintuitive insight from Ch7 taken to its logical conclusion. When I/O is the bottleneck (it usually is), smaller data = faster total transfer even with decompression overhead.</p>
+
+<table>
+<tr><th>Operation</th><th>Uncompressed (1 GB)</th><th>LZ4 Compressed (400 MB)</th><th>Winner</th></tr>
+<tr><td>SSD read (3 GB/s)</td><td>333 ms</td><td>133 ms read + 100 ms decompress = 233 ms</td><td>LZ4 by 30%</td></tr>
+<tr><td>HDD read (200 MB/s)</td><td>5,000 ms</td><td>2,000 ms + 100 ms = 2,100 ms</td><td>LZ4 by 58%</td></tr>
+<tr><td>Gigabit network</td><td>8,000 ms</td><td>3,200 ms + 100 ms = 3,300 ms</td><td>LZ4 by 59%</td></tr>
+<tr><td>RAM &rarr; CPU cache</td><td>0.3 ms</td><td>0.12 ms + 0.02 ms</td><td>LZ4 by 53%</td></tr>
+</table>
+
+<p>This is why databases (RocksDB, PostgreSQL, MySQL InnoDB) compress pages by default. It's why the Linux kernel supports zstd-compressed swap. It's why game engines compress assets. The "overhead" of decompression is negative &mdash; you save more time on I/O than you spend on CPU.</p>
+
+<div class="power">
+<div class="power-label">Speed Paradox</div>
+<p>Facebook found that enabling zstd compression on their MySQL instances reduced disk reads by 50% AND increased query throughput by 15%. The CPU cost of decompression was invisible next to the I/O savings.</p>
+</div>
+
+<h3>12.2 &mdash; Compression Distance (NCD)</h3>
+
+<p>The most elegant application of compression in computer science. Normalized Compression Distance measures similarity between ANY two objects without domain knowledge.</p>
+
+<div class="diagram">
+<span class="diagram-label">Normalized Compression Distance</span>
+<pre><code>  NCD(x, y) = (C(x+y) - min(C(x), C(y))) / max(C(x), C(y))
+
+  Where C(x) = compressed size of x, x+y = concatenation
+
+  Similar data:      C(x+y) &lt;&lt; C(x) + C(y)   &rarr;  NCD &asymp; 0
+  Unrelated data:    C(x+y) &asymp;  C(x) + C(y)   &rarr;  NCD &asymp; 1</code></pre>
+</div>
+
+<p>If x and y are similar, the compressor finds cross-references between them, and <code>C(x+y)</code> is much less than <code>C(x) + C(y)</code>. NCD &asymp; 0. If they're unrelated, <code>C(x+y) &asymp; C(x) + C(y)</code> and NCD &asymp; 1.</p>
+
+<table>
+<tr><th>Application</th><th>How NCD Is Used</th></tr>
+<tr><td><strong>Plagiarism detection</strong></td><td>NCD between student essays. No NLP needed.</td></tr>
+<tr><td><strong>Malware classification</strong></td><td>NCD clusters malware families by code similarity.</td></tr>
+<tr><td><strong>Phylogenetics</strong></td><td>NCD on DNA sequences produces phylogenetic trees that match biological taxonomy.</td></tr>
+<tr><td><strong>Music genre</strong></td><td>NCD on MIDI files clusters jazz, classical, rock without any music theory.</td></tr>
+<tr><td><strong>Language identification</strong></td><td>NCD between unknown text and language samples.</td></tr>
+</table>
+
+<pre><code><span class="kw">import</span> zlib
+
+<span class="kw">def</span> <span class="fn">ncd</span>(x: <span class="ty">bytes</span>, y: <span class="ty">bytes</span>) -&gt; <span class="ty">float</span>:
+    cx = <span class="fn">len</span>(zlib.<span class="fn">compress</span>(x, <span class="nm">9</span>))
+    cy = <span class="fn">len</span>(zlib.<span class="fn">compress</span>(y, <span class="nm">9</span>))
+    cxy = <span class="fn">len</span>(zlib.<span class="fn">compress</span>(x + y, <span class="nm">9</span>))
+    <span class="kw">return</span> (cxy - <span class="fn">min</span>(cx, cy)) / <span class="fn">max</span>(cx, cy)
+
+<span class="cm"># Similar texts &rarr; low NCD</span>
+<span class="fn">print</span>(<span class="fn">ncd</span>(<span class="st">b'the cat sat on the mat'</span>, <span class="st">b'the cat sat on the hat'</span>))  <span class="cm"># ~0.2</span>
+<span class="cm"># Different texts &rarr; high NCD</span>
+<span class="fn">print</span>(<span class="fn">ncd</span>(<span class="st">b'the cat sat on the mat'</span>, <span class="st">b'9f3k2j5h8m1p4'</span>))          <span class="cm"># ~0.9</span>
+<span class="label">python &mdash; NCD</span></code></pre>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Measure compression distance between similar and different strings:</p>
+<pre><code>python3 -c "import zlib; ncd=lambda x,y:(len(zlib.compress(x+y,9))-min(len(zlib.compress(x,9)),len(zlib.compress(y,9))))/max(len(zlib.compress(x,9)),len(zlib.compress(y,9))); print(f'similar: {ncd(b\"hello world\"*10,b\"hello earth\"*10):.3f}'); print(f'different: {ncd(b\"hello world\"*10,b\"xj3k9m2p5q\"*10):.3f}')"</code></pre>
+</div>
+
+<h3>12.3 &mdash; Entropy as a Detector</h3>
+
+<p>Plot entropy per block and you get a fingerprint of file structure. Different data types have characteristic entropy signatures.</p>
+
+<table>
+<tr><th>Data Type</th><th>Entropy (bits/byte)</th><th>Pattern</th></tr>
+<tr><td>Null padding</td><td>0.0</td><td>Flat zero</td></tr>
+<tr><td>English text</td><td>4.0 - 5.0</td><td>Moderate, consistent</td></tr>
+<tr><td>Source code</td><td>4.5 - 5.5</td><td>Moderate with spikes (strings)</td></tr>
+<tr><td>Compressed data</td><td>7.5 - 7.99</td><td>Near-maximum, uniform</td></tr>
+<tr><td>Encrypted data</td><td>7.9999+</td><td>Maximum, perfectly uniform</td></tr>
+<tr><td>JPEG/PNG image data</td><td>7.0 - 7.8</td><td>High but not maximum</td></tr>
+<tr><td>Executable code</td><td>5.5 - 6.5</td><td>Medium with structure</td></tr>
+</table>
+
+<p><strong>Firmware analysis:</strong> <code>binwalk --entropy firmware.bin</code> plots the entropy curve. Encrypted bootloader shows flat 8.0, filesystem shows structured 5-6, padding shows 0.</p>
+
+<p><strong>Forensics:</strong> Find encrypted volumes hidden in disk images &mdash; they're the regions with entropy &gt; 7.99.</p>
+
+<p><strong>Malware detection:</strong> Packed/encrypted malware has unnaturally high entropy for an executable.</p>
+
+<div class="power hack">
+<div class="power-label">Metal Detector</div>
+<p>Entropy analysis is the compression equivalent of a metal detector. You don't need to understand the data &mdash; you just measure its randomness. A flat line at 8.0 bits/byte means either encryption or already-compressed data. A sudden drop to 0 means padding or empty space. The shape of the entropy curve tells you the structure of the file without reading a single byte of content.</p>
+</div>
+
+<h3>12.4 &mdash; Compressed Data Structures</h3>
+
+<p>You can query compressed data without decompressing it. This sounds impossible but it's the foundation of modern bioinformatics and search engines.</p>
+
+<p><strong>Succinct data structures</strong> use space close to the information-theoretic minimum while supporting efficient queries. A bitvector with rank/select operations in O(1) time using <code>n + o(n)</code> bits.</p>
+
+<p><strong>FM-index:</strong> Compressed full-text index based on the Burrows-Wheeler Transform (ch8). Supports substring search in O(m) time on compressed text. BWA-MEM (genome aligner) searches human genomes (3 GB) using an FM-index that fits in 4 GB of RAM.</p>
+
+<p><strong>Compressed tries:</strong> Path-compressed tries (Patricia trees) and hash array mapped tries (HAMTs) used in Clojure, Scala, and Haskell for persistent data structures.</p>
+
+<div class="power wild">
+<div class="power-label">Genomics</div>
+<p>BWA-MEM aligns DNA sequencing reads against the human genome &mdash; 3 billion base pairs &mdash; using an FM-index derived from the Burrows-Wheeler Transform from ch8. The entire reference genome, fully searchable, fits in 4 GB of RAM. Without compression-aware data structures, you'd need 30+ GB. The BWT isn't just a preprocessing step for bzip2 &mdash; it's the backbone of genomics.</p>
+</div>
+
+<h3>12.5 &mdash; Network Compression as Multiplier</h3>
+
+<p>Every network protocol benefits from compression. The question is where to apply it.</p>
+
+<table>
+<tr><th>Layer</th><th>Protocol</th><th>Compression</th><th>Typical Savings</th></tr>
+<tr><td>HTTP</td><td>gzip/br (Content-Encoding)</td><td>DEFLATE or Brotli</td><td>60-80% on text/JSON</td></tr>
+<tr><td>HTTP/2</td><td>HPACK</td><td>Huffman + static/dynamic tables</td><td>85-95% on headers</td></tr>
+<tr><td>gRPC</td><td>Per-message gzip/zstd</td><td>Optional, per-call</td><td>50-70% on protobuf</td></tr>
+<tr><td>Database</td><td>Page compression</td><td>InnoDB: zlib, RocksDB: LZ4/zstd</td><td>40-60% on pages</td></tr>
+<tr><td>Filesystem</td><td>Transparent</td><td>Btrfs: zstd, ZFS: LZ4/zstd</td><td>30-50% on general data</td></tr>
+<tr><td>Swap</td><td>In-memory</td><td>Linux zswap: LZ4/zstd</td><td>2-3x effective RAM</td></tr>
+</table>
+
+<div class="lang-note">
+<div class="lang-note-label">Brotli vs gzip</div>
+<p>Brotli (Google, 2015) compresses 15-20% better than gzip on text, and decompresses at similar speed. It's supported by all browsers for <code>Content-Encoding: br</code>. The catch: Brotli compression is slower at high levels, so it's best for static assets (pre-compressed) rather than dynamic responses (where gzip level 1-4 wins on total latency).</p>
+</div>
+
+<h3>12.6 &mdash; Compression for Randomness Testing</h3>
+
+<p>The simplest randomness test: try to compress it. Truly random data is incompressible.</p>
+
+<pre><code><span class="kw">import</span> zlib, os
+
+<span class="kw">def</span> <span class="fn">randomness_ratio</span>(data: <span class="ty">bytes</span>) -&gt; <span class="ty">float</span>:
+    <span class="kw">return</span> <span class="fn">len</span>(zlib.<span class="fn">compress</span>(data, <span class="nm">9</span>)) / <span class="fn">len</span>(data)
+
+<span class="cm"># Pseudorandom: should be ~1.0 (incompressible)</span>
+<span class="fn">print</span>(f<span class="st">'os.urandom:  {randomness_ratio(os.urandom(10000)):.3f}'</span>)  <span class="cm"># ~1.004</span>
+
+<span class="cm"># Bad PRNG: compressible</span>
+<span class="kw">import</span> itertools
+bad = <span class="fn">bytes</span>(itertools.<span class="fn">islice</span>(itertools.<span class="fn">cycle</span>(<span class="fn">range</span>(<span class="nm">256</span>)), <span class="nm">10000</span>))
+<span class="fn">print</span>(f<span class="st">'cycle(0-255): {randomness_ratio(bad):.3f}'</span>)  <span class="cm"># ~0.05</span>
+
+<span class="cm"># All zeros: extremely compressible</span>
+<span class="fn">print</span>(f<span class="st">'all zeros:   {randomness_ratio(b"\\x00"*10000):.3f}'</span>)  <span class="cm"># ~0.01</span>
+<span class="label">python &mdash; randomness test</span></code></pre>
+
+<p>If <code>ratio &gt; 0.99</code>, the data is likely random (or encrypted). If <code>ratio &lt; 0.95</code>, there's structure the compressor found &mdash; your PRNG might be broken.</p>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Test the compression ratio of truly random data:</p>
+<pre><code>python3 -c "import zlib,os; d=os.urandom(10000); r=len(zlib.compress(d,9))/len(d); print(f'random data compression ratio: {r:.3f} (1.0 = incompressible)')"</code></pre>
+</div>
+
+<div class="power zen">
+<div class="power-label">Zen: The Lens</div>
+<p>Compression is a lens. Point it at data and it tells you how much structure is there. Point it at two datasets and it tells you how similar they are. Point it at a network link and it multiplies your bandwidth. Point it at a disk and it multiplies your storage. The algorithm doesn't care what the bytes mean &mdash; it only cares how predictable they are. That's the deepest insight of information theory: meaning is irrelevant; predictability is everything.</p>
+</div>
+
+</section>
+
+<section id="ch13">
+<h2>13 &mdash; Compression Archaeology</h2>
+
+<p class="drop-cap">Every compression algorithm has a story. Some changed the internet. Some blew up rockets. Some created billion-dollar industries. Some trapped entire ecosystems in formats they can never escape. This chapter excavates the most consequential compression decisions in computing history.</p>
+
+<h3>13.1 &mdash; The ZIP Bomb (42.zip)</h3>
+
+<p>The classic: <code>42.zip</code> is 42 KB. Unzip it and you get 16 ZIP files. Unzip those and you get 16 more. Five layers deep, the total uncompressed size is <strong>4.5 petabytes</strong>.</p>
+
+<p>The mechanism: each layer contains 16 copies of the next layer, and the innermost layer contains a file of 4.3 GB of zeros. Zeros compress to nearly nothing. <code>16<sup>5</sup> &times; 4.3 GB = 4.5 PB</code>.</p>
+
+<p>How antivirus handles it: recursion depth limits (max 2&ndash;3 levels), decompression size limits, ratio thresholds (if compressed/uncompressed ratio &lt; 0.01%, flag as bomb).</p>
+
+<p><strong>Modern evolution</strong>: David Fifield's 2019 &ldquo;non-recursive zip bomb&rdquo; &mdash; a single-layer ZIP that expands to 281 TB. Exploits ZIP's ability to have multiple entries reference the same compressed data (overlapping local file headers). One copy of compressed data, 250,000 directory entries pointing to it. No recursion needed, bypasses depth limits.</p>
+
+<div class="diagram">
+<span class="diagram-label">ZIP Bomb Anatomy</span>
+<pre><code><span class="cm">Classic (nested):</span>
+  <span class="nm">42 KB</span> &rarr; <span class="nm">16</span> &times; <span class="nm">16</span> &times; <span class="nm">16</span> &times; <span class="nm">16</span> &times; <span class="nm">16</span> &times; <span class="nm">4.3 GB</span> = <span class="kw">4.5 PB</span>
+
+<span class="cm">Modern (overlapping):</span>
+  <span class="nm">46 MB</span> &rarr; <span class="nm">250,000</span> entries &times; <span class="nm">1.1 GB</span> (all pointing to same data) = <span class="kw">281 TB</span></code></pre>
+</div>
+
+<div class="power danger">
+<div class="power-label">Decompression Is Code Execution</div>
+<p>ZIP bombs are a reminder that decompression is code execution in disguise. Every <code>unzip</code>, <code>gzip -d</code>, or <code>zlib.decompress()</code> is running an algorithm that can consume arbitrary CPU and memory. Always set decompression size limits. Always set recursion depth limits. Never trust compressed data from untrusted sources without bounds.</p>
+</div>
+
+<h3>13.2 &mdash; PNG's DEFLATE Lock-In</h3>
+
+<p>PNG was standardized in 1996 as the patent-free alternative to GIF (which used LZW, patented by Unisys).</p>
+
+<p>PNG chose DEFLATE as its sole compression method. Sensible in 1996 &mdash; DEFLATE was the best general-purpose algorithm available.</p>
+
+<p>Fast-forward to 2024: Zstandard compresses 20&ndash;30% better than DEFLATE at the same speed. Brotli is 15&ndash;20% better. But PNG can <strong>never switch</strong>. The format ID byte for compression method is locked to <code>0x08</code> (DEFLATE). Every browser, image viewer, operating system, and graphics library on Earth expects DEFLATE.</p>
+
+<p><strong>JPEG XL</strong> tried to fix this for JPEG &mdash; a modern format with better compression, progressive decode, lossless transcode from existing JPEG. Google championed it, then dropped support from Chrome (2022). The ecosystem rejected the upgrade.</p>
+
+<p><strong>AVIF/WebP</strong> succeeded where JPEG XL failed, but only because they were new formats, not upgrades to existing ones. You can't upgrade a deployed format &mdash; you can only replace it.</p>
+
+<div class="power zen">
+<div class="power-label">The Half-Life of Good Enough</div>
+<p>Format lock-in is the half-life of a good-enough decision. PNG's DEFLATE was optimal in 1996. It's suboptimal in 2024. But the cost of switching &mdash; updating every browser, every image library, every tool, every CDN &mdash; exceeds the cost of wasting 20% more bandwidth forever. In compression format design, your first choice is your last choice. Choose the most extensible option, not the most optimal one.</p>
+</div>
+
+<h3>13.3 &mdash; Log Compression at Scale</h3>
+
+<p>Uber, Netflix, Meta, and every large tech company compress <strong>petabytes</strong> of logs daily.</p>
+
+<p>The trick that makes it work: <strong>dictionary-trained zstd</strong> on structured logs.</p>
+
+<p>Structured logs (JSON, logfmt) are 90% template, 10% variable data. The template repeats billions of times:</p>
+
+<pre><code>{<span class="st">"level"</span>:<span class="st">"INFO"</span>,<span class="st">"service"</span>:<span class="st">"api-gateway"</span>,<span class="st">"method"</span>:<span class="st">"GET"</span>,<span class="st">"path"</span>:<span class="st">"/v1/users"</span>,<span class="st">"status"</span>:<span class="nm">200</span>,<span class="st">"latency_ms"</span>:<span class="nm">42</span>}
+{<span class="st">"level"</span>:<span class="st">"INFO"</span>,<span class="st">"service"</span>:<span class="st">"api-gateway"</span>,<span class="st">"method"</span>:<span class="st">"POST"</span>,<span class="st">"path"</span>:<span class="st">"/v1/orders"</span>,<span class="st">"status"</span>:<span class="nm">201</span>,<span class="st">"latency_ms"</span>:<span class="nm">87</span>}
+<span class="label">structured log lines &mdash; 90% template</span></code></pre>
+
+<p>Without a dictionary: each 150-byte log line compresses individually to ~120 bytes (1.25x). The window can't see prior lines.</p>
+
+<p>With a trained dictionary: the dictionary contains <code>"level":"</code>, <code>"service":"api-gateway"</code>, <code>"method":"</code>, etc. Each line compresses to ~15&ndash;20 bytes (7&ndash;10x).</p>
+
+<p>The dictionary is small (32&ndash;64 KB), trained once per service, shared across all compressors/decompressors.</p>
+
+<table>
+<tr><th>Method</th><th>Input</th><th>Output</th><th>Ratio</th><th>Notes</th></tr>
+<tr><td>No compression</td><td>1 TB/day</td><td>1 TB/day</td><td>1x</td><td>&mdash;</td></tr>
+<tr><td>gzip (per-line)</td><td>1 TB/day</td><td>650 GB/day</td><td>1.5x</td><td>Window too small per line</td></tr>
+<tr><td>gzip (batched 1 MB)</td><td>1 TB/day</td><td>200 GB/day</td><td>5x</td><td>Cross-line references work</td></tr>
+<tr><td>zstd (no dict, batched)</td><td>1 TB/day</td><td>150 GB/day</td><td>6.7x</td><td>Better algorithm</td></tr>
+<tr><td>zstd (dictionary, batched)</td><td>1 TB/day</td><td>80 GB/day</td><td>12.5x</td><td>Dictionary captures templates</td></tr>
+</table>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>See how well structured log lines compress when batched together:</p>
+<pre><code>python3 -c "import zlib; log=b'{\"level\":\"INFO\",\"service\":\"api\",\"status\":200,\"ms\":42}\n'*1000; print(f'1000 log lines: {len(log)} -> {len(zlib.compress(log))} bytes ({len(log)/len(zlib.compress(log)):.0f}x)')"</code></pre>
+</div>
+
+<h3>13.4 &mdash; Game Asset Streaming</h3>
+
+<p>Modern open-world games stream textures, meshes, and audio from storage in real-time. You can't pre-load a 150 GB game into RAM.</p>
+
+<p><strong>PS5's hardware Kraken decompressor</strong>: dedicated silicon that decompresses at 5.5 GB/s, matching the SSD's raw throughput. The CPU never touches compression. This is LZ4's speed philosophy taken to hardware.</p>
+
+<p><strong>Oodle</strong> (RAD Game Tools, now Epic): the game industry's compression suite. Oodle Kraken (high ratio), Oodle Selkie (balanced), Oodle Mermaid (fast). Not open-source, but used in almost every AAA game.</p>
+
+<p>Why games don't use zstd: decompression <strong>latency</strong> matters more than throughput. You need a texture NOW (this frame, 16 ms budget), not averaged over a second. LZ4/Oodle have lower per-block latency than zstd because the decoder is simpler &mdash; fewer branches, fewer memory indirections.</p>
+
+<p><strong>Texture compression</strong> is a separate concern: GPU-native formats (BC7, ASTC) stay compressed in VRAM and are decoded by the GPU's texture units on the fly. This is the ultimate &ldquo;compressed data structure&rdquo; &mdash; the GPU samples texels from compressed blocks without ever decompressing to RGBA.</p>
+
+<div class="power hack">
+<div class="power-label">Silicon Solves the Storage Wall</div>
+<p>The PS5's SSD+Kraken pipeline is the logical endpoint of ch7's insight: when decompression is faster than I/O, make the decompressor hardware. A 5.5 GB/s SSD feeding a hardware decompressor at 5.5 GB/s effectively gives you 16+ GB/s of uncompressed data throughput. The storage wall became a compression problem, and Sony solved it with silicon.</p>
+</div>
+
+<h3>13.5 &mdash; The LZMA Trap</h3>
+
+<p>7-Zip's LZMA achieves incredible compression ratios &mdash; often 20&ndash;30% better than zstd at maximum level. It's the go-to for software distribution: Windows Update, Android OTA updates, <code>.xz</code> archives in Linux distros.</p>
+
+<p>The trap: LZMA decompresses at <strong>30&ndash;50 MB/s</strong>. Compare to zstd at 1,500 MB/s and LZ4 at 4,000 MB/s. That's 50&ndash;100x slower.</p>
+
+<p>The decision was fine for distribution: you compress once, decompress once, and the network savings dwarf the CPU cost.</p>
+
+<p>The trap springs when people use LZMA for <strong>archival backups</strong>. They compress their data, congratulate themselves on the ratio, and discover years later that restoring 1 TB takes 5&ndash;6 hours instead of 10 minutes.</p>
+
+<table>
+<tr><th>Algorithm</th><th>Compress</th><th>Decompress</th><th>Ratio</th><th>Good For</th></tr>
+<tr><td>LZ4</td><td>780 MB/s</td><td>4,000 MB/s</td><td>2.1x</td><td>Hot path, real-time</td></tr>
+<tr><td>zstd (level 3)</td><td>510 MB/s</td><td>1,500 MB/s</td><td>2.9x</td><td>General purpose</td></tr>
+<tr><td>zstd (level 19)</td><td>5 MB/s</td><td>1,400 MB/s</td><td>3.5x</td><td>Cold storage (fast restore)</td></tr>
+<tr><td>LZMA (level 9)</td><td>2 MB/s</td><td>40 MB/s</td><td>3.8x</td><td>Distribution (compress once)</td></tr>
+</table>
+
+<p>The key insight: zstd level 19 gets 90% of LZMA's ratio but decompresses <strong>35x faster</strong>. For archival, zstd dominates. LZMA wins only when the ratio difference justifies one-time decompression.</p>
+
+<div class="power zen">
+<div class="power-label">Betting on the Future</div>
+<p>Every compression choice is a bet on the future. LZMA bets that you'll decompress rarely &mdash; and for software updates, that's correct. But for backups, you're betting your future self has hours to spare for a restore. The safe bet: zstd at high levels gives you nearly LZMA ratios with decompression speed that doesn't punish you when you need your data back in a hurry.</p>
+</div>
+
+</section>
+
+<p style="text-align:center;color:var(--text-dim);margin-top:4rem;font-style:italic;">Every byte you save is a byte the bus does not have to move, the disk does not have to store, and the network does not have to transmit. Compression is not an optimization &mdash; it is a multiplier on everything else you build.</p>
 
 </div>
 </body>
