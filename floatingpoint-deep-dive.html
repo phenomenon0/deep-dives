@@ -410,6 +410,93 @@
     text-shadow: 0 0 6px rgba(0,255,136,0.3);
   }
 
+  /* === LANGUAGE TABS === */
+  .lang-tabs {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1.2rem 0;
+    overflow: hidden;
+  }
+  .lang-tabs input[type="radio"] { display: none; }
+  .lang-tabs label {
+    display: inline-block;
+    padding: 0.5rem 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .lang-tabs label:hover { color: var(--green); }
+  /* label highlighting handled by nth-of-type selectors below */
+  .lang-tabs .tab-bar {
+    border-bottom: 1px solid var(--border);
+    padding: 0 0.5rem;
+  }
+  .lang-tabs .tab-content { display: none; }
+  .lang-tabs .tab-content pre { margin: 0; border: none; border-radius: 0; }
+
+  .lang-tabs input.tc:checked ~ .tab-content.c,
+  .lang-tabs input.tpy:checked ~ .tab-content.py,
+  .lang-tabs input.tts:checked ~ .tab-content.ts,
+  .lang-tabs input.tgo:checked ~ .tab-content.go,
+  .lang-tabs input.trs:checked ~ .tab-content.rs { display: block; }
+
+  /* Label highlighting via nth-of-type (inputs are siblings of .tab-bar) */
+  .lang-tabs input:nth-of-type(1):checked ~ .tab-bar label:nth-child(1),
+  .lang-tabs input:nth-of-type(2):checked ~ .tab-bar label:nth-child(2),
+  .lang-tabs input:nth-of-type(3):checked ~ .tab-bar label:nth-child(3),
+  .lang-tabs input:nth-of-type(4):checked ~ .tab-bar label:nth-child(4),
+  .lang-tabs input:nth-of-type(5):checked ~ .tab-bar label:nth-child(5) {
+    color: var(--green);
+    background: rgba(0,255,136,0.06);
+    border-bottom: 2px solid var(--green);
+  }
+
+  /* === TRY-THIS BOX === */
+  .try-this {
+    background: rgba(0, 255, 136, 0.04);
+    border-left: 3px solid var(--green-dim);
+    padding: 1rem 1.2rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .try-this .try-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.5rem;
+  }
+  .try-this pre {
+    margin: 0.5rem 0 0;
+    font-size: 12.5px;
+  }
+  .try-this p { font-size: 0.9rem; margin-bottom: 0.5rem; }
+
+  /* === LANG-NOTE BOX === */
+  .lang-note {
+    background: var(--bg-card);
+    border-left: 3px solid var(--blue);
+    padding: 1rem 1.2rem;
+    margin: 1.2rem 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 0.9rem;
+  }
+  .lang-note .lang-note-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--blue);
+    margin-bottom: 0.3rem;
+  }
+
   /* === RESPONSIVE === */
   @media (max-width: 700px) {
     .vs { grid-template-columns: 1fr; }
@@ -435,6 +522,8 @@
   <a href="#ch10">fast math</a>
   <a href="#ch11">hash maps</a>
   <a href="#ch12">quantization</a>
+  <a href="#ch13">bugs in the wild</a>
+  <a href="#ch14">debugging</a>
 </nav>
 
 <div class="content">
@@ -590,6 +679,82 @@ bit 63 &nbsp;&nbsp;&nbsp; bits 62-52 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&
 <div class="ticker">FLOAT32: range &plusmn;3.4 x 10^38 &nbsp;|&nbsp; precision: ~7.2 decimal digits &nbsp;|&nbsp; smallest normal: 1.18 x 10^-38</div>
 <br>
 <div class="ticker">FLOAT64: range &plusmn;1.8 x 10^308 &nbsp;|&nbsp; precision: ~15.9 decimal digits &nbsp;|&nbsp; smallest normal: 2.22 x 10^-308</div>
+
+<h3>Inspecting Bits Across Languages</h3>
+
+<p>The C memcpy approach above is the canonical way, but every language has its own idiom for peeling back the float and looking at raw bits:</p>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-bits" id="tab-c-bits" class="tc" checked>
+  <input type="radio" name="tabs-bits" id="tab-py-bits" class="tpy">
+  <input type="radio" name="tabs-bits" id="tab-ts-bits" class="tts">
+  <input type="radio" name="tabs-bits" id="tab-go-bits" class="tgo">
+  <input type="radio" name="tabs-bits" id="tab-rs-bits" class="trs">
+  <div class="tab-bar">
+    <label for="tab-c-bits">C</label>
+    <label for="tab-py-bits">Python</label>
+    <label for="tab-ts-bits">TypeScript</label>
+    <label for="tab-go-bits">Go</label>
+    <label for="tab-rs-bits">Rust</label>
+  </div>
+  <div class="tab-content c">
+    <pre><code><span class="pp">#include</span> <span class="st">&lt;stdint.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;string.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+
+<span class="ty">float</span> f = <span class="nm">3.14f</span>;
+<span class="ty">uint32_t</span> bits;
+<span class="fn">memcpy</span>(&amp;bits, &amp;f, <span class="kw">sizeof</span>(bits));
+<span class="fn">printf</span>(<span class="st">"0x%08X\n"</span>, bits);
+<span class="cm">// 0x4048F5C3</span>
+<span class="label">C &mdash; memcpy bit inspection</span></code></pre>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">import</span> struct
+
+<span class="cm"># Pack float as big-endian bytes, unpack as unsigned int</span>
+raw = struct.<span class="fn">pack</span>(<span class="st">'!f'</span>, <span class="nm">3.14</span>)
+<span class="fn">print</span>(<span class="st">'hex:'</span>, raw.<span class="fn">hex</span>())
+<span class="cm"># hex: 4048f5c3</span>
+
+bits = struct.<span class="fn">unpack</span>(<span class="st">'!I'</span>, raw)[<span class="nm">0</span>]
+<span class="fn">print</span>(<span class="st">f'bits: </span>{bits:<span class="nm">032</span>b}<span class="st">'</span>)
+<span class="cm"># bits: 01000000010010001111010111000011</span>
+<span class="label">Python &mdash; struct bit inspection</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="kw">const</span> buf = <span class="kw">new</span> <span class="ty">ArrayBuffer</span>(<span class="nm">4</span>);
+<span class="kw">const</span> view = <span class="kw">new</span> <span class="ty">DataView</span>(buf);
+view.<span class="fn">setFloat32</span>(<span class="nm">0</span>, <span class="nm">3.14</span>);
+<span class="kw">const</span> bits = view.<span class="fn">getUint32</span>(<span class="nm">0</span>);
+console.<span class="fn">log</span>(bits.<span class="fn">toString</span>(<span class="nm">2</span>).<span class="fn">padStart</span>(<span class="nm">32</span>, <span class="st">'0'</span>));
+<span class="cm">// 01000000010010001111010111000011</span>
+<span class="label">TypeScript &mdash; DataView bit inspection</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="kw">import</span> (
+    <span class="st">"fmt"</span>
+    <span class="st">"math"</span>
+)
+
+bits := math.<span class="fn">Float32bits</span>(<span class="nm">3.14</span>)
+fmt.<span class="fn">Printf</span>(<span class="st">"%032b\n"</span>, bits)
+<span class="cm">// 01000000010010001111010111000011</span>
+<span class="label">Go &mdash; math.Float32bits</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="kw">let</span> bits = <span class="nm">3.14f32</span>.<span class="fn">to_bits</span>();
+<span class="fn">println!</span>(<span class="st">"{:032b}"</span>, bits);
+<span class="cm">// 01000000010010001111010111000011</span>
+<span class="label">Rust &mdash; f32::to_bits</span></code></pre>
+  </div>
+</div>
+
+<div class="try-this">
+  <div class="try-label">Try This</div>
+  <p>Run this one-liner to see 3.14's bits directly:</p>
+  <pre><code>python3 -c 'import struct; b=struct.pack("!f",3.14); print(format(struct.unpack("!I",b)[0],"032b"))'</code></pre>
+</div>
 
 </section>
 
@@ -782,6 +947,34 @@ bit 63 &nbsp;&nbsp;&nbsp; bits 62-52 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&
 <div class="power zen">
 <div class="power-label">Zen: The Subnormal Paradox</div>
 <p>Subnormals exist to make floating point more mathematically correct. But in practice, they mostly cause performance bugs. The IEEE 754 committee optimized for correctness. Hardware designers optimized for speed. These goals collide at the bottom of the number range, and in 2024, speed almost always wins.</p>
+</div>
+
+<div class="try-this">
+  <div class="try-label">Try This &mdash; Subnormal Detection</div>
+  <p>A float is subnormal when its exponent field is all zeros but the mantissa is non-zero:</p>
+  <pre><code><span class="kw">import</span> struct
+
+<span class="kw">def</span> <span class="fn">is_subnormal</span>(f):
+    bits = struct.<span class="fn">unpack</span>(<span class="st">'!I'</span>, struct.<span class="fn">pack</span>(<span class="st">'!f'</span>, f))[<span class="nm">0</span>]
+    exp = (bits >> <span class="nm">23</span>) &amp; <span class="nm">0xFF</span>
+    mant = bits &amp; <span class="nm">0x7FFFFF</span>
+    <span class="kw">return</span> exp == <span class="nm">0</span> <span class="kw">and</span> mant != <span class="nm">0</span>
+
+<span class="fn">print</span>(<span class="fn">is_subnormal</span>(<span class="nm">1.4e-45</span>))   <span class="cm"># True  (smallest subnormal)</span>
+<span class="fn">print</span>(<span class="fn">is_subnormal</span>(<span class="nm">1.18e-38</span>))  <span class="cm"># False (smallest normal)</span>
+<span class="label">Python &mdash; subnormal detection</span></code></pre>
+</div>
+
+<div class="lang-note">
+  <div class="lang-note-label">Runtime Subnormal Performance</div>
+  <table>
+    <tr><th>Platform</th><th>Subnormal Handling</th><th>Penalty</th></tr>
+    <tr><td>x86-64 (SSE2/AVX)</td><td>Handled in microcode</td><td>50&ndash;100x slower per operation</td></tr>
+    <tr><td>V8 / Node.js</td><td>Uses SSE2 on x86</td><td>Same 50&ndash;100x penalty for <code>number</code> ops</td></tr>
+    <tr><td>GPU (CUDA/OpenCL)</td><td>Flush-to-zero by default (<code>--ftz=true</code>)</td><td>No subnormal penalty</td></tr>
+    <tr><td>ARM NEON</td><td>FTZ configurable via FPCR.FZ bit</td><td>Default varies by OS</td></tr>
+    <tr><td>WASM</td><td>Must support subnormals per spec</td><td>No FTZ allowed</td></tr>
+  </table>
 </div>
 
 </section>
@@ -1298,6 +1491,80 @@ bit 63 &nbsp;&nbsp;&nbsp; bits 62-52 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&
 <p>The line <code>c = (t - sum) - y</code> is algebraically zero. An "optimizing" compiler with <code>-ffast-math</code> will eliminate it. This destroys Kahan summation entirely. The <code>-ffast-math</code> flag tells the compiler "assume floating point is associative and commutative" &mdash; which it is NOT. Never use <code>-ffast-math</code> on code that cares about numerical accuracy. GCC's <code>-Ofast</code> enables it silently. Check your flags.</p>
 </div>
 
+<h3>Error Accumulation: How Bad Does It Get?</h3>
+
+<p>Summing <code>0.1</code> repeatedly is the classic stress test. Here's how error grows with N, and how different algorithms cope:</p>
+
+<table>
+<tr><th>N</th><th>True Sum</th><th>Naive float32</th><th>Error</th><th>Kahan float32</th><th>Error</th><th>math.fsum (f64)</th></tr>
+<tr><td>1,000</td><td>100.0</td><td>99.99905</td><td>9.5e-4</td><td>100.00000</td><td>&lt;1 ULP</td><td>100.0 (exact)</td></tr>
+<tr><td>1,000,000</td><td>100,000.0</td><td>100,958.34</td><td>0.96%</td><td>100,000.01</td><td>1e-7</td><td>100000.0</td></tr>
+<tr><td>1,000,000,000</td><td>1e8</td><td>83,865,912</td><td>16.1%</td><td>100,000,008</td><td>8e-6%</td><td>1e8 (exact)</td></tr>
+</table>
+
+<h3>Kahan Summation &mdash; Multi-Language</h3>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-kahan" id="tab-py-kahan" class="tpy" checked>
+  <input type="radio" name="tabs-kahan" id="tab-ts-kahan" class="tts">
+  <input type="radio" name="tabs-kahan" id="tab-go-kahan" class="tgo">
+  <div class="tab-bar">
+    <label for="tab-py-kahan">Python</label>
+    <label for="tab-ts-kahan">TypeScript</label>
+    <label for="tab-go-kahan">Go</label>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">def</span> <span class="fn">kahan_sum</span>(values):
+    s = <span class="nm">0.0</span>; c = <span class="nm">0.0</span>
+    <span class="kw">for</span> v <span class="kw">in</span> values:
+        y = v - c
+        t = s + y
+        c = (t - s) - y
+        s = t
+    <span class="kw">return</span> s
+
+<span class="cm"># Compare: sum() vs math.fsum() vs kahan</span>
+<span class="kw">import</span> math
+vals = [<span class="nm">0.1</span>] * <span class="nm">1_000_000</span>
+<span class="fn">print</span>(<span class="st">f"sum():      {sum(vals)}"</span>)
+<span class="fn">print</span>(<span class="st">f"kahan:      {kahan_sum(vals)}"</span>)
+<span class="fn">print</span>(<span class="st">f"math.fsum:  {math.fsum(vals)}"</span>)
+<span class="label">Python &mdash; Kahan summation</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="kw">function</span> <span class="fn">kahanSum</span>(values: <span class="ty">number</span>[]): <span class="ty">number</span> {
+  <span class="kw">let</span> sum = <span class="nm">0</span>, c = <span class="nm">0</span>;
+  <span class="kw">for</span> (<span class="kw">const</span> v <span class="kw">of</span> values) {
+    <span class="kw">const</span> y = v - c;
+    <span class="kw">const</span> t = sum + y;
+    c = (t - sum) - y;
+    sum = t;
+  }
+  <span class="kw">return</span> sum;
+}
+<span class="label">TypeScript &mdash; Kahan summation</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="kw">func</span> <span class="fn">kahanSum</span>(vals []<span class="ty">float64</span>) <span class="ty">float64</span> {
+    sum, c := <span class="nm">0.0</span>, <span class="nm">0.0</span>
+    <span class="kw">for</span> _, v := <span class="kw">range</span> vals {
+        y := v - c
+        t := sum + y
+        c = (t - sum) - y
+        sum = t
+    }
+    <span class="kw">return</span> sum
+}
+<span class="label">Go &mdash; Kahan summation</span></code></pre>
+  </div>
+</div>
+
+<div class="try-this">
+  <div class="try-label">Try This</div>
+  <p>See the difference between naive sum and math.fsum on a million 0.1s:</p>
+  <pre><code>python3 -c "import math; v=[0.1]*1000000; print(f'sum={sum(v)} fsum={math.fsum(v)}')"</code></pre>
+</div>
+
 </section>
 
 <!-- ============================================================ -->
@@ -1410,6 +1677,20 @@ bit 63 &nbsp;&nbsp;&nbsp; bits 62-52 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&
 <p>Java tried to solve this with the <code>strictfp</code> keyword (Java 1.2, 1998). A <code>strictfp</code> method must produce identical results on all platforms, even if the hardware has excess precision. In practice, this meant simulating 64-bit arithmetic on x87's 80-bit registers &mdash; massive overhead for no benefit on SSE2 hardware. Java SE 17 (2021) finally made <code>strictfp</code> the default and removed the non-strict mode entirely. The x87 problem took 23 years to fully die.</p>
 </div>
 
+<div class="lang-note">
+  <div class="lang-note-label">Modern Platforms: Beyond x87</div>
+  <p>The x87 mess is ancient history on modern hardware. Here's what each platform actually uses today:</p>
+  <table>
+    <tr><th>Platform</th><th>FP Unit</th><th>Excess Precision</th><th>FTZ Default</th><th>FMA</th><th>Notes</th></tr>
+    <tr><td>x86-64 SSE2</td><td>128-bit SIMD</td><td>None (32/64-bit ops)</td><td>Off</td><td>SSE: No, AVX+: Yes</td><td>Default since AMD64/EM64T</td></tr>
+    <tr><td>x86-64 AVX-512</td><td>512-bit SIMD</td><td>None</td><td>Off</td><td>Yes (VFMADD*)</td><td>Downclocking on heavy AVX-512 use</td></tr>
+    <tr><td>ARM64 NEON</td><td>128-bit SIMD</td><td>None</td><td>Configurable (FPCR.FZ)</td><td>Yes (VFMA)</td><td>IEEE compliant by default</td></tr>
+    <tr><td>WASM</td><td>Virtual</td><td>None</td><td>Not allowed</td><td>No</td><td>Strictest: always round-to-nearest-even, no -ffast-math</td></tr>
+    <tr><td>RISC-V F/D</td><td>Scalar/SIMD</td><td>None</td><td>Not specified</td><td>Yes</td><td>Clean-slate IEEE 754-2008</td></tr>
+    <tr><td>CUDA</td><td>GPU cores</td><td>None (per-thread)</td><td>On by default</td><td>Yes</td><td><code>__fmul_rn()</code> for exact rounding control</td></tr>
+  </table>
+</div>
+
 </section>
 
 <!-- ============================================================ -->
@@ -1500,6 +1781,86 @@ bit 63 &nbsp;&nbsp;&nbsp; bits 62-52 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&
 <div class="power">
 <div class="power-label">The Bit-Cast Insight</div>
 <p>The reason ULP distance works via integer subtraction is the same reason biased exponents work for comparison: IEEE 754 was designed so that the integer representation preserves ordering. For positive floats, incrementing the integer by 1 gives the next representable float. The exponent and mantissa fields work together as a single monotonic integer sequence. This wasn't an accident &mdash; it was a deliberate design goal of William Kahan and the IEEE 754 committee.</p>
+</div>
+
+<h3>ULP Distance Across Languages</h3>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-ulp" id="tab-py-ulp" class="tpy" checked>
+  <input type="radio" name="tabs-ulp" id="tab-ts-ulp" class="tts">
+  <input type="radio" name="tabs-ulp" id="tab-go-ulp" class="tgo">
+  <input type="radio" name="tabs-ulp" id="tab-rs-ulp" class="trs">
+  <div class="tab-bar">
+    <label for="tab-py-ulp">Python</label>
+    <label for="tab-ts-ulp">TypeScript</label>
+    <label for="tab-go-ulp">Go</label>
+    <label for="tab-rs-ulp">Rust</label>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">import</span> math
+
+<span class="cm"># Python 3.9+ has math.ulp()</span>
+<span class="fn">print</span>(math.<span class="fn">ulp</span>(<span class="nm">1.0</span>))          <span class="cm"># 2.220446049250313e-16</span>
+<span class="fn">print</span>(math.<span class="fn">ulp</span>(<span class="nm">1000000.0</span>))    <span class="cm"># 1.1641532182693481e-10</span>
+<span class="fn">print</span>(math.<span class="fn">ulp</span>(<span class="nm">0.0</span>))          <span class="cm"># 5e-324 (smallest subnormal)</span>
+
+<span class="cm"># ULP distance between two floats</span>
+<span class="kw">import</span> struct
+<span class="kw">def</span> <span class="fn">ulp_distance</span>(a, b):
+    ai = struct.<span class="fn">unpack</span>(<span class="st">'!q'</span>, struct.<span class="fn">pack</span>(<span class="st">'!d'</span>, a))[<span class="nm">0</span>]
+    bi = struct.<span class="fn">unpack</span>(<span class="st">'!q'</span>, struct.<span class="fn">pack</span>(<span class="st">'!d'</span>, b))[<span class="nm">0</span>]
+    <span class="kw">return</span> <span class="fn">abs</span>(ai - bi)
+
+<span class="fn">print</span>(<span class="fn">ulp_distance</span>(<span class="nm">1.0</span>, <span class="nm">1.0</span> + <span class="nm">1e-15</span>))  <span class="cm"># 4 ULPs</span>
+<span class="label">Python &mdash; math.ulp and ULP distance</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="cm">// No built-in ULP &mdash; manual via DataView + BigInt</span>
+<span class="kw">function</span> <span class="fn">ulpDistance</span>(a: <span class="ty">number</span>, b: <span class="ty">number</span>): <span class="ty">bigint</span> {
+  <span class="kw">const</span> buf = <span class="kw">new</span> <span class="ty">ArrayBuffer</span>(<span class="nm">8</span>);
+  <span class="kw">const</span> view = <span class="kw">new</span> <span class="ty">DataView</span>(buf);
+  view.<span class="fn">setFloat64</span>(<span class="nm">0</span>, a);
+  <span class="kw">const</span> ai = view.<span class="fn">getBigInt64</span>(<span class="nm">0</span>);
+  view.<span class="fn">setFloat64</span>(<span class="nm">0</span>, b);
+  <span class="kw">const</span> bi = view.<span class="fn">getBigInt64</span>(<span class="nm">0</span>);
+  <span class="kw">const</span> diff = ai - bi;
+  <span class="kw">return</span> diff &lt; <span class="nm">0n</span> ? -diff : diff;
+}
+
+console.<span class="fn">log</span>(<span class="fn">ulpDistance</span>(<span class="nm">1.0</span>, <span class="nm">1.0</span> + <span class="ty">Number</span>.EPSILON)); <span class="cm">// 1n</span>
+<span class="label">TypeScript &mdash; ULP distance via BigInt</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="kw">import</span> <span class="st">"math"</span>
+
+<span class="kw">func</span> <span class="fn">ulpDistance</span>(a, b <span class="ty">float64</span>) <span class="ty">uint64</span> {
+    ai := <span class="ty">int64</span>(math.<span class="fn">Float64bits</span>(a))
+    bi := <span class="ty">int64</span>(math.<span class="fn">Float64bits</span>(b))
+    <span class="kw">if</span> ai &lt; <span class="nm">0</span> { ai = <span class="ty">int64</span>(^<span class="ty">uint64</span>(ai)) | (<span class="nm">1</span> &lt;&lt; <span class="nm">63</span>) }  <span class="cm">// handle negatives</span>
+    <span class="kw">if</span> bi &lt; <span class="nm">0</span> { bi = <span class="ty">int64</span>(^<span class="ty">uint64</span>(bi)) | (<span class="nm">1</span> &lt;&lt; <span class="nm">63</span>) }
+    d := ai - bi
+    <span class="kw">if</span> d &lt; <span class="nm">0</span> { <span class="kw">return</span> <span class="ty">uint64</span>(-d) }
+    <span class="kw">return</span> <span class="ty">uint64</span>(d)
+}
+<span class="label">Go &mdash; ULP distance with negative handling</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="kw">fn</span> <span class="fn">ulp_distance</span>(a: <span class="ty">f64</span>, b: <span class="ty">f64</span>) -&gt; <span class="ty">u64</span> {
+    <span class="kw">let</span> ai = <span class="ty">i64</span>::<span class="fn">from_ne_bytes</span>(a.<span class="fn">to_ne_bytes</span>());
+    <span class="kw">let</span> bi = <span class="ty">i64</span>::<span class="fn">from_ne_bytes</span>(b.<span class="fn">to_ne_bytes</span>());
+    <span class="cm">// Remap negative floats to make ordering linear</span>
+    <span class="kw">let</span> ai = <span class="kw">if</span> ai &lt; <span class="nm">0</span> { <span class="ty">i64</span>::MIN - ai } <span class="kw">else</span> { ai };
+    <span class="kw">let</span> bi = <span class="kw">if</span> bi &lt; <span class="nm">0</span> { <span class="ty">i64</span>::MIN - bi } <span class="kw">else</span> { bi };
+    (ai - bi).<span class="fn">unsigned_abs</span>()
+}
+<span class="label">Rust &mdash; ULP distance with sign remapping</span></code></pre>
+  </div>
+</div>
+
+<div class="try-this">
+  <div class="try-label">Try This</div>
+  <p>See how ULP size scales with magnitude:</p>
+  <pre><code>python3 -c "import math; print(f'ULP at 1.0: {math.ulp(1.0):.2e}'); print(f'ULP at 1e6: {math.ulp(1e6):.2e}'); print(f'ULP at 1e15: {math.ulp(1e15):.2e}')"</code></pre>
 </div>
 
 </section>
@@ -1707,6 +2068,75 @@ bit 63 &nbsp;&nbsp;&nbsp; bits 62-52 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&
 <div class="power zen">
 <div class="power-label">Zen: Rust Got It Right</div>
 <p>Rust's decision to not implement <code>Hash</code> and <code>Eq</code> for <code>f64</code> is the correct solution. It makes the problem a compile-time error instead of a runtime bug. If you need float keys, you must use the <code>ordered_float</code> crate's <code>OrderedFloat&lt;f64&gt;</code> or <code>NotNan&lt;f64&gt;</code> wrapper, which explicitly handles NaN (either by panicking on construction or by defining a total order). The type system prevents the bug class entirely.</p>
+</div>
+
+<h3>NaN in Hash Maps: Multi-Language Comparison</h3>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-nan" id="tab-py-nan" class="tpy" checked>
+  <input type="radio" name="tabs-nan" id="tab-ts-nan" class="tts">
+  <input type="radio" name="tabs-nan" id="tab-go-nan" class="tgo">
+  <input type="radio" name="tabs-nan" id="tab-rs-nan" class="trs">
+  <div class="tab-bar">
+    <label for="tab-py-nan">Python</label>
+    <label for="tab-ts-nan">TypeScript</label>
+    <label for="tab-go-nan">Go</label>
+    <label for="tab-rs-nan">Rust</label>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">import</span> math
+d = {}
+<span class="kw">for</span> i <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">5</span>):
+    d[<span class="fn">float</span>(<span class="st">'nan'</span>)] = i
+
+<span class="fn">print</span>(<span class="fn">len</span>(d))  <span class="cm"># 5! Each NaN is a separate key (identity-based)</span>
+<span class="cm"># Python uses id() for NaN keys &mdash; each float('nan') is a new object</span>
+<span class="cm"># But: n = float('nan'); d[n] = 1; d[n] = 2 &rarr; len(d) == 1 (same object)</span>
+<span class="label">Python &mdash; NaN identity-based hashing</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="cm">// Map uses SameValueZero &mdash; NaN === NaN is TRUE for Map keys!</span>
+<span class="kw">const</span> map = <span class="kw">new</span> <span class="ty">Map</span>&lt;<span class="ty">number</span>, <span class="ty">string</span>&gt;();
+map.<span class="fn">set</span>(<span class="ty">NaN</span>, <span class="st">"first"</span>);
+map.<span class="fn">set</span>(<span class="ty">NaN</span>, <span class="st">"second"</span>);  <span class="cm">// overwrites!</span>
+console.<span class="fn">log</span>(map.size);    <span class="cm">// 1</span>
+console.<span class="fn">log</span>(map.<span class="fn">get</span>(<span class="ty">NaN</span>)); <span class="cm">// "second" &mdash; NaN works as a key!</span>
+
+<span class="cm">// But Object keys are strings &mdash; NaN becomes "NaN"</span>
+<span class="kw">const</span> obj: <span class="ty">Record</span>&lt;<span class="ty">string</span>, <span class="ty">string</span>&gt; = {};
+obj[<span class="ty">NaN</span> <span class="kw">as</span> <span class="kw">any</span>] = <span class="st">"first"</span>;   <span class="cm">// key is "NaN" (string coercion)</span>
+obj[<span class="ty">NaN</span> <span class="kw">as</span> <span class="kw">any</span>] = <span class="st">"second"</span>;  <span class="cm">// same key "NaN"</span>
+console.<span class="fn">log</span>(<span class="ty">Object</span>.<span class="fn">keys</span>(obj)); <span class="cm">// ["NaN"]</span>
+<span class="label">TypeScript &mdash; Map vs Object NaN behavior</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code>m := <span class="kw">map</span>[<span class="ty">float64</span>]<span class="ty">int</span>{}
+nan := math.<span class="fn">NaN</span>()
+<span class="kw">for</span> i := <span class="nm">0</span>; i &lt; <span class="nm">5</span>; i++ {
+    m[nan] = i  <span class="cm">// Each insert creates a NEW entry</span>
+}
+fmt.<span class="fn">Println</span>(<span class="fn">len</span>(m))  <span class="cm">// 5 &mdash; and NONE can be retrieved!</span>
+<span class="cm">// m[nan] is always 0 (zero value) &mdash; the entries are orphaned</span>
+<span class="cm">// This is a silent memory leak. The GC can't free them either.</span>
+<span class="label">Go &mdash; NaN creates orphaned map entries</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="cm">// Won't compile! f64 doesn't implement Hash or Eq.</span>
+<span class="cm">// use std::collections::HashMap;</span>
+<span class="cm">// let mut m: HashMap&lt;f64, i32&gt; = HashMap::new();  // ERROR</span>
+<span class="cm">//</span>
+<span class="cm">// You must use ordered_float::NotNan&lt;f64&gt; or OrderedFloat&lt;f64&gt;</span>
+<span class="kw">use</span> ordered_float::<span class="ty">NotNan</span>;
+<span class="kw">let</span> key = <span class="ty">NotNan</span>::<span class="fn">new</span>(<span class="nm">1.0</span>).<span class="fn">unwrap</span>();
+<span class="cm">// NotNan::new(f64::NAN).unwrap() &rarr; panics at construction</span>
+<span class="label">Rust &mdash; compile-time prevention</span></code></pre>
+  </div>
+</div>
+
+<div class="try-this">
+  <div class="try-label">Try This</div>
+  <p>Watch Python create 5 separate NaN keys:</p>
+  <pre><code>python3 -c "d={}; [d.__setitem__(float('nan'), i) for i in range(5)]; print(f'{len(d)} entries, keys={list(d.keys())}')"</code></pre>
 </div>
 
 </section>
@@ -1926,6 +2356,513 @@ bit 63 &nbsp;&nbsp;&nbsp; bits 62-52 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&
 <div class="power wild">
 <div class="power-label">Wild: The 1-Bit Frontier</div>
 <p>BitNet (2024) pushes quantization to the extreme: ternary weights ({-1, 0, +1}). No multiplication needed &mdash; matrix multiply becomes addition and subtraction. The "scale" is a single per-row float that just scales the accumulator at the end. At 1.58 bits per weight (log<sub>2</sub>(3)), a 7B model fits in 1.4 GB. IEEE 754 precision in the scale factor is irrelevant when each weight carries 1.58 bits of information. The scale could be stored in int8 and nobody would notice.</p>
+</div>
+
+<h3>Precision Loss Across Formats</h3>
+
+<table>
+<tr><th>Format</th><th>Bits/Weight</th><th>Range</th><th>Max Quantization Error</th><th>Quality vs FP32</th><th>7B Model Size</th></tr>
+<tr><td>FP32</td><td>32</td><td>&plusmn;3.4e38</td><td>0 (reference)</td><td>100% (reference)</td><td>28.0 GB</td></tr>
+<tr><td>FP16</td><td>16</td><td>&plusmn;65504</td><td>~0.001 (relative)</td><td>99.9%</td><td>14.0 GB</td></tr>
+<tr><td>BF16</td><td>16</td><td>&plusmn;3.4e38</td><td>~0.8% (relative)</td><td>99.9%</td><td>14.0 GB</td></tr>
+<tr><td>INT8 (per-tensor)</td><td>8</td><td>&plusmn;127 &times; scale</td><td>0.5 &times; scale</td><td>~99.5%</td><td>7.0 GB</td></tr>
+<tr><td>INT8 (per-row)</td><td>8</td><td>&plusmn;127 &times; scale</td><td>0.5 &times; scale</td><td>~99.7%</td><td>7.0 GB + scales</td></tr>
+<tr><td>Q4_K_M (GGUF)</td><td>4.83</td><td>block-relative</td><td>~2% of range</td><td>~99.0%</td><td>4.1 GB</td></tr>
+<tr><td>Q2_K (GGUF)</td><td>2.56</td><td>block-relative</td><td>~8% of range</td><td>~95%</td><td>2.7 GB</td></tr>
+<tr><td>BitNet (ternary)</td><td>1.58</td><td>{-1, 0, +1}</td><td>N/A (discrete)</td><td>~92-95%</td><td>1.4 GB</td></tr>
+</table>
+
+<div class="try-this">
+  <div class="try-label">Try This</div>
+  <p>See INT8 quantization roundtrip in action:</p>
+  <pre><code>python3 -c "
+import numpy as np
+v = np.array([3.7, -1.85, 0.42, 2.99], dtype=np.float32)
+scale = np.max(np.abs(v)) / 127
+q = np.clip(np.round(v / scale), -127, 127).astype(np.int8)
+deq = q.astype(np.float32) * scale
+print(f'Original:     {v}')
+print(f'Scale:        {scale:.6f}')
+print(f'Quantized:    {q}')
+print(f'Dequantized:  {deq}')
+print(f'Max error:    {np.max(np.abs(v - deq)):.6f}')
+"</code></pre>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch13">
+<h2>// 13 &mdash; float bugs in the wild</h2>
+
+<p class="drop-cap">Theory is nice. Chapters 1 through 12 gave you the rules of the game: how bits encode values, where precision lives and dies, why rounding modes matter. But the real test of understanding is recognizing these failure modes in production systems where the consequences are measured in dollars, meters, and lives. Every case study below is a real event. Every one reduces to the same sin: treating an approximation as exact.</p>
+
+<h3>13.1 &mdash; The Patriot Missile (1991)</h3>
+
+<p>The MIM-104 Patriot missile battery in Dhahran, Saudi Arabia, tracked incoming Scud missiles using a system clock that ticked every 0.1 seconds. The tick count was stored as an integer and multiplied by 0.1 to get elapsed time. The 0.1 was stored in a 24-bit fixed-point register.</p>
+
+<p>Here's the problem. 0.1 in binary is a repeating fraction:</p>
+
+<pre><code><span class="cm">// 0.1 in binary = 0.0001100110011001100110011... (repeating)</span>
+<span class="cm">// Truncated to 24 bits:</span>
+<span class="cm">//   0.00011001100110011001100₂</span>
+<span class="cm">//</span>
+<span class="cm">// The exact value of that 24-bit representation:</span>
+<span class="cm">//   0.0999999046325683593750</span>
+<span class="cm">//</span>
+<span class="cm">// Error per tick:</span>
+<span class="cm">//   0.1 - 0.0999999046325683593750 = 9.5367431640625e-8 seconds</span>
+<span class="cm">//</span>
+<span class="cm">// After 100 hours of continuous operation:</span>
+<span class="cm">//   ticks = 100 × 60 × 60 × 10 = 3,600,000</span>
+<span class="cm">//   accumulated error = 3,600,000 × 9.5367e-8 = 0.3433 seconds</span>
+<span class="cm">//</span>
+<span class="cm">// A Scud missile travels at ~1,676 m/s (Mach 5):</span>
+<span class="cm">//   distance error = 0.3433 × 1,676 = 575 meters</span>
+<span class="cm">//</span>
+<span class="cm">// The range gate (search window) was ~687 meters wide.</span>
+<span class="cm">// The system looked in the right place... 0.34 seconds ago.</span>
+<span class="cm">// The Scud was no longer there.</span>
+<span class="label">24-bit fixed-point accumulation error</span></code></pre>
+
+<p>On February 25, 1991, the battery had been running for over 100 hours. An incoming Scud was detected on radar but the track correlation failed &mdash; the predicted position based on the drifted clock didn't match the observed position. The missile was not intercepted. It hit a barracks, killing 28 soldiers.</p>
+
+<div class="power danger">
+<div class="power-label">The Mechanism</div>
+<p>This is not a floating-point bug in the IEEE 754 sense &mdash; it's a fixed-point truncation bug. But the failure mode is identical: a repeating binary fraction is truncated, producing a small per-operation error that accumulates linearly over millions of operations. The error is deterministic and predictable, which makes it worse: it could have been calculated in advance. <strong>Fix:</strong> Don't accumulate rounding error over time. Multiply the integer tick count by 0.1 fresh each time instead of adding 0.1 to a running total. Or reset the epoch periodically. Or use compensated arithmetic (Kahan summation).</p>
+</div>
+
+<h3>13.2 &mdash; Vancouver Stock Exchange (1984)</h3>
+
+<p>In January 1982, the Vancouver Stock Exchange launched a new index, initialized at 1000.000. The index was recalculated after every trade by summing weighted stock prices. After each recalculation, the result was <strong>truncated</strong> to three decimal places.</p>
+
+<p>Truncation is not rounding. Rounding maps to the <em>nearest</em> representable value; truncation always rounds <em>toward zero</em>. For a positive index, truncation always removes value:</p>
+
+<pre><code><span class="cm">// Suppose the true index after a trade is 1000.3847</span>
+<span class="cm">// Truncated to 3 decimal places: 1000.384</span>
+<span class="cm">// Error: -0.0007 (always negative for positive values)</span>
+<span class="cm">//</span>
+<span class="cm">// Average truncation error per operation: -0.0005</span>
+<span class="cm">// (uniform distribution over [0, 0.001), mean = 0.0005)</span>
+<span class="cm">//</span>
+<span class="cm">// Trades per day: ~2,800</span>
+<span class="cm">// Daily drift: 2,800 × (-0.0005) = -1.4 index points</span>
+<span class="cm">// After 22 months (~460 trading days):</span>
+<span class="cm">//   460 × (-1.4) = -644 points of phantom decline</span>
+<span class="cm">//</span>
+<span class="cm">// Reported index:  524.811</span>
+<span class="cm">// Actual index:   1098.892</span>
+<span class="cm">// The exchange had lost 46% of its value... on paper.</span>
+<span class="label">systematic truncation bias</span></code></pre>
+
+<div class="power">
+<div class="power-label">The Lesson</div>
+<p>Symmetric rounding (round-to-nearest-even, IEEE 754's default) cancels errors statistically &mdash; half round up, half round down, and over millions of operations the net error stays near zero. Truncation accumulates errors <em>monotonically</em>. The Vancouver exchange fixed the problem by recalculating the index from scratch. The lesson generalizes: never truncate intermediate results in a running computation. Round symmetrically, or don't round at all until final output.</p>
+</div>
+
+<h3>13.3 &mdash; Game Engine Precision at Distance</h3>
+
+<p>In a float32 world, the spacing between representable numbers (the ULP &mdash; Unit in the Last Place) depends on magnitude. Near 1.0, you have submillimeter precision. At map-edge distances, you can't even place a vertex within a meter of where you want it:</p>
+
+<table>
+<tr><th>Distance from origin</th><th>ULP (meters)</th><th>Visual effect</th></tr>
+<tr><td>1 m</td><td>1.19e-7</td><td>Perfect &mdash; sub-micron precision</td></tr>
+<tr><td>100 m</td><td>7.63e-6</td><td>Fine &mdash; invisible jitter</td></tr>
+<tr><td>1 km</td><td>6.10e-5</td><td>Okay &mdash; 0.06mm steps</td></tr>
+<tr><td>10 km</td><td>9.77e-4</td><td>Noticeable &mdash; ~1mm vertex jitter</td></tr>
+<tr><td>100 km</td><td>7.81e-3</td><td>Severe &mdash; 8mm jitter, flickering surfaces</td></tr>
+<tr><td>1,000 km</td><td>6.25e-2</td><td>Broken &mdash; 6cm gaps, z-fighting everywhere</td></tr>
+</table>
+
+<p>Open-world games hit this wall routinely. Far Cry, Kerbal Space Program, and Space Engineers all shipped with large-world jitter bugs. The second failure mode is time accumulation: <code>time += deltaTime</code> every frame. After 4 hours at 60 FPS, time reaches 864,000. The ULP at 864,000 in float32 is 0.0625 seconds &mdash; your physics dt is now quantized to 16th-of-a-second steps.</p>
+
+<pre><code><span class="cm">// Time accumulation drift</span>
+<span class="cm">//</span>
+<span class="cm">// Frame 1:     time = 0.0          ULP = 1.19e-7   dt accurate to ~100ns</span>
+<span class="cm">// 1 minute:    time = 60.0         ULP = 3.81e-6   dt accurate to ~4μs</span>
+<span class="cm">// 1 hour:      time = 3600.0       ULP = 2.44e-4   dt accurate to ~0.2ms</span>
+<span class="cm">// 4 hours:     time = 14400.0      ULP = 9.77e-4   dt accurate to ~1ms</span>
+<span class="cm">// 24 hours:    time = 86400.0      ULP = 7.81e-3   dt accurate to ~8ms</span>
+<span class="cm">//</span>
+<span class="cm">// At 8ms precision, physics simulation becomes visibly jerky.</span>
+<span class="cm">// Animations stutter. Interpolation breaks.</span>
+<span class="label">float32 time precision decay</span></code></pre>
+
+<div class="power hack">
+<div class="power-label">Fixes</div>
+<p><strong>Origin rebasing:</strong> Periodically teleport the entire world so the camera is at (0,0,0). All coordinates stay small, all ULPs stay tight. Unreal Engine does this automatically. <strong>Epoch-based time:</strong> Reset the timer every frame (or every level), store the absolute offset separately in float64 or integer milliseconds. Physics sees small delta values, never large accumulated ones. <strong>Double for position:</strong> Some engines (Star Citizen, KSP2) store world position in float64 and convert to float32 camera-relative coordinates for rendering. 52-bit mantissa gives sub-millimeter precision out to 4.5 million km.</p>
+</div>
+
+<h3>13.4 &mdash; ML Mixed Precision Training</h3>
+
+<p>Modern neural networks train in "mixed precision": forward and backward passes computed in FP16 for speed, master weights stored in FP32 for accuracy. The problem is gradient magnitude. Deep network gradients can span 12+ orders of magnitude:</p>
+
+<pre><code><span class="cm">// FP16 properties:</span>
+<span class="cm">//   Range:            ±65,504</span>
+<span class="cm">//   Smallest normal:  6.10e-5</span>
+<span class="cm">//   Smallest subnormal: 5.96e-8</span>
+<span class="cm">//</span>
+<span class="cm">// Typical gradient magnitudes in a 100-layer network:</span>
+<span class="cm">//   Early layers:     1e-7 to 1e-5  ← BELOW FP16 smallest normal</span>
+<span class="cm">//   Middle layers:    1e-4 to 1e-2  ← fine in FP16</span>
+<span class="cm">//   Final layers:     1e-1 to 1e+1  ← fine in FP16</span>
+<span class="cm">//</span>
+<span class="cm">// Gradients below 6.10e-5 become subnormal in FP16.</span>
+<span class="cm">// Gradients below 5.96e-8 underflow to ZERO.</span>
+<span class="cm">// Zero gradient = parameter doesn't update = dead layer.</span>
+<span class="label">FP16 gradient underflow</span></code></pre>
+
+<p>The fix is loss scaling: multiply the loss by a large constant before the backward pass, then divide the gradients by the same constant after:</p>
+
+<pre><code><span class="cm"># PyTorch automatic mixed precision with loss scaling</span>
+<span class="kw">from</span> torch.cuda.amp <span class="kw">import</span> autocast, GradScaler
+
+scaler = <span class="fn">GradScaler</span>()  <span class="cm"># initial scale = 65536.0</span>
+
+<span class="kw">for</span> batch <span class="kw">in</span> dataloader:
+    optimizer.<span class="fn">zero_grad</span>()
+
+    <span class="kw">with</span> <span class="fn">autocast</span>():                <span class="cm"># forward pass in FP16</span>
+        output = <span class="fn">model</span>(batch)
+        loss = <span class="fn">criterion</span>(output)       <span class="cm"># loss is FP32</span>
+
+    scaler.<span class="fn">scale</span>(loss).<span class="fn">backward</span>()     <span class="cm"># backward with scaled loss</span>
+    <span class="cm"># gradients are now 65536x larger → safely in FP16 range</span>
+    <span class="cm"># gradient of 1e-7 becomes 1e-7 × 65536 = 6.5e-3 (representable!)</span>
+
+    scaler.<span class="fn">step</span>(optimizer)             <span class="cm"># unscale gradients, then optimizer.step()</span>
+    scaler.<span class="fn">update</span>()                   <span class="cm"># adjust scale factor if overflows detected</span>
+<span class="label">Python &mdash; mixed precision training with GradScaler</span></code></pre>
+
+<div class="power">
+<div class="power-label">The Precision Stack</div>
+<p>The full mixed-precision recipe has three tiers: <strong>compute</strong> in FP16 (fast tensor core operations), <strong>accumulate</strong> in FP32 (matrix multiply accumulators are always FP32 on NVIDIA GPUs), and <strong>store master weights</strong> in FP32. The FP16 compute produces FP16 gradients, but the optimizer adds them to FP32 master weights. Without this, small gradients (even if non-zero) get absorbed: <code>FP16(10000.0 + 0.001) == 10000.0</code>. The weight never changes. This is Sterbenz's absorption, applied to 10 billion parameters simultaneously.</p>
+</div>
+
+<h3>13.5 &mdash; Database Aggregation</h3>
+
+<p>A query that seems harmless:</p>
+
+<pre><code><span class="kw">SELECT</span> <span class="fn">SUM</span>(amount) <span class="kw">FROM</span> transactions;
+<span class="label">SQL</span></code></pre>
+
+<p>If <code>amount</code> is declared as <code>FLOAT</code> (IEEE 754 float32), this sum is computed by naive left-to-right addition. The error characteristics depend on the data:</p>
+
+<table>
+<tr><th>Scenario</th><th>Rows</th><th>Type</th><th>True sum</th><th>Computed sum</th><th>Error</th></tr>
+<tr><td>Random $0-100</td><td>1,000</td><td>float32</td><td>$49,892.37</td><td>$49,892.34</td><td>$0.03</td></tr>
+<tr><td>Random $0-100</td><td>1,000,000</td><td>float32</td><td>$49,997,412.51</td><td>$49,997,217.00</td><td>$195.51</td></tr>
+<tr><td>All $19.99</td><td>1,000,000</td><td>float32</td><td>$19,990,000.00</td><td>$19,989,856.00</td><td>$144.00</td></tr>
+<tr><td>Random $0-100</td><td>1,000,000</td><td>float64</td><td>$49,997,412.51</td><td>$49,997,412.50</td><td>$0.01</td></tr>
+</table>
+
+<p>The problem: as the running sum grows, the ULP of the accumulator grows with it. When the sum reaches $10,000,000 in float32, the ULP is $1.00. Adding $19.99 to $10,000,000 rounds to $10,000,020 &mdash; you've lost the pennies.</p>
+
+<div class="power danger">
+<div class="power-label">Never Use FLOAT for Money</div>
+<p>Use <code>DECIMAL(19,4)</code> or <code>NUMERIC</code> for monetary values. These types store exact decimal digits, not binary fractions. <code>DECIMAL(19,4)</code> holds values up to 999,999,999,999,999.9999 with no rounding error. If you absolutely must sum floats (e.g., sensor telemetry), use Kahan compensated summation or tree reduction (sum pairs, then sum the pair-sums, recursively). PostgreSQL's <code>SUM()</code> on <code>float8</code> uses naive summation; there is no built-in Kahan option. Know your database.</p>
+</div>
+
+<h3>13.6 &mdash; JavaScript's Number Problem</h3>
+
+<p>JavaScript has exactly one numeric type: <code>Number</code>, which is IEEE 754 float64. This design choice, inherited from early Java prototyping in 1995, creates three distinct failure classes:</p>
+
+<pre><code><span class="cm">// Failure 1: Decimal fraction representation</span>
+<span class="nm">0.1</span> + <span class="nm">0.2</span> === <span class="nm">0.30000000000000004</span>   <span class="cm">// true</span>
+<span class="nm">0.1</span> + <span class="nm">0.2</span> === <span class="nm">0.3</span>                   <span class="cm">// false</span>
+
+<span class="cm">// Why: 0.1 rounds to 0.1000000000000000055511151231257827021181583404541015625</span>
+<span class="cm">//      0.2 rounds to 0.200000000000000011102230246251565404236316680908203125</span>
+<span class="cm">//      Sum = 0.3000000000000000444089209850062616169452667236328125</span>
+<span class="cm">//      Rounded to float64: 0.30000000000000004</span>
+
+<span class="cm">// Failure 2: Large integer precision loss</span>
+<span class="nm">9007199254740992</span> === <span class="nm">9007199254740993</span>   <span class="cm">// true (!)</span>
+<span class="cm">// 2^53 = 9007199254740992. Above this, consecutive integers</span>
+<span class="cm">// can't be represented. 2^53 and 2^53+1 round to the same float64.</span>
+
+<span class="cm">// Failure 3: JSON integer mangling</span>
+<span class="cm">// Twitter Snowflake IDs are 64-bit integers, e.g. 1382648968853352448</span>
+<span class="kw">const</span> id = <span class="fn">JSON.parse</span>(<span class="st">'{"id": 1382648968853352448}'</span>);
+<span class="cm">// id.id === 1382648968853352400  ← WRONG, last 2 digits mangled</span>
+<span class="cm">// Because 1382648968853352448 > Number.MAX_SAFE_INTEGER (2^53 - 1)</span>
+<span class="cm">// The float64 representation loses the low-order bits.</span>
+<span class="label">JavaScript &mdash; the three failure classes</span></code></pre>
+
+<div class="power hack">
+<div class="power-label">Fixes</div>
+<p><strong>Decimal fractions:</strong> Store money as integer cents (<code>amount * 100</code>). Compare with epsilon: <code>Math.abs(a - b) < Number.EPSILON</code> for values near 1.0, or relative epsilon for arbitrary magnitudes. <strong>Large integers:</strong> Use <code>BigInt</code> (ES2020): <code>9007199254740993n === 9007199254740993n</code> works correctly. <strong>JSON IDs:</strong> Twitter's API returns IDs as both numbers and strings (<code>"id_str": "1382648968853352448"</code>). Always use the string form. In your own APIs, serialize large IDs as strings in JSON. The <code>json-bigint</code> npm package can parse JSON with arbitrary-precision integers.</p>
+</div>
+
+<h3>13.7 &mdash; Ariane 5 Flight 501 (1996)</h3>
+
+<p>On June 4, 1996, the maiden flight of Ariane 5 self-destructed 37 seconds after launch. The cause was a floating-point to integer conversion overflow in the Inertial Reference System (SRI), which had been reused unchanged from Ariane 4.</p>
+
+<pre><code><span class="cm">-- The fatal code (Ada, SRI horizontal bias computation):</span>
+<span class="cm">-- Simplified reconstruction from the Inquiry Board report</span>
+<span class="cm">--</span>
+<span class="cm">-- BH = Horizontal Bias, a float64 value computed from</span>
+<span class="cm">-- accelerometer and gyroscope data</span>
+<span class="cm">--</span>
+<span class="cm">-- On Ariane 4: BH never exceeded 32,767 (int16 max)</span>
+<span class="cm">--   because the horizontal velocity was lower</span>
+<span class="cm">--</span>
+<span class="cm">-- On Ariane 5: BH reached ~32,768.5 at T+36.7 seconds</span>
+<span class="cm">--   due to higher horizontal velocity profile</span>
+
+<span class="ty">BH</span> : <span class="ty">Float</span> := ... ;  <span class="cm">-- computed value ≈ 32,768.5</span>
+
+<span class="cm">-- The conversion that killed the rocket:</span>
+<span class="ty">Horizontal_Bias</span> : <span class="ty">Integer_16</span> := <span class="ty">Integer_16</span>(<span class="ty">BH</span>);
+<span class="cm">-- Integer_16 range: -32,768 to 32,767</span>
+<span class="cm">-- BH = 32,768.5 → CONSTRAINT_ERROR (Ada overflow exception)</span>
+<span class="cm">--</span>
+<span class="cm">-- The exception handler had been DISABLED for this variable</span>
+<span class="cm">-- because analysis showed it couldn't overflow... on Ariane 4.</span>
+<span class="cm">--</span>
+<span class="cm">-- Both SRI units (primary and backup) ran identical software.</span>
+<span class="cm">-- Both threw the same exception at the same time.</span>
+<span class="cm">-- Both shut down. Flight computer received garbage data.</span>
+<span class="cm">-- Nozzles swiveled to maximum deflection.</span>
+<span class="cm">-- Rocket broke apart from aerodynamic forces.</span>
+<span class="cm">-- Self-destruct triggered.</span>
+<span class="cm">-- $370 million payload destroyed. (4 Cluster satellites)</span>
+<span class="label">Ada &mdash; Ariane 5 SRI overflow (reconstructed)</span></code></pre>
+
+<div class="power danger">
+<div class="power-label">The Mechanism</div>
+<p>This is a float-to-integer narrowing conversion without bounds checking. The float64 value was perfectly precise &mdash; it correctly represented ~32,768.5. The bug was converting it to a 16-bit integer that couldn't hold it. The code worked flawlessly for a decade on Ariane 4 because that rocket's trajectory never produced values above 32,767. Nobody re-analyzed the range when reusing the software for a rocket with a fundamentally different flight profile. <strong>Fix:</strong> Never narrow a floating-point value to a smaller integer type without an explicit range check. In Ada, this means keeping the <code>Constraint_Error</code> handler active. In C: <code>if (val > INT16_MAX || val < INT16_MIN) handle_error();</code> before the cast. In Rust, this is why <code>as</code> casts saturate and <code>try_from</code> exists.</p>
+</div>
+
+<h3>13.8 &mdash; Financial Rounding Wars</h3>
+
+<p>IEEE 754 defaults to round-to-nearest-even (banker's rounding). Tax authorities, banks, and accounting standards do not agree with each other or with IEEE 754 about how to round:</p>
+
+<table>
+<tr><th>Jurisdiction / Standard</th><th>Rounding rule for 0.5 (ties)</th><th>round(2.5)</th><th>round(3.5)</th></tr>
+<tr><td>IEEE 754 default</td><td>Round half to even</td><td>2</td><td>4</td></tr>
+<tr><td>US IRS (tax)</td><td>Round half up</td><td>3</td><td>4</td></tr>
+<tr><td>EU VAT Directive</td><td>Round half to even</td><td>2</td><td>4</td></tr>
+<tr><td>Swiss banking</td><td>Round half up</td><td>3</td><td>4</td></tr>
+<tr><td>Python 3 built-in</td><td>Round half to even</td><td>2</td><td>4</td></tr>
+<tr><td>Python 2 built-in</td><td>Round half away from zero</td><td>3</td><td>4</td></tr>
+<tr><td>JavaScript Math.round</td><td>Round half up (toward +&infin;)</td><td>3</td><td>4</td></tr>
+<tr><td>Java Math.round</td><td>Round half up (toward +&infin;)</td><td>3</td><td>4</td></tr>
+<tr><td>C round()</td><td>Round half away from zero</td><td>3</td><td>4</td></tr>
+</table>
+
+<p>It gets worse with negative numbers. JavaScript's <code>Math.round(-2.5)</code> returns <code>-2</code> (rounds toward positive infinity), while C's <code>round(-2.5)</code> returns <code>-3</code> (rounds away from zero). These are different operations that happen to share a name.</p>
+
+<pre><code><span class="cm"># Python 3: the right way to handle financial rounding</span>
+<span class="kw">from</span> decimal <span class="kw">import</span> Decimal, ROUND_HALF_UP, ROUND_HALF_EVEN
+
+<span class="cm"># Built-in round() uses banker's rounding (half to even)</span>
+<span class="fn">round</span>(<span class="nm">2.5</span>)    <span class="cm"># → 2  (rounds to even)</span>
+<span class="fn">round</span>(<span class="nm">3.5</span>)    <span class="cm"># → 4  (rounds to even)</span>
+
+<span class="cm"># For US tax: use Decimal with explicit rounding mode</span>
+<span class="fn">Decimal</span>(<span class="st">"2.5"</span>).<span class="fn">quantize</span>(<span class="fn">Decimal</span>(<span class="st">"1"</span>), rounding=ROUND_HALF_UP)    <span class="cm"># → 3</span>
+<span class="fn">Decimal</span>(<span class="st">"3.5"</span>).<span class="fn">quantize</span>(<span class="fn">Decimal</span>(<span class="st">"1"</span>), rounding=ROUND_HALF_UP)    <span class="cm"># → 4</span>
+
+<span class="cm"># CRITICAL: pass strings to Decimal(), not floats</span>
+<span class="fn">Decimal</span>(<span class="nm">2.5</span>)     <span class="cm"># → Decimal('2.5')                          (exact, lucky)</span>
+<span class="fn">Decimal</span>(<span class="nm">0.1</span>)     <span class="cm"># → Decimal('0.10000000000000000555111...')  (float damage)</span>
+<span class="fn">Decimal</span>(<span class="st">"0.1"</span>)   <span class="cm"># → Decimal('0.1')                          (exact)</span>
+
+<span class="cm"># Java equivalent: BigDecimal with RoundingMode</span>
+<span class="cm"># new BigDecimal("2.5").setScale(0, RoundingMode.HALF_UP) → 3</span>
+<span class="cm"># SQL equivalent: CAST(value AS DECIMAL(19,2))</span>
+<span class="label">Python &mdash; explicit rounding modes with Decimal</span></code></pre>
+
+<div class="power">
+<div class="power-label">Why Banker's Rounding Exists</div>
+<p>If you always round 0.5 up, you introduce a systematic positive bias: on average, half-cent values round up more often than down. Over millions of transactions, the rounding error accumulates in one direction &mdash; the same failure mode as the Vancouver Stock Exchange. Banker's rounding (half to even) ensures that 0.5 rounds up half the time and down half the time, statistically canceling the bias. IEEE 754 chose it as the default for exactly this reason. But "statistically unbiased" and "legally correct" are different requirements, which is why you must always specify your rounding mode explicitly.</p>
+</div>
+
+<div class="power zen">
+<div class="power-label">The Pattern</div>
+<p>Eight case studies spanning missile defense, stock exchanges, game engines, machine learning, databases, web browsers, rockets, and banking. Every single one reduces to the same root cause: <strong>treating an approximation as exact</strong>. The Patriot treated 0.1 as exactly representable. Vancouver treated truncation as lossless. Game engines treated float32 as uniformly precise. ML training treated FP16 as having infinite dynamic range. Databases treated <code>FLOAT</code> as exact decimal. JavaScript treated float64 as a universal number type. Ariane 5 treated a float64 as fitting in int16. Financial systems treated <code>round()</code> as a single well-defined operation. The fix is always the same: know the precision limits of your representation, design for error accumulation, and never let approximation errors compound past the threshold where they matter.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch14">
+<h2>// 14 &mdash; debugging float issues</h2>
+
+<p class="drop-cap">Knowing how floats work is necessary but not sufficient. You also need to detect when they misbehave in your running code, understand how your compiler might silently change float semantics, know which platform quirks will bite you, and have a testing strategy that catches precision bugs before production does. This chapter is your debugging toolkit.</p>
+
+<h3>14.1 &mdash; Detecting Precision Loss</h3>
+
+<p>The first line of defense is runtime detection: check for NaN, Inf, and unexpected precision loss at the boundaries of your system. Every language has its own API for this, and the differences matter.</p>
+
+<h4>NaN / Inf Sentinel Checks</h4>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-sentinel" id="tab-c-sentinel" class="tc" checked>
+  <input type="radio" name="tabs-sentinel" id="tab-py-sentinel" class="tpy">
+  <input type="radio" name="tabs-sentinel" id="tab-ts-sentinel" class="tts">
+  <input type="radio" name="tabs-sentinel" id="tab-go-sentinel" class="tgo">
+  <input type="radio" name="tabs-sentinel" id="tab-rs-sentinel" class="trs">
+  <div class="tab-bar">
+    <label for="tab-c-sentinel">C</label>
+    <label for="tab-py-sentinel">Python</label>
+    <label for="tab-ts-sentinel">TypeScript</label>
+    <label for="tab-go-sentinel">Go</label>
+    <label for="tab-rs-sentinel">Rust</label>
+  </div>
+  <div class="tab-content c">
+    <pre><code><span class="pp">#include</span> <span class="st">&lt;math.h&gt;</span>
+
+<span class="ty">double</span> x = <span class="nm">0.0</span> / <span class="nm">0.0</span>;
+<span class="fn">isnan</span>(x);       <span class="cm">// 1 &mdash; x is NaN</span>
+<span class="fn">isinf</span>(x);       <span class="cm">// 0</span>
+<span class="fn">isfinite</span>(x);    <span class="cm">// 0 &mdash; NaN is not finite</span>
+<span class="fn">fpclassify</span>(x);  <span class="cm">// FP_NAN (also: FP_INFINITE, FP_ZERO, FP_SUBNORMAL, FP_NORMAL)</span>
+
+<span class="cm">// WARNING: -ffast-math makes isnan() return false ALWAYS</span>
+<span class="label">C &mdash; math.h classification macros</span></code></pre>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">import</span> math
+<span class="kw">import</span> numpy <span class="kw">as</span> np
+
+x = <span class="fn">float</span>(<span class="st">'nan'</span>)
+math.<span class="fn">isnan</span>(x)     <span class="cm"># True</span>
+math.<span class="fn">isinf</span>(x)     <span class="cm"># False</span>
+math.<span class="fn">isfinite</span>(x)  <span class="cm"># False &mdash; NaN is not finite</span>
+
+<span class="cm"># numpy vectorized (operates on entire arrays)</span>
+arr = np.<span class="fn">array</span>([<span class="nm">1.0</span>, <span class="fn">float</span>(<span class="st">'nan'</span>), np.inf, <span class="nm">-0.0</span>])
+np.<span class="fn">isnan</span>(arr)     <span class="cm"># [False,  True, False, False]</span>
+np.<span class="fn">isfinite</span>(arr)  <span class="cm"># [ True, False, False,  True]</span>
+<span class="label">Python &mdash; math + numpy detection</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="cm">// DANGER: isNaN() coerces its argument!</span>
+<span class="fn">isNaN</span>(<span class="st">"hello"</span>);        <span class="cm">// true &mdash; coerces to NaN first!</span>
+<span class="ty">Number</span>.<span class="fn">isNaN</span>(<span class="st">"hello"</span>); <span class="cm">// false &mdash; correct, "hello" is not NaN</span>
+
+<span class="cm">// Always use Number.isNaN() and Number.isFinite()</span>
+<span class="ty">Number</span>.<span class="fn">isNaN</span>(<span class="ty">NaN</span>);         <span class="cm">// true</span>
+<span class="ty">Number</span>.<span class="fn">isFinite</span>(<span class="ty">Infinity</span>); <span class="cm">// false</span>
+<span class="ty">Number</span>.<span class="fn">isFinite</span>(<span class="ty">NaN</span>);      <span class="cm">// false</span>
+<span class="ty">Number</span>.<span class="fn">isFinite</span>(<span class="nm">42</span>);       <span class="cm">// true</span>
+<span class="label">TypeScript &mdash; Number.isNaN vs isNaN</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="kw">import</span> <span class="st">"math"</span>
+
+x := math.<span class="fn">NaN</span>()
+math.<span class="fn">IsNaN</span>(x)       <span class="cm">// true</span>
+math.<span class="fn">IsInf</span>(x, <span class="nm">0</span>)   <span class="cm">// false (0 = either sign)</span>
+math.<span class="fn">IsInf</span>(x, <span class="nm">1</span>)   <span class="cm">// false (1 = +Inf only)</span>
+math.<span class="fn">IsInf</span>(x, -<span class="nm">1</span>)  <span class="cm">// false (-1 = -Inf only)</span>
+
+<span class="cm">// No IsFinite &mdash; use: !IsNaN(x) &amp;&amp; !IsInf(x, 0)</span>
+<span class="label">Go &mdash; math.IsNaN / math.IsInf</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="kw">let</span> x: <span class="ty">f64</span> = <span class="ty">f64</span>::NAN;
+x.<span class="fn">is_nan</span>();        <span class="cm">// true</span>
+x.<span class="fn">is_infinite</span>();   <span class="cm">// false</span>
+x.<span class="fn">is_finite</span>();     <span class="cm">// false &mdash; NaN is not finite</span>
+
+<span class="cm">// Full classification via pattern matching</span>
+<span class="kw">match</span> x.<span class="fn">classify</span>() {
+    std::num::<span class="ty">FpCategory</span>::Nan       =&gt; <span class="st">"NaN"</span>,
+    std::num::<span class="ty">FpCategory</span>::Infinite  =&gt; <span class="st">"Inf"</span>,
+    std::num::<span class="ty">FpCategory</span>::Zero      =&gt; <span class="st">"zero"</span>,
+    std::num::<span class="ty">FpCategory</span>::Subnormal =&gt; <span class="st">"subnormal"</span>,
+    std::num::<span class="ty">FpCategory</span>::Normal    =&gt; <span class="st">"normal"</span>,
+};
+<span class="label">Rust &mdash; f64 classification methods</span></code></pre>
+  </div>
+</div>
+
+<div class="power danger">
+<div class="power-label">Danger: isNaN vs Number.isNaN</div>
+<p><code>isNaN("hello")</code> returns <code>true</code> in JavaScript because it coerces the argument to a number first: <code>Number("hello")</code> is <code>NaN</code>, so <code>isNaN(NaN)</code> returns <code>true</code>. Always use <code>Number.isNaN()</code>, which performs no coercion and only returns <code>true</code> for actual NaN values.</p>
+</div>
+
+<h3>14.2 &mdash; Compiler Flags That Change Float Semantics</h3>
+
+<p>Your compiler can silently change how floating-point math works. These flags control whether the compiler is allowed to reorder operations, assume NaN doesn't exist, or fuse multiply-add into a single instruction. The wrong flag turns correct code into subtly broken code.</p>
+
+<table>
+<tr><th>Flag</th><th>Compiler</th><th>What It Does</th><th>Safety</th></tr>
+<tr><td><code>-ffast-math</code></td><td>GCC/Clang</td><td>Assumes associativity, no NaN/Inf, no signed zero, enables reciprocal approx</td><td style="color:var(--red)">DANGEROUS &mdash; silently breaks isnan(), Kahan, NaN propagation</td></tr>
+<tr><td><code>-Ofast</code></td><td>GCC</td><td><code>-O3</code> + <code>-ffast-math</code> (enables it silently!)</td><td style="color:var(--red)">DANGEROUS</td></tr>
+<tr><td><code>-ffp-contract=fast</code></td><td>GCC/Clang</td><td>Allows FMA contraction (a*b+c &rarr; fma(a,b,c))</td><td style="color:var(--green)">Usually safe &mdash; more accurate, but changes last bit</td></tr>
+<tr><td><code>-ffp-contract=off</code></td><td>GCC/Clang</td><td>Disables FMA contraction</td><td style="color:var(--green)">Safe &mdash; reproducible results across platforms</td></tr>
+<tr><td><code>/fp:strict</code></td><td>MSVC</td><td>Full IEEE compliance, no contractions</td><td style="color:var(--green)">Safe but slower</td></tr>
+<tr><td><code>/fp:fast</code></td><td>MSVC</td><td>Like <code>-ffast-math</code></td><td style="color:var(--red)">DANGEROUS</td></tr>
+<tr><td><code>-fno-finite-math-only</code></td><td>GCC/Clang</td><td>Re-enable NaN/Inf handling after <code>-ffast-math</code></td><td style="color:var(--yellow)">Partial fix</td></tr>
+</table>
+
+<div class="power danger">
+<div class="power-label">Danger: -ffast-math Deletes Your NaN Guards</div>
+<p><code>-ffast-math</code> silently deletes <code>isnan()</code> checks. The compiler assumes NaN cannot exist, so <code>isnan(x)</code> is optimized to <code>false</code>. Your NaN guard is compiled to nothing. Your tests pass because the test build doesn't use <code>-ffast-math</code>. Production crashes.</p>
+</div>
+
+<h3>14.3 &mdash; Platform Differences</h3>
+
+<p>The same source code can produce different floating-point results on different platforms. Understanding why requires knowing what FP unit the platform uses, whether it has excess precision, and how it handles subnormals.</p>
+
+<table>
+<tr><th>Platform</th><th>FP Unit</th><th>Excess Precision</th><th>FTZ Default</th><th>FMA Available</th><th>Deterministic</th></tr>
+<tr><td>x86-64 (SSE2)</td><td>SIMD</td><td>No</td><td>No</td><td>No (pre-AVX)</td><td>Yes (if same flags)</td></tr>
+<tr><td>x86-64 (AVX2+)</td><td>SIMD</td><td>No</td><td>No</td><td>Yes</td><td>Yes (if same flags)</td></tr>
+<tr><td>ARM64</td><td>NEON/VFP</td><td>No</td><td>Configurable</td><td>Yes</td><td>Yes (if FTZ matches)</td></tr>
+<tr><td>WASM</td><td>Virtual</td><td>No</td><td>No (banned)</td><td>No</td><td>Yes (strictest)</td></tr>
+<tr><td>CUDA</td><td>GPU</td><td>No</td><td>Yes</td><td>Yes</td><td>No (thread scheduling)</td></tr>
+<tr><td>x86 (32-bit)</td><td>x87</td><td>Yes (80-bit!)</td><td>No</td><td>No</td><td style="color:var(--red)">NO &mdash; the x87 problem</td></tr>
+</table>
+
+<h3>14.4 &mdash; Testing Strategies</h3>
+
+<p><strong>Property-based testing:</strong> roundtrip invariants (encode &rarr; decode &rarr; compare within N ULPs). If your codec claims lossless float roundtrip, test it with every class of float value, not just "nice" numbers.</p>
+
+<p><strong>Golden value regression:</strong> compare bit-exact hex representations, not decimal strings. The decimal string <code>"0.1"</code> doesn't tell you which of the two nearest floats your code chose. The hex <code>0x3FB999999999999A</code> does.</p>
+
+<p><strong>Boundary fuzzing:</strong> always test the dangerous values. Here's the minimum boundary array every float test should include:</p>
+
+<pre><code><span class="cm"># The float boundary gauntlet &mdash; test all of these</span>
+boundaries = [
+    <span class="nm">0.0</span>,                          <span class="cm"># positive zero</span>
+    -<span class="nm">0.0</span>,                         <span class="cm"># negative zero (not equal by bits!)</span>
+    <span class="nm">5e-324</span>,                       <span class="cm"># smallest subnormal (float64)</span>
+    <span class="nm">2.2250738585072009e-308</span>,      <span class="cm"># largest subnormal</span>
+    <span class="nm">2.2250738585072014e-308</span>,      <span class="cm"># smallest normal</span>
+    <span class="nm">1.7976931348623157e+308</span>,      <span class="cm"># largest finite (MAX)</span>
+    <span class="fn">float</span>(<span class="st">'inf'</span>),                 <span class="cm"># positive infinity</span>
+    <span class="fn">float</span>(<span class="st">'-inf'</span>),                <span class="cm"># negative infinity</span>
+    <span class="fn">float</span>(<span class="st">'nan'</span>),                 <span class="cm"># quiet NaN</span>
+]
+<span class="label">Python &mdash; float boundary gauntlet</span></code></pre>
+
+<h3>14.5 &mdash; Tools</h3>
+
+<p><strong><code>gdb</code>:</strong> Inspect float bits directly in a debugging session:</p>
+<pre><code>(gdb) <span class="fn">p/x</span> *(<span class="ty">unsigned int</span>*)&amp;my_float
+<span class="cm">// Shows the raw hex bits of the float in memory</span>
+<span class="label">GDB &mdash; raw float bit inspection</span></code></pre>
+
+<p><strong>Python <code>decimal</code>:</strong> Reveal the true value of a float:</p>
+<pre><code><span class="kw">from</span> decimal <span class="kw">import</span> Decimal
+<span class="fn">print</span>(<span class="ty">Decimal</span>(<span class="nm">0.1</span>))
+<span class="cm"># 0.1000000000000000055511151231257827021181583404541015625</span>
+<span class="label">Python &mdash; decimal reveals the truth</span></code></pre>
+
+<p><strong>Herbie:</strong> Automatic precision rewriting. Feed it a mathematical expression, and it finds a numerically stable rewrite. <a href="https://herbie.uwplse.org" style="color:var(--cyan)">herbie.uwplse.org</a></p>
+
+<p><strong>Compiler Explorer:</strong> Check whether your compiler generated FMA instructions or fell back to x87. If you see <code>fmul</code> followed by <code>fadd</code> instead of <code>vfmadd</code>, you're losing precision that FMA would preserve.</p>
+
+<p><strong><code>fegetround()</code> / <code>fesetround()</code>:</strong> In C, check or change the rounding mode at runtime. Useful for testing whether your algorithm is sensitive to rounding mode &mdash; if changing the rounding mode changes your output significantly, you have a precision problem.</p>
+
+<div class="power zen">
+<div class="power-label">Zen</div>
+<p>Stop thinking in decimals. Start thinking in ULPs. The question is never "is this float accurate to 6 decimal places?" The question is "how many representable floats away is this from the mathematically correct answer?" One ULP at 1.0 is 2.2e-16. One ULP at 1e15 is 0.25. The same "1 ULP error" means wildly different things depending on magnitude. Debugging floats means debugging in the space where floats actually live &mdash; the discrete lattice of representable values, not the continuous real number line you imagine.</p>
 </div>
 
 </section>
