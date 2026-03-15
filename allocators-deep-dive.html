@@ -1,0 +1,2551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Allocators &mdash; From Virtual Memory to Garbage Collection</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+    --white: #e8e8f0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 2rem;
+    display: flex;
+    gap: 1.2rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.2s, text-shadow 0.2s;
+    padding: 0.3rem 0;
+  }
+  nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+  nav .nav-title {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 1rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.3);
+  }
+
+  .content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+  }
+
+  .hero {
+    text-align: center;
+    padding: 4rem 0 5rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4rem;
+    position: relative;
+  }
+  .hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3.2rem;
+    font-weight: 600;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+  }
+  .hero .subtitle {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 500px;
+    margin: 0 auto;
+  }
+  .hero .blink {
+    display: inline-block;
+    animation: blink 1s step-end infinite;
+    color: var(--green);
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  section { margin-bottom: 5rem; padding-top: 1rem; }
+  h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: var(--green);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: 0.02em;
+  }
+  h3 {
+    font-size: 1.25rem;
+    color: var(--cyan);
+    margin: 2.5rem 0 1rem;
+    font-weight: 600;
+  }
+  h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 2rem 0 0.8rem;
+  }
+  p { margin-bottom: 1rem; }
+
+  .drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4rem;
+    line-height: 0.8;
+    padding: 0.1em 0.15em 0 0;
+    color: var(--green);
+    font-weight: 600;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+  }
+
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    padding: 0.12em 0.4em;
+    border-radius: 3px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem 1.4rem;
+    overflow-x: auto;
+    margin: 1.2rem 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px;
+    line-height: 1.55;
+    position: relative;
+  }
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+  }
+  .cm { color: var(--text-dim); }
+  .kw { color: var(--magenta); }
+  .ty { color: var(--cyan); }
+  .st { color: var(--green); }
+  .nm { color: var(--yellow); }
+  .fn { color: var(--blue); }
+  .pp { color: var(--orange); }
+  .label {
+    position: absolute;
+    top: 0.3rem; right: 0.7rem;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    opacity: 0.5;
+  }
+
+  .diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+  }
+  .diagram pre {
+    background: none; border: none; padding: 0; margin: 0;
+    font-size: 13px; line-height: 1.45; color: var(--text);
+  }
+  .diagram pre code { color: var(--text); }
+  .diagram-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--green-dim);
+    margin-bottom: 0.8rem;
+    display: block;
+  }
+
+  .power {
+    background: var(--bg-card);
+    border-left: 3px solid var(--green);
+    padding: 1.2rem 1.4rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .power-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.3rem;
+  }
+  .power p { margin-bottom: 0; font-size: 0.95rem; }
+  .power.danger { border-left-color: var(--red); }
+  .power.danger .power-label { color: var(--red); }
+  .power.hack { border-left-color: var(--magenta); }
+  .power.hack .power-label { color: var(--magenta); }
+  .power.wild { border-left-color: var(--orange); }
+  .power.wild .power-label { color: var(--orange); }
+  .power.zen { border-left-color: var(--cyan); }
+  .power.zen .power-label { color: var(--cyan); }
+
+  .mem-row { display: flex; gap: 1px; margin: 0.4rem 0; flex-wrap: wrap; }
+  .mc {
+    width: 30px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px; font-weight: 600; border-radius: 2px;
+  }
+  .mc.g { background: var(--green); color: var(--bg); }
+  .mc.c { background: var(--cyan); color: var(--bg); }
+  .mc.m { background: var(--magenta); color: var(--bg); }
+  .mc.o { background: var(--orange); color: var(--bg); }
+  .mc.r { background: var(--red); color: var(--bg); }
+  .mc.y { background: var(--yellow); color: var(--bg); }
+  .mc.b { background: var(--blue); color: var(--bg); }
+  .mc.d { background: var(--text-dim); color: var(--bg); opacity: 0.3; }
+  .mc.e { background: transparent; border: 1px dashed var(--border); color: var(--text-dim); }
+  .mc.w { background: var(--white); color: var(--bg); }
+  .mc.p { background: var(--purple); color: #fff; }
+  .mc.wide { width: 50px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.88rem;
+  }
+  th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    text-align: left;
+    padding: 0.5rem 0.7rem;
+    border-bottom: 2px solid var(--border);
+  }
+  td {
+    padding: 0.45rem 0.7rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:hover { background: rgba(0,255,136,0.02); }
+
+  details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1rem 0;
+    overflow: hidden;
+  }
+  details summary {
+    padding: 0.7rem 1.1rem;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--green);
+    user-select: none;
+    transition: background 0.2s;
+  }
+  details summary:hover { background: rgba(0,255,136,0.04); }
+  details[open] summary { border-bottom: 1px solid var(--border); }
+  details .det { padding: 1.1rem; }
+  details pre { margin: 0.8rem 0; }
+
+  .vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .vs-col {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.1rem;
+  }
+  .vs-col h4 { margin-top: 0; }
+
+  .glitch { position: relative; display: inline-block; }
+  .glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+  .glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 2s infinite linear alternate-reverse;
+    clip-path: inset(0 0 65% 0);
+  }
+  .glitch::after {
+    color: var(--magenta);
+    animation: glitch-2 3s infinite linear alternate-reverse;
+    clip-path: inset(65% 0 0 0);
+  }
+  @keyframes glitch-1 {
+    0%, 95% { transform: translateX(0); }
+    96% { transform: translateX(-2px); }
+    97% { transform: translateX(2px); }
+    98% { transform: translateX(-1px); }
+    100% { transform: translateX(0); }
+  }
+  @keyframes glitch-2 {
+    0%, 93% { transform: translateX(0); }
+    94% { transform: translateX(2px); }
+    96% { transform: translateX(-2px); }
+    98% { transform: translateX(1px); }
+    100% { transform: translateX(0); }
+  }
+
+  .ticker {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--green);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    display: inline-block;
+    text-shadow: 0 0 6px rgba(0,255,136,0.3);
+  }
+
+  /* === LANGUAGE TABS === */
+  .lang-tabs {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1.2rem 0;
+    overflow: hidden;
+  }
+  .lang-tabs input[type="radio"] { display: none; }
+  .lang-tabs label {
+    display: inline-block;
+    padding: 0.5rem 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .lang-tabs label:hover { color: var(--green); }
+  .lang-tabs .tab-bar {
+    border-bottom: 1px solid var(--border);
+    padding: 0 0.5rem;
+  }
+  .lang-tabs .tab-content { display: none; }
+  .lang-tabs .tab-content pre { margin: 0; border: none; border-radius: 0; }
+
+  .lang-tabs input.tc:checked ~ .tab-content.c,
+  .lang-tabs input.tpy:checked ~ .tab-content.py,
+  .lang-tabs input.tts:checked ~ .tab-content.ts,
+  .lang-tabs input.tgo:checked ~ .tab-content.go,
+  .lang-tabs input.trs:checked ~ .tab-content.rs { display: block; }
+
+  .lang-tabs input:nth-of-type(1):checked ~ .tab-bar label:nth-child(1),
+  .lang-tabs input:nth-of-type(2):checked ~ .tab-bar label:nth-child(2),
+  .lang-tabs input:nth-of-type(3):checked ~ .tab-bar label:nth-child(3),
+  .lang-tabs input:nth-of-type(4):checked ~ .tab-bar label:nth-child(4),
+  .lang-tabs input:nth-of-type(5):checked ~ .tab-bar label:nth-child(5) {
+    color: var(--green);
+    background: rgba(0,255,136,0.06);
+    border-bottom: 2px solid var(--green);
+  }
+
+  /* === TRY-THIS BOX === */
+  .try-this {
+    background: rgba(0, 255, 136, 0.04);
+    border-left: 3px solid var(--green-dim);
+    padding: 1rem 1.2rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .try-this .try-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.5rem;
+  }
+  .try-this pre {
+    margin: 0.5rem 0 0;
+    font-size: 12.5px;
+  }
+  .try-this p { font-size: 0.9rem; margin-bottom: 0.5rem; }
+
+  /* === LANG-NOTE BOX === */
+  .lang-note {
+    background: var(--bg-card);
+    border-left: 3px solid var(--blue);
+    padding: 1rem 1.2rem;
+    margin: 1.2rem 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 0.9rem;
+  }
+  .lang-note .lang-note-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--blue);
+    margin-bottom: 0.3rem;
+  }
+
+  /* === RUN BUTTON + OUTPUT === */
+  .run-btn {
+    position: absolute; top: 0.3rem; right: 3rem;
+    background: var(--green); color: var(--bg);
+    border: none; border-radius: 3px; cursor: pointer;
+    font: 600 10px 'JetBrains Mono', monospace; padding: 2px 8px;
+    opacity: 0.6; transition: opacity 0.2s;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    z-index: 2;
+  }
+  .run-btn:hover { opacity: 1; }
+  .run-btn.running { opacity: 0.4; cursor: wait; }
+  .run-output {
+    background: #050508; border: 1px solid var(--border);
+    border-top: none; border-radius: 0 0 6px 6px;
+    padding: 0.8rem 1rem; margin-top: -1px;
+    font: 13px/1.5 'JetBrains Mono', monospace; color: var(--green);
+    white-space: pre-wrap; max-height: 200px; overflow-y: auto;
+  }
+  .run-output.error { color: var(--red); }
+
+  @media (max-width: 700px) {
+    .vs { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2rem; }
+    .content { padding: 4rem 1rem 4rem; }
+    nav { font-size: 10px; gap: 0.8rem; padding: 0.4rem 1rem; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="nav-title">&gt;_ ALLOC</span>
+  <a href="#ch1">illusion</a>
+  <a href="#ch2">malloc</a>
+  <a href="#ch3">free lists</a>
+  <a href="#ch4">buddy</a>
+  <a href="#ch5">slab</a>
+  <a href="#ch6">arena</a>
+  <a href="#ch7">production</a>
+  <a href="#ch8">fragmentation</a>
+  <a href="#ch9">mmap</a>
+  <a href="#ch10">gc</a>
+  <a href="#ch11">custom</a>
+  <a href="#ch12">pool</a>
+  <a href="#ch13">safety</a>
+  <a href="#ch14">tools</a>
+</nav>
+
+<div class="content">
+
+<div class="hero">
+  <h1><span class="glitch" data-text="ALLOCATORS">ALLOCATORS</span></h1>
+  <div class="subtitle">From virtual memory to garbage collection. Every object you create, every buffer you fill, every frame you render &mdash; an allocator decides where it lives and when it dies.<span class="blink">_</span></div>
+</div>
+
+<!-- ============================================================ -->
+<section id="ch1">
+<h2>// 01 &mdash; The Illusion</h2>
+
+<p class="drop-cap">Every process on your machine believes it owns the entire address space. A 64-bit process sees 2<sup>48</sup> bytes of virtual memory &mdash; 256 terabytes &mdash; stretching from 0x0000000000000000 to 0x00007FFFFFFFFFFF. None of it is real. The operating system and the CPU's memory management unit (MMU) maintain this illusion through a four-level page table that translates virtual addresses to physical frames on demand. This is the foundation everything else in this deep dive rests on.</p>
+
+<p>When your program dereferences a pointer, the CPU doesn't go directly to RAM. It splits your 48-bit virtual address into five fields and walks a tree of page tables. Each level indexes into a 512-entry table (9 bits), and the final 12 bits give the offset within a 4KB page.</p>
+
+<div class="diagram">
+<span class="diagram-label">4-Level Page Walk (x86-64)</span>
+<pre><code>  Virtual Address (48 bits used):
+  ┌─────────┬─────────┬─────────┬─────────┬──────────────┐
+  │ PML4    │  PDPT   │   PD    │   PT    │   Offset     │
+  │ [47:39] │ [38:30] │ [29:21] │ [20:12] │   [11:0]     │
+  │  9 bits │  9 bits │  9 bits │  9 bits │  12 bits     │
+  └────┬────┴────┬────┴────┬────┴────┬────┴──────────────┘
+       │         │         │         │
+       ▼         ▼         ▼         ▼
+    ┌──────┐  ┌──────┐  ┌──────┐  ┌──────┐
+    │ PML4 │─▶│ PDPT │─▶│  PD  │─▶│  PT  │─▶ Physical Frame + Offset
+    │ 512  │  │ 512  │  │ 512  │  │ 512  │
+    │entries│  │entries│  │entries│  │entries│
+    └──────┘  └──────┘  └──────┘  └──────┘
+       ▲
+    CR3 register (page table base)
+
+  Total addressable: 512 × 512 × 512 × 512 × 4KB = 256 TB
+  5-level paging (LA57, kernel 4.14+): adds PML5, extends to 57 bits = 128 PB</code></pre>
+</div>
+
+<p>Walking four levels of page tables for every memory access would be catastrophic for performance. The <strong>Translation Lookaside Buffer</strong> (TLB) caches recent virtual-to-physical translations. A TLB hit resolves in 1&ndash;2 cycles. A TLB miss triggers the full page walk &mdash; 4 sequential memory reads, potentially 200+ cycles. On a system with 4KB pages, a 64-entry TLB covers only 256KB of memory. This is why huge pages (2MB, 1GB) matter: each TLB entry covers 512&times; or 262,144&times; more memory.</p>
+
+<div class="power">
+<div class="power-label">The Grand Illusion</div>
+<p>Virtual memory is computing's greatest sleight of hand. It gives every process its own universe of addresses, enables demand paging (allocate only what you touch), provides memory protection between processes, and makes the physical layout of RAM irrelevant. Every abstraction in this deep dive &mdash; malloc, free lists, arenas, garbage collectors &mdash; is built on this illusion.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch2">
+<h2>// 02 &mdash; What malloc Actually Does</h2>
+
+<p><code>malloc()</code> is not a system call. It is a userspace library function that manages a pool of memory obtained from the kernel. When you call <code>malloc(32)</code>, glibc does not ask the kernel for 32 bytes. It checks its internal data structures &mdash; free lists, bins, caches &mdash; and returns a pointer to an already-available chunk. The kernel is involved only when the allocator's pool runs dry.</p>
+
+<p>There are two syscalls the allocator uses to get memory from the kernel. <code>brk()</code> moves the "program break" &mdash; the top of the heap segment &mdash; upward, expanding the contiguous heap region. This is fast but inflexible: you can only grow or shrink the top, never return memory from the middle. <code>mmap()</code> requests anonymous pages from anywhere in the virtual address space. These can be returned independently. glibc's threshold is <strong>128KB</strong> (the <code>DEFAULT_MMAP_THRESHOLD</code>) &mdash; allocations below this come from the brk heap, allocations above go through mmap. This threshold is dynamically adjusted in glibc 2.10+.</p>
+
+<div class="diagram">
+<span class="diagram-label">Process Address Space Layout</span>
+<pre><code>  High addresses
+  ┌─────────────────────────┐ 0x7FFF_FFFF_FFFF
+  │       Kernel Space       │ (not accessible from userspace)
+  ├─────────────────────────┤
+  │         Stack ↓          │ grows downward
+  │                          │
+  │    (unmapped gap)        │
+  │                          │
+  │   mmap region ↓          │ shared libs, large mallocs, file maps
+  │                          │
+  │    (unmapped gap)        │
+  │                          │
+  │         Heap ↑           │ grows upward via brk()
+  ├─────────────────────────┤ program break
+  │     BSS (zero-init)      │
+  ├─────────────────────────┤
+  │     Data (initialized)   │
+  ├─────────────────────────┤
+  │     Text (code, r-x)     │
+  └─────────────────────────┘ 0x0000_0040_0000 (typical)
+  Low addresses</code></pre>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Explore Python object sizes &mdash; the allocator overhead is visible:</p>
+<pre><code>import sys
+objects = [[], [1], list(range(10)), list(range(100)), {}, {i: i for i in range(10)}, b'', b'x' * 100]
+labels = ['[]', '[1]', 'range(10)', 'range(100)', '{}', 'dict(10)', "b''", "b'x'*100"]
+for label, obj in zip(labels, objects):
+    print(f'{label:>12}: {sys.getsizeof(obj):>6} bytes')</code></pre>
+</div>
+
+<div class="power wild">
+<div class="power-label">Overcommit: Linux Says Yes to Everything</div>
+<p>On Linux, <code>malloc()</code> almost never returns NULL. The kernel promises memory it doesn't have, betting that you won't actually touch every page. When the system runs out of physical memory, the OOM killer picks a process and murders it. This is controlled by <code>/proc/sys/vm/overcommit_memory</code>: 0 = heuristic (default), 1 = always overcommit, 2 = strict accounting. Most production servers set 2 to avoid surprise deaths.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch3">
+<h2>// 03 &mdash; Free Lists</h2>
+
+<p>At the heart of every general-purpose allocator is a free list &mdash; a data structure tracking which chunks of memory are available. When you call <code>malloc(n)</code>, the allocator walks its free list looking for a chunk large enough. When you call <code>free(p)</code>, the allocator adds that chunk back to the free list. The difference between allocators is <em>how</em> they organize this list and <em>how</em> they search it.</p>
+
+<h3>Implicit Free List</h3>
+
+<p>The simplest design stores a size header before each block. The allocator walks from block to block by adding the size to the current address. Free blocks have a bit in the header marking them as available. This is called an "implicit" free list because there are no explicit pointers &mdash; the structure is implicit in the block sizes.</p>
+
+<div class="diagram">
+<span class="diagram-label">Implicit Free List with Boundary Tags</span>
+<pre><code>  ┌──────┬────────────────┬──────┬──────┬──────────┬──────┬──────┬────────────────┬──────┐
+  │hdr   │   payload      │ftr   │hdr   │  FREE    │ftr   │hdr   │   payload      │ftr   │
+  │32|1  │   (32 bytes)   │32|1  │64|0  │ (64 B)   │64|0  │16|1  │  (16 bytes)    │16|1  │
+  └──────┴────────────────┴──────┴──────┴──────────┴──────┴──────┴────────────────┴──────┘
+   alloc      used          alloc  free    unused     free  alloc     used          alloc
+   hdr=header: size|allocated_bit    ftr=footer: duplicate of header (enables backward coalescing)</code></pre>
+</div>
+
+<h3>Explicit Free List</h3>
+
+<p>An explicit free list adds forward and backward pointers <em>inside</em> each free block, linking them into a doubly-linked list. Now <code>malloc</code> only visits free blocks instead of walking through allocated ones. This is dramatically faster when memory is mostly allocated &mdash; the common case.</p>
+
+<div class="diagram">
+<span class="diagram-label">Explicit Free List</span>
+<pre><code>  free_head ──▶ ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+                │  hdr: 64|0   │    │  hdr: 128|0  │    │  hdr: 32|0   │
+                │  next: ──────┼───▶│  next: ──────┼───▶│  next: NULL  │
+                │  prev: NULL  │◀───┼──prev        │◀───┼──prev        │
+                │  (free space)│    │  (free space) │    │  (free space)│
+                │  ftr: 64|0   │    │  ftr: 128|0  │    │  ftr: 32|0   │
+                └──────────────┘    └──────────────┘    └──────────────┘
+  Placement policies:
+    First fit  — return the first block ≥ requested size (fast, but front-loads fragmentation)
+    Best fit   — return the smallest block ≥ requested size (less waste, slower search)
+    Next fit   — like first fit but resume search from last position (spreads fragmentation)</code></pre>
+</div>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-freelist" id="freelist-c" class="tc" checked>
+  <input type="radio" name="tabs-freelist" id="freelist-py" class="tpy">
+  <input type="radio" name="tabs-freelist" id="freelist-ts" class="tts">
+  <input type="radio" name="tabs-freelist" id="freelist-go" class="tgo">
+  <input type="radio" name="tabs-freelist" id="freelist-rs" class="trs">
+  <div class="tab-bar">
+    <label for="freelist-c">C</label>
+    <label for="freelist-py">Python</label>
+    <label for="freelist-ts">TypeScript</label>
+    <label for="freelist-go">Go</label>
+    <label for="freelist-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+    <pre><code><span class="pp">#include</span> <span class="st">&lt;stdint.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;string.h&gt;</span>
+
+<span class="cm">// Minimal explicit free-list allocator</span>
+<span class="kw">typedef struct</span> <span class="ty">Block</span> {
+    <span class="ty">size_t</span> size;       <span class="cm">// block size (including header)</span>
+    <span class="ty">int</span>    free;       <span class="cm">// 1 = free, 0 = allocated</span>
+    <span class="kw">struct</span> <span class="ty">Block</span> *next; <span class="cm">// next free block</span>
+} <span class="ty">Block</span>;
+
+<span class="kw">static</span> <span class="ty">char</span> heap[<span class="nm">4096</span>];
+<span class="kw">static</span> <span class="ty">Block</span> *free_list = (<span class="ty">Block</span> *)heap;
+
+<span class="ty">void</span> <span class="fn">heap_init</span>() {
+    free_list-&gt;size = <span class="kw">sizeof</span>(heap);
+    free_list-&gt;free = <span class="nm">1</span>;
+    free_list-&gt;next = <span class="nm">NULL</span>;
+}
+
+<span class="ty">void</span>* <span class="fn">my_malloc</span>(<span class="ty">size_t</span> n) {
+    <span class="ty">size_t</span> total = n + <span class="kw">sizeof</span>(<span class="ty">Block</span>);
+    <span class="ty">Block</span> *b = free_list, *prev = <span class="nm">NULL</span>;
+    <span class="kw">while</span> (b) {
+        <span class="kw">if</span> (b-&gt;free &amp;&amp; b-&gt;size &gt;= total) {
+            <span class="cm">// Split if remainder is large enough</span>
+            <span class="kw">if</span> (b-&gt;size &gt;= total + <span class="kw">sizeof</span>(<span class="ty">Block</span>) + <span class="nm">16</span>) {
+                <span class="ty">Block</span> *rest = (<span class="ty">Block</span> *)((<span class="ty">char</span> *)b + total);
+                rest-&gt;size = b-&gt;size - total;
+                rest-&gt;free = <span class="nm">1</span>;
+                rest-&gt;next = b-&gt;next;
+                b-&gt;size = total;
+                b-&gt;next = rest;
+            }
+            b-&gt;free = <span class="nm">0</span>;
+            <span class="kw">return</span> (<span class="ty">char</span> *)b + <span class="kw">sizeof</span>(<span class="ty">Block</span>);
+        }
+        prev = b;
+        b = b-&gt;next;
+    }
+    <span class="kw">return</span> <span class="nm">NULL</span>; <span class="cm">// out of memory</span>
+}
+
+<span class="ty">void</span> <span class="fn">my_free</span>(<span class="ty">void</span> *ptr) {
+    <span class="ty">Block</span> *b = (<span class="ty">Block</span> *)((<span class="ty">char</span> *)ptr - <span class="kw">sizeof</span>(<span class="ty">Block</span>));
+    b-&gt;free = <span class="nm">1</span>;
+    <span class="cm">// Coalesce with next block if also free</span>
+    <span class="kw">if</span> (b-&gt;next &amp;&amp; b-&gt;next-&gt;free) {
+        b-&gt;size += b-&gt;next-&gt;size;
+        b-&gt;next = b-&gt;next-&gt;next;
+    }
+}
+<span class="label">C &mdash; explicit free list</span></code></pre>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">class</span> <span class="ty">Block</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, offset, size, free=<span class="nm">True</span>):
+        self.offset = offset
+        self.size = size
+        self.free = free
+
+<span class="kw">class</span> <span class="ty">FreeListAllocator</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, capacity):
+        self.memory = <span class="fn">bytearray</span>(capacity)
+        self.blocks = [<span class="ty">Block</span>(<span class="nm">0</span>, capacity)]
+
+    <span class="kw">def</span> <span class="fn">malloc</span>(self, size):
+        <span class="cm"># First-fit search</span>
+        <span class="kw">for</span> i, b <span class="kw">in</span> <span class="fn">enumerate</span>(self.blocks):
+            <span class="kw">if</span> b.free <span class="kw">and</span> b.size &gt;= size:
+                <span class="kw">if</span> b.size &gt; size + <span class="nm">16</span>:
+                    <span class="cm"># Split: remainder becomes new free block</span>
+                    rest = <span class="ty">Block</span>(b.offset + size, b.size - size)
+                    self.blocks.<span class="fn">insert</span>(i + <span class="nm">1</span>, rest)
+                    b.size = size
+                b.free = <span class="nm">False</span>
+                <span class="kw">return</span> b.offset
+        <span class="kw">return</span> <span class="nm">None</span>
+
+    <span class="kw">def</span> <span class="fn">free</span>(self, offset):
+        <span class="kw">for</span> i, b <span class="kw">in</span> <span class="fn">enumerate</span>(self.blocks):
+            <span class="kw">if</span> b.offset == offset:
+                b.free = <span class="nm">True</span>
+                <span class="cm"># Coalesce with neighbors</span>
+                <span class="kw">if</span> i + <span class="nm">1</span> &lt; <span class="fn">len</span>(self.blocks) <span class="kw">and</span> self.blocks[i+<span class="nm">1</span>].free:
+                    b.size += self.blocks[i+<span class="nm">1</span>].size
+                    self.blocks.<span class="fn">pop</span>(i + <span class="nm">1</span>)
+                <span class="kw">if</span> i &gt; <span class="nm">0</span> <span class="kw">and</span> self.blocks[i-<span class="nm">1</span>].free:
+                    self.blocks[i-<span class="nm">1</span>].size += b.size
+                    self.blocks.<span class="fn">pop</span>(i)
+                <span class="kw">return</span>
+
+<span class="cm"># Demo</span>
+a = <span class="ty">FreeListAllocator</span>(<span class="nm">1024</span>)
+p1 = a.<span class="fn">malloc</span>(<span class="nm">100</span>)
+p2 = a.<span class="fn">malloc</span>(<span class="nm">200</span>)
+p3 = a.<span class="fn">malloc</span>(<span class="nm">50</span>)
+<span class="fn">print</span>(<span class="st">f"alloc 100 @ {p1}, 200 @ {p2}, 50 @ {p3}"</span>)
+a.<span class="fn">free</span>(p2)
+<span class="fn">print</span>(<span class="st">"freed 200-byte block"</span>)
+p4 = a.<span class="fn">malloc</span>(<span class="nm">80</span>)
+<span class="fn">print</span>(<span class="st">f"alloc 80 @ {p4} (reuses freed space)"</span>)
+<span class="label">Python &mdash; explicit free list</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="kw">class</span> <span class="ty">FreeListAllocator</span> {
+  <span class="kw">private</span> blocks: { offset: <span class="ty">number</span>; size: <span class="ty">number</span>; free: <span class="ty">boolean</span> }[] = [];
+  <span class="kw">private</span> buf: ArrayBuffer;
+
+  <span class="fn">constructor</span>(capacity: <span class="ty">number</span>) {
+    <span class="kw">this</span>.buf = <span class="kw">new</span> <span class="ty">ArrayBuffer</span>(capacity);
+    <span class="kw">this</span>.blocks = [{ offset: <span class="nm">0</span>, size: capacity, free: <span class="nm">true</span> }];
+  }
+
+  <span class="fn">malloc</span>(size: <span class="ty">number</span>): <span class="ty">number</span> | <span class="ty">null</span> {
+    <span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">0</span>; i &lt; <span class="kw">this</span>.blocks.length; i++) {
+      <span class="kw">const</span> b = <span class="kw">this</span>.blocks[i];
+      <span class="kw">if</span> (b.free &amp;&amp; b.size &gt;= size) {
+        <span class="kw">if</span> (b.size &gt; size + <span class="nm">16</span>) {
+          <span class="kw">this</span>.blocks.<span class="fn">splice</span>(i + <span class="nm">1</span>, <span class="nm">0</span>,
+            { offset: b.offset + size, size: b.size - size, free: <span class="nm">true</span> });
+          b.size = size;
+        }
+        b.free = <span class="nm">false</span>;
+        <span class="kw">return</span> b.offset;
+      }
+    }
+    <span class="kw">return</span> <span class="nm">null</span>;
+  }
+
+  <span class="fn">free</span>(offset: <span class="ty">number</span>) {
+    <span class="kw">const</span> i = <span class="kw">this</span>.blocks.<span class="fn">findIndex</span>(b =&gt; b.offset === offset);
+    <span class="kw">if</span> (i === -<span class="nm">1</span>) <span class="kw">return</span>;
+    <span class="kw">this</span>.blocks[i].free = <span class="nm">true</span>;
+    <span class="cm">// Coalesce right</span>
+    <span class="kw">if</span> (i + <span class="nm">1</span> &lt; <span class="kw">this</span>.blocks.length &amp;&amp; <span class="kw">this</span>.blocks[i+<span class="nm">1</span>].free) {
+      <span class="kw">this</span>.blocks[i].size += <span class="kw">this</span>.blocks[i+<span class="nm">1</span>].size;
+      <span class="kw">this</span>.blocks.<span class="fn">splice</span>(i + <span class="nm">1</span>, <span class="nm">1</span>);
+    }
+  }
+}
+
+<span class="kw">const</span> a = <span class="kw">new</span> <span class="ty">FreeListAllocator</span>(<span class="nm">1024</span>);
+console.<span class="fn">log</span>(<span class="st">"alloc 100:"</span>, a.<span class="fn">malloc</span>(<span class="nm">100</span>));
+console.<span class="fn">log</span>(<span class="st">"alloc 200:"</span>, a.<span class="fn">malloc</span>(<span class="nm">200</span>));
+<span class="label">TypeScript &mdash; free list allocator</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> <span class="st">"fmt"</span>
+
+<span class="kw">type</span> <span class="ty">block</span> <span class="kw">struct</span> {
+    offset <span class="ty">int</span>
+    size   <span class="ty">int</span>
+    free   <span class="ty">bool</span>
+}
+
+<span class="kw">type</span> <span class="ty">FreeList</span> <span class="kw">struct</span> {
+    mem    []<span class="ty">byte</span>
+    blocks []<span class="ty">block</span>
+}
+
+<span class="kw">func</span> <span class="fn">NewFreeList</span>(cap <span class="ty">int</span>) *<span class="ty">FreeList</span> {
+    <span class="kw">return</span> &amp;<span class="ty">FreeList</span>{
+        mem:    <span class="fn">make</span>([]<span class="ty">byte</span>, cap),
+        blocks: []<span class="ty">block</span>{{<span class="nm">0</span>, cap, <span class="nm">true</span>}},
+    }
+}
+
+<span class="kw">func</span> (f *<span class="ty">FreeList</span>) <span class="fn">Malloc</span>(n <span class="ty">int</span>) <span class="ty">int</span> {
+    <span class="kw">for</span> i, b := <span class="kw">range</span> f.blocks {
+        <span class="kw">if</span> b.free &amp;&amp; b.size &gt;= n {
+            <span class="kw">if</span> b.size &gt; n+<span class="nm">16</span> {
+                rest := <span class="ty">block</span>{b.offset + n, b.size - n, <span class="nm">true</span>}
+                f.blocks = <span class="fn">append</span>(f.blocks[:i+<span class="nm">1</span>],
+                    <span class="fn">append</span>([]<span class="ty">block</span>{rest}, f.blocks[i+<span class="nm">1</span>:]...)...)
+                f.blocks[i].size = n
+            }
+            f.blocks[i].free = <span class="nm">false</span>
+            <span class="kw">return</span> b.offset
+        }
+    }
+    <span class="kw">return</span> -<span class="nm">1</span>
+}
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    fl := <span class="fn">NewFreeList</span>(<span class="nm">1024</span>)
+    fmt.<span class="fn">Println</span>(<span class="st">"alloc 100:"</span>, fl.<span class="fn">Malloc</span>(<span class="nm">100</span>))
+    fmt.<span class="fn">Println</span>(<span class="st">"alloc 200:"</span>, fl.<span class="fn">Malloc</span>(<span class="nm">200</span>))
+}
+<span class="label">Go &mdash; free list allocator</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="kw">struct</span> <span class="ty">Block</span> { offset: <span class="ty">usize</span>, size: <span class="ty">usize</span>, free: <span class="ty">bool</span> }
+
+<span class="kw">struct</span> <span class="ty">FreeList</span> {
+    blocks: <span class="ty">Vec</span>&lt;<span class="ty">Block</span>&gt;,
+}
+
+<span class="kw">impl</span> <span class="ty">FreeList</span> {
+    <span class="kw">fn</span> <span class="fn">new</span>(capacity: <span class="ty">usize</span>) -&gt; <span class="ty">Self</span> {
+        <span class="ty">FreeList</span> { blocks: <span class="fn">vec!</span>[<span class="ty">Block</span> { offset: <span class="nm">0</span>, size: capacity, free: <span class="nm">true</span> }] }
+    }
+
+    <span class="kw">fn</span> <span class="fn">malloc</span>(&amp;<span class="kw">mut</span> self, n: <span class="ty">usize</span>) -&gt; <span class="ty">Option</span>&lt;<span class="ty">usize</span>&gt; {
+        <span class="kw">for</span> i <span class="kw">in</span> <span class="nm">0</span>..self.blocks.<span class="fn">len</span>() {
+            <span class="kw">let</span> b = &amp;self.blocks[i];
+            <span class="kw">if</span> b.free &amp;&amp; b.size &gt;= n {
+                <span class="kw">let</span> offset = b.offset;
+                <span class="kw">if</span> b.size &gt; n + <span class="nm">16</span> {
+                    <span class="kw">let</span> rest = <span class="ty">Block</span> { offset: offset + n, size: b.size - n, free: <span class="nm">true</span> };
+                    self.blocks[i].size = n;
+                    self.blocks.<span class="fn">insert</span>(i + <span class="nm">1</span>, rest);
+                }
+                self.blocks[i].free = <span class="nm">false</span>;
+                <span class="kw">return</span> <span class="ty">Some</span>(offset);
+            }
+        }
+        <span class="ty">None</span>
+    }
+}
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let mut</span> fl = <span class="ty">FreeList</span>::<span class="fn">new</span>(<span class="nm">1024</span>);
+    <span class="fn">println!</span>(<span class="st">"alloc 100: {:?}"</span>, fl.<span class="fn">malloc</span>(<span class="nm">100</span>));
+    <span class="fn">println!</span>(<span class="st">"alloc 200: {:?}"</span>, fl.<span class="fn">malloc</span>(<span class="nm">200</span>));
+}
+<span class="label">Rust &mdash; free list allocator</span></code></pre>
+  </div>
+</div>
+
+<div class="power">
+<div class="power-label">Coalescing is Everything</div>
+<p>Without coalescing, freed memory fragments into tiny unusable slivers. Every <code>free()</code> must check whether the previous and next blocks are also free and merge them. Boundary tags (footers that duplicate the header) enable O(1) backward coalescing &mdash; without them you'd need to walk the entire list to find the previous block.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch4">
+<h2>// 04 &mdash; The Buddy System</h2>
+
+<p>The buddy system (Knowlton, 1965; popularized by Knuth in <em>The Art of Computer Programming</em>) solves coalescing with an elegant constraint: all blocks are power-of-two sizes. When you request <em>n</em> bytes, the allocator rounds up to the next power of two and splits larger blocks in half until it reaches the right size. Each half is the other's "buddy." The critical insight: you can find any block's buddy with a single XOR.</p>
+
+<div class="diagram">
+<span class="diagram-label">Buddy Splitting: Request 20 bytes from a 128-byte region</span>
+<pre><code>  Step 0:  [            128 bytes (free)              ]
+  Step 1:  [    64 (free)     |     64 (free)          ]  split 128
+  Step 2:  [ 32 (free) | 32  |     64 (free)          ]  split left 64
+  Step 3:  [ 32 (free) | 32 ALLOC |   64 (free)       ]  allocate right 32
+
+  Finding your buddy:  buddy_addr = block_addr XOR block_size
+    Block at 0x40, size 32:  buddy = 0x40 ^ 0x20 = 0x60
+    Block at 0x60, size 32:  buddy = 0x60 ^ 0x20 = 0x40  ✓ they find each other</code></pre>
+</div>
+
+<div class="diagram">
+<span class="diagram-label">Buddy Tree View</span>
+<pre><code>                        [128]
+                       /     \
+                   [64]       [64] free
+                  /    \
+              [32]free  [32] ALLOC ← serves the 20-byte request
+
+  On free: check buddy (left 32). If buddy is also free → merge into [64].
+  If parent's buddy (right 64) is also free → merge into [128].
+  Coalescing cascades up the tree in O(log n) steps.</code></pre>
+</div>
+
+<p>The Linux kernel uses the buddy system for physical page allocation. Pages come in orders 0 through 10 (1 page = 4KB up to 1024 pages = 4MB). Each memory zone maintains an array of free lists, one per order. The allocator is implemented in <code>mm/page_alloc.c</code>, and it's been stable for decades because the design is just that good.</p>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-buddy" id="buddy-c" class="tc" checked>
+  <input type="radio" name="tabs-buddy" id="buddy-py" class="tpy">
+  <input type="radio" name="tabs-buddy" id="buddy-ts" class="tts">
+  <input type="radio" name="tabs-buddy" id="buddy-go" class="tgo">
+  <input type="radio" name="tabs-buddy" id="buddy-rs" class="trs">
+  <div class="tab-bar">
+    <label for="buddy-c">C</label>
+    <label for="buddy-py">Python</label>
+    <label for="buddy-ts">TypeScript</label>
+    <label for="buddy-go">Go</label>
+    <label for="buddy-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+    <pre><code><span class="pp">#include</span> <span class="st">&lt;stdint.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;string.h&gt;</span>
+
+<span class="pp">#define</span> HEAP_SIZE <span class="nm">1024</span>
+<span class="pp">#define</span> MIN_BLOCK <span class="nm">16</span>
+<span class="pp">#define</span> MAX_ORDER <span class="nm">6</span>  <span class="cm">// log2(1024/16) = 6</span>
+
+<span class="kw">static</span> <span class="ty">char</span> heap[HEAP_SIZE];
+<span class="kw">static</span> <span class="ty">uint8_t</span> split[HEAP_SIZE / MIN_BLOCK]; <span class="cm">// track splits</span>
+<span class="kw">static</span> <span class="ty">uint8_t</span> used[HEAP_SIZE / MIN_BLOCK];  <span class="cm">// track allocations</span>
+
+<span class="kw">static</span> <span class="ty">int</span> <span class="fn">order_for</span>(<span class="ty">size_t</span> n) {
+    <span class="ty">size_t</span> s = MIN_BLOCK;
+    <span class="ty">int</span> o = <span class="nm">0</span>;
+    <span class="kw">while</span> (s &lt; n &amp;&amp; o &lt; MAX_ORDER) { s &lt;&lt;= <span class="nm">1</span>; o++; }
+    <span class="kw">return</span> o;
+}
+
+<span class="cm">// buddy_addr = block_addr ^ block_size</span>
+<span class="kw">static</span> <span class="ty">size_t</span> <span class="fn">buddy_of</span>(<span class="ty">size_t</span> offset, <span class="ty">int</span> order) {
+    <span class="kw">return</span> offset ^ (MIN_BLOCK &lt;&lt; order);
+}
+<span class="label">C &mdash; buddy allocator skeleton</span></code></pre>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">class</span> <span class="ty">BuddyAllocator</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, size):
+        self.size = size
+        self.min_block = <span class="nm">16</span>
+        self.max_order = <span class="nm">0</span>
+        s = size
+        <span class="kw">while</span> s &gt; self.min_block:
+            s //= <span class="nm">2</span>
+            self.max_order += <span class="nm">1</span>
+        <span class="cm"># Free lists per order</span>
+        self.free = {i: [] <span class="kw">for</span> i <span class="kw">in</span> <span class="fn">range</span>(self.max_order + <span class="nm">1</span>)}
+        self.free[self.max_order] = [<span class="nm">0</span>]  <span class="cm"># whole block is free</span>
+        self.allocated = <span class="fn">set</span>()
+
+    <span class="kw">def</span> <span class="fn">_order_for</span>(self, n):
+        s, o = self.min_block, <span class="nm">0</span>
+        <span class="kw">while</span> s &lt; n <span class="kw">and</span> o &lt; self.max_order:
+            s *= <span class="nm">2</span>; o += <span class="nm">1</span>
+        <span class="kw">return</span> o
+
+    <span class="kw">def</span> <span class="fn">malloc</span>(self, n):
+        order = self.<span class="fn">_order_for</span>(n)
+        <span class="cm"># Find smallest available order ≥ requested</span>
+        <span class="kw">for</span> o <span class="kw">in</span> <span class="fn">range</span>(order, self.max_order + <span class="nm">1</span>):
+            <span class="kw">if</span> self.free[o]:
+                addr = self.free[o].<span class="fn">pop</span>()
+                <span class="cm"># Split down to requested order</span>
+                <span class="kw">while</span> o &gt; order:
+                    o -= <span class="nm">1</span>
+                    buddy = addr ^ (self.min_block &lt;&lt; o)
+                    self.free[o].<span class="fn">append</span>(buddy)
+                self.allocated.<span class="fn">add</span>((addr, order))
+                <span class="kw">return</span> addr
+        <span class="kw">return</span> <span class="nm">None</span>
+
+    <span class="kw">def</span> <span class="fn">free</span>(self, addr, order):
+        self.allocated.<span class="fn">discard</span>((addr, order))
+        <span class="kw">while</span> order &lt; self.max_order:
+            buddy = addr ^ (self.min_block &lt;&lt; order)
+            <span class="kw">if</span> buddy <span class="kw">in</span> self.free[order]:
+                self.free[order].<span class="fn">remove</span>(buddy)
+                addr = <span class="fn">min</span>(addr, buddy)
+                order += <span class="nm">1</span>
+            <span class="kw">else</span>:
+                <span class="kw">break</span>
+        self.free[order].<span class="fn">append</span>(addr)
+
+<span class="cm"># Demo</span>
+b = <span class="ty">BuddyAllocator</span>(<span class="nm">256</span>)
+p1 = b.<span class="fn">malloc</span>(<span class="nm">20</span>)
+p2 = b.<span class="fn">malloc</span>(<span class="nm">50</span>)
+<span class="fn">print</span>(<span class="st">f"alloc 20 @ {p1}, alloc 50 @ {p2}"</span>)
+<span class="fn">print</span>(<span class="st">f"free lists: { {k:v for k,v in b.free.items() if v} }"</span>)
+b.<span class="fn">free</span>(p1, b.<span class="fn">_order_for</span>(<span class="nm">20</span>))
+<span class="fn">print</span>(<span class="st">f"after freeing 20: { {k:v for k,v in b.free.items() if v} }"</span>)
+<span class="label">Python &mdash; buddy allocator</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="kw">class</span> <span class="ty">BuddyAllocator</span> {
+  <span class="kw">private</span> free: <span class="ty">Map</span>&lt;<span class="ty">number</span>, <span class="ty">number</span>[]&gt; = <span class="kw">new</span> <span class="ty">Map</span>();
+  <span class="kw">private</span> maxOrder: <span class="ty">number</span>;
+  <span class="kw">private</span> minBlock = <span class="nm">16</span>;
+
+  <span class="fn">constructor</span>(size: <span class="ty">number</span>) {
+    <span class="kw">this</span>.maxOrder = Math.<span class="fn">log2</span>(size / <span class="kw">this</span>.minBlock);
+    <span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">0</span>; i &lt;= <span class="kw">this</span>.maxOrder; i++)
+      <span class="kw">this</span>.free.<span class="fn">set</span>(i, []);
+    <span class="kw">this</span>.free.<span class="fn">get</span>(<span class="kw">this</span>.maxOrder)!.<span class="fn">push</span>(<span class="nm">0</span>);
+  }
+
+  <span class="fn">malloc</span>(n: <span class="ty">number</span>): <span class="ty">number</span> | <span class="ty">null</span> {
+    <span class="kw">let</span> order = <span class="nm">0</span>, s = <span class="kw">this</span>.minBlock;
+    <span class="kw">while</span> (s &lt; n) { s *= <span class="nm">2</span>; order++; }
+    <span class="kw">for</span> (<span class="kw">let</span> o = order; o &lt;= <span class="kw">this</span>.maxOrder; o++) {
+      <span class="kw">const</span> list = <span class="kw">this</span>.free.<span class="fn">get</span>(o)!;
+      <span class="kw">if</span> (list.length &gt; <span class="nm">0</span>) {
+        <span class="kw">let</span> addr = list.<span class="fn">pop</span>()!;
+        <span class="kw">while</span> (o &gt; order) {
+          o--;
+          <span class="kw">this</span>.free.<span class="fn">get</span>(o)!.<span class="fn">push</span>(addr ^ (<span class="kw">this</span>.minBlock &lt;&lt; o));
+        }
+        <span class="kw">return</span> addr;
+      }
+    }
+    <span class="kw">return</span> <span class="nm">null</span>;
+  }
+}
+
+<span class="kw">const</span> b = <span class="kw">new</span> <span class="ty">BuddyAllocator</span>(<span class="nm">256</span>);
+console.<span class="fn">log</span>(<span class="st">"alloc 20:"</span>, b.<span class="fn">malloc</span>(<span class="nm">20</span>));
+console.<span class="fn">log</span>(<span class="st">"alloc 50:"</span>, b.<span class="fn">malloc</span>(<span class="nm">50</span>));
+<span class="label">TypeScript &mdash; buddy allocator</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> (<span class="st">"fmt"</span>; <span class="st">"math/bits"</span>)
+
+<span class="kw">type</span> <span class="ty">Buddy</span> <span class="kw">struct</span> {
+    free     <span class="kw">map</span>[<span class="ty">int</span>][]<span class="ty">int</span>
+    maxOrder <span class="ty">int</span>
+    minBlock <span class="ty">int</span>
+}
+
+<span class="kw">func</span> <span class="fn">NewBuddy</span>(size, minBlock <span class="ty">int</span>) *<span class="ty">Buddy</span> {
+    maxOrder := bits.<span class="fn">Len</span>(<span class="ty">uint</span>(size/minBlock)) - <span class="nm">1</span>
+    b := &amp;<span class="ty">Buddy</span>{<span class="fn">make</span>(<span class="kw">map</span>[<span class="ty">int</span>][]<span class="ty">int</span>), maxOrder, minBlock}
+    b.free[maxOrder] = []<span class="ty">int</span>{<span class="nm">0</span>}
+    <span class="kw">return</span> b
+}
+
+<span class="kw">func</span> (b *<span class="ty">Buddy</span>) <span class="fn">Alloc</span>(n <span class="ty">int</span>) <span class="ty">int</span> {
+    order := <span class="nm">0</span>
+    s := b.minBlock
+    <span class="kw">for</span> s &lt; n { s *= <span class="nm">2</span>; order++ }
+    <span class="kw">for</span> o := order; o &lt;= b.maxOrder; o++ {
+        <span class="kw">if</span> <span class="fn">len</span>(b.free[o]) &gt; <span class="nm">0</span> {
+            addr := b.free[o][<span class="fn">len</span>(b.free[o])-<span class="nm">1</span>]
+            b.free[o] = b.free[o][:<span class="fn">len</span>(b.free[o])-<span class="nm">1</span>]
+            <span class="kw">for</span> o &gt; order {
+                o--
+                b.free[o] = <span class="fn">append</span>(b.free[o], addr^(b.minBlock&lt;&lt;o))
+            }
+            <span class="kw">return</span> addr
+        }
+    }
+    <span class="kw">return</span> -<span class="nm">1</span>
+}
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    b := <span class="fn">NewBuddy</span>(<span class="nm">256</span>, <span class="nm">16</span>)
+    fmt.<span class="fn">Println</span>(<span class="st">"alloc 20:"</span>, b.<span class="fn">Alloc</span>(<span class="nm">20</span>))
+    fmt.<span class="fn">Println</span>(<span class="st">"alloc 50:"</span>, b.<span class="fn">Alloc</span>(<span class="nm">50</span>))
+}
+<span class="label">Go &mdash; buddy allocator</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="kw">use</span> std::collections::<span class="ty">HashMap</span>;
+
+<span class="kw">struct</span> <span class="ty">Buddy</span> {
+    free: <span class="ty">HashMap</span>&lt;<span class="ty">usize</span>, <span class="ty">Vec</span>&lt;<span class="ty">usize</span>&gt;&gt;,
+    max_order: <span class="ty">usize</span>,
+    min_block: <span class="ty">usize</span>,
+}
+
+<span class="kw">impl</span> <span class="ty">Buddy</span> {
+    <span class="kw">fn</span> <span class="fn">new</span>(size: <span class="ty">usize</span>, min_block: <span class="ty">usize</span>) -&gt; <span class="ty">Self</span> {
+        <span class="kw">let</span> max_order = (size / min_block).<span class="fn">trailing_zeros</span>() <span class="kw">as</span> <span class="ty">usize</span>;
+        <span class="kw">let mut</span> free = <span class="ty">HashMap</span>::<span class="fn">new</span>();
+        free.<span class="fn">entry</span>(max_order).<span class="fn">or_insert_with</span>(<span class="ty">Vec</span>::new).<span class="fn">push</span>(<span class="nm">0</span>);
+        <span class="ty">Buddy</span> { free, max_order, min_block }
+    }
+
+    <span class="kw">fn</span> <span class="fn">alloc</span>(&amp;<span class="kw">mut</span> self, n: <span class="ty">usize</span>) -&gt; <span class="ty">Option</span>&lt;<span class="ty">usize</span>&gt; {
+        <span class="kw">let mut</span> order = <span class="nm">0</span>;
+        <span class="kw">let mut</span> s = self.min_block;
+        <span class="kw">while</span> s &lt; n { s *= <span class="nm">2</span>; order += <span class="nm">1</span>; }
+        <span class="kw">for</span> o <span class="kw">in</span> order..=self.max_order {
+            <span class="kw">if let</span> <span class="ty">Some</span>(list) = self.free.<span class="fn">get_mut</span>(&amp;o) {
+                <span class="kw">if let</span> <span class="ty">Some</span>(addr) = list.<span class="fn">pop</span>() {
+                    <span class="kw">let mut</span> o = o;
+                    <span class="kw">while</span> o &gt; order {
+                        o -= <span class="nm">1</span>;
+                        self.free.<span class="fn">entry</span>(o).<span class="fn">or_default</span>()
+                            .<span class="fn">push</span>(addr ^ (self.min_block &lt;&lt; o));
+                    }
+                    <span class="kw">return</span> <span class="ty">Some</span>(addr);
+                }
+            }
+        }
+        <span class="ty">None</span>
+    }
+}
+<span class="label">Rust &mdash; buddy allocator</span></code></pre>
+  </div>
+</div>
+
+<div class="power hack">
+<div class="power-label">The XOR Trick</div>
+<p><code>buddy_addr = block_addr ^ block_size</code>. This works because buddy pairs are always aligned to twice their size. If a block starts at address A and has size S, its buddy is at A+S if A is aligned to 2S, or at A-S otherwise. XOR with S flips exactly the right bit to switch between these cases. One instruction, zero branches.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch5">
+<h2>// 05 &mdash; Slab Allocation</h2>
+
+<p>In 1994, Jeff Bonwick at Sun Microsystems observed that the Solaris kernel spent enormous time allocating and initializing objects of the same type over and over. Inodes, task structs, socket buffers &mdash; the kernel has dozens of fixed-size objects that are created and destroyed millions of times. The buddy system wastes memory rounding these up to power-of-two sizes. Bonwick's solution: <strong>slab allocation</strong>. Pre-allocate pages, divide them into fixed-size slots for one object type, and cache initialized objects for instant reuse.</p>
+
+<div class="diagram">
+<span class="diagram-label">Slab Layout</span>
+<pre><code>  Slab cache: "task_struct" (size: 832 bytes)
+  ┌────────────────────────────────────────────────────────────┐
+  │ slab metadata │ obj │ obj │ obj │ obj │ FREE │ FREE │ FREE │
+  │  (next, count)│  0  │  1  │  2  │  3  │  4   │  5   │  6  │
+  └────────────────────────────────────────────────────────────┘
+                    ▲                        ▲
+                    allocated                free list head
+
+  Three slab states:
+    FULL    — all objects allocated (no free slots)
+    PARTIAL — some objects allocated, some free (search here first)
+    EMPTY   — all objects free (return to page allocator if needed)</code></pre>
+</div>
+
+<div class="diagram">
+<span class="diagram-label">Size Class Hierarchy (jemalloc-style)</span>
+<pre><code>  Size class    Slab size    Objects/slab    Internal frag
+  ─────────────────────────────────────────────────────────
+     8 bytes      4 KB          512            0%
+    16 bytes      4 KB          256            0%
+    32 bytes      4 KB          128            0%
+    64 bytes      4 KB           64            0%
+   128 bytes      4 KB           32            0%
+   256 bytes      4 KB           16            0%
+   512 bytes      4 KB            8            0%
+  1024 bytes      4 KB            4            0%
+  2048 bytes      4 KB            2            0%
+  3072 bytes      4 KB            1           25%  ← worst case
+  4096 bytes      4 KB            1            0%
+
+  Rule: size classes are spaced ~12-25% apart to cap internal fragmentation</code></pre>
+</div>
+
+<p>The Linux kernel originally used Bonwick's SLAB, then SLUB became the default in kernel 2.6.23 (2007). SLUB simplified the design by storing metadata in page flags rather than per-slab structures. SLOB served embedded systems but was removed in kernel 6.4 (2023), followed by the original SLAB in kernel 6.8 (2024). <strong>SLUB is now the sole slab allocator in the Linux kernel.</strong></p>
+
+<h3>Per-Thread Caching</h3>
+
+<p>Modern allocators like jemalloc add a per-thread cache (<code>tcache</code>) in front of the slab layer. When a thread frees an object, it goes into a thread-local magazine instead of back to the shared slab. When the thread allocates, it checks its magazine first &mdash; no lock, no contention. Magazines are drained back to the slab in batches when they fill up. This is Bonwick &amp; Adams' magazine layer (2001), and it's the single biggest performance win in production allocators.</p>
+
+<div class="power zen">
+<div class="power-label">The Fastest Allocation</div>
+<p>The fastest allocation is the one that doesn't need a lock. Per-thread caches turn the hot path &mdash; alloc and free of common sizes &mdash; into a thread-local stack pop or push. No atomics, no cache-line bouncing, no syscalls. This is why jemalloc and tcmalloc can sustain millions of allocations per second per core.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch6">
+<h2>// 06 &mdash; Arena and Bump Allocators</h2>
+
+<p>Sometimes the fastest allocator is the dumbest one. A bump allocator maintains a pointer into a contiguous region of memory. To allocate <em>n</em> bytes, increment the pointer by <em>n</em>. That's it. One addition. No free lists, no splitting, no coalescing. The catch: you cannot free individual allocations. You free the entire arena at once by resetting the pointer to zero.</p>
+
+<p>This sounds useless, but it's exactly what you want in several common scenarios. Compiler passes allocate thousands of AST nodes, process them, and discard the whole tree. Game engines allocate per-frame scratch data that lives for exactly one frame. HTTP servers allocate request-scoped objects that die when the response is sent. In all these cases, bulk deallocation is not just acceptable &mdash; it's ideal.</p>
+
+<div class="diagram">
+<span class="diagram-label">Bump Allocator in Action</span>
+<pre><code>  Initial:   [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]  offset = 0
+              ▲ ptr
+
+  alloc(64):  [████████░░░░░░░░░░░░░░░░░░░░░░░░]  offset = 64
+                      ▲ ptr
+
+  alloc(128): [████████████████████████░░░░░░░░░]  offset = 192
+                                      ▲ ptr
+
+  alloc(32):  [████████████████████████████░░░░░]  offset = 224
+                                          ▲ ptr
+
+  reset():    [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]  offset = 0
+              ▲ ptr   (all 224 bytes freed instantly)</code></pre>
+</div>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-arena" id="arena-c" class="tc" checked>
+  <input type="radio" name="tabs-arena" id="arena-py" class="tpy">
+  <input type="radio" name="tabs-arena" id="arena-ts" class="tts">
+  <input type="radio" name="tabs-arena" id="arena-go" class="tgo">
+  <input type="radio" name="tabs-arena" id="arena-rs" class="trs">
+  <div class="tab-bar">
+    <label for="arena-c">C</label>
+    <label for="arena-py">Python</label>
+    <label for="arena-ts">TypeScript</label>
+    <label for="arena-go">Go</label>
+    <label for="arena-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+    <pre><code><span class="kw">typedef struct</span> {
+    <span class="ty">char</span> *base;
+    <span class="ty">size_t</span> offset;
+    <span class="ty">size_t</span> capacity;
+} <span class="ty">Arena</span>;
+
+<span class="ty">Arena</span> <span class="fn">arena_new</span>(<span class="ty">size_t</span> cap) {
+    <span class="kw">return</span> (<span class="ty">Arena</span>){.<span class="fn">base</span> = <span class="fn">malloc</span>(cap), .offset = <span class="nm">0</span>, .capacity = cap};
+}
+
+<span class="ty">void</span>* <span class="fn">arena_alloc</span>(<span class="ty">Arena</span> *a, <span class="ty">size_t</span> n) {
+    <span class="cm">// Align to 8 bytes</span>
+    n = (n + <span class="nm">7</span>) &amp; ~(<span class="ty">size_t</span>)<span class="nm">7</span>;
+    <span class="kw">if</span> (a-&gt;offset + n &gt; a-&gt;capacity) <span class="kw">return</span> <span class="nm">NULL</span>;
+    <span class="ty">void</span> *ptr = a-&gt;base + a-&gt;offset;
+    a-&gt;offset += n;
+    <span class="kw">return</span> ptr;
+}
+
+<span class="ty">void</span> <span class="fn">arena_reset</span>(<span class="ty">Arena</span> *a) { a-&gt;offset = <span class="nm">0</span>; }
+<span class="ty">void</span> <span class="fn">arena_destroy</span>(<span class="ty">Arena</span> *a) { <span class="fn">free</span>(a-&gt;base); }
+<span class="label">C &mdash; arena allocator</span></code></pre>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">class</span> <span class="ty">Arena</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, capacity):
+        self.buf = <span class="fn">bytearray</span>(capacity)
+        self.offset = <span class="nm">0</span>
+
+    <span class="kw">def</span> <span class="fn">alloc</span>(self, n):
+        <span class="cm"># Align to 8 bytes</span>
+        n = (n + <span class="nm">7</span>) &amp; ~<span class="nm">7</span>
+        <span class="kw">if</span> self.offset + n &gt; <span class="fn">len</span>(self.buf):
+            <span class="kw">raise</span> <span class="ty">MemoryError</span>(<span class="st">f"arena full: {self.offset}/{len(self.buf)}"</span>)
+        ptr = self.offset
+        self.offset += n
+        <span class="kw">return</span> ptr
+
+    <span class="kw">def</span> <span class="fn">reset</span>(self):
+        self.offset = <span class="nm">0</span>
+
+    <span class="kw">def</span> <span class="fn">used</span>(self):
+        <span class="kw">return</span> self.offset
+
+<span class="cm"># Demo — simulating a frame allocator</span>
+arena = <span class="ty">Arena</span>(<span class="nm">4096</span>)
+<span class="kw">for</span> frame <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">3</span>):
+    ptrs = [arena.<span class="fn">alloc</span>(sz) <span class="kw">for</span> sz <span class="kw">in</span> [<span class="nm">64</span>, <span class="nm">128</span>, <span class="nm">256</span>, <span class="nm">32</span>]]
+    <span class="fn">print</span>(<span class="st">f"frame {frame}: allocs @ {ptrs}, used={arena.used()}/4096"</span>)
+    arena.<span class="fn">reset</span>()
+<span class="fn">print</span>(<span class="st">f"after all frames: used={arena.used()}/4096"</span>)
+<span class="label">Python &mdash; arena allocator</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="kw">class</span> <span class="ty">Arena</span> {
+  <span class="kw">private</span> buf: ArrayBuffer;
+  <span class="kw">private</span> offset = <span class="nm">0</span>;
+
+  <span class="fn">constructor</span>(<span class="kw">private</span> capacity: <span class="ty">number</span>) {
+    <span class="kw">this</span>.buf = <span class="kw">new</span> <span class="ty">ArrayBuffer</span>(capacity);
+  }
+
+  <span class="fn">alloc</span>(n: <span class="ty">number</span>): <span class="ty">number</span> {
+    n = (n + <span class="nm">7</span>) &amp; ~<span class="nm">7</span>;
+    <span class="kw">if</span> (<span class="kw">this</span>.offset + n &gt; <span class="kw">this</span>.capacity)
+      <span class="kw">throw</span> <span class="kw">new</span> <span class="ty">Error</span>(<span class="st">"arena full"</span>);
+    <span class="kw">const</span> ptr = <span class="kw">this</span>.offset;
+    <span class="kw">this</span>.offset += n;
+    <span class="kw">return</span> ptr;
+  }
+
+  <span class="fn">reset</span>() { <span class="kw">this</span>.offset = <span class="nm">0</span>; }
+  <span class="fn">used</span>() { <span class="kw">return</span> <span class="kw">this</span>.offset; }
+}
+
+<span class="kw">const</span> a = <span class="kw">new</span> <span class="ty">Arena</span>(<span class="nm">4096</span>);
+console.<span class="fn">log</span>(<span class="st">"alloc 100:"</span>, a.<span class="fn">alloc</span>(<span class="nm">100</span>));
+console.<span class="fn">log</span>(<span class="st">"alloc 200:"</span>, a.<span class="fn">alloc</span>(<span class="nm">200</span>));
+console.<span class="fn">log</span>(<span class="st">"used:"</span>, a.<span class="fn">used</span>());
+a.<span class="fn">reset</span>();
+console.<span class="fn">log</span>(<span class="st">"after reset:"</span>, a.<span class="fn">used</span>());
+<span class="label">TypeScript &mdash; arena allocator</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> <span class="st">"fmt"</span>
+
+<span class="kw">type</span> <span class="ty">Arena</span> <span class="kw">struct</span> {
+    buf    []<span class="ty">byte</span>
+    offset <span class="ty">int</span>
+}
+
+<span class="kw">func</span> <span class="fn">NewArena</span>(cap <span class="ty">int</span>) *<span class="ty">Arena</span> {
+    <span class="kw">return</span> &amp;<span class="ty">Arena</span>{buf: <span class="fn">make</span>([]<span class="ty">byte</span>, cap)}
+}
+
+<span class="kw">func</span> (a *<span class="ty">Arena</span>) <span class="fn">Alloc</span>(n <span class="ty">int</span>) (<span class="ty">int</span>, <span class="ty">error</span>) {
+    n = (n + <span class="nm">7</span>) &amp;^ <span class="nm">7</span> <span class="cm">// align to 8</span>
+    <span class="kw">if</span> a.offset+n &gt; <span class="fn">len</span>(a.buf) {
+        <span class="kw">return</span> <span class="nm">0</span>, fmt.<span class="fn">Errorf</span>(<span class="st">"arena full"</span>)
+    }
+    ptr := a.offset
+    a.offset += n
+    <span class="kw">return</span> ptr, <span class="nm">nil</span>
+}
+
+<span class="kw">func</span> (a *<span class="ty">Arena</span>) <span class="fn">Reset</span>() { a.offset = <span class="nm">0</span> }
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    a := <span class="fn">NewArena</span>(<span class="nm">4096</span>)
+    p1, _ := a.<span class="fn">Alloc</span>(<span class="nm">100</span>)
+    p2, _ := a.<span class="fn">Alloc</span>(<span class="nm">200</span>)
+    fmt.<span class="fn">Printf</span>(<span class="st">"alloc 100 @ %d, 200 @ %d, used=%d\n"</span>, p1, p2, a.offset)
+    a.<span class="fn">Reset</span>()
+    fmt.<span class="fn">Printf</span>(<span class="st">"after reset: used=%d\n"</span>, a.offset)
+}
+<span class="label">Go &mdash; arena allocator</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="kw">struct</span> <span class="ty">Arena</span> {
+    buf: <span class="ty">Vec</span>&lt;<span class="ty">u8</span>&gt;,
+    offset: <span class="ty">usize</span>,
+}
+
+<span class="kw">impl</span> <span class="ty">Arena</span> {
+    <span class="kw">fn</span> <span class="fn">new</span>(capacity: <span class="ty">usize</span>) -&gt; <span class="ty">Self</span> {
+        <span class="ty">Arena</span> { buf: <span class="fn">vec!</span>[<span class="nm">0</span>; capacity], offset: <span class="nm">0</span> }
+    }
+
+    <span class="kw">fn</span> <span class="fn">alloc</span>(&amp;<span class="kw">mut</span> self, n: <span class="ty">usize</span>) -&gt; <span class="ty">Option</span>&lt;<span class="ty">usize</span>&gt; {
+        <span class="kw">let</span> aligned = (n + <span class="nm">7</span>) &amp; !<span class="nm">7</span>;
+        <span class="kw">if</span> self.offset + aligned &gt; self.buf.<span class="fn">len</span>() { <span class="kw">return</span> <span class="ty">None</span>; }
+        <span class="kw">let</span> ptr = self.offset;
+        self.offset += aligned;
+        <span class="ty">Some</span>(ptr)
+    }
+
+    <span class="kw">fn</span> <span class="fn">reset</span>(&amp;<span class="kw">mut</span> self) { self.offset = <span class="nm">0</span>; }
+}
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let mut</span> a = <span class="ty">Arena</span>::<span class="fn">new</span>(<span class="nm">4096</span>);
+    <span class="fn">println!</span>(<span class="st">"alloc 100: {:?}"</span>, a.<span class="fn">alloc</span>(<span class="nm">100</span>));
+    <span class="fn">println!</span>(<span class="st">"alloc 200: {:?}"</span>, a.<span class="fn">alloc</span>(<span class="nm">200</span>));
+    a.<span class="fn">reset</span>();
+    <span class="fn">println!</span>(<span class="st">"after reset: offset={}"</span>, a.offset);
+}
+<span class="label">Rust &mdash; arena allocator</span></code></pre>
+  </div>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Simulate a frame allocator with per-frame scratch memory:</p>
+<pre><code>class Arena:
+    def __init__(s,n):s.buf=bytearray(n);s.off=0
+    def alloc(s,n):
+        n=(n+7)&amp;~7
+        if s.off+n>len(s.buf):raise MemoryError
+        p=s.off;s.off+=n;return p
+    def reset(s):s.off=0
+a=Arena(1024)
+for frame in range(5):
+    ptrs=[a.alloc(sz) for sz in [64,128,32,16]]
+    print(f'frame {frame}: allocs={ptrs}, used={a.off}/1024')
+    a.reset()
+print(f'final: used={a.off}/1024 (zero waste)')</code></pre>
+</div>
+
+<p>Zig takes arenas further than any other language. Its standard library defines an <code>Allocator</code> interface, and functions accept an allocator as a parameter. <code>std.heap.ArenaAllocator</code> wraps any backing allocator (including the page allocator), and <code>deinit()</code> frees everything at once. This design makes allocation strategy a caller's choice rather than a library's assumption &mdash; a powerful composability that C and C++ lack.</p>
+
+<div class="power">
+<div class="power-label">The Fastest Allocator in the World</div>
+<p>A bump allocator is literally one addition and one comparison. No metadata overhead per allocation, no fragmentation within the arena, no free-list traversal. The only cost is that you can't free individual objects. When your lifetime model fits &mdash; "allocate many, free all at once" &mdash; nothing beats it.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch7">
+<h2>// 07 &mdash; jemalloc, mimalloc, tcmalloc</h2>
+
+<p>Production systems don't use textbook allocators. They use battle-tested implementations designed around real-world workloads: multi-threaded, long-running, allocation-heavy, with wildly mixed object sizes. Three allocators dominate: <strong>jemalloc</strong> (Jason Evans, created for FreeBSD ~2005, adopted by Firefox and Meta), <strong>mimalloc</strong> (Microsoft Research, 2019), and <strong>tcmalloc</strong> (Google, ~2005). Each takes a different approach to the same fundamental tensions: speed vs. memory efficiency, thread scalability vs. fragmentation.</p>
+
+<div class="diagram">
+<span class="diagram-label">jemalloc Architecture</span>
+<pre><code>  Thread 0          Thread 1          Thread N
+     │                  │                  │
+     ▼                  ▼                  ▼
+  ┌────────┐        ┌────────┐        ┌────────┐
+  │ tcache │        │ tcache │        │ tcache │  per-thread, lock-free
+  │(bins by│        │(bins by│        │(bins by│
+  │ size)  │        │ size)  │        │ size)  │
+  └───┬────┘        └───┬────┘        └───┬────┘
+      │                  │                  │
+      └──────────┬───────┘──────────────────┘
+                 ▼
+         ┌──────────────┐
+         │    Arena 0   │  one of N arenas (default: 4×cores)
+         │  ┌─────────┐ │
+         │  │  bins    │ │  small size classes (8B–14KB)
+         │  │  (slabs) │ │
+         │  └─────────┘ │
+         │  ┌─────────┐ │
+         │  │ extents  │ │  large allocs, mapped to pages
+         │  └─────────┘ │
+         └──────┬───────┘
+                ▼
+         OS pages (mmap / brk)</code></pre>
+</div>
+
+<div class="diagram">
+<span class="diagram-label">tcmalloc Architecture (google/tcmalloc)</span>
+<pre><code>  Thread 0          Thread 1          Thread N
+     │                  │                  │
+     ▼                  ▼                  ▼
+  ┌────────┐        ┌────────┐        ┌────────┐
+  │per-CPU │        │per-CPU │        │per-CPU │  newer: per-CPU, not per-thread
+  │ cache  │        │ cache  │        │ cache  │
+  └───┬────┘        └───┬────┘        └───┬────┘
+      │                  │                  │
+      └──────────┬───────┘──────────────────┘
+                 ▼
+      ┌─────────────────────┐
+      │  Central Free Lists  │  one per size class, lock-protected
+      │  (transfer batches)  │  batch moves between caches
+      └──────────┬──────────┘
+                 ▼
+      ┌─────────────────────┐
+      │     Page Heap        │  span-based: groups of contiguous pages
+      │  (Temeraire backend) │  hugepage-aware allocation (~2020)
+      └──────────┬──────────┘
+                 ▼
+         OS pages (mmap)</code></pre>
+</div>
+
+<table>
+<tr><th>Allocator</th><th>Strategy</th><th>Sweet Spot</th><th>Used By</th></tr>
+<tr><td>jemalloc</td><td>Arenas + tcache + extents</td><td>Mixed workloads, long-running servers</td><td>Firefox, Meta, Redis</td></tr>
+<tr><td>mimalloc</td><td>Segments + free list sharding</td><td>Small allocs, high throughput</td><td>Zig, various MS projects</td></tr>
+<tr><td>tcmalloc</td><td>Per-CPU caches + central lists + Temeraire</td><td>Large-scale servers, hugepage-friendly</td><td>Google, gRPC, Envoy</td></tr>
+</table>
+
+<div class="power wild">
+<div class="power-label">No Allocator Wins Everywhere</div>
+<p>jemalloc excels at mixed workloads with stable, low fragmentation. mimalloc wins on allocation-heavy microbenchmarks with small objects. tcmalloc dominates in hugepage-friendly server environments at Google's scale. The only way to know which is best for <em>your</em> workload is to benchmark it. <code>LD_PRELOAD=libjemalloc.so</code> vs <code>LD_PRELOAD=libmimalloc.so</code> &mdash; swap and measure.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch8">
+<h2>// 08 &mdash; Fragmentation</h2>
+
+<p>Fragmentation is the silent killer of long-running processes. Your server has 4GB of free memory, but <code>malloc(64MB)</code> fails because that free memory is scattered across thousands of small gaps. You have the capacity but not the contiguity. Unlike a memory leak &mdash; where memory is genuinely lost &mdash; fragmented memory is <em>right there</em>, taunting you, but unusable.</p>
+
+<h3>Internal Fragmentation</h3>
+
+<p><strong>Internal fragmentation</strong> is wasted space <em>inside</em> allocated blocks. You ask for 20 bytes, the allocator gives you 32 (the next size class). Those 12 unused bytes are internal fragmentation. Every allocator with size classes or alignment requirements has some. The buddy system is worst: a 33-byte request gets a 64-byte block, wasting 48%. Good allocators space their size classes 12&ndash;25% apart to keep internal fragmentation below ~20%.</p>
+
+<h3>External Fragmentation</h3>
+
+<p><strong>External fragmentation</strong> is unusable <em>gaps between</em> allocated blocks. After many alloc/free cycles, the heap becomes a checkerboard of used and free blocks. Each free block is too small for the next large request, even though the total free space is enormous.</p>
+
+<div class="diagram">
+<span class="diagram-label">External Fragmentation</span>
+<pre><code>  After many alloc/free cycles:
+  [USED 32][free 16][USED 64][free 8][USED 16][free 24][USED 128][free 16][USED 32]
+
+  Total free: 16 + 8 + 24 + 16 = 64 bytes
+  But malloc(48) FAILS — no single contiguous free region ≥ 48 bytes
+
+  All that free space, completely useless.</code></pre>
+</div>
+
+<div class="diagram">
+<span class="diagram-label">Internal vs External Fragmentation</span>
+<pre><code>  INTERNAL (waste inside blocks):
+  ┌────────────────┐ ┌────────────────┐ ┌────────────────┐
+  │ ████░░░░░░░░░░ │ │ ██████████████ │ │ ██░░░░░░░░░░░░ │
+  │ 20B used, 32B  │ │ 32B used, 32B  │ │  4B used, 16B  │
+  │ alloc → 37.5%  │ │ alloc → 0%     │ │ alloc → 75%    │
+  │ wasted         │ │ wasted         │ │ wasted         │
+  └────────────────┘ └────────────────┘ └────────────────┘
+
+  EXTERNAL (gaps between blocks):
+  ┌──────┐ ░░ ┌──────────┐ ░░░░ ┌──────┐ ░░░░░░ ┌────────────┐
+  │ USED │gap │   USED   │ gap  │ USED │  gap   │    USED    │
+  └──────┘    └──────────┘      └──────┘        └────────────┘
+         ↑              ↑              ↑
+         too small      too small      too small for large alloc</code></pre>
+</div>
+
+<p><strong>Knuth's 50% rule</strong> (from <em>TAOCP</em> Vol. 1, Section 2.5): under steady-state random allocation and deallocation with first-fit placement, the number of free holes approaches 50% of the number of allocated blocks. If you have 1000 allocated blocks, you'll have ~500 free gaps. This is a mathematical property of the steady state, not a bug &mdash; and it means fragmentation is <em>inevitable</em> in any long-running general-purpose allocator.</p>
+
+<div class="power danger">
+<div class="power-label">Worse Than a Leak</div>
+<p>Memory leaks are bad &mdash; you lose memory over time. Fragmentation is worse &mdash; you <em>have</em> the memory but can't use it. Leaks are at least detectable with tools like Valgrind. Fragmentation is subtle: RSS grows, allocations start failing or triggering expensive compaction, and the only fix is to restart the process. This is why Redis, nginx, and many databases periodically fork or restart workers.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch9">
+<h2>// 09 &mdash; mmap and the Kernel</h2>
+
+<p>When you call <code>mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0)</code>, the kernel does surprisingly little. It creates a <em>virtual memory area</em> (VMA) descriptor &mdash; a bookkeeping entry that says "this range of virtual addresses is valid." It does <strong>not</strong> allocate physical memory. No page table entries are created. No physical frames are touched. The actual allocation happens lazily, on first access.</p>
+
+<h3>Demand Paging</h3>
+
+<p>When your code first reads or writes a freshly mmap'd page, the CPU walks the page table and finds... nothing. No valid mapping. This triggers a <strong>page fault</strong> &mdash; a CPU exception that transfers control to the kernel's fault handler. The handler allocates a physical frame, zeros it (for security), installs the page table entry, and resumes your instruction. Your code never knows it happened, except for a few microseconds of latency on that first access.</p>
+
+<div class="diagram">
+<span class="diagram-label">Demand Paging Flow</span>
+<pre><code>  Your code: *ptr = 42;
+       │
+       ▼
+  CPU: translate virtual addr → TLB miss → page walk
+       │
+       ▼
+  Page table: no entry! → PAGE FAULT (exception #14 on x86)
+       │
+       ▼
+  Kernel page fault handler:
+    1. Check VMA: is this address valid? (yes → continue, no → SIGSEGV)
+    2. Allocate physical frame from buddy allocator
+    3. Zero the frame (prevent information leaks)
+    4. Install PTE (page table entry) mapping virtual → physical
+    5. Flush TLB entry
+       │
+       ▼
+  CPU: retry the instruction → TLB miss → page walk → HIT → success
+       *ptr = 42 completes
+
+  Cost: ~2-10 μs for a minor fault (frame from free list)
+        ~1-10 ms for a major fault (must read from disk/swap)</code></pre>
+</div>
+
+<h3>Huge Pages</h3>
+
+<p>With 4KB pages and a 64-entry TLB, you can only cover 256KB of working memory without TLB misses. For a database with a 10GB buffer pool, that's catastrophic. <strong>Huge pages</strong> solve this: 2MB pages (512&times; coverage per TLB entry) or 1GB pages (262,144&times;). A 64-entry TLB with 2MB pages covers 128MB; with 1GB pages, 64GB.</p>
+
+<p><strong>Transparent Huge Pages</strong> (THP, merged in Linux 2.6.38, 2011) automatically promote 4KB pages to 2MB huge pages when the kernel detects contiguous aligned allocations. The upside: no application changes needed. The downside: <code>khugepaged</code> daemon compaction can cause multi-millisecond latency spikes, and partial huge pages waste memory. Redis and MongoDB both recommend disabling THP in production (<code>echo never &gt; /sys/kernel/mm/transparent_hugepage/enabled</code>).</p>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Anonymous mmap in Python &mdash; allocate, write, read back:</p>
+<pre><code>import mmap
+m = mmap.mmap(-1, 4096)
+m.write(b'Hello from anonymous mmap!')
+m.seek(0)
+print(m.read(26))
+print(f'mmap size: {m.size()} bytes')
+m.close()
+print('anonymous mmap: the kernel gave us a page without touching disk')</code></pre>
+</div>
+
+<div class="power zen">
+<div class="power-label">Lazy by Design</div>
+<p>The kernel is lazy about physical memory, and that's a feature. Demand paging means a process can map terabytes of virtual address space while consuming only the physical pages it actually touches. <code>mmap(1GB)</code> is nearly free &mdash; the cost comes page by page, exactly when needed. This is why Linux overcommit works: most processes map far more than they use.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch10">
+<h2>// 10 &mdash; Garbage Collection</h2>
+
+<p>Manual memory management (C, Rust) puts the burden on the programmer. Garbage collection shifts it to the runtime. The GC periodically identifies objects that are no longer reachable from any root (stack variables, global variables, registers) and reclaims their memory. The programmer calls <code>new</code> but never calls <code>free</code>. The tradeoff: predictable latency for development speed.</p>
+
+<h3>Reference Counting</h3>
+
+<p>The simplest GC: each object has a count of how many references point to it. When the count drops to zero, free immediately. Python uses this as its primary mechanism. It's deterministic &mdash; destructors run at predictable times &mdash; but it cannot handle <strong>cycles</strong>. If A points to B and B points to A, both have refcount 1 forever, even if nothing else references them. Python supplements refcounting with a cycle detector that runs periodically.</p>
+
+<h3>Mark-and-Sweep</h3>
+
+<p>Start from roots, recursively mark every reachable object. Then sweep the heap: anything unmarked is garbage, free it. Simple and handles cycles, but requires a <strong>stop-the-world pause</strong> &mdash; all application threads must halt while the GC traverses the heap. For a 10GB heap, this pause can be seconds.</p>
+
+<h3>Generational Collection</h3>
+
+<p>The <strong>generational hypothesis</strong>: most objects die young. A temporary string, a loop variable, a request-scoped object &mdash; allocated and discarded within milliseconds. If an object survives a few collections, it's likely to live much longer. Generational GCs exploit this by dividing the heap into generations: the nursery (gen0) is collected frequently and cheaply; survivors are promoted to gen1, then gen2. Only gen0 collections are frequent; full-heap collections are rare.</p>
+
+<div class="diagram">
+<span class="diagram-label">Generational Heap Layout</span>
+<pre><code>  ┌──────────────────────────────────────────────────────────────┐
+  │                        HEAP                                   │
+  │  ┌─────────────┐  ┌──────────────┐  ┌─────────────────────┐ │
+  │  │   Gen 0     │  │    Gen 1     │  │       Gen 2         │ │
+  │  │  (nursery)  │  │  (survivor)  │  │     (tenured)       │ │
+  │  │  collected  │  │  collected   │  │    collected        │ │
+  │  │  every ~ms  │  │  every ~100ms│  │    every ~seconds   │ │
+  │  │  small, hot │  │  medium      │  │    large, cold      │ │
+  │  └──────┬──────┘  └──────┬───────┘  └──────────────────────┘ │
+  │         │ survive         │ survive                            │
+  │         └────promote─────▶└──────promote─────▶                │
+  └──────────────────────────────────────────────────────────────┘
+
+  Gen 0 collection: ~1ms (small heap, most objects dead)
+  Gen 1 collection: ~10ms
+  Full GC (all gens): ~100ms-seconds (rare, triggered by memory pressure)</code></pre>
+</div>
+
+<h3>Tri-Color Marking</h3>
+
+<p>Dijkstra et al. (1978) invented tri-color marking to enable <em>concurrent</em> garbage collection &mdash; the GC runs alongside the application, not stopping it. Objects are colored: <strong>white</strong> (not yet seen, presumed garbage), <strong>grey</strong> (seen but children not scanned), <strong>black</strong> (scanned, all children are grey or black). The GC repeatedly picks a grey object, scans its children (coloring them grey), and marks it black. When no grey objects remain, all white objects are garbage.</p>
+
+<div class="diagram">
+<span class="diagram-label">Tri-Color Marking Phases</span>
+<pre><code>  Phase 1 — Initial:        Phase 2 — Scanning:       Phase 3 — Complete:
+
+  Roots: [A] [B]            Roots: [A] [B]            Roots: [A] [B]
+          │   │                      │   │                      │   │
+          ▼   ▼                      ▼   ▼                      ▼   ▼
+         (A)○ (B)○                  (A)● (B)●                  (A)● (B)●
+         / \    \                   / \    \                   / \    \
+       (C)○ (D)○ (E)○            (C)◐ (D)◐ (E)◐            (C)● (D)● (E)●
+                                        │
+       (F)○  ← unreachable        (F)○  ← still white        (F)○  ← GARBAGE
+
+  ○ = white (unvisited)     ◐ = grey (frontier)       ● = black (done)
+  After phase 3: sweep all white objects → free (F)</code></pre>
+</div>
+
+<p>Go's GC uses tri-color concurrent marking (since Go 1.5, 2015) with a write barrier to maintain the invariant. Java's ZGC and Shenandoah use similar concurrent approaches. V8's Orinoco GC does incremental tri-color marking interleaved with JavaScript execution.</p>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-gc" id="gc-c" class="tc" checked>
+  <input type="radio" name="tabs-gc" id="gc-py" class="tpy">
+  <input type="radio" name="tabs-gc" id="gc-ts" class="tts">
+  <input type="radio" name="tabs-gc" id="gc-go" class="tgo">
+  <input type="radio" name="tabs-gc" id="gc-rs" class="trs">
+  <div class="tab-bar">
+    <label for="gc-c">C</label>
+    <label for="gc-py">Python</label>
+    <label for="gc-ts">TypeScript</label>
+    <label for="gc-go">Go</label>
+    <label for="gc-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+    <pre><code><span class="cm">// C has no GC. You manage memory manually.</span>
+<span class="cm">// Option: Boehm conservative GC (libgc)</span>
+<span class="pp">#include</span> <span class="st">&lt;gc/gc.h&gt;</span>
+
+<span class="ty">int</span> <span class="fn">main</span>() {
+    <span class="fn">GC_INIT</span>();
+
+    <span class="cm">// GC_MALLOC replaces malloc — automatically collected</span>
+    <span class="ty">char</span> *str = <span class="fn">GC_MALLOC</span>(<span class="nm">256</span>);
+    <span class="fn">strcpy</span>(str, <span class="st">"Boehm GC manages this"</span>);
+
+    <span class="cm">// No free() needed — GC will reclaim when unreachable</span>
+    <span class="cm">// Conservative: scans stack/heap for anything that looks like a pointer</span>
+    <span class="cm">// False positives possible (an int that looks like a pointer keeps an object alive)</span>
+
+    <span class="fn">printf</span>(<span class="st">"heap size: %lu\n"</span>, <span class="fn">GC_get_heap_size</span>());
+    <span class="kw">return</span> <span class="nm">0</span>;
+}
+<span class="label">C &mdash; Boehm GC</span></code></pre>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">import</span> gc
+
+<span class="cm"># Python uses refcounting + cycle detector</span>
+<span class="cm"># Force a collection and inspect stats</span>
+gc.<span class="fn">collect</span>()
+stats = gc.<span class="fn">get_stats</span>()
+<span class="fn">print</span>(<span class="st">"Generation stats:"</span>)
+<span class="kw">for</span> i, s <span class="kw">in</span> <span class="fn">enumerate</span>(stats):
+    <span class="fn">print</span>(<span class="st">f"  gen{i}: {s}"</span>)
+
+<span class="fn">print</span>(<span class="st">f"\nThresholds (gen0, gen1, gen2): {gc.get_threshold()}"</span>)
+<span class="fn">print</span>(<span class="st">f"Objects tracked by GC: {len(gc.get_objects())}"</span>)
+
+<span class="cm"># Create a reference cycle</span>
+<span class="kw">class</span> <span class="ty">Node</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self): self.ref = <span class="nm">None</span>
+
+a, b = <span class="ty">Node</span>(), <span class="ty">Node</span>()
+a.ref = b
+b.ref = a
+<span class="kw">del</span> a, b  <span class="cm"># refcount doesn't drop to 0 — cycle!</span>
+
+collected = gc.<span class="fn">collect</span>()
+<span class="fn">print</span>(<span class="st">f"\nCycle detector found and freed: {collected} objects"</span>)
+<span class="label">Python &mdash; gc module</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="cm">// V8 (Node.js/Chrome) uses generational GC</span>
+<span class="cm">// No direct GC control — use WeakRef and FinalizationRegistry</span>
+
+<span class="kw">let</span> bigObject: <span class="ty">any</span> = { data: <span class="kw">new</span> <span class="ty">Array</span>(<span class="nm">1000000</span>).<span class="fn">fill</span>(<span class="nm">0</span>) };
+
+<span class="cm">// WeakRef doesn't prevent GC</span>
+<span class="kw">const</span> weak = <span class="kw">new</span> <span class="ty">WeakRef</span>(bigObject);
+
+<span class="cm">// FinalizationRegistry — callback when object is collected</span>
+<span class="kw">const</span> registry = <span class="kw">new</span> <span class="ty">FinalizationRegistry</span>((msg) =&gt; {
+    console.<span class="fn">log</span>(<span class="st">`GC collected: ${msg}`</span>);
+});
+registry.<span class="fn">register</span>(bigObject, <span class="st">"big-object"</span>);
+
+<span class="cm">// Drop the strong reference</span>
+bigObject = <span class="nm">null</span>;
+
+<span class="cm">// V8 GC will eventually collect it</span>
+<span class="cm">// weak.deref() will return undefined after collection</span>
+console.<span class="fn">log</span>(<span class="st">"WeakRef alive?"</span>, weak.<span class="fn">deref</span>() !== <span class="nm">undefined</span>);
+<span class="label">TypeScript &mdash; V8 GC interaction</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"fmt"</span>
+    <span class="st">"runtime"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="cm">// Force GC and read stats</span>
+    runtime.<span class="fn">GC</span>()
+
+    <span class="kw">var</span> m runtime.<span class="ty">MemStats</span>
+    runtime.<span class="fn">ReadMemStats</span>(&amp;m)
+
+    fmt.<span class="fn">Printf</span>(<span class="st">"Heap alloc:   %d KB\n"</span>, m.HeapAlloc/<span class="nm">1024</span>)
+    fmt.<span class="fn">Printf</span>(<span class="st">"Heap objects: %d\n"</span>, m.HeapObjects)
+    fmt.<span class="fn">Printf</span>(<span class="st">"GC cycles:    %d\n"</span>, m.NumGC)
+    fmt.<span class="fn">Printf</span>(<span class="st">"GC pause total: %d µs\n"</span>, m.PauseTotalNs/<span class="nm">1000</span>)
+
+    <span class="cm">// GOGC controls GC aggressiveness (default 100 = collect when heap doubles)</span>
+    <span class="cm">// GOGC=50 → collect when heap grows 50%</span>
+    <span class="cm">// GOGC=off → disable GC (use for benchmarks)</span>
+
+    <span class="cm">// Go 1.5+: concurrent tri-color mark-and-sweep</span>
+    <span class="cm">// Sub-millisecond pauses even with large heaps</span>
+}
+<span class="label">Go &mdash; runtime GC stats</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="kw">use</span> std::rc::<span class="ty">Rc</span>;
+<span class="kw">use</span> std::sync::<span class="ty">Arc</span>;
+
+<span class="cm">// Rust has NO garbage collector.</span>
+<span class="cm">// Ownership + borrow checker = compile-time memory management.</span>
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="cm">// Single-threaded shared ownership: Rc (reference counted)</span>
+    <span class="kw">let</span> a = <span class="ty">Rc</span>::<span class="fn">new</span>(<span class="fn">vec!</span>[<span class="nm">1</span>, <span class="nm">2</span>, <span class="nm">3</span>]);
+    <span class="kw">let</span> b = <span class="ty">Rc</span>::<span class="fn">clone</span>(&amp;a);  <span class="cm">// refcount: 2</span>
+    <span class="fn">println!</span>(<span class="st">"Rc strong count: {}"</span>, <span class="ty">Rc</span>::<span class="fn">strong_count</span>(&amp;a));
+    <span class="fn">drop</span>(b);                <span class="cm">// refcount: 1</span>
+    <span class="fn">println!</span>(<span class="st">"After drop: {}"</span>, <span class="ty">Rc</span>::<span class="fn">strong_count</span>(&amp;a));
+
+    <span class="cm">// Multi-threaded: Arc (atomic reference counted)</span>
+    <span class="kw">let</span> shared = <span class="ty">Arc</span>::<span class="fn">new</span>(<span class="st">"shared data"</span>);
+    <span class="kw">let</span> clone = <span class="ty">Arc</span>::<span class="fn">clone</span>(&amp;shared);
+    std::thread::<span class="fn">spawn</span>(<span class="kw">move</span> || {
+        <span class="fn">println!</span>(<span class="st">"Thread sees: {}"</span>, clone);
+    }).<span class="fn">join</span>().<span class="fn">unwrap</span>();
+
+    <span class="cm">// No GC pauses, no runtime overhead</span>
+    <span class="cm">// Trade: you fight the borrow checker at compile time</span>
+}
+<span class="label">Rust &mdash; ownership, no GC</span></code></pre>
+  </div>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Explore Python's generational GC:</p>
+<pre><code>import gc
+gc.collect()
+stats = gc.get_stats()
+print("Generation stats:")
+for i, s in enumerate(stats):
+    print(f"  gen{i}: {s}")
+print(f"\nThresholds: {gc.get_threshold()}")
+print(f"Tracked objects: {len(gc.get_objects())}")
+
+# Create and detect a cycle
+class Node:
+    def __init__(self): self.ref = None
+a, b = Node(), Node()
+a.ref, b.ref = b, a
+del a, b
+print(f"\nCycle collection freed: {gc.collect()} objects")</code></pre>
+</div>
+
+<div class="power">
+<div class="power-label">The Generational Hypothesis</div>
+<p>Most objects die young. In a typical Java application, over 90% of objects become garbage before the next GC cycle. Generational collection exploits this: collect the nursery frequently (cheap, most objects are dead) and the tenured generation rarely (expensive, but seldom needed). This single insight makes GC practical for production systems.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch11">
+<h2>// 11 &mdash; Custom Allocators</h2>
+
+<p>General-purpose allocators are designed for the worst case. When you know your allocation patterns, you can do dramatically better. Custom allocators aren't premature optimization &mdash; they're the right tool when allocation <em>is</em> the bottleneck, and they appear in every high-performance system: game engines, databases, network stacks, and compilers.</p>
+
+<h3>Game Frame Allocator</h3>
+
+<p>A game engine runs at 60 FPS. Each frame allocates temporary data &mdash; visibility lists, particle states, AI decisions, collision results &mdash; that is only valid for that frame. A bump allocator with per-frame reset is perfect: O(1) alloc, zero fragmentation, instant bulk-free at frame boundary.</p>
+
+<div class="diagram">
+<span class="diagram-label">Game Frame Allocator Timeline</span>
+<pre><code>  Frame 0              Frame 1              Frame 2
+  ├──────────────────┤ ├──────────────────┤ ├──────────────────┤
+  alloc alloc alloc    alloc alloc alloc    alloc alloc alloc
+  ████ ██ ██████       ████████ ██████ ██   ██ ████ ████████
+  │                    │                    │
+  └── reset(0) ───────└── reset(0) ───────└── reset(0)
+      offset = 0           offset = 0           offset = 0
+
+  No free() calls. No fragmentation. No metadata overhead.
+  Each frame starts with a clean arena.</code></pre>
+</div>
+
+<h3>Database Buffer Pool</h3>
+
+<p>A database buffer pool is a fixed-size array of page-sized buffers (typically 8KB or 16KB). Pages are read from disk into pool slots and evicted using LRU or clock-sweep. Pin counting prevents eviction of in-use pages. This is a custom allocator in disguise: fixed-size slots, deterministic capacity, no external fragmentation.</p>
+
+<h3>Network Slab Allocator</h3>
+
+<p>Network stacks allocate millions of fixed-size packet buffers (e.g., 2KB MTU-sized buffers). A slab allocator with a free list of pre-allocated buffers gives O(1) alloc and O(1) free with zero fragmentation. DPDK (Data Plane Development Kit) uses per-core mempools of fixed-size mbufs for exactly this pattern.</p>
+
+<div class="power hack">
+<div class="power-label">When Custom Allocators Make Sense</div>
+<p>Build a custom allocator when: (1) profiling shows malloc/free is in the top-5 CPU consumers, (2) you know the size distribution at compile time, (3) you have a clear lifetime pattern (per-frame, per-request, per-connection), or (4) you need guaranteed O(1) allocation for real-time systems. Don't guess &mdash; profile first with heaptrack or perf.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch12">
+<h2>// 12 &mdash; Pool Allocators</h2>
+
+<p>A pool allocator manages a collection of fixed-size blocks. All blocks are the same size, pre-allocated in a contiguous region. The free list is <em>intrusive</em>: the "next free" pointer is stored <em>inside</em> each free block itself, consuming zero extra memory. Allocation is a linked-list pop; deallocation is a push. Both are O(1), branch-free on the hot path.</p>
+
+<p>This is the allocator of choice for uniform objects: network connections, game entities, hash table nodes, ECS components. Any system where you create and destroy millions of same-sized objects benefits from a pool.</p>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-pool" id="pool-c" class="tc" checked>
+  <input type="radio" name="tabs-pool" id="pool-py" class="tpy">
+  <input type="radio" name="tabs-pool" id="pool-ts" class="tts">
+  <input type="radio" name="tabs-pool" id="pool-go" class="tgo">
+  <input type="radio" name="tabs-pool" id="pool-rs" class="trs">
+  <div class="tab-bar">
+    <label for="pool-c">C</label>
+    <label for="pool-py">Python</label>
+    <label for="pool-ts">TypeScript</label>
+    <label for="pool-go">Go</label>
+    <label for="pool-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+    <pre><code><span class="cm">// Intrusive free-list pool: next pointer stored in free blocks</span>
+<span class="kw">typedef struct</span> <span class="ty">Pool</span> {
+    <span class="ty">void</span>   *base;
+    <span class="ty">void</span>   *free_head;  <span class="cm">// head of free list</span>
+    <span class="ty">size_t</span> block_size;
+    <span class="ty">size_t</span> count;
+} <span class="ty">Pool</span>;
+
+<span class="ty">Pool</span> <span class="fn">pool_create</span>(<span class="ty">size_t</span> block_size, <span class="ty">size_t</span> count) {
+    <span class="kw">if</span> (block_size &lt; <span class="kw">sizeof</span>(<span class="ty">void</span>*)) block_size = <span class="kw">sizeof</span>(<span class="ty">void</span>*);
+    <span class="ty">Pool</span> p = { .<span class="fn">base</span> = <span class="fn">malloc</span>(block_size * count),
+               .block_size = block_size, .count = count };
+    <span class="cm">// Chain all blocks into free list</span>
+    p.free_head = p.base;
+    <span class="kw">for</span> (<span class="ty">size_t</span> i = <span class="nm">0</span>; i &lt; count - <span class="nm">1</span>; i++) {
+        <span class="ty">void</span> *block = (<span class="ty">char</span>*)p.base + i * block_size;
+        *(<span class="ty">void</span>**)block = (<span class="ty">char</span>*)block + block_size;
+    }
+    *(<span class="ty">void</span>**)((<span class="ty">char</span>*)p.base + (count-<span class="nm">1</span>) * block_size) = <span class="nm">NULL</span>;
+    <span class="kw">return</span> p;
+}
+
+<span class="ty">void</span>* <span class="fn">pool_alloc</span>(<span class="ty">Pool</span> *p) {
+    <span class="kw">if</span> (!p-&gt;free_head) <span class="kw">return</span> <span class="nm">NULL</span>;
+    <span class="ty">void</span> *block = p-&gt;free_head;
+    p-&gt;free_head = *(<span class="ty">void</span>**)block;  <span class="cm">// pop</span>
+    <span class="kw">return</span> block;
+}
+
+<span class="ty">void</span> <span class="fn">pool_free</span>(<span class="ty">Pool</span> *p, <span class="ty">void</span> *block) {
+    *(<span class="ty">void</span>**)block = p-&gt;free_head;  <span class="cm">// push</span>
+    p-&gt;free_head = block;
+}
+<span class="label">C &mdash; intrusive pool allocator</span></code></pre>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">class</span> <span class="ty">Pool</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, block_size, count):
+        self.block_size = block_size
+        self.count = count
+        <span class="cm"># Pre-allocate all blocks as a free stack</span>
+        self.free = <span class="fn">list</span>(<span class="fn">range</span>(count))  <span class="cm"># indices as "pointers"</span>
+        self.data = [<span class="fn">bytearray</span>(block_size) <span class="kw">for</span> _ <span class="kw">in</span> <span class="fn">range</span>(count)]
+
+    <span class="kw">def</span> <span class="fn">alloc</span>(self):
+        <span class="kw">if not</span> self.free:
+            <span class="kw">return</span> <span class="nm">None</span>
+        <span class="kw">return</span> self.free.<span class="fn">pop</span>()  <span class="cm"># O(1)</span>
+
+    <span class="kw">def</span> <span class="fn">free_block</span>(self, idx):
+        self.free.<span class="fn">append</span>(idx)   <span class="cm"># O(1)</span>
+
+    <span class="kw">def</span> <span class="fn">available</span>(self):
+        <span class="kw">return</span> <span class="fn">len</span>(self.free)
+
+<span class="cm"># Demo</span>
+pool = <span class="ty">Pool</span>(<span class="nm">64</span>, <span class="nm">8</span>)
+ids = [pool.<span class="fn">alloc</span>() <span class="kw">for</span> _ <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">5</span>)]
+<span class="fn">print</span>(<span class="st">f"allocated: {ids}, available: {pool.available()}"</span>)
+pool.<span class="fn">free_block</span>(ids[<span class="nm">2</span>])
+<span class="fn">print</span>(<span class="st">f"freed slot {ids[2]}, available: {pool.available()}"</span>)
+reused = pool.<span class="fn">alloc</span>()
+<span class="fn">print</span>(<span class="st">f"reused: slot {reused}"</span>)
+<span class="label">Python &mdash; pool allocator</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="kw">class</span> <span class="ty">Pool</span>&lt;<span class="ty">T</span>&gt; {
+  <span class="kw">private</span> free: <span class="ty">number</span>[] = [];
+  <span class="kw">private</span> items: (<span class="ty">T</span> | <span class="ty">null</span>)[];
+
+  <span class="fn">constructor</span>(<span class="kw">private</span> capacity: <span class="ty">number</span>, <span class="kw">private</span> factory: () =&gt; <span class="ty">T</span>) {
+    <span class="kw">this</span>.items = <span class="ty">Array</span>(capacity).<span class="fn">fill</span>(<span class="nm">null</span>);
+    <span class="kw">for</span> (<span class="kw">let</span> i = capacity - <span class="nm">1</span>; i &gt;= <span class="nm">0</span>; i--) <span class="kw">this</span>.free.<span class="fn">push</span>(i);
+  }
+
+  <span class="fn">alloc</span>(): { id: <span class="ty">number</span>; item: <span class="ty">T</span> } | <span class="ty">null</span> {
+    <span class="kw">if</span> (<span class="kw">this</span>.free.length === <span class="nm">0</span>) <span class="kw">return</span> <span class="nm">null</span>;
+    <span class="kw">const</span> id = <span class="kw">this</span>.free.<span class="fn">pop</span>()!;
+    <span class="kw">this</span>.items[id] = <span class="kw">this</span>.<span class="fn">factory</span>();
+    <span class="kw">return</span> { id, item: <span class="kw">this</span>.items[id]! };
+  }
+
+  <span class="fn">release</span>(id: <span class="ty">number</span>) {
+    <span class="kw">this</span>.items[id] = <span class="nm">null</span>;
+    <span class="kw">this</span>.free.<span class="fn">push</span>(id);
+  }
+}
+
+<span class="kw">const</span> pool = <span class="kw">new</span> <span class="ty">Pool</span>(<span class="nm">4</span>, () =&gt; ({ x: <span class="nm">0</span>, y: <span class="nm">0</span> }));
+<span class="kw">const</span> a = pool.<span class="fn">alloc</span>()!;
+console.<span class="fn">log</span>(<span class="st">"alloc:"</span>, a.id, a.item);
+pool.<span class="fn">release</span>(a.id);
+console.<span class="fn">log</span>(<span class="st">"released, re-alloc:"</span>, pool.<span class="fn">alloc</span>());
+<span class="label">TypeScript &mdash; generic pool</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> (<span class="st">"fmt"</span>; <span class="st">"sync"</span>)
+
+<span class="cm">// sync.Pool: Go's built-in per-P cache for reusable objects</span>
+<span class="kw">var</span> bufPool = sync.<span class="ty">Pool</span>{
+    New: <span class="kw">func</span>() <span class="ty">any</span> {
+        b := <span class="fn">make</span>([]<span class="ty">byte</span>, <span class="nm">0</span>, <span class="nm">4096</span>)
+        <span class="kw">return</span> &amp;b
+    },
+}
+
+<span class="kw">func</span> <span class="fn">handleRequest</span>() {
+    <span class="cm">// Get buffer from pool (O(1), no allocation if available)</span>
+    bp := bufPool.<span class="fn">Get</span>().(*[]<span class="ty">byte</span>)
+    buf := (*bp)[:<span class="nm">0</span>]
+
+    <span class="cm">// Use the buffer</span>
+    buf = <span class="fn">append</span>(buf, <span class="st">"request data..."</span>...)
+    fmt.<span class="fn">Printf</span>(<span class="st">"using %d byte buffer\n"</span>, <span class="fn">cap</span>(buf))
+
+    <span class="cm">// Return to pool (O(1), no free)</span>
+    *bp = buf
+    bufPool.<span class="fn">Put</span>(bp)
+}
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="kw">for</span> i := <span class="nm">0</span>; i &lt; <span class="nm">5</span>; i++ {
+        <span class="fn">handleRequest</span>()
+    }
+}
+<span class="label">Go &mdash; sync.Pool</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="kw">struct</span> <span class="ty">Pool</span>&lt;<span class="ty">T</span>&gt; {
+    items: <span class="ty">Vec</span>&lt;<span class="ty">Option</span>&lt;<span class="ty">T</span>&gt;&gt;,
+    free: <span class="ty">Vec</span>&lt;<span class="ty">usize</span>&gt;,
+}
+
+<span class="kw">impl</span>&lt;<span class="ty">T</span>&gt; <span class="ty">Pool</span>&lt;<span class="ty">T</span>&gt; {
+    <span class="kw">fn</span> <span class="fn">new</span>(capacity: <span class="ty">usize</span>) -&gt; <span class="ty">Self</span> {
+        <span class="kw">let</span> items = (<span class="nm">0</span>..capacity).<span class="fn">map</span>(|_| <span class="ty">None</span>).<span class="fn">collect</span>();
+        <span class="kw">let</span> free = (<span class="nm">0</span>..capacity).<span class="fn">rev</span>().<span class="fn">collect</span>();
+        <span class="ty">Pool</span> { items, free }
+    }
+
+    <span class="kw">fn</span> <span class="fn">alloc</span>(&amp;<span class="kw">mut</span> self, val: <span class="ty">T</span>) -&gt; <span class="ty">Option</span>&lt;<span class="ty">usize</span>&gt; {
+        <span class="kw">let</span> id = self.free.<span class="fn">pop</span>()?;
+        self.items[id] = <span class="ty">Some</span>(val);
+        <span class="ty">Some</span>(id)
+    }
+
+    <span class="kw">fn</span> <span class="fn">free</span>(&amp;<span class="kw">mut</span> self, id: <span class="ty">usize</span>) -&gt; <span class="ty">Option</span>&lt;<span class="ty">T</span>&gt; {
+        <span class="kw">let</span> val = self.items[id].<span class="fn">take</span>()?;
+        self.free.<span class="fn">push</span>(id);
+        <span class="ty">Some</span>(val)
+    }
+}
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let mut</span> pool = <span class="ty">Pool</span>::<span class="fn">new</span>(<span class="nm">8</span>);
+    <span class="kw">let</span> id = pool.<span class="fn">alloc</span>(<span class="st">"hello"</span>).<span class="fn">unwrap</span>();
+    <span class="fn">println!</span>(<span class="st">"alloc at slot {}"</span>, id);
+    <span class="fn">println!</span>(<span class="st">"free: {:?}"</span>, pool.<span class="fn">free</span>(id));
+}
+<span class="label">Rust &mdash; generic pool</span></code></pre>
+  </div>
+</div>
+
+<div class="power zen">
+<div class="power-label">The Perfect Allocator for Uniform Objects</div>
+<p>A pool allocator gives you O(1) alloc, O(1) free, zero fragmentation, zero metadata overhead, and perfect cache locality (objects are contiguous in memory). The constraint — all objects must be the same size — is not a limitation but a <em>feature</em>. If you can live with it, nothing else comes close.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch13">
+<h2>// 13 &mdash; Memory Safety</h2>
+
+<p>Memory safety bugs are the #1 source of security vulnerabilities in systems software. Microsoft reported that ~70% of their CVEs are memory safety issues (Matt Miller, BlueHat IL 2019). Google Chrome's security team independently found the same ~70% figure for high-severity browser bugs (2020). These aren't obscure edge cases &mdash; they're the dominant class of exploitable vulnerability in the real world.</p>
+
+<h3>Use-After-Free (UAF)</h3>
+
+<p>Free an object, then access it through a dangling pointer. If the allocator has reused that memory for a different object, you read or write corrupted data. Attackers exploit this by controlling what object fills the freed slot &mdash; a technique called <em>heap spraying</em>.</p>
+
+<div class="diagram">
+<span class="diagram-label">Use-After-Free Exploitation</span>
+<pre><code>  1. Victim allocates object A (64 bytes)
+     ┌──────────────────┐
+     │  Object A: vtable│ → methodA()
+     │  data: "secret"  │
+     └──────────────────┘
+
+  2. Victim frees A (but keeps the pointer!)
+     ┌──────────────────┐
+     │  FREE            │  (allocator marks slot as available)
+     └──────────────────┘
+
+  3. Attacker allocates B (same size: 64 bytes) → lands in A's slot
+     ┌──────────────────┐
+     │  Object B: vtable│ → attacker_code()
+     │  data: "pwned"   │
+     └──────────────────┘
+
+  4. Victim dereferences old pointer to A → reads B's vtable
+     victim→method() → calls attacker_code()  ← arbitrary code execution</code></pre>
+</div>
+
+<h3>Double-Free</h3>
+
+<p>Calling <code>free(ptr)</code> twice corrupts the allocator's free list. The freed block is inserted twice, creating a cycle. The next two allocations return the <em>same pointer</em>, allowing one caller to read or overwrite another's data.</p>
+
+<h3>Rust's Ownership Model</h3>
+
+<p>Rust prevents all of the above at compile time with three rules: (1) every value has exactly one owner, (2) ownership can be transferred (moved) or temporarily borrowed, (3) you cannot have a mutable reference and any other reference simultaneously. The borrow checker enforces these rules with zero runtime cost &mdash; no GC, no reference counting, no safety overhead.</p>
+
+<div class="diagram">
+<span class="diagram-label">Rust Ownership Decision Tree</span>
+<pre><code>  Do you need shared access?
+  ├── No → move (transfer ownership)
+  │         let b = a;  // a is GONE, only b exists
+  │
+  └── Yes → borrow
+            ├── Read-only? → &amp;T (shared reference, many allowed)
+            │     let r1 = &amp;data;
+            │     let r2 = &amp;data;  // OK: multiple readers
+            │
+            └── Need to mutate? → &amp;mut T (exclusive reference, only one)
+                  let m = &amp;mut data;
+                  // let r = &amp;data;  ← COMPILE ERROR: can't read while mutating
+
+  Lifetimes: compiler tracks how long each reference lives.
+  Dangling reference? → compile error. UAF? → impossible.
+  Double free? → impossible (only one owner calls drop).</code></pre>
+</div>
+
+<div class="power danger">
+<div class="power-label">The 70% Problem</div>
+<p>~70% of security vulnerabilities in large C/C++ codebases are memory safety bugs: UAF, double-free, buffer overflow, uninitialized reads. This isn't a tooling problem &mdash; it's a language problem. Valgrind and ASan catch bugs in testing but can't guarantee their absence. Rust's borrow checker does: if it compiles, these bug classes are structurally impossible.</p>
+</div>
+
+<div class="power">
+<div class="power-label">Zero-Cost Safety</div>
+<p>Rust's ownership system adds zero runtime overhead. No GC pauses, no reference count increments, no bounds checks (unless you use <code>[]</code> indexing; <code>.get()</code> is checked). The safety comes entirely from compile-time analysis. The cost is paid in developer time fighting the borrow checker, not in CPU cycles.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch14">
+<h2>// 14 &mdash; Tools</h2>
+
+<p>Memory bugs hide. They manifest as intermittent crashes, corrupted data hours after the initial bug, or silent data loss that you discover weeks later in production. The tools in this chapter are your weapons: runtime detectors, compile-time sanitizers, and profilers that expose allocation patterns.</p>
+
+<h3>Valgrind (Memcheck)</h3>
+
+<p>Valgrind instruments every memory access by running your program in a synthetic CPU. It tracks every <code>malloc</code>/<code>free</code>, detects leaks, UAF, reads of uninitialized memory, and invalid frees. The cost: 10&ndash;30&times; slowdown and ~2&times; memory overhead. Too slow for production, indispensable in CI and testing.</p>
+
+<h3>AddressSanitizer (ASan)</h3>
+
+<p>Google's AddressSanitizer (Serebryany et al., USENIX ATC 2012) instruments the binary at compile time. It places "red zones" around every allocation &mdash; poisoned bytes that trigger an immediate error on access. Overhead: ~2&times; time, ~3&times; memory. Ten times faster than Valgrind. Available in GCC and Clang via <code>-fsanitize=address</code>.</p>
+
+<h3>heaptrack</h3>
+
+<p>heaptrack traces every allocation and deallocation, recording the call stack. It produces flamegraphs showing where memory is allocated, how much, and whether it's freed. Unlike Valgrind, it uses LD_PRELOAD and runs at near-native speed. Essential for finding allocation hotspots before building a custom allocator.</p>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-tools" id="tools-c" class="tc" checked>
+  <input type="radio" name="tabs-tools" id="tools-py" class="tpy">
+  <input type="radio" name="tabs-tools" id="tools-ts" class="tts">
+  <input type="radio" name="tabs-tools" id="tools-go" class="tgo">
+  <input type="radio" name="tabs-tools" id="tools-rs" class="trs">
+  <div class="tab-bar">
+    <label for="tools-c">C</label>
+    <label for="tools-py">Python</label>
+    <label for="tools-ts">TypeScript</label>
+    <label for="tools-go">Go</label>
+    <label for="tools-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+    <pre><code><span class="cm">// Compile with ASan: gcc -fsanitize=address -g prog.c</span>
+<span class="cm">// Or run under Valgrind: valgrind --tool=memcheck --leak-check=full ./prog</span>
+
+<span class="pp">#include</span> <span class="st">&lt;stdlib.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;string.h&gt;</span>
+
+<span class="ty">int</span> <span class="fn">main</span>() {
+    <span class="cm">// Bug 1: heap buffer overflow</span>
+    <span class="ty">char</span> *buf = <span class="fn">malloc</span>(<span class="nm">10</span>);
+    buf[<span class="nm">10</span>] = <span class="st">'x'</span>;  <span class="cm">// ASan: heap-buffer-overflow</span>
+    <span class="fn">free</span>(buf);
+
+    <span class="cm">// Bug 2: use-after-free</span>
+    <span class="ty">char</span> *p = <span class="fn">malloc</span>(<span class="nm">64</span>);
+    <span class="fn">free</span>(p);
+    p[<span class="nm">0</span>] = <span class="st">'a'</span>;    <span class="cm">// ASan: heap-use-after-free</span>
+
+    <span class="cm">// Bug 3: memory leak</span>
+    <span class="ty">char</span> *leak = <span class="fn">malloc</span>(<span class="nm">1024</span>);
+    <span class="cm">// never freed — ASan reports at exit, Valgrind: definitely lost</span>
+    <span class="kw">return</span> <span class="nm">0</span>;
+}
+<span class="label">C &mdash; ASan / Valgrind</span></code></pre>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">import</span> tracemalloc
+
+<span class="cm"># Start tracking allocations</span>
+tracemalloc.<span class="fn">start</span>()
+snap1 = tracemalloc.<span class="fn">take_snapshot</span>()
+
+<span class="cm"># Allocate some memory</span>
+data = [<span class="fn">list</span>(<span class="fn">range</span>(<span class="nm">100</span>)) <span class="kw">for</span> _ <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">1000</span>)]
+big_dict = {i: <span class="fn">str</span>(i) * <span class="nm">100</span> <span class="kw">for</span> i <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">500</span>)}
+
+snap2 = tracemalloc.<span class="fn">take_snapshot</span>()
+
+<span class="cm"># Compare snapshots</span>
+stats = snap2.<span class="fn">compare_to</span>(snap1, <span class="st">'lineno'</span>)
+<span class="fn">print</span>(<span class="st">"Top 5 memory changes:"</span>)
+<span class="kw">for</span> s <span class="kw">in</span> stats[:<span class="nm">5</span>]:
+    <span class="fn">print</span>(<span class="st">f"  {s}"</span>)
+
+<span class="cm"># Current/peak usage</span>
+current, peak = tracemalloc.<span class="fn">get_traced_memory</span>()
+<span class="fn">print</span>(<span class="st">f"\nCurrent: {current/1024:.1f} KB"</span>)
+<span class="fn">print</span>(<span class="st">f"Peak:    {peak/1024:.1f} KB"</span>)
+<span class="label">Python &mdash; tracemalloc</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="cm">// Node.js: run with --inspect, open Chrome DevTools</span>
+<span class="cm">// Take heap snapshots, compare retained sizes</span>
+
+<span class="cm">// Programmatic memory tracking:</span>
+<span class="kw">const</span> used = process.<span class="fn">memoryUsage</span>();
+console.<span class="fn">log</span>(<span class="st">"Memory usage:"</span>);
+console.<span class="fn">log</span>(<span class="st">`  RSS:       ${(used.rss / 1024 / 1024).toFixed(1)} MB`</span>);
+console.<span class="fn">log</span>(<span class="st">`  Heap used: ${(used.heapUsed / 1024 / 1024).toFixed(1)} MB`</span>);
+console.<span class="fn">log</span>(<span class="st">`  Heap total:${(used.heapTotal / 1024 / 1024).toFixed(1)} MB`</span>);
+console.<span class="fn">log</span>(<span class="st">`  External:  ${(used.external / 1024 / 1024).toFixed(1)} MB`</span>);
+
+<span class="cm">// Force V8 garbage collection (only with --expose-gc flag)</span>
+<span class="cm">// global.gc();</span>
+<span class="label">TypeScript &mdash; memory diagnostics</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"fmt"</span>
+    <span class="st">"runtime"</span>
+    _ <span class="st">"net/http/pprof"</span>  <span class="cm">// import for heap profiling</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="cm">// Read memory stats</span>
+    <span class="kw">var</span> m runtime.<span class="ty">MemStats</span>
+    runtime.<span class="fn">ReadMemStats</span>(&amp;m)
+
+    fmt.<span class="fn">Printf</span>(<span class="st">"Alloc:      %d KB\n"</span>, m.Alloc/<span class="nm">1024</span>)
+    fmt.<span class="fn">Printf</span>(<span class="st">"TotalAlloc: %d KB\n"</span>, m.TotalAlloc/<span class="nm">1024</span>)
+    fmt.<span class="fn">Printf</span>(<span class="st">"Sys:        %d KB\n"</span>, m.Sys/<span class="nm">1024</span>)
+    fmt.<span class="fn">Printf</span>(<span class="st">"NumGC:      %d\n"</span>, m.NumGC)
+
+    <span class="cm">// Heap profiling:</span>
+    <span class="cm">// go tool pprof http://localhost:6060/debug/pprof/heap</span>
+    <span class="cm">// go tool pprof -alloc_space   ← total allocations</span>
+    <span class="cm">// go tool pprof -inuse_space   ← current live heap</span>
+
+    <span class="cm">// Race detector: go run -race main.go</span>
+}
+<span class="label">Go &mdash; pprof heap profiling</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="cm">// Rust memory tools:</span>
+<span class="cm">// 1. Miri: cargo +nightly miri run — detects UB, UAF, leaks</span>
+<span class="cm">// 2. Valgrind: cargo build; valgrind ./target/debug/myapp</span>
+<span class="cm">// 3. Custom global allocator for tracking:</span>
+
+<span class="kw">use</span> std::alloc::{<span class="ty">GlobalAlloc</span>, <span class="ty">Layout</span>, <span class="ty">System</span>};
+<span class="kw">use</span> std::sync::atomic::{<span class="ty">AtomicUsize</span>, <span class="ty">Ordering</span>};
+
+<span class="kw">struct</span> <span class="ty">CountingAlloc</span>;
+<span class="kw">static</span> ALLOC_COUNT: <span class="ty">AtomicUsize</span> = <span class="ty">AtomicUsize</span>::<span class="fn">new</span>(<span class="nm">0</span>);
+<span class="kw">static</span> ALLOC_BYTES: <span class="ty">AtomicUsize</span> = <span class="ty">AtomicUsize</span>::<span class="fn">new</span>(<span class="nm">0</span>);
+
+<span class="kw">unsafe impl</span> <span class="ty">GlobalAlloc</span> <span class="kw">for</span> <span class="ty">CountingAlloc</span> {
+    <span class="kw">unsafe fn</span> <span class="fn">alloc</span>(&amp;self, layout: <span class="ty">Layout</span>) -&gt; *<span class="kw">mut</span> <span class="ty">u8</span> {
+        ALLOC_COUNT.<span class="fn">fetch_add</span>(<span class="nm">1</span>, <span class="ty">Ordering</span>::Relaxed);
+        ALLOC_BYTES.<span class="fn">fetch_add</span>(layout.<span class="fn">size</span>(), <span class="ty">Ordering</span>::Relaxed);
+        <span class="ty">System</span>.<span class="fn">alloc</span>(layout)
+    }
+    <span class="kw">unsafe fn</span> <span class="fn">dealloc</span>(&amp;self, ptr: *<span class="kw">mut</span> <span class="ty">u8</span>, layout: <span class="ty">Layout</span>) {
+        <span class="ty">System</span>.<span class="fn">dealloc</span>(ptr, layout);
+    }
+}
+
+<span class="pp">#[global_allocator]</span>
+<span class="kw">static</span> A: <span class="ty">CountingAlloc</span> = <span class="ty">CountingAlloc</span>;
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> v: <span class="ty">Vec</span>&lt;<span class="ty">u8</span>&gt; = (<span class="nm">0</span>..<span class="nm">1000</span>).<span class="fn">collect</span>();
+    <span class="fn">println!</span>(<span class="st">"allocations: {}"</span>, ALLOC_COUNT.<span class="fn">load</span>(<span class="ty">Ordering</span>::Relaxed));
+    <span class="fn">println!</span>(<span class="st">"bytes: {}"</span>, ALLOC_BYTES.<span class="fn">load</span>(<span class="ty">Ordering</span>::Relaxed));
+    <span class="fn">drop</span>(v);
+}
+<span class="label">Rust &mdash; custom global allocator</span></code></pre>
+  </div>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Track Python allocations and find where memory goes:</p>
+<pre><code>import tracemalloc
+tracemalloc.start()
+snap1 = tracemalloc.take_snapshot()
+x = [list(range(100)) for _ in range(1000)]
+y = {i: str(i)*50 for i in range(500)}
+snap2 = tracemalloc.take_snapshot()
+stats = snap2.compare_to(snap1, 'lineno')
+print("Top memory consumers:")
+for s in stats[:5]:
+    print(f"  {s}")
+cur, peak = tracemalloc.get_traced_memory()
+print(f"\nCurrent: {cur//1024} KB, Peak: {peak//1024} KB")</code></pre>
+</div>
+
+<div class="power">
+<div class="power-label">Run ASan in CI</div>
+<p>ASan catches bugs that tests alone miss: buffer overflows, UAF, and leaks that only trigger under specific code paths. Add <code>-fsanitize=address</code> to your CI build. The ~2&times; overhead is negligible for test runs, and it has prevented countless CVEs at Google, Meta, and Microsoft. For Rust, run <code>cargo +nightly miri test</code> for similar compile-time UB detection.</p>
+</div>
+
+</section>
+
+</div><!-- /content -->
+<script>
+(function() {
+  'use strict';
+
+  // === LANGUAGE DETECTION ===
+  function detectLang(codeEl, pre) {
+    const tc = pre.closest('.tab-content');
+    if (tc) {
+      if (tc.classList.contains('c')) return 'c';
+      if (tc.classList.contains('py')) return 'python';
+      if (tc.classList.contains('ts')) return 'typescript';
+      if (tc.classList.contains('go')) return 'go';
+      if (tc.classList.contains('rs')) return 'rust';
+    }
+    const label = pre.querySelector('.label');
+    if (label) {
+      const t = label.textContent.toLowerCase();
+      if (t.includes('python')) return 'python';
+      if (t.includes('typescript') || t === 'ts') return 'typescript';
+      if (t.includes('rust') || t === 'rs') return 'rust';
+      if (t.includes('go') || t === 'go') return 'go';
+      if (t.match(/^c(\s|$)/i) || t.includes('c —') || t.includes('c –')) return 'c';
+    }
+    if (pre.closest('.try-this')) {
+      const code = codeEl.textContent;
+      if (code.startsWith('python3') || code.includes('import ')) return 'python';
+    }
+    return null;
+  }
+
+  function isRunnable(pre, codeEl, lang) {
+    if (!lang) return false;
+    if (lang === 'c' || lang === 'go' || lang === 'rust') return false;
+    if (pre.closest('.diagram')) return false;
+    if (pre.closest('.try-this')) return true;
+    if (pre.closest('.tab-content')) return true;
+    const code = codeEl.textContent;
+    if (pre.querySelector('.label')) {
+      if (code.match(/\b(def |fn |func |function |int main|void |printf|println|print\(|console\.log|fmt\.)/)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function getCode(codeEl) {
+    const clone = codeEl.cloneNode(true);
+    clone.querySelectorAll('.label').forEach(el => el.remove());
+    return clone.textContent;
+  }
+
+  function getOrCreateOutput(pre) {
+    let out = pre.nextElementSibling;
+    if (out && out.classList.contains('run-output')) return out;
+    out = document.createElement('div');
+    out.className = 'run-output';
+    pre.insertAdjacentElement('afterend', out);
+    return out;
+  }
+
+  let pyodideReady = null;
+  async function loadPyodide_() {
+    if (pyodideReady) return pyodideReady;
+    pyodideReady = (async () => {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/pyodide/v0.27.4/full/pyodide.js';
+      document.head.appendChild(script);
+      await new Promise((res, rej) => { script.onload = res; script.onerror = rej; });
+      return await loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.27.4/full/' });
+    })();
+    return pyodideReady;
+  }
+
+  async function runPython(code, out) {
+    out.textContent = 'Loading Python runtime...';
+    out.classList.remove('error');
+    try {
+      const py = await loadPyodide_();
+      py.runPython(`import sys, io; sys.stdout = io.StringIO()`);
+      py.runPython(code);
+      const stdout = py.runPython('sys.stdout.getvalue()');
+      out.textContent = stdout || '(no output)';
+    } catch (e) {
+      out.textContent = String(e.message || e);
+      out.classList.add('error');
+    }
+  }
+
+  async function runPythonOneLiner(code, out) {
+    const m = code.match(/^python3?\s+-c\s+["']([\s\S]+)["']\s*$/);
+    if (m) return runPython(m[1], out);
+    const m2 = code.match(/^python3?\s+-c\s+["']([\s\S]+?)["']/);
+    if (m2) return runPython(m2[1], out);
+    return runPython(code, out);
+  }
+
+  function stripTS(code) {
+    return code
+      .replace(/:\s*(?:string|number|boolean|void|any|never|unknown|undefined|null|bigint|symbol)\b(\[\])?/g, '')
+      .replace(/:\s*(?:Record|Map|Set|Array|Promise|Partial|Required|Readonly)<[^>]+>/g, '')
+      .replace(/<(?:string|number|boolean|void|any|never|unknown|T|U|K|V)(?:\[\])?(?:\s*,\s*(?:string|number|boolean|void|any|never|unknown|T|U|K|V)(?:\[\])?)*>/g, '')
+      .replace(/\bas\s+\w+/g, '')
+      .replace(/^\s*(?:export|import)\s+type\s+.*$/gm, '')
+      .replace(/^\s*interface\s+\w+\s*\{[\s\S]*?\n\}/gm, '')
+      .replace(/^\s*type\s+\w+\s*=.*$/gm, '');
+  }
+
+  async function runJS(code, out) {
+    out.classList.remove('error');
+    const logs = [];
+    const origLog = console.log;
+    const origWarn = console.warn;
+    const origError = console.error;
+    console.log = (...args) => logs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' '));
+    console.warn = console.log;
+    console.error = (...args) => logs.push('ERROR: ' + args.map(String).join(' '));
+    try {
+      const cleaned = stripTS(code);
+      const fn = new Function(cleaned);
+      const result = fn();
+      if (result instanceof Promise) await result;
+      out.textContent = logs.join('\n') || '(no output)';
+    } catch (e) {
+      out.textContent = logs.join('\n') + (logs.length ? '\n' : '') + String(e);
+      out.classList.add('error');
+    } finally {
+      console.log = origLog;
+      console.warn = origWarn;
+      console.error = origError;
+    }
+  }
+
+  function snippetId(codeEl, pre) {
+    if (codeEl.dataset.snippetId) return codeEl.dataset.snippetId;
+    const path = location.pathname;
+    const fname = path.split('/').pop().replace(/-deep-dive\.html$/, '').replace(/\.html$/, '');
+    const prefix = fname.substring(0, 5);
+
+    const tc = pre.closest('.tab-content');
+    if (tc) {
+      const tabs = tc.closest('.lang-tabs');
+      const radio = tabs ? tabs.querySelector('input[type="radio"]') : null;
+      const groupName = radio ? radio.name.replace('tabs-', '') : 'unknown';
+      const langClass = ['c','py','ts','go','rs'].find(c => tc.classList.contains(c)) || 'x';
+      const id = prefix + '-' + groupName + '-' + langClass;
+      codeEl.dataset.snippetId = id;
+      return id;
+    }
+
+    const label = pre.querySelector('.label');
+    if (label) {
+      const slug = label.textContent.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').substring(0, 20);
+      const id = prefix + '-' + slug;
+      codeEl.dataset.snippetId = id;
+      return id;
+    }
+
+    const id = prefix + '-anon-' + Math.random().toString(36).substring(2, 8);
+    codeEl.dataset.snippetId = id;
+    return id;
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('pre > code, pre code').forEach(function(codeEl) {
+      const pre = codeEl.closest('pre');
+      if (!pre) return;
+      const lang = detectLang(codeEl, pre);
+      if (!isRunnable(pre, codeEl, lang)) return;
+
+      const btn = document.createElement('button');
+      btn.className = 'run-btn';
+      btn.textContent = '\u25B6 Run';
+      btn.title = 'Run this code';
+      pre.style.position = 'relative';
+      pre.appendChild(btn);
+
+      btn.addEventListener('click', async function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (btn.classList.contains('running')) return;
+        btn.classList.add('running');
+        btn.textContent = '\u25B6 ...';
+
+        let outputAnchor = pre;
+        const tabContent = pre.closest('.tab-content');
+        if (tabContent) {
+          outputAnchor = tabContent.closest('.lang-tabs');
+        }
+        const out = getOrCreateOutput(outputAnchor);
+        out.style.display = 'block';
+
+        const code = getCode(codeEl);
+        try {
+          switch (lang) {
+            case 'python':
+              if (pre.closest('.try-this') && code.match(/^python3?\s/)) {
+                await runPythonOneLiner(code, out);
+              } else {
+                await runPython(code, out);
+              }
+              break;
+            case 'typescript':
+            case 'javascript':
+              await runJS(code, out);
+              break;
+          }
+        } catch (e) {
+          out.textContent = String(e);
+          out.classList.add('error');
+        }
+
+        btn.classList.remove('running');
+        btn.textContent = '\u25B6 Run';
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

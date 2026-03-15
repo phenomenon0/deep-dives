@@ -1,0 +1,2778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Concurrency &mdash; Shared State, Locks, and the Art of Not Breaking Everything</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+    --white: #e8e8f0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 2rem;
+    display: flex;
+    gap: 1.2rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.2s, text-shadow 0.2s;
+    padding: 0.3rem 0;
+  }
+  nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+  nav .nav-title {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 1rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.3);
+  }
+
+  .content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+  }
+
+  .hero {
+    text-align: center;
+    padding: 4rem 0 5rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4rem;
+    position: relative;
+  }
+  .hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3.2rem;
+    font-weight: 600;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+  }
+  .hero .subtitle {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 500px;
+    margin: 0 auto;
+  }
+  .hero .blink {
+    display: inline-block;
+    animation: blink 1s step-end infinite;
+    color: var(--green);
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  section { margin-bottom: 5rem; padding-top: 1rem; }
+  h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: var(--green);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: 0.02em;
+  }
+  h3 {
+    font-size: 1.25rem;
+    color: var(--cyan);
+    margin: 2.5rem 0 1rem;
+    font-weight: 600;
+  }
+  h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 2rem 0 0.8rem;
+  }
+  p { margin-bottom: 1rem; }
+
+  .drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4rem;
+    line-height: 0.8;
+    padding: 0.1em 0.15em 0 0;
+    color: var(--green);
+    font-weight: 600;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+  }
+
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    padding: 0.12em 0.4em;
+    border-radius: 3px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem 1.4rem;
+    overflow-x: auto;
+    margin: 1.2rem 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px;
+    line-height: 1.55;
+    position: relative;
+  }
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+  }
+  .cm { color: var(--text-dim); }
+  .kw { color: var(--magenta); }
+  .ty { color: var(--cyan); }
+  .st { color: var(--green); }
+  .nm { color: var(--yellow); }
+  .fn { color: var(--blue); }
+  .pp { color: var(--orange); }
+  .label {
+    position: absolute;
+    top: 0.3rem; right: 0.7rem;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    opacity: 0.5;
+  }
+
+  .diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+  }
+  .diagram pre {
+    background: none; border: none; padding: 0; margin: 0;
+    font-size: 13px; line-height: 1.45; color: var(--text);
+  }
+  .diagram pre code { color: var(--text); }
+  .diagram-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--green-dim);
+    margin-bottom: 0.8rem;
+    display: block;
+  }
+
+  .power {
+    background: var(--bg-card);
+    border-left: 3px solid var(--green);
+    padding: 1.2rem 1.4rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .power-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.3rem;
+  }
+  .power p { margin-bottom: 0; font-size: 0.95rem; }
+  .power.danger { border-left-color: var(--red); }
+  .power.danger .power-label { color: var(--red); }
+  .power.hack { border-left-color: var(--magenta); }
+  .power.hack .power-label { color: var(--magenta); }
+  .power.wild { border-left-color: var(--orange); }
+  .power.wild .power-label { color: var(--orange); }
+  .power.zen { border-left-color: var(--cyan); }
+  .power.zen .power-label { color: var(--cyan); }
+
+  .mem-row { display: flex; gap: 1px; margin: 0.4rem 0; flex-wrap: wrap; }
+  .mc {
+    width: 30px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px; font-weight: 600; border-radius: 2px;
+  }
+  .mc.g { background: var(--green); color: var(--bg); }
+  .mc.c { background: var(--cyan); color: var(--bg); }
+  .mc.m { background: var(--magenta); color: var(--bg); }
+  .mc.o { background: var(--orange); color: var(--bg); }
+  .mc.r { background: var(--red); color: var(--bg); }
+  .mc.y { background: var(--yellow); color: var(--bg); }
+  .mc.b { background: var(--blue); color: var(--bg); }
+  .mc.d { background: var(--text-dim); color: var(--bg); opacity: 0.3; }
+  .mc.e { background: transparent; border: 1px dashed var(--border); color: var(--text-dim); }
+  .mc.w { background: var(--white); color: var(--bg); }
+  .mc.p { background: var(--purple); color: #fff; }
+  .mc.wide { width: 50px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.88rem;
+  }
+  th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    text-align: left;
+    padding: 0.5rem 0.7rem;
+    border-bottom: 2px solid var(--border);
+  }
+  td {
+    padding: 0.45rem 0.7rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:hover { background: rgba(0,255,136,0.02); }
+
+  details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1rem 0;
+    overflow: hidden;
+  }
+  details summary {
+    padding: 0.7rem 1.1rem;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--green);
+    user-select: none;
+    transition: background 0.2s;
+  }
+  details summary:hover { background: rgba(0,255,136,0.04); }
+  details[open] summary { border-bottom: 1px solid var(--border); }
+  details .det { padding: 1.1rem; }
+  details pre { margin: 0.8rem 0; }
+
+  .vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .vs-col {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.1rem;
+  }
+  .vs-col h4 { margin-top: 0; }
+
+  .glitch { position: relative; display: inline-block; }
+  .glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+  .glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 2s infinite linear alternate-reverse;
+    clip-path: inset(0 0 65% 0);
+  }
+  .glitch::after {
+    color: var(--magenta);
+    animation: glitch-2 3s infinite linear alternate-reverse;
+    clip-path: inset(65% 0 0 0);
+  }
+  @keyframes glitch-1 {
+    0%, 95% { transform: translateX(0); }
+    96% { transform: translateX(-2px); }
+    97% { transform: translateX(2px); }
+    98% { transform: translateX(-1px); }
+    100% { transform: translateX(0); }
+  }
+  @keyframes glitch-2 {
+    0%, 93% { transform: translateX(0); }
+    94% { transform: translateX(2px); }
+    96% { transform: translateX(-2px); }
+    98% { transform: translateX(1px); }
+    100% { transform: translateX(0); }
+  }
+
+  .ticker {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--green);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    display: inline-block;
+    text-shadow: 0 0 6px rgba(0,255,136,0.3);
+  }
+
+  /* === LANGUAGE TABS === */
+  .lang-tabs {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1.2rem 0;
+    overflow: hidden;
+  }
+  .lang-tabs input[type="radio"] { display: none; }
+  .lang-tabs label {
+    display: inline-block;
+    padding: 0.5rem 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .lang-tabs label:hover { color: var(--green); }
+  .lang-tabs .tab-bar {
+    border-bottom: 1px solid var(--border);
+    padding: 0 0.5rem;
+  }
+  .lang-tabs .tab-content { display: none; }
+  .lang-tabs .tab-content pre { margin: 0; border: none; border-radius: 0; }
+
+  .lang-tabs input.tc:checked ~ .tab-content.c,
+  .lang-tabs input.tpy:checked ~ .tab-content.py,
+  .lang-tabs input.tts:checked ~ .tab-content.ts,
+  .lang-tabs input.tgo:checked ~ .tab-content.go,
+  .lang-tabs input.trs:checked ~ .tab-content.rs { display: block; }
+
+  .lang-tabs input:nth-of-type(1):checked ~ .tab-bar label:nth-child(1),
+  .lang-tabs input:nth-of-type(2):checked ~ .tab-bar label:nth-child(2),
+  .lang-tabs input:nth-of-type(3):checked ~ .tab-bar label:nth-child(3),
+  .lang-tabs input:nth-of-type(4):checked ~ .tab-bar label:nth-child(4),
+  .lang-tabs input:nth-of-type(5):checked ~ .tab-bar label:nth-child(5) {
+    color: var(--green);
+    background: rgba(0,255,136,0.06);
+    border-bottom: 2px solid var(--green);
+  }
+
+  /* === TRY-THIS BOX === */
+  .try-this {
+    background: rgba(0, 255, 136, 0.04);
+    border-left: 3px solid var(--green-dim);
+    padding: 1rem 1.2rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .try-this .try-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.5rem;
+  }
+  .try-this pre {
+    margin: 0.5rem 0 0;
+    font-size: 12.5px;
+  }
+  .try-this p { font-size: 0.9rem; margin-bottom: 0.5rem; }
+
+  /* === LANG-NOTE BOX === */
+  .lang-note {
+    background: var(--bg-card);
+    border-left: 3px solid var(--blue);
+    padding: 1rem 1.2rem;
+    margin: 1.2rem 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 0.9rem;
+  }
+  .lang-note .lang-note-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--blue);
+    margin-bottom: 0.3rem;
+  }
+
+  /* === RUN BUTTON + OUTPUT === */
+  .run-btn {
+    position: absolute; top: 0.3rem; right: 3rem;
+    background: var(--green); color: var(--bg);
+    border: none; border-radius: 3px; cursor: pointer;
+    font: 600 10px 'JetBrains Mono', monospace; padding: 2px 8px;
+    opacity: 0.6; transition: opacity 0.2s;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    z-index: 2;
+  }
+  .run-btn:hover { opacity: 1; }
+  .run-btn.running { opacity: 0.4; cursor: wait; }
+  .run-output {
+    background: #050508; border: 1px solid var(--border);
+    border-top: none; border-radius: 0 0 6px 6px;
+    padding: 0.8rem 1rem; margin-top: -1px;
+    font: 13px/1.5 'JetBrains Mono', monospace; color: var(--green);
+    white-space: pre-wrap; max-height: 200px; overflow-y: auto;
+  }
+  .run-output.error { color: var(--red); }
+
+  @media (max-width: 700px) {
+    .vs { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2rem; }
+    .content { padding: 4rem 1rem 4rem; }
+    nav { font-size: 10px; gap: 0.8rem; padding: 0.4rem 1rem; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="nav-title">&gt;_ CONCUR</span>
+  <a href="#ch1">dragon</a>
+  <a href="#ch2">hardware</a>
+  <a href="#ch3">mutexes</a>
+  <a href="#ch4">semaphores</a>
+  <a href="#ch5">atomics</a>
+  <a href="#ch6">lock-free</a>
+  <a href="#ch7">channels</a>
+  <a href="#ch8">async</a>
+  <a href="#ch9">bugs</a>
+  <a href="#ch10">patterns</a>
+  <a href="#ch11">pools</a>
+  <a href="#ch12">tools</a>
+  <a href="#ch13">kernel</a>
+  <a href="#ch14">model</a>
+</nav>
+
+<div class="content">
+<div class="hero">
+  <h1><span class="glitch" data-text="CONCURRENCY">CONCURRENCY</span></h1>
+  <div class="subtitle">Shared state, locks, and the art of not breaking everything<span class="blink">_</span></div>
+</div>
+
+<!-- ============================================================ -->
+<!-- CH 01: THE DRAGON -->
+<!-- ============================================================ -->
+<section id="ch1">
+<h2>01 &mdash; the dragon</h2>
+
+<p class="drop-cap">Every program that has ever crashed due to a race condition was haunted by the same dragon: two agents reaching for the same piece of memory at the same time, neither knowing the other exists. The result is not a graceful error. It is silent corruption &mdash; a counter that reads 999 instead of 1000, a bank balance that is quietly wrong, a list that has been spliced in two directions at once.</p>
+
+<p>The fundamental problem of concurrency is not about threads, or locks, or channels. It is about <em>shared mutable state</em>. If two threads only read data, there is no problem. If two threads write to completely separate memory, there is no problem. The dragon wakes only when at least one thread writes to memory that another thread can see.</p>
+
+<p>Consider the simplest possible example: a counter. A counter is incremented by two threads, each incrementing it 500,000 times. You expect the result to be 1,000,000. You get 743,218. The reason is that <code>counter++</code> is not atomic &mdash; it is three separate machine instructions: load the value into a register, add 1, store it back. When two threads interleave these steps, updates are lost.</p>
+
+<div class="diagram">
+<span class="diagram-label">Lost-Update Race Condition &mdash; Interleaved Timeline</span>
+<pre><code>  Time  Thread A                       Thread B
+  ----  ----------------------------   ----------------------------
+   t1   LOAD  reg_A = counter (= 5)
+   t2                                  LOAD  reg_B = counter (= 5)
+   t3   ADD   reg_A = reg_A + 1 (= 6)
+   t4                                  ADD   reg_B = reg_B + 1 (= 6)
+   t5   STORE counter = reg_A (= 6)
+   t6                                  STORE counter = reg_B (= 6)
+
+  Expected: counter = 7
+  Actual:   counter = 6   ← one increment was lost</code></pre>
+</div>
+
+<p>This is called a <em>lost update</em> or <em>write-write conflict</em>. Thread B read a stale value (5) before Thread A stored its result (6), so Thread B's store overwrote Thread A's work. The increment that Thread A did simply vanished. Run this scenario 500,000 times across two threads and you can lose a substantial fraction of your increments &mdash; or all of them, depending on scheduling.</p>
+
+<p>What makes race conditions so treacherous is that they are non-deterministic. The program may run correctly a thousand times in testing, then silently corrupt data in production under load. The window for the bad interleaving might be microseconds wide. The bug does not crash &mdash; it quietly poisons state. You may not notice for hours, days, or years. Financial systems have been audited for millions of dollars of unexplained discrepancies that turned out to be races.</p>
+
+<pre><code><span class="label">C &mdash; race condition</span><span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;pthread.h&gt;</span>
+
+<span class="kw">static</span> <span class="ty">long</span> counter = <span class="nm">0</span>;
+
+<span class="kw">void</span> *<span class="fn">increment</span>(<span class="kw">void</span> *arg) {
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i &lt; <span class="nm">500000</span>; i++)
+        counter++;   <span class="cm">/* NOT atomic: load + add + store */</span>
+    <span class="kw">return</span> <span class="kw">NULL</span>;
+}
+
+<span class="ty">int</span> <span class="fn">main</span>() {
+    <span class="ty">pthread_t</span> a, b;
+    <span class="fn">pthread_create</span>(&amp;a, <span class="kw">NULL</span>, increment, <span class="kw">NULL</span>);
+    <span class="fn">pthread_create</span>(&amp;b, <span class="kw">NULL</span>, increment, <span class="kw">NULL</span>);
+    <span class="fn">pthread_join</span>(a, <span class="kw">NULL</span>);
+    <span class="fn">pthread_join</span>(b, <span class="kw">NULL</span>);
+    <span class="fn">printf</span>(<span class="st">"counter = %ld (expected 1000000)\n"</span>, counter);
+    <span class="cm">/* Typical output: counter = 634,821 */</span>
+    <span class="kw">return</span> <span class="nm">0</span>;
+}</code></pre>
+
+<div class="power">
+<div class="power-label">The Dragon</div>
+<p>Shared mutable state is the root of all concurrency bugs. Every race condition, deadlock, livelock, and priority inversion traces back to it. The only complete solution is to eliminate sharing (message passing), eliminate mutation (immutability), or control access (synchronization). Everything else is a variation on these three themes.</p>
+</div>
+
+<p>The antidote to the dragon is discipline: identify every piece of state that can be accessed by more than one thread, and ensure that all such accesses are properly coordinated. Easier said than done &mdash; in a large codebase the ownership of data is often implicit and the mutation paths are scattered. This is why languages like Rust encode ownership and aliasing rules in the type system: to make the dragon visible at compile time.</p>
+</section>
+
+<!-- ============================================================ -->
+<!-- CH 02: THE HARDWARE YOU IGNORE -->
+<!-- ============================================================ -->
+<section id="ch2">
+<h2>02 &mdash; the hardware you ignore</h2>
+
+<p>Most programmers write concurrent code without ever thinking about the CPU beneath their feet. This is a mistake. The hardware does not share your model of memory. It has caches, write buffers, out-of-order execution engines, and prefetchers &mdash; all optimized for single-threaded throughput, all capable of producing surprises when multiple cores are involved. To write correct concurrent code you need to understand what the hardware is actually doing.</p>
+
+<h3>The Cache Hierarchy</h3>
+
+<p>Modern CPUs are not connected directly to RAM. Access to RAM takes roughly 100 nanoseconds &mdash; an eternity at 3 GHz. To bridge the gap, every core has a private L1 cache (typically 32&ndash;64 KB, ~1 ns latency) and a private L2 cache (256 KB&ndash;1 MB, ~4 ns). A shared L3 cache (8&ndash;64 MB, ~12 ns) sits between the cores and RAM. The hierarchy exists purely for performance: most accesses hit L1 and never touch RAM at all.</p>
+
+<div class="diagram">
+<span class="diagram-label">CPU Cache Hierarchy &mdash; Latencies</span>
+<pre><code>  Core 0                    Core 1
+  ┌─────────────────┐       ┌─────────────────┐
+  │  L1d  32KB  ~1ns│       │  L1d  32KB  ~1ns│
+  │  L1i  32KB  ~1ns│       │  L1i  32KB  ~1ns│
+  ├─────────────────┤       ├─────────────────┤
+  │  L2  512KB  ~4ns│       │  L2  512KB  ~4ns│
+  └────────┬────────┘       └────────┬────────┘
+           │                         │
+           └─────────┬───────────────┘
+                     │
+          ┌──────────┴──────────┐
+          │   L3  32MB  ~12ns   │  (shared)
+          └──────────┬──────────┘
+                     │
+          ┌──────────┴──────────┐
+          │   RAM         ~100ns│
+          └─────────────────────┘</code></pre>
+</div>
+
+<h3>Cache Lines and MESI</h3>
+
+<p>Memory is not transferred between cache and RAM one byte at a time. It moves in <em>cache lines</em> &mdash; fixed-size blocks, universally 64 bytes on x86 and ARM. When you read one byte, you pull 64 bytes into your cache. When you write one byte, the entire 64-byte line becomes "dirty" and must eventually be written back.</p>
+
+<p>When multiple cores have copies of the same cache line, they must agree on who owns it. This coordination is handled by the <strong>MESI protocol</strong> (or one of its variants like MESIF or MOESI). Each cache line is in one of four states: <strong>M</strong>odified (dirty, only this core has it), <strong>E</strong>xclusive (clean, only this core has it), <strong>S</strong>hared (clean, multiple cores have it), or <strong>I</strong>nvalid (stale, must fetch before use).</p>
+
+<p>When Core 0 wants to write a cache line that Core 1 holds in Shared state, Core 0 must first broadcast a "Request for Ownership" (RFO) on the interconnect. Core 1 transitions its copy to Invalid. Core 0 transitions to Modified and performs the write. This round-trip across the cache interconnect costs roughly 40&ndash;80 ns &mdash; much worse than L1 but much better than RAM. The key insight is that <em>writing shared data is expensive</em>, not because of software overhead, but because of hardware cache coherence.</p>
+
+<div class="diagram">
+<span class="diagram-label">False Sharing &mdash; Two Variables in the Same Cache Line</span>
+<pre><code>  Cache line (64 bytes)
+  ┌────────────────────────────────────────────────────────────────┐
+  │  counter_A (8 bytes)  │  counter_B (8 bytes)  │  padding...   │
+  └────────────────────────────────────────────────────────────────┘
+        ↑                         ↑
+     Core 0 writes             Core 1 writes
+     (invalidates line)        (invalidates line)
+
+  Even though A and B are logically independent,
+  every write by Core 0 forces Core 1 to re-fetch,
+  and vice versa. Throughput collapses to serial.</code></pre>
+</div>
+
+<h3>False Sharing</h3>
+
+<p><em>False sharing</em> occurs when two threads write to different variables that happen to occupy the same cache line. The variables are logically independent &mdash; the threads are not sharing data &mdash; but the hardware does not know that. Every write by Thread A forces Thread B's copy of the cache line to be invalidated, triggering a coherence round-trip. The result is that two threads which appear to be running in parallel are actually serialized by the cache bus.</p>
+
+<p>False sharing is famously hard to diagnose because the code looks correct and runs correctly &mdash; it is just inexplicably slow. The fix is alignment: pad struct fields to cache-line boundaries so hot fields written by different threads live in different lines. The <code>alignas(64)</code> specifier in C11 and the <code>#[repr(align(64))]</code> attribute in Rust both serve this purpose.</p>
+
+<div class="power wild">
+<div class="power-label">False Sharing Can Be Worse Than a Mutex</div>
+<p>A benchmark expecting 2x speedup from two threads can show 0.5x &mdash; slower than single-threaded &mdash; due to false sharing. Tight counter loops can degrade by 5&ndash;10&times; compared to padded versions (Drepper, "What Every Programmer Should Know About Memory," 2007). The coherence traffic saturates the interconnect. Always profile with hardware performance counters (Linux <code>perf stat -e cache-misses</code>) before concluding that a concurrent design is correct.</p>
+</div>
+
+<h3>The Memory Model</h3>
+
+<p>Beyond caches, CPUs also reorder loads and stores for performance. A store to address X followed by a store to address Y may be observed by another core in Y-then-X order, because they went into different store-buffer slots. This is the <em>memory model</em> problem, and it is why atomic operations carry ordering annotations (see Chapter 5). The hardware is not being malicious &mdash; it is aggressively optimizing for single-threaded throughput. The multi-threaded programmer must explicitly tell the CPU when observation order matters.</p>
+
+<p>For GPU concurrency, the story is even more extreme: thousands of threads running in SIMT (Single Instruction Multiple Threads) lockstep on warps of 32, with a completely different memory hierarchy of registers, shared memory, L1, L2, and global memory. See the GPU deep dive for details.</p>
+</section>
+
+<!-- ============================================================ -->
+<!-- CH 03: MUTEXES FROM SCRATCH -->
+<!-- ============================================================ -->
+<section id="ch3">
+<h2>03 &mdash; mutexes from scratch</h2>
+
+<p>The oldest and most general solution to shared mutable state is the <em>mutual exclusion lock</em>, or mutex. A mutex is a token: only one thread can hold it at a time. Any thread that wants to access protected state must first acquire the mutex; any thread that cannot acquire it must wait. When the holding thread releases the mutex, one waiting thread is woken and given the token.</p>
+
+<h3>Building a Spinlock</h3>
+
+<p>The simplest possible mutex is a <em>spinlock</em>. A spinlock uses a single atomic flag. Acquiring means spinning in a loop, attempting a compare-and-swap (CAS) until it succeeds. Releasing means clearing the flag. No OS involvement, no context switch &mdash; just tight CPU loops.</p>
+
+<pre><code><span class="label">C &mdash; spinlock via CAS</span><span class="pp">#include</span> <span class="st">&lt;stdatomic.h&gt;</span>
+
+<span class="kw">typedef</span> <span class="kw">struct</span> { <span class="ty">atomic_flag</span> flag; } <span class="ty">spinlock_t</span>;
+
+<span class="kw">void</span> <span class="fn">spin_lock</span>(<span class="ty">spinlock_t</span> *s) {
+    <span class="kw">while</span> (<span class="fn">atomic_flag_test_and_set_explicit</span>(
+               &amp;s-&gt;flag, memory_order_acquire))
+        ; <span class="cm">/* burn CPU until flag is clear */</span>
+}
+
+<span class="kw">void</span> <span class="fn">spin_unlock</span>(<span class="ty">spinlock_t</span> *s) {
+    <span class="fn">atomic_flag_clear_explicit</span>(&amp;s-&gt;flag, memory_order_release);
+}</code></pre>
+
+<p>Spinlocks work well when the critical section is extremely short (tens of nanoseconds) and contention is rare. But they waste CPU cycles burning in a loop, which matters when:</p>
+<ul style="margin: 0.5rem 0 1rem 1.5rem; line-height: 2;">
+  <li>The lock holder is preempted by the OS (the spinner wastes its entire quantum)</li>
+  <li>The critical section is long (hundreds of microseconds)</li>
+  <li>You have more threads than cores (spinners prevent useful work)</li>
+</ul>
+
+<h3>The Futex: Fast Userspace Path</h3>
+
+<p>The Linux <code>futex</code> (fast userspace mutex) syscall solves the spinning problem by combining a userspace atomic with an OS wait queue. The fast path &mdash; acquiring an uncontended lock &mdash; is a single atomic CAS entirely in userspace, no syscall needed. Only on contention does the thread call into the kernel to be suspended, freeing the CPU for other work.</p>
+
+<div class="diagram">
+<span class="diagram-label">Futex State Machine</span>
+<pre><code>  States: 0 = unlocked, 1 = locked (no waiters), 2 = locked (waiters)
+
+  LOCK:
+    CAS(0 → 1)?  ──yes──▶  acquired (fast path, no syscall)
+        │no
+        ▼
+    CAS(1 → 2) or set to 2, then FUTEX_WAIT
+    (kernel suspends thread until value != 2)
+
+  UNLOCK:
+    atomic_sub → result 0?  ──yes──▶  done (no waiters)
+        │no
+        ▼
+    store 0, then FUTEX_WAKE(1)
+    (kernel wakes one waiter)</code></pre>
+</div>
+
+<p>The key insight of the futex: the common case (uncontended lock) is handled without any kernel involvement. You only pay the syscall overhead when you actually have to wait. This is why pthreads mutexes and Go's <code>sync.Mutex</code> are implemented on top of futexes on Linux: they are cheap when uncontended and correct when contended. See the syscalls deep dive for more on the futex syscall interface.</p>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-mutex" id="mutex-c" class="tc" checked>
+  <input type="radio" name="tabs-mutex" id="mutex-py" class="tpy">
+  <input type="radio" name="tabs-mutex" id="mutex-ts" class="tts">
+  <input type="radio" name="tabs-mutex" id="mutex-go" class="tgo">
+  <input type="radio" name="tabs-mutex" id="mutex-rs" class="trs">
+  <div class="tab-bar">
+    <label for="mutex-c">C</label>
+    <label for="mutex-py">Python</label>
+    <label for="mutex-ts">TypeScript</label>
+    <label for="mutex-go">Go</label>
+    <label for="mutex-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+<pre><code><span class="pp">#include</span> <span class="st">&lt;pthread.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+
+<span class="kw">static</span> <span class="ty">pthread_mutex_t</span> mu = PTHREAD_MUTEX_INITIALIZER;
+<span class="kw">static</span> <span class="ty">long</span> counter = <span class="nm">0</span>;
+
+<span class="kw">void</span> *<span class="fn">increment</span>(<span class="kw">void</span> *arg) {
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i &lt; <span class="nm">100000</span>; i++) {
+        <span class="fn">pthread_mutex_lock</span>(&amp;mu);
+        counter++;
+        <span class="fn">pthread_mutex_unlock</span>(&amp;mu);
+    }
+    <span class="kw">return</span> <span class="kw">NULL</span>;
+}
+
+<span class="ty">int</span> <span class="fn">main</span>() {
+    <span class="ty">pthread_t</span> a, b;
+    <span class="fn">pthread_create</span>(&amp;a, <span class="kw">NULL</span>, increment, <span class="kw">NULL</span>);
+    <span class="fn">pthread_create</span>(&amp;b, <span class="kw">NULL</span>, increment, <span class="kw">NULL</span>);
+    <span class="fn">pthread_join</span>(a, <span class="kw">NULL</span>);
+    <span class="fn">pthread_join</span>(b, <span class="kw">NULL</span>);
+    <span class="fn">printf</span>(<span class="st">"counter = %ld\n"</span>, counter); <span class="cm">/* always 200000 */</span>
+}</code></pre>
+  </div>
+  <div class="tab-content py">
+<pre><code><span class="kw">import</span> threading
+
+counter = <span class="nm">0</span>
+mu = threading.<span class="ty">Lock</span>()
+
+<span class="kw">def</span> <span class="fn">increment</span>():
+    <span class="kw">global</span> counter
+    <span class="kw">for</span> _ <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">100000</span>):
+        <span class="kw">with</span> mu:          <span class="cm"># context manager: acquires + releases</span>
+            counter += <span class="nm">1</span>
+
+threads = [threading.<span class="ty">Thread</span>(target=increment) <span class="kw">for</span> _ <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">2</span>)]
+<span class="kw">for</span> t <span class="kw">in</span> threads: t.<span class="fn">start</span>()
+<span class="kw">for</span> t <span class="kw">in</span> threads: t.<span class="fn">join</span>()
+<span class="fn">print</span>(counter)  <span class="cm"># always 200000</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+<pre><code><span class="cm">// TypeScript: no built-in mutex — model with Promise queue</span>
+<span class="kw">class</span> <span class="ty">AsyncMutex</span> {
+  <span class="kw">private</span> queue: Array&lt;() =&gt; <span class="ty">void</span>&gt; = [];
+  <span class="kw">private</span> locked = <span class="kw">false</span>;
+
+  <span class="fn">acquire</span>(): <span class="ty">Promise</span>&lt;<span class="ty">void</span>&gt; {
+    <span class="kw">return new</span> <span class="ty">Promise</span>(resolve =&gt; {
+      <span class="kw">if</span> (!<span class="kw">this</span>.locked) {
+        <span class="kw">this</span>.locked = <span class="kw">true</span>;
+        <span class="fn">resolve</span>();
+      } <span class="kw">else</span> {
+        <span class="kw">this</span>.queue.<span class="fn">push</span>(resolve);
+      }
+    });
+  }
+
+  <span class="fn">release</span>(): <span class="ty">void</span> {
+    <span class="kw">if</span> (<span class="kw">this</span>.queue.length &gt; <span class="nm">0</span>) {
+      <span class="kw">const</span> next = <span class="kw">this</span>.queue.<span class="fn">shift</span>()!;
+      <span class="fn">next</span>();           <span class="cm">// hand lock to next waiter</span>
+    } <span class="kw">else</span> {
+      <span class="kw">this</span>.locked = <span class="kw">false</span>;
+    }
+  }
+}
+
+<span class="kw">const</span> mu = <span class="kw">new</span> <span class="ty">AsyncMutex</span>();
+<span class="kw">let</span> counter = <span class="nm">0</span>;
+
+<span class="kw">async function</span> <span class="fn">increment</span>() {
+  <span class="kw">await</span> mu.<span class="fn">acquire</span>();
+  <span class="kw">try</span> { counter++; } <span class="kw">finally</span> { mu.<span class="fn">release</span>(); }
+}</code></pre>
+  </div>
+  <div class="tab-content go">
+<pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"fmt"</span>
+    <span class="st">"sync"</span>
+)
+
+<span class="kw">var</span> (
+    mu      sync.<span class="ty">Mutex</span>
+    counter <span class="ty">int</span>
+)
+
+<span class="kw">func</span> <span class="fn">increment</span>(wg *sync.<span class="ty">WaitGroup</span>) {
+    <span class="kw">defer</span> wg.<span class="fn">Done</span>()
+    <span class="kw">for</span> i := <span class="nm">0</span>; i &lt; <span class="nm">100000</span>; i++ {
+        mu.<span class="fn">Lock</span>()
+        counter++
+        mu.<span class="fn">Unlock</span>()
+    }
+}
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="kw">var</span> wg sync.<span class="ty">WaitGroup</span>
+    wg.<span class="fn">Add</span>(<span class="nm">2</span>)
+    <span class="kw">go</span> <span class="fn">increment</span>(&amp;wg)
+    <span class="kw">go</span> <span class="fn">increment</span>(&amp;wg)
+    wg.<span class="fn">Wait</span>()
+    fmt.<span class="fn">Println</span>(counter) <span class="cm">// always 200000</span>
+}</code></pre>
+  </div>
+  <div class="tab-content rs">
+<pre><code><span class="kw">use</span> std::sync::{<span class="ty">Arc</span>, <span class="ty">Mutex</span>};
+<span class="kw">use</span> std::thread;
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> counter = <span class="ty">Arc</span>::<span class="fn">new</span>(<span class="ty">Mutex</span>::<span class="fn">new</span>(<span class="nm">0i64</span>));
+
+    <span class="kw">let</span> handles: <span class="ty">Vec</span>&lt;_&gt; = (<span class="nm">0</span>..<span class="nm">2</span>).<span class="fn">map</span>(|_| {
+        <span class="kw">let</span> c = counter.<span class="fn">clone</span>();
+        thread::<span class="fn">spawn</span>(<span class="kw">move</span> || {
+            <span class="kw">for</span> _ <span class="kw">in</span> <span class="nm">0</span>..<span class="nm">100_000</span> {
+                <span class="kw">let mut</span> guard = c.<span class="fn">lock</span>().<span class="fn">unwrap</span>();
+                *guard += <span class="nm">1</span>;
+            } <span class="cm">// guard drops here, releasing the lock</span>
+        })
+    }).<span class="fn">collect</span>();
+
+    <span class="kw">for</span> h <span class="kw">in</span> handles { h.<span class="fn">join</span>().<span class="fn">unwrap</span>(); }
+    println!(<span class="st">"{}"</span>, *counter.<span class="fn">lock</span>().<span class="fn">unwrap</span>()); <span class="cm">// 200000</span>
+}</code></pre>
+  </div>
+</div>
+
+<div class="power zen">
+<div class="power-label">Mutex Poisoning (Rust)</div>
+<p>In Rust, if a thread panics while holding a <code>Mutex</code>, the mutex becomes "poisoned." Subsequent <code>lock()</code> calls return <code>Err(PoisonError)</code>, forcing callers to decide whether to proceed with potentially inconsistent state. This prevents silent corruption from propagating &mdash; a design choice unique to Rust's ownership model.</p>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<!-- CH 04: SEMAPHORES AND CONDVARS -->
+<!-- ============================================================ -->
+<section id="ch4">
+<h2>04 &mdash; semaphores and condition variables</h2>
+
+<p>A mutex is binary: you either have it or you don't. But many real coordination problems require counting. A connection pool has 10 slots. A rate limiter allows 100 requests per second. A thread pool has a work queue with bounded capacity. For these scenarios, <em>semaphores</em> generalize the mutex concept to an integer counter.</p>
+
+<h3>Counting Semaphores</h3>
+
+<p>A semaphore has two operations, traditionally called P (proberen, "try") and V (verhogen, "increment"), or equivalently <code>wait</code>/<code>signal</code>, or <code>acquire</code>/<code>release</code>. <code>wait</code> decrements the counter; if it would go negative, the caller blocks. <code>signal</code> increments the counter and wakes one waiter. A binary semaphore (initial value 1) is equivalent to a mutex. A counting semaphore (initial value N) allows N threads to proceed simultaneously.</p>
+
+<div class="diagram">
+<span class="diagram-label">Producer-Consumer with Bounded Buffer (Semaphores)</span>
+<pre><code>  Semaphores:
+    empty  = N   (slots available to fill)
+    filled = 0   (slots available to consume)
+    mutex  = 1   (guard on buffer itself)
+
+  PRODUCER:                    CONSUMER:
+    wait(empty)                  wait(filled)
+    wait(mutex)                  wait(mutex)
+    buffer[in] = item            item = buffer[out]
+    in = (in+1) % N              out = (out+1) % N
+    signal(mutex)                signal(mutex)
+    signal(filled)               signal(empty)
+
+  ─────────────────────────────────────────────
+  Buffer:  [ P ][ P ][ P ][   ][   ]
+            ↑out            ↑in
+  filled=3, empty=2  →  3 items waiting, 2 slots free</code></pre>
+</div>
+
+<h3>Condition Variables</h3>
+
+<p>Semaphores are elegant but limited: they carry a count but no information about <em>why</em> threads are waiting. <em>Condition variables</em> (condvars) solve this. A condvar lets a thread atomically release a mutex and go to sleep until some predicate becomes true. The atomicity of "release and sleep" is critical: without it you get a missed-wakeup race.</p>
+
+<p>The canonical pattern is to always check the condition in a <code>while</code> loop, not an <code>if</code>. This defends against <em>spurious wakeups</em>: the OS is allowed to wake a thread from <code>pthread_cond_wait</code> for no reason. POSIX explicitly permits this as a performance tradeoff. A waiting thread might be woken, re-acquire the mutex, check the condition, find it false, and go back to sleep. The <code>while</code> loop makes this safe; an <code>if</code> would proceed on false data.</p>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-semcv" id="semcv-c" class="tc" checked>
+  <input type="radio" name="tabs-semcv" id="semcv-py" class="tpy">
+  <input type="radio" name="tabs-semcv" id="semcv-ts" class="tts">
+  <input type="radio" name="tabs-semcv" id="semcv-go" class="tgo">
+  <input type="radio" name="tabs-semcv" id="semcv-rs" class="trs">
+  <div class="tab-bar">
+    <label for="semcv-c">C</label>
+    <label for="semcv-py">Python</label>
+    <label for="semcv-ts">TypeScript</label>
+    <label for="semcv-go">Go</label>
+    <label for="semcv-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+<pre><code><span class="pp">#include</span> <span class="st">&lt;pthread.h&gt;</span>
+<span class="pp">#define</span> <span class="nm">BUF_SIZE</span> <span class="nm">8</span>
+
+<span class="ty">pthread_mutex_t</span> mu = PTHREAD_MUTEX_INITIALIZER;
+<span class="ty">pthread_cond_t</span>  not_full  = PTHREAD_COND_INITIALIZER;
+<span class="ty">pthread_cond_t</span>  not_empty = PTHREAD_COND_INITIALIZER;
+<span class="ty">int</span> buf[BUF_SIZE], head = <span class="nm">0</span>, tail = <span class="nm">0</span>, count = <span class="nm">0</span>;
+
+<span class="kw">void</span> <span class="fn">produce</span>(<span class="ty">int</span> item) {
+    <span class="fn">pthread_mutex_lock</span>(&amp;mu);
+    <span class="kw">while</span> (count == BUF_SIZE)           <span class="cm">/* WHILE, not if */</span>
+        <span class="fn">pthread_cond_wait</span>(&amp;not_full, &amp;mu);
+    buf[tail] = item;
+    tail = (tail + <span class="nm">1</span>) % BUF_SIZE;
+    count++;
+    <span class="fn">pthread_cond_signal</span>(&amp;not_empty);
+    <span class="fn">pthread_mutex_unlock</span>(&amp;mu);
+}
+
+<span class="ty">int</span> <span class="fn">consume</span>() {
+    <span class="fn">pthread_mutex_lock</span>(&amp;mu);
+    <span class="kw">while</span> (count == <span class="nm">0</span>)                  <span class="cm">/* WHILE, not if */</span>
+        <span class="fn">pthread_cond_wait</span>(&amp;not_empty, &amp;mu);
+    <span class="ty">int</span> item = buf[head];
+    head = (head + <span class="nm">1</span>) % BUF_SIZE;
+    count--;
+    <span class="fn">pthread_cond_signal</span>(&amp;not_full);
+    <span class="fn">pthread_mutex_unlock</span>(&amp;mu);
+    <span class="kw">return</span> item;
+}</code></pre>
+  </div>
+  <div class="tab-content py">
+<pre><code><span class="kw">import</span> threading
+
+<span class="cm"># Python's Condition wraps a Lock + condvar together</span>
+buf, MAX = [], <span class="nm">8</span>
+cond = threading.<span class="ty">Condition</span>()
+
+<span class="kw">def</span> <span class="fn">produce</span>(item):
+    <span class="kw">with</span> cond:
+        <span class="kw">while</span> <span class="fn">len</span>(buf) == MAX:
+            cond.<span class="fn">wait</span>()       <span class="cm"># atomically release + sleep</span>
+        buf.<span class="fn">append</span>(item)
+        cond.<span class="fn">notify_all</span>()
+
+<span class="kw">def</span> <span class="fn">consume</span>():
+    <span class="kw">with</span> cond:
+        <span class="kw">while</span> <span class="fn">len</span>(buf) == <span class="nm">0</span>:
+            cond.<span class="fn">wait</span>()
+        item = buf.<span class="fn">pop</span>(<span class="nm">0</span>)
+        cond.<span class="fn">notify_all</span>()
+        <span class="kw">return</span> item
+
+<span class="cm"># Semaphore: counting permit pool</span>
+sem = threading.<span class="ty">Semaphore</span>(<span class="nm">5</span>)  <span class="cm"># allow 5 concurrent</span>
+<span class="kw">with</span> sem:
+    <span class="fn">print</span>(<span class="st">"holding permit"</span>)   <span class="cm"># sem released on exit</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+<pre><code><span class="cm">// TypeScript: async semaphore using Promise queue</span>
+<span class="kw">class</span> <span class="ty">Semaphore</span> {
+  <span class="kw">private</span> count: <span class="ty">number</span>;
+  <span class="kw">private</span> waiters: Array&lt;() =&gt; <span class="ty">void</span>&gt; = [];
+
+  <span class="kw">constructor</span>(initial: <span class="ty">number</span>) { <span class="kw">this</span>.count = initial; }
+
+  <span class="fn">acquire</span>(): <span class="ty">Promise</span>&lt;<span class="ty">void</span>&gt; {
+    <span class="kw">if</span> (<span class="kw">this</span>.count &gt; <span class="nm">0</span>) { <span class="kw">this</span>.count--; <span class="kw">return</span> <span class="ty">Promise</span>.<span class="fn">resolve</span>(); }
+    <span class="kw">return new</span> <span class="ty">Promise</span>(r =&gt; <span class="kw">this</span>.waiters.<span class="fn">push</span>(r));
+  }
+
+  <span class="fn">release</span>(): <span class="ty">void</span> {
+    <span class="kw">const</span> next = <span class="kw">this</span>.waiters.<span class="fn">shift</span>();
+    <span class="kw">if</span> (next) <span class="fn">next</span>();
+    <span class="kw">else</span> <span class="kw">this</span>.count++;
+  }
+}
+
+<span class="cm">// Usage: limit to 3 concurrent async operations</span>
+<span class="kw">const</span> sem = <span class="kw">new</span> <span class="ty">Semaphore</span>(<span class="nm">3</span>);
+
+<span class="kw">async function</span> <span class="fn">rateLimited</span>(task: () =&gt; <span class="ty">Promise</span>&lt;<span class="ty">void</span>&gt;) {
+  <span class="kw">await</span> sem.<span class="fn">acquire</span>();
+  <span class="kw">try</span> { <span class="kw">await</span> <span class="fn">task</span>(); }
+  <span class="kw">finally</span> { sem.<span class="fn">release</span>(); }
+}</code></pre>
+  </div>
+  <div class="tab-content go">
+<pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> <span class="st">"sync"</span>
+
+<span class="cm">// Go: use sync.Cond for condvar</span>
+<span class="kw">type</span> <span class="ty">BoundedQueue</span> <span class="kw">struct</span> {
+    mu   sync.<span class="ty">Mutex</span>
+    cond *sync.<span class="ty">Cond</span>
+    buf  []<span class="ty">int</span>
+    max  <span class="ty">int</span>
+}
+
+<span class="kw">func</span> <span class="fn">NewQueue</span>(max <span class="ty">int</span>) *<span class="ty">BoundedQueue</span> {
+    q := &amp;<span class="ty">BoundedQueue</span>{max: max}
+    q.cond = sync.<span class="fn">NewCond</span>(&amp;q.mu)
+    <span class="kw">return</span> q
+}
+
+<span class="kw">func</span> (q *<span class="ty">BoundedQueue</span>) <span class="fn">Put</span>(item <span class="ty">int</span>) {
+    q.mu.<span class="fn">Lock</span>(); <span class="kw">defer</span> q.mu.<span class="fn">Unlock</span>()
+    <span class="kw">for</span> <span class="fn">len</span>(q.buf) == q.max {
+        q.cond.<span class="fn">Wait</span>()  <span class="cm">// atomically unlocks + sleeps</span>
+    }
+    q.buf = <span class="fn">append</span>(q.buf, item)
+    q.cond.<span class="fn">Broadcast</span>()
+}
+
+<span class="kw">func</span> (q *<span class="ty">BoundedQueue</span>) <span class="fn">Get</span>() <span class="ty">int</span> {
+    q.mu.<span class="fn">Lock</span>(); <span class="kw">defer</span> q.mu.<span class="fn">Unlock</span>()
+    <span class="kw">for</span> <span class="fn">len</span>(q.buf) == <span class="nm">0</span> {
+        q.cond.<span class="fn">Wait</span>()
+    }
+    item := q.buf[<span class="nm">0</span>]; q.buf = q.buf[<span class="nm">1</span>:]
+    q.cond.<span class="fn">Broadcast</span>()
+    <span class="kw">return</span> item
+}</code></pre>
+  </div>
+  <div class="tab-content rs">
+<pre><code><span class="kw">use</span> std::sync::{<span class="ty">Arc</span>, <span class="ty">Condvar</span>, <span class="ty">Mutex</span>};
+
+<span class="kw">struct</span> <span class="ty">BoundedQueue</span> {
+    inner: <span class="ty">Mutex</span>&lt;(<span class="ty">Vec</span>&lt;<span class="ty">i32</span>&gt;, <span class="ty">usize</span>)&gt;,
+    not_full:  <span class="ty">Condvar</span>,
+    not_empty: <span class="ty">Condvar</span>,
+}
+
+<span class="kw">impl</span> <span class="ty">BoundedQueue</span> {
+    <span class="kw">fn</span> <span class="fn">put</span>(&amp;<span class="kw">self</span>, item: <span class="ty">i32</span>) {
+        <span class="kw">let mut</span> guard = <span class="kw">self</span>.inner.<span class="fn">lock</span>().<span class="fn">unwrap</span>();
+        <span class="kw">let</span> max = guard.<span class="nm">1</span>;
+        guard = <span class="kw">self</span>.not_full.<span class="fn">wait_while</span>(guard,
+            |state| state.<span class="nm">0</span>.<span class="fn">len</span>() == max).<span class="fn">unwrap</span>();
+        guard.<span class="nm">0</span>.<span class="fn">push</span>(item);
+        <span class="kw">self</span>.not_empty.<span class="fn">notify_one</span>();
+    }
+
+    <span class="kw">fn</span> <span class="fn">get</span>(&amp;<span class="kw">self</span>) -&gt; <span class="ty">i32</span> {
+        <span class="kw">let mut</span> guard = <span class="kw">self</span>.inner.<span class="fn">lock</span>().<span class="fn">unwrap</span>();
+        guard = <span class="kw">self</span>.not_empty.<span class="fn">wait_while</span>(guard,
+            |state| state.<span class="nm">0</span>.<span class="fn">is_empty</span>()).<span class="fn">unwrap</span>();
+        <span class="kw">let</span> item = guard.<span class="nm">0</span>.<span class="fn">remove</span>(<span class="nm">0</span>);
+        <span class="kw">self</span>.not_full.<span class="fn">notify_one</span>();
+        item
+    }
+}</code></pre>
+  </div>
+</div>
+
+<div class="power hack">
+<div class="power-label">Spurious Wakeup Defence</div>
+<p>Always wrap <code>cond_wait</code> in a <code>while</code> loop that re-checks the predicate, never an <code>if</code>. POSIX permits spurious wakeups as an explicit optimization latitude. Linux futex wakeups can also be caused by signal delivery. The <code>while</code> loop costs almost nothing when the predicate is true and prevents silent bugs when it isn't.</p>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<!-- CH 05: ATOMICS -->
+<!-- ============================================================ -->
+<section id="ch5">
+<h2>05 &mdash; atomics: the fine print</h2>
+
+<p>Not every shared-state problem requires a mutex. For simple numeric counters, flags, and pointers, <em>atomic operations</em> provide a lighter-weight solution: single machine instructions that are guaranteed to be indivisible. No other thread can observe a partial state. The hardware provides these primitives &mdash; compare-and-swap, fetch-and-add, test-and-set &mdash; and the language exposes them through a thin wrapper.</p>
+
+<h3>Compare-and-Swap</h3>
+
+<p>The most powerful atomic primitive is <em>compare-and-swap</em> (CAS). CAS takes three arguments: a memory address, an expected value, and a new value. Atomically, it reads the address, compares to expected, and if equal, writes new. It returns whether the swap happened. Everything that is built on top of atomics &mdash; spinlocks, lock-free stacks, queues, skip lists &mdash; uses CAS as its building block.</p>
+
+<div class="diagram">
+<span class="diagram-label">CAS Loop &mdash; Lock-Free Increment</span>
+<pre><code>  Atomic increment via CAS:
+
+  do {
+      old = load(counter)           ← read current value
+      new = old + 1                 ← compute desired value
+  } while (!CAS(counter, old, new)) ← retry if someone else changed it
+
+  Thread A: old=5, new=6, CAS succeeds → counter=6
+  Thread B: old=5, new=6, CAS fails   → retry: old=6, new=7, CAS succeeds
+
+  No mutex needed. Each thread retries until it "wins" the CAS.</code></pre>
+</div>
+
+<h3>Memory Orderings</h3>
+
+<p>An atomic operation being indivisible does not mean it is globally ordered with respect to surrounding non-atomic operations. The CPU and compiler are free to reorder instructions around atomics unless you explicitly constrain them. Memory orderings specify what reorderings are permitted.</p>
+
+<p><strong>Relaxed</strong>: The operation is atomic but carries no ordering guarantee with respect to other memory operations. Suitable for counters where you only care about the final total.</p>
+
+<p><strong>Acquire/Release</strong>: A Release store pairs with an Acquire load to form a happens-before edge. Everything written before the Release is visible to any thread that subsequently loads with Acquire. This is the primitive for implementing locks and message-passing handoffs.</p>
+
+<p><strong>SeqCst</strong> (sequentially consistent): The strongest guarantee. All SeqCst operations across all threads appear in a single total order that every thread agrees on. Safe but requires a full memory fence on x86 (MFENCE) and is significantly slower. Use only when you need cross-thread ordering guarantees that Acquire/Release cannot express.</p>
+
+<div class="diagram">
+<span class="diagram-label">Memory Ordering Fence Semantics</span>
+<pre><code>  RELEASE store (unlock):             ACQUIRE load (lock):
+
+  write A                             lock (acquire load)
+  write B                             ──────────────  ← fence
+  write C                             read A   ← sees write A
+  ──────────────  ← fence             read B   ← sees write B
+  store(flag=1, Release)              read C   ← sees write C
+
+  Everything before the Release       Everything after the Acquire
+  fence is visible to any thread      sees everything before the
+  that subsequently Acquires.         matching Release.</code></pre>
+</div>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-atomics" id="atomics-c" class="tc" checked>
+  <input type="radio" name="tabs-atomics" id="atomics-py" class="tpy">
+  <input type="radio" name="tabs-atomics" id="atomics-ts" class="tts">
+  <input type="radio" name="tabs-atomics" id="atomics-go" class="tgo">
+  <input type="radio" name="tabs-atomics" id="atomics-rs" class="trs">
+  <div class="tab-bar">
+    <label for="atomics-c">C</label>
+    <label for="atomics-py">Python</label>
+    <label for="atomics-ts">TypeScript</label>
+    <label for="atomics-go">Go</label>
+    <label for="atomics-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+<pre><code><span class="pp">#include</span> <span class="st">&lt;stdatomic.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+
+<span class="ty">atomic_long</span> counter = <span class="nm">0</span>;
+
+<span class="kw">void</span> <span class="fn">inc_relaxed</span>() {
+    <span class="fn">atomic_fetch_add_explicit</span>(&amp;counter, <span class="nm">1</span>, memory_order_relaxed);
+}
+
+<span class="kw">void</span> <span class="fn">inc_cas</span>() {
+    <span class="ty">long</span> old, desired;
+    <span class="kw">do</span> {
+        old = <span class="fn">atomic_load_explicit</span>(&amp;counter, memory_order_relaxed);
+        desired = old + <span class="nm">1</span>;
+    } <span class="kw">while</span> (!<span class="fn">atomic_compare_exchange_weak_explicit</span>(
+        &amp;counter, &amp;old, desired,
+        memory_order_release, memory_order_relaxed));
+}
+
+<span class="ty">int</span> <span class="fn">main</span>() {
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i &lt; <span class="nm">1000</span>; i++) <span class="fn">inc_relaxed</span>();
+    <span class="fn">printf</span>(<span class="st">"%ld\n"</span>, <span class="fn">atomic_load</span>(&amp;counter));
+}</code></pre>
+  </div>
+  <div class="tab-content py">
+<pre><code><span class="kw">import</span> threading
+
+<span class="cm"># Python has no atomics exposed to user code.
+# The GIL serializes bytecode but do not rely on it for correctness.</span>
+counter = <span class="nm">0</span>
+lock = threading.<span class="ty">Lock</span>()
+
+<span class="kw">def</span> <span class="fn">safe_inc</span>():
+    <span class="kw">global</span> counter
+    <span class="kw">with</span> lock:
+        counter += <span class="nm">1</span>
+
+<span class="cm"># For multiprocessing (real parallelism), use Value with lock=True</span>
+<span class="kw">from</span> multiprocessing <span class="kw">import</span> <span class="ty">Value</span>
+shared = <span class="ty">Value</span>(<span class="st">'l'</span>, <span class="nm">0</span>, lock=<span class="kw">True</span>)
+<span class="kw">with</span> shared.<span class="fn">get_lock</span>():
+    shared.value += <span class="nm">1</span>
+<span class="fn">print</span>(shared.value)</code></pre>
+  </div>
+  <div class="tab-content ts">
+<pre><code><span class="cm">// TypeScript/JS: SharedArrayBuffer + Atomics API (workers only)</span>
+<span class="kw">const</span> sab = <span class="kw">new</span> SharedArrayBuffer(<span class="nm">4</span>);
+<span class="kw">const</span> view = <span class="kw">new</span> Int32Array(sab);
+
+<span class="cm">// Atomic add — safe across worker threads:</span>
+Atomics.<span class="fn">add</span>(view, <span class="nm">0</span>, <span class="nm">1</span>);
+Atomics.<span class="fn">compareExchange</span>(view, <span class="nm">0</span>, <span class="nm">1</span>, <span class="nm">42</span>);
+<span class="kw">const</span> val = Atomics.<span class="fn">load</span>(view, <span class="nm">0</span>);
+console.<span class="fn">log</span>(<span class="st">'value:'</span>, val);
+
+<span class="cm">// Atomics.wait blocks a worker until notified:
+// Atomics.wait(view, 0, 42);   // park until view[0] != 42
+// Atomics.notify(view, 0, 1);  // wake 1 waiter</span></code></pre>
+  </div>
+  <div class="tab-content go">
+<pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"fmt"</span>
+    <span class="st">"sync/atomic"</span>
+)
+
+<span class="kw">var</span> counter <span class="ty">int64</span>
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    atomic.<span class="fn">AddInt64</span>(&amp;counter, <span class="nm">1</span>)
+
+    swapped := atomic.<span class="fn">CompareAndSwapInt64</span>(&amp;counter, <span class="nm">1</span>, <span class="nm">42</span>)
+    fmt.<span class="fn">Println</span>(swapped, counter) <span class="cm">// true 42</span>
+
+    <span class="cm">// Go 1.19+: typed atomic (safer)</span>
+    <span class="kw">var</span> a atomic.<span class="ty">Int64</span>
+    a.<span class="fn">Store</span>(<span class="nm">100</span>)
+    fmt.<span class="fn">Println</span>(a.<span class="fn">Load</span>()) <span class="cm">// 100</span>
+    fmt.<span class="fn">Println</span>(a.<span class="fn">Add</span>(<span class="nm">1</span>))  <span class="cm">// 101</span>
+}</code></pre>
+  </div>
+  <div class="tab-content rs">
+<pre><code><span class="kw">use</span> std::sync::atomic::{<span class="ty">AtomicI64</span>, <span class="ty">Ordering</span>};
+
+<span class="kw">static</span> COUNTER: <span class="ty">AtomicI64</span> = <span class="ty">AtomicI64</span>::<span class="fn">new</span>(<span class="nm">0</span>);
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    COUNTER.<span class="fn">fetch_add</span>(<span class="nm">1</span>, <span class="ty">Ordering</span>::Relaxed);
+    COUNTER.<span class="fn">store</span>(<span class="nm">42</span>, <span class="ty">Ordering</span>::Release);
+    <span class="kw">let</span> v = COUNTER.<span class="fn">load</span>(<span class="ty">Ordering</span>::Acquire);
+    println!(<span class="st">"{}"</span>, v); <span class="cm">// 42</span>
+
+    <span class="kw">let</span> result = COUNTER.<span class="fn">compare_exchange</span>(
+        <span class="nm">42</span>, <span class="nm">99</span>,
+        <span class="ty">Ordering</span>::AcqRel,
+        <span class="ty">Ordering</span>::Acquire,
+    );
+    println!(<span class="st">"{:?}"</span>, result); <span class="cm">// Ok(42)</span>
+}</code></pre>
+  </div>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Demonstrate that Python counter increments can lose updates even with the GIL, by simulating the race logic explicitly:</p>
+<pre><code>import threading, time
+
+counter = 0
+lost = 0
+
+def racy_increment(n):
+    global counter, lost
+    for _ in range(n):
+        old = counter
+        # Simulate the window between load and store
+        counter = old + 1
+
+threads = [threading.Thread(target=racy_increment, args=(50000,)) for _ in range(2)]
+for t in threads: t.start()
+for t in threads: t.join()
+
+expected = 100000
+print(f"Expected: {expected}")
+print(f"Got:      {counter}")
+print(f"Lost:     {expected - counter} updates")</code></pre>
+</div>
+
+<div class="power">
+<div class="power-label">Memory Order Cheat Sheet</div>
+<p>Use <strong>Relaxed</strong> for statistics counters (final value only, no ordering needed). Use <strong>Release</strong> on the write side and <strong>Acquire</strong> on the read side of any flag-based handoff. Use <strong>SeqCst</strong> when you need a globally consistent view of multiple atomics &mdash; but benchmark first; it can cost 5&ndash;10x over Relaxed on ARM.</p>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<!-- CH 06: LOCK-FREE -->
+<!-- ============================================================ -->
+<section id="ch6">
+<h2>06 &mdash; lock-free data structures</h2>
+
+<p>Lock-free data structures make a stronger promise than mutex-protected ones: the system as a whole makes progress even if some threads are arbitrarily delayed. No thread can hold a lock and be preempted, blocking every other thread indefinitely. This property &mdash; called <em>lock-freedom</em> &mdash; makes these structures attractive for real-time systems, signal handlers, and high-contention hot paths where even a momentarily-held mutex becomes a bottleneck.</p>
+
+<h3>The Treiber Stack</h3>
+
+<p>The canonical lock-free data structure is the Treiber stack (1986). It is a singly-linked list whose head pointer is atomic. To push: allocate a new node, set its next pointer to the current head, then CAS the head. To pop: load the head, CAS head to head.next. If either CAS fails because another thread intervened, simply retry. No mutex is ever acquired; forward progress requires only that <em>some</em> thread succeeds each round.</p>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-lockfree" id="lockfree-c" class="tc" checked>
+  <input type="radio" name="tabs-lockfree" id="lockfree-py" class="tpy">
+  <input type="radio" name="tabs-lockfree" id="lockfree-ts" class="tts">
+  <input type="radio" name="tabs-lockfree" id="lockfree-go" class="tgo">
+  <input type="radio" name="tabs-lockfree" id="lockfree-rs" class="trs">
+  <div class="tab-bar">
+    <label for="lockfree-c">C</label>
+    <label for="lockfree-py">Python</label>
+    <label for="lockfree-ts">TypeScript</label>
+    <label for="lockfree-go">Go</label>
+    <label for="lockfree-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+<pre><code><span class="pp">#include</span> <span class="st">&lt;stdatomic.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdlib.h&gt;</span>
+
+<span class="kw">typedef</span> <span class="kw">struct</span> <span class="ty">Node</span> { <span class="ty">int</span> val; <span class="kw">struct</span> <span class="ty">Node</span> *next; } <span class="ty">Node</span>;
+<span class="kw">typedef</span> <span class="kw">struct</span> { _Atomic(<span class="ty">Node</span>*) head; } <span class="ty">Stack</span>;
+
+<span class="kw">void</span> <span class="fn">push</span>(<span class="ty">Stack</span> *s, <span class="ty">int</span> val) {
+    <span class="ty">Node</span> *n = <span class="fn">malloc</span>(<span class="kw">sizeof</span>(<span class="ty">Node</span>));
+    n-&gt;val = val;
+    <span class="kw">do</span> {
+        n-&gt;next = <span class="fn">atomic_load</span>(&amp;s-&gt;head);
+    } <span class="kw">while</span> (!<span class="fn">atomic_compare_exchange_weak</span>(&amp;s-&gt;head, &amp;n-&gt;next, n));
+}
+
+<span class="ty">int</span> <span class="fn">pop</span>(<span class="ty">Stack</span> *s, <span class="ty">int</span> *out) {
+    <span class="ty">Node</span> *old;
+    <span class="kw">do</span> {
+        old = <span class="fn">atomic_load</span>(&amp;s-&gt;head);
+        <span class="kw">if</span> (!old) <span class="kw">return</span> <span class="nm">0</span>;
+    } <span class="kw">while</span> (!<span class="fn">atomic_compare_exchange_weak</span>(&amp;s-&gt;head, &amp;old, old-&gt;next));
+    *out = old-&gt;val;
+    <span class="cm">/* NOTE: freeing old requires hazard pointers to avoid UAF */</span>
+    <span class="kw">return</span> <span class="nm">1</span>;
+}</code></pre>
+  </div>
+  <div class="tab-content py">
+<pre><code><span class="kw">import</span> threading
+
+<span class="cm"># Python has no true lock-free primitives.
+# Demonstrate the CAS-retry pattern logic with a mutex-backed stack.</span>
+
+<span class="kw">class</span> <span class="ty">TrieberStack</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self):
+        self._head = <span class="kw">None</span>
+        self._lock = threading.<span class="ty">Lock</span>()
+
+    <span class="kw">def</span> <span class="fn">push</span>(self, val):
+        <span class="kw">with</span> self._lock:
+            node = {<span class="st">'val'</span>: val, <span class="st">'next'</span>: self._head}
+            self._head = node
+
+    <span class="kw">def</span> <span class="fn">pop</span>(self):
+        <span class="kw">with</span> self._lock:
+            <span class="kw">if</span> self._head <span class="kw">is None</span>: <span class="kw">return None</span>
+            val = self._head[<span class="st">'val'</span>]
+            self._head = self._head[<span class="st">'next'</span>]
+            <span class="kw">return</span> val
+
+s = <span class="ty">TrieberStack</span>()
+s.<span class="fn">push</span>(<span class="nm">1</span>); s.<span class="fn">push</span>(<span class="nm">2</span>); s.<span class="fn">push</span>(<span class="nm">3</span>)
+<span class="fn">print</span>(s.<span class="fn">pop</span>(), s.<span class="fn">pop</span>(), s.<span class="fn">pop</span>())  <span class="cm"># 3 2 1</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+<pre><code><span class="cm">// TypeScript: single-threaded, no real concurrency.
+// Lock-free pattern for illustration.</span>
+
+<span class="kw">class</span> <span class="ty">Stack</span>&lt;T&gt; {
+  <span class="kw">private</span> head: { val: T; next: <span class="kw">typeof this</span>.<span class="kw">head</span> | <span class="kw">null</span> } | <span class="kw">null</span> = <span class="kw">null</span>;
+
+  <span class="fn">push</span>(val: T): <span class="ty">void</span> {
+    <span class="cm">// CAS loop would go here in a multi-threaded env</span>
+    <span class="kw">this</span>.head = { val, next: <span class="kw">this</span>.head };
+  }
+
+  <span class="fn">pop</span>(): T | <span class="kw">null</span> {
+    <span class="kw">if</span> (!<span class="kw">this</span>.head) <span class="kw">return null</span>;
+    <span class="kw">const</span> { val, next } = <span class="kw">this</span>.head;
+    <span class="kw">this</span>.head = next;
+    <span class="kw">return</span> val;
+  }
+}
+
+<span class="kw">const</span> s = <span class="kw">new</span> <span class="ty">Stack</span>&lt;<span class="ty">number</span>&gt;();
+s.<span class="fn">push</span>(<span class="nm">10</span>); s.<span class="fn">push</span>(<span class="nm">20</span>); s.<span class="fn">push</span>(<span class="nm">30</span>);
+console.<span class="fn">log</span>(s.<span class="fn">pop</span>(), s.<span class="fn">pop</span>(), s.<span class="fn">pop</span>());</code></pre>
+  </div>
+  <div class="tab-content go">
+<pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"fmt"</span>
+    <span class="st">"sync/atomic"</span>
+)
+
+<span class="kw">type</span> <span class="ty">node</span> <span class="kw">struct</span> { val <span class="ty">int</span>; next *<span class="ty">node</span> }
+
+<span class="kw">type</span> <span class="ty">Stack</span> <span class="kw">struct</span> { head atomic.<span class="ty">Pointer</span>[<span class="ty">node</span>] }
+
+<span class="kw">func</span> (s *<span class="ty">Stack</span>) <span class="fn">Push</span>(val <span class="ty">int</span>) {
+    n := &amp;<span class="ty">node</span>{val: val}
+    <span class="kw">for</span> {
+        n.next = s.head.<span class="fn">Load</span>()
+        <span class="kw">if</span> s.head.<span class="fn">CompareAndSwap</span>(n.next, n) { <span class="kw">return</span> }
+    }
+}
+
+<span class="kw">func</span> (s *<span class="ty">Stack</span>) <span class="fn">Pop</span>() (<span class="ty">int</span>, <span class="ty">bool</span>) {
+    <span class="kw">for</span> {
+        old := s.head.<span class="fn">Load</span>()
+        <span class="kw">if</span> old == <span class="kw">nil</span> { <span class="kw">return</span> <span class="nm">0</span>, <span class="kw">false</span> }
+        <span class="kw">if</span> s.head.<span class="fn">CompareAndSwap</span>(old, old.next) {
+            <span class="kw">return</span> old.val, <span class="kw">true</span>
+        }
+    }
+}
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="kw">var</span> s <span class="ty">Stack</span>
+    s.<span class="fn">Push</span>(<span class="nm">10</span>); s.<span class="fn">Push</span>(<span class="nm">20</span>)
+    v, _ := s.<span class="fn">Pop</span>()
+    fmt.<span class="fn">Println</span>(v) <span class="cm">// 20</span>
+}</code></pre>
+  </div>
+  <div class="tab-content rs">
+<pre><code><span class="kw">use</span> std::sync::atomic::{<span class="ty">AtomicPtr</span>, <span class="ty">Ordering</span>};
+<span class="kw">use</span> std::ptr;
+
+<span class="kw">struct</span> <span class="ty">Node</span>&lt;T&gt; { val: T, next: *<span class="kw">mut</span> <span class="ty">Node</span>&lt;T&gt; }
+
+<span class="kw">pub struct</span> <span class="ty">Stack</span>&lt;T&gt; { head: <span class="ty">AtomicPtr</span>&lt;<span class="ty">Node</span>&lt;T&gt;&gt; }
+
+<span class="kw">impl</span>&lt;T&gt; <span class="ty">Stack</span>&lt;T&gt; {
+    <span class="kw">pub fn</span> <span class="fn">new</span>() -&gt; <span class="kw">Self</span> {
+        <span class="ty">Stack</span> { head: <span class="ty">AtomicPtr</span>::<span class="fn">new</span>(ptr::null_mut()) }
+    }
+
+    <span class="kw">pub fn</span> <span class="fn">push</span>(&amp;<span class="kw">self</span>, val: T) {
+        <span class="kw">let</span> n = <span class="ty">Box</span>::<span class="fn">into_raw</span>(<span class="ty">Box</span>::<span class="fn">new</span>(<span class="ty">Node</span> { val, next: ptr::null_mut() }));
+        <span class="kw">loop</span> {
+            <span class="kw">let</span> old = <span class="kw">self</span>.head.<span class="fn">load</span>(<span class="ty">Ordering</span>::Relaxed);
+            <span class="kw">unsafe</span> { (*n).next = old; }
+            <span class="kw">if self</span>.head.<span class="fn">compare_exchange</span>(old, n,
+                <span class="ty">Ordering</span>::Release, <span class="ty">Ordering</span>::Relaxed).<span class="fn">is_ok</span>() {
+                <span class="kw">return</span>;
+            }
+        }
+    }
+    <span class="cm">// Safe pop requires hazard pointers or epoch reclamation.</span>
+}</code></pre>
+  </div>
+</div>
+
+<h3>The ABA Problem</h3>
+
+<p>The CAS loop has a subtle bug known as the <em>ABA problem</em>. Thread A reads the head as pointer P with value A. Before it can CAS, Thread B pops P, pushes a new node Q, then pushes P back (same pointer address, same bit pattern). Thread A's CAS succeeds &mdash; the value matches &mdash; but the list has changed beneath it. Q is now a leaked, orphaned node.</p>
+
+<div class="diagram">
+<span class="diagram-label">ABA Problem Timeline</span>
+<pre><code>  Initial stack: A → B → C
+
+  Thread 1: reads head = A, preempted before CAS
+  Thread 2: pops A (head = B→C)
+            pops B (head = C)
+            pushes A back (head = A→C)
+  Thread 1 resumes: CAS(head, A, B) succeeds! (A pointer matches)
+  Stack is now: B → C   but B.next still points into freed memory → UAF
+
+  Fix: tagged pointer — encode a version counter in pointer high bits.
+  A@tag5 ≠ A@tag6, so Thread 1's CAS correctly fails.</code></pre>
+</div>
+
+<p>Solutions to ABA include: <strong>tagged pointers</strong> (version counter in high bits &mdash; valid on 64-bit where pointers only use 48 bits), <strong>hazard pointers</strong> (each thread publishes which pointers it is reading; reclamation is deferred until no thread holds a hazard), and <strong>epoch-based reclamation</strong> (threads declare their epoch; memory is freed only when all threads have advanced past the deletion epoch). Rust's <code>crossbeam</code> crate uses epoch-based reclamation.</p>
+
+<div class="power danger">
+<div class="power-label">Lock-Free != Bug-Free</div>
+<p>Lock-free data structures are significantly harder to write correctly than mutex-protected equivalents. ABA, memory reclamation hazards, and subtle ordering bugs have caused production incidents at major tech companies. Prefer well-tested library implementations over rolling your own: C++ folly, Rust crossbeam, Java java.util.concurrent.</p>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<!-- CH 07: CHANNELS AND CSP -->
+<!-- ============================================================ -->
+<section id="ch7">
+<h2>07 &mdash; channels and CSP</h2>
+
+<p>In 1978, Tony Hoare published <em>Communicating Sequential Processes</em> (CSP) &mdash; a mathematical model of concurrent computation based not on shared memory but on message passing. The core idea: processes communicate by sending values through typed channels. No shared state, no locks, no races. The sender blocks until the receiver is ready (or vice versa), providing natural synchronization as a byproduct of communication.</p>
+
+<p>Rob Pike condensed this into one of Go's most quoted maxims: <em>"Don't communicate by sharing memory; share memory by communicating."</em> The practical translation: instead of a mutex protecting a shared map, have one goroutine own the map and receive requests through a channel. The ownership is explicit and exclusive; the coordination is visible in the code's structure.</p>
+
+<div class="diagram">
+<span class="diagram-label">Channel as Conveyor Belt</span>
+<pre><code>  Goroutine A                Channel               Goroutine B
+  (Producer)               [cap = 3]              (Consumer)
+                         ┌───┬───┬───┐
+  A: ch &lt;- 1   ─────────▶│ 1 │   │   │
+  A: ch &lt;- 2   ─────────▶│ 1 │ 2 │   │
+  A: ch &lt;- 3   ─────────▶│ 1 │ 2 │ 3 │
+  A: ch &lt;- 4   ← BLOCKS  │ 1 │ 2 │ 3 │   B: &lt;-ch ──▶ gets 1
+               (channel full; A sleeps until B reads)
+                         └───┴───┴───┘
+
+  Unbuffered (cap=0): sender and receiver rendezvous —
+  BOTH must be ready simultaneously. A natural sync point.</code></pre>
+</div>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-channels" id="channels-c" class="tc" checked>
+  <input type="radio" name="tabs-channels" id="channels-py" class="tpy">
+  <input type="radio" name="tabs-channels" id="channels-ts" class="tts">
+  <input type="radio" name="tabs-channels" id="channels-go" class="tgo">
+  <input type="radio" name="tabs-channels" id="channels-rs" class="trs">
+  <div class="tab-bar">
+    <label for="channels-c">C</label>
+    <label for="channels-py">Python</label>
+    <label for="channels-ts">TypeScript</label>
+    <label for="channels-go">Go</label>
+    <label for="channels-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+<pre><code><span class="cm">/* C has no built-in channels. Build with mutex + condvar. */</span>
+<span class="pp">#include</span> <span class="st">&lt;pthread.h&gt;</span>
+<span class="pp">#define</span> <span class="nm">CAP</span> <span class="nm">4</span>
+
+<span class="kw">typedef</span> <span class="kw">struct</span> {
+    <span class="ty">int</span>            buf[CAP], head, tail, count;
+    <span class="ty">pthread_mutex_t</span> mu;
+    <span class="ty">pthread_cond_t</span>  not_empty, not_full;
+} <span class="ty">Chan</span>;
+
+<span class="kw">void</span> <span class="fn">send</span>(<span class="ty">Chan</span> *c, <span class="ty">int</span> v) {
+    <span class="fn">pthread_mutex_lock</span>(&amp;c-&gt;mu);
+    <span class="kw">while</span> (c-&gt;count == CAP)
+        <span class="fn">pthread_cond_wait</span>(&amp;c-&gt;not_full, &amp;c-&gt;mu);
+    c-&gt;buf[c-&gt;tail] = v;
+    c-&gt;tail = (c-&gt;tail + <span class="nm">1</span>) % CAP;
+    c-&gt;count++;
+    <span class="fn">pthread_cond_signal</span>(&amp;c-&gt;not_empty);
+    <span class="fn">pthread_mutex_unlock</span>(&amp;c-&gt;mu);
+}
+
+<span class="ty">int</span> <span class="fn">recv</span>(<span class="ty">Chan</span> *c) {
+    <span class="fn">pthread_mutex_lock</span>(&amp;c-&gt;mu);
+    <span class="kw">while</span> (c-&gt;count == <span class="nm">0</span>)
+        <span class="fn">pthread_cond_wait</span>(&amp;c-&gt;not_empty, &amp;c-&gt;mu);
+    <span class="ty">int</span> v = c-&gt;buf[c-&gt;head];
+    c-&gt;head = (c-&gt;head + <span class="nm">1</span>) % CAP;
+    c-&gt;count--;
+    <span class="fn">pthread_cond_signal</span>(&amp;c-&gt;not_full);
+    <span class="fn">pthread_mutex_unlock</span>(&amp;c-&gt;mu);
+    <span class="kw">return</span> v;
+}</code></pre>
+  </div>
+  <div class="tab-content py">
+<pre><code><span class="kw">import</span> queue, threading
+
+<span class="cm"># queue.Queue is a thread-safe blocking FIFO channel</span>
+ch = queue.<span class="ty">Queue</span>(maxsize=<span class="nm">4</span>)
+
+<span class="kw">def</span> <span class="fn">producer</span>():
+    <span class="kw">for</span> i <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">5</span>):
+        ch.<span class="fn">put</span>(i)
+    ch.<span class="fn">put</span>(<span class="kw">None</span>)  <span class="cm"># sentinel</span>
+
+<span class="kw">def</span> <span class="fn">consumer</span>():
+    <span class="kw">while True</span>:
+        item = ch.<span class="fn">get</span>()
+        <span class="kw">if</span> item <span class="kw">is None</span>: <span class="kw">break</span>
+        <span class="fn">print</span>(<span class="st">f"got {item}"</span>)
+        ch.<span class="fn">task_done</span>()
+
+p = threading.<span class="ty">Thread</span>(target=producer)
+c = threading.<span class="ty">Thread</span>(target=consumer)
+p.<span class="fn">start</span>(); c.<span class="fn">start</span>()
+p.<span class="fn">join</span>(); c.<span class="fn">join</span>()</code></pre>
+  </div>
+  <div class="tab-content ts">
+<pre><code><span class="cm">// TypeScript: async channel via Promise queue</span>
+<span class="kw">class</span> <span class="ty">Channel</span>&lt;T&gt; {
+  <span class="kw">private</span> buf: T[] = [];
+  <span class="kw">private</span> cap: <span class="ty">number</span>;
+  <span class="kw">private</span> readers: Array&lt;(v: T) =&gt; <span class="ty">void</span>&gt; = [];
+  <span class="kw">private</span> writers: Array&lt;{ v: T; ok: () =&gt; <span class="ty">void</span> }&gt; = [];
+
+  <span class="kw">constructor</span>(cap = <span class="nm">0</span>) { <span class="kw">this</span>.cap = cap; }
+
+  <span class="kw">async</span> <span class="fn">send</span>(v: T): <span class="ty">Promise</span>&lt;<span class="ty">void</span>&gt; {
+    <span class="kw">if</span> (<span class="kw">this</span>.readers.length &gt; <span class="nm">0</span>) { <span class="kw">this</span>.readers.<span class="fn">shift</span>()!(v); <span class="kw">return</span>; }
+    <span class="kw">if</span> (<span class="kw">this</span>.buf.length &lt; <span class="kw">this</span>.cap) { <span class="kw">this</span>.buf.<span class="fn">push</span>(v); <span class="kw">return</span>; }
+    <span class="kw">await new</span> <span class="ty">Promise</span>&lt;<span class="ty">void</span>&gt;(ok =&gt; <span class="kw">this</span>.writers.<span class="fn">push</span>({ v, ok }));
+  }
+
+  <span class="kw">async</span> <span class="fn">recv</span>(): <span class="ty">Promise</span>&lt;T&gt; {
+    <span class="kw">if</span> (<span class="kw">this</span>.buf.length &gt; <span class="nm">0</span>) <span class="kw">return this</span>.buf.<span class="fn">shift</span>()!;
+    <span class="kw">if</span> (<span class="kw">this</span>.writers.length &gt; <span class="nm">0</span>) {
+      <span class="kw">const</span> { v, ok } = <span class="kw">this</span>.writers.<span class="fn">shift</span>()!;
+      <span class="fn">ok</span>(); <span class="kw">return</span> v;
+    }
+    <span class="kw">return new</span> <span class="ty">Promise</span>&lt;T&gt;(r =&gt; <span class="kw">this</span>.readers.<span class="fn">push</span>(r));
+  }
+}</code></pre>
+  </div>
+  <div class="tab-content go">
+<pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> <span class="st">"fmt"</span>
+
+<span class="kw">func</span> <span class="fn">producer</span>(ch <span class="kw">chan</span>&lt;- <span class="ty">int</span>) {
+    <span class="kw">for</span> i := <span class="nm">0</span>; i &lt; <span class="nm">5</span>; i++ {
+        ch &lt;- i
+    }
+    <span class="fn">close</span>(ch)
+}
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    ch := <span class="fn">make</span>(<span class="kw">chan</span> <span class="ty">int</span>, <span class="nm">3</span>)
+    <span class="kw">go</span> <span class="fn">producer</span>(ch)
+    <span class="kw">for</span> v := <span class="kw">range</span> ch {
+        fmt.<span class="fn">Println</span>(v)
+    }
+
+    <span class="cm">// Select: non-deterministic choice over multiple channels</span>
+    ch1 := <span class="fn">make</span>(<span class="kw">chan</span> <span class="ty">string</span>, <span class="nm">1</span>)
+    ch2 := <span class="fn">make</span>(<span class="kw">chan</span> <span class="ty">string</span>, <span class="nm">1</span>)
+    ch1 &lt;- <span class="st">"ping"</span>
+    <span class="kw">select</span> {
+    <span class="kw">case</span> msg := &lt;-ch1: fmt.<span class="fn">Println</span>(<span class="st">"ch1:"</span>, msg)
+    <span class="kw">case</span> msg := &lt;-ch2: fmt.<span class="fn">Println</span>(<span class="st">"ch2:"</span>, msg)
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content rs">
+<pre><code><span class="kw">use</span> std::sync::mpsc;
+<span class="kw">use</span> std::thread;
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="cm">// mpsc: multiple-producer, single-consumer</span>
+    <span class="kw">let</span> (tx, rx) = mpsc::<span class="fn">channel</span>();
+    <span class="kw">let</span> tx2 = tx.<span class="fn">clone</span>();
+
+    thread::<span class="fn">spawn</span>(<span class="kw">move</span> || {
+        <span class="kw">for</span> i <span class="kw">in</span> <span class="nm">0</span>..<span class="nm">5</span> { tx.<span class="fn">send</span>(i).<span class="fn">unwrap</span>(); }
+    });
+    thread::<span class="fn">spawn</span>(<span class="kw">move</span> || {
+        <span class="kw">for</span> i <span class="kw">in</span> <span class="nm">10</span>..<span class="nm">15</span> { tx2.<span class="fn">send</span>(i).<span class="fn">unwrap</span>(); }
+    });
+
+    <span class="kw">for</span> v <span class="kw">in</span> rx.<span class="fn">iter</span>().<span class="fn">take</span>(<span class="nm">10</span>) {
+        println!(<span class="st">"{}"</span>, v);
+    }
+}</code></pre>
+  </div>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Simulate a two-stage processing pipeline using queue.Queue. Each stage is a function; they communicate through queues:</p>
+<pre><code>import queue
+
+def pipeline_demo():
+    raw = queue.Queue()
+    squared = queue.Queue()
+
+    # Stage 1: fill raw numbers
+    for i in range(1, 8):
+        raw.put(i)
+    raw.put(None)
+
+    # Stage 2: square
+    while True:
+        x = raw.get()
+        if x is None:
+            squared.put(None)
+            break
+        squared.put(x * x)
+
+    # Stage 3: collect
+    results = []
+    while True:
+        x = squared.get()
+        if x is None:
+            break
+        results.append(x)
+
+    print("Input:   ", list(range(1, 8)))
+    print("Squared: ", results)
+    print("Total:   ", sum(results))
+
+pipeline_demo()</code></pre>
+</div>
+
+<div class="power zen">
+<div class="power-label">Ownership Through Channels</div>
+<p>When you send a value through a channel, you are transferring ownership. The sender should not touch the value after sending. This convention &mdash; enforced by Rust's move semantics, merely conventional in Go &mdash; means channel-based programs naturally avoid data races: at any moment, only one goroutine owns each piece of data.</p>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<!-- CH 08: ASYNC/AWAIT -->
+<!-- ============================================================ -->
+<section id="ch8">
+<h2>08 &mdash; async/await</h2>
+
+<p>Threads are expensive. Each OS thread carries a stack (typically 2&ndash;8 MB), requires a kernel data structure, and context-switching between threads costs hundreds to thousands of nanoseconds. For I/O-bound workloads &mdash; web servers handling thousands of simultaneous connections &mdash; spawning one thread per connection is impractical. <em>Async/await</em> solves this by multiplexing many logical tasks onto a small number of OS threads using cooperative scheduling.</p>
+
+<h3>The Event Loop</h3>
+
+<p>The fundamental mechanism is an <em>event loop</em>: a single thread that continuously polls for I/O readiness events (via <code>epoll</code>, <code>kqueue</code>, or <code>io_uring</code>), runs the callbacks or resumes the coroutines associated with those events, then polls again. Since the thread never blocks on I/O, it can handle thousands of concurrent connections with minimal memory overhead &mdash; each suspended task holds only its saved registers and stack frame on the heap, not a full OS thread stack. See the syscalls deep dive for io_uring details.</p>
+
+<div class="diagram">
+<span class="diagram-label">Cooperative vs Preemptive Scheduling</span>
+<pre><code>  PREEMPTIVE (OS threads):
+  Thread A  ██████████░░░░░░██████████░░░░
+  Thread B  ░░░░░░░░░░██████████░░░░░░████
+                      ↑ OS interrupts at arbitrary time
+
+  COOPERATIVE (async tasks on one thread):
+  Task A    ██████──────────────██████────
+  Task B    ──────████████────────────████
+                  ↑ voluntary yield at "await"
+
+  Both models achieve concurrency. Preemptive is simpler for
+  CPU-bound work. Cooperative is cheaper for I/O-bound work.</code></pre>
+</div>
+
+<h3>State Machine Transformation</h3>
+
+<p>When a compiler sees an <code>async</code> function, it transforms it into a state machine. Each <code>await</code> point becomes a state transition: the function saves its local variables into a heap-allocated struct, returns control to the executor, and is resumed at the next state when the awaited future completes. The function's frame is on the heap, not the OS stack &mdash; which is why thousands of suspended async tasks are memory-cheap while thousands of OS threads are not.</p>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-asyncawait" id="asyncawait-c" class="tc" checked>
+  <input type="radio" name="tabs-asyncawait" id="asyncawait-py" class="tpy">
+  <input type="radio" name="tabs-asyncawait" id="asyncawait-ts" class="tts">
+  <input type="radio" name="tabs-asyncawait" id="asyncawait-go" class="tgo">
+  <input type="radio" name="tabs-asyncawait" id="asyncawait-rs" class="trs">
+  <div class="tab-bar">
+    <label for="asyncawait-c">C (libuv)</label>
+    <label for="asyncawait-py">Python</label>
+    <label for="asyncawait-ts">TypeScript</label>
+    <label for="asyncawait-go">Go</label>
+    <label for="asyncawait-rs">Rust (tokio)</label>
+  </div>
+  <div class="tab-content c">
+<pre><code><span class="cm">/* C: libuv callback-based async I/O — callbacks replace await */</span>
+<span class="pp">#include</span> <span class="st">&lt;uv.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdlib.h&gt;</span>
+
+<span class="kw">void</span> <span class="fn">alloc_cb</span>(<span class="ty">uv_handle_t</span> *h, <span class="ty">size_t</span> sz, <span class="ty">uv_buf_t</span> *buf) {
+    buf-&gt;base = <span class="fn">malloc</span>(sz);
+    buf-&gt;len  = sz;
+}
+
+<span class="kw">void</span> <span class="fn">read_cb</span>(<span class="ty">uv_stream_t</span> *s, <span class="ty">ssize_t</span> n, <span class="kw">const</span> <span class="ty">uv_buf_t</span> *buf) {
+    <span class="kw">if</span> (n &gt; <span class="nm">0</span>) {
+        <span class="fn">printf</span>(<span class="st">"read %zd bytes\n"</span>, n);
+    } <span class="kw">else if</span> (n &lt; <span class="nm">0</span>) {
+        <span class="fn">uv_close</span>((<span class="ty">uv_handle_t</span>*)s, <span class="kw">NULL</span>);
+    }
+    <span class="kw">if</span> (buf-&gt;base) <span class="fn">free</span>(buf-&gt;base);
+}
+
+<span class="ty">int</span> <span class="fn">main</span>() {
+    <span class="ty">uv_loop_t</span> *loop = <span class="fn">uv_default_loop</span>();
+    <span class="cm">/* uv_tcp_t handle, uv_read_start(h, alloc_cb, read_cb) */</span>
+    <span class="kw">return</span> <span class="fn">uv_run</span>(loop, UV_RUN_DEFAULT);
+    <span class="cm">/* Single thread drives all I/O via callbacks */</span>
+}</code></pre>
+  </div>
+  <div class="tab-content py">
+<pre><code><span class="kw">import</span> asyncio
+
+<span class="kw">async def</span> <span class="fn">fetch</span>(name: <span class="ty">str</span>, delay: <span class="ty">float</span>) -&gt; <span class="ty">str</span>:
+    <span class="fn">print</span>(<span class="st">f"start {name}"</span>)
+    <span class="kw">await</span> asyncio.<span class="fn">sleep</span>(delay)  <span class="cm"># yields to event loop</span>
+    <span class="fn">print</span>(<span class="st">f"done  {name}"</span>)
+    <span class="kw">return</span> <span class="st">f"result-{name}"</span>
+
+<span class="kw">async def</span> <span class="fn">main</span>():
+    <span class="cm"># gather runs all coroutines concurrently on one thread</span>
+    results = <span class="kw">await</span> asyncio.<span class="fn">gather</span>(
+        <span class="fn">fetch</span>(<span class="st">"A"</span>, <span class="nm">0.3</span>),
+        <span class="fn">fetch</span>(<span class="st">"B"</span>, <span class="nm">0.1</span>),
+        <span class="fn">fetch</span>(<span class="st">"C"</span>, <span class="nm">0.2</span>),
+    )
+    <span class="kw">for</span> r <span class="kw">in</span> results:
+        <span class="fn">print</span>(r)
+
+asyncio.<span class="fn">run</span>(<span class="fn">main</span>())
+<span class="cm"># B finishes first (0.1s), then C (0.2s), then A (0.3s)
+# Total ≈ 0.3s wall time — concurrent on one thread</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+<pre><code><span class="kw">function</span> <span class="fn">sleep</span>(ms: <span class="ty">number</span>): <span class="ty">Promise</span>&lt;<span class="ty">void</span>&gt; {
+  <span class="kw">return new</span> <span class="ty">Promise</span>(r =&gt; <span class="fn">setTimeout</span>(r, ms));
+}
+
+<span class="kw">async function</span> <span class="fn">fetch</span>(name: <span class="ty">string</span>, ms: <span class="ty">number</span>): <span class="ty">Promise</span>&lt;<span class="ty">string</span>&gt; {
+  console.<span class="fn">log</span>(<span class="st">`start ${name}`</span>);
+  <span class="kw">await</span> <span class="fn">sleep</span>(ms);
+  console.<span class="fn">log</span>(<span class="st">`done  ${name}`</span>);
+  <span class="kw">return</span> <span class="st">`result-${name}`</span>;
+}
+
+<span class="kw">async function</span> <span class="fn">main</span>() {
+  <span class="kw">const</span> results = <span class="kw">await</span> <span class="ty">Promise</span>.<span class="fn">all</span>([
+    <span class="fn">fetch</span>(<span class="st">'A'</span>, <span class="nm">300</span>),
+    <span class="fn">fetch</span>(<span class="st">'B'</span>, <span class="nm">100</span>),
+    <span class="fn">fetch</span>(<span class="st">'C'</span>, <span class="nm">200</span>),
+  ]);
+  console.<span class="fn">log</span>(results);
+}
+
+<span class="fn">main</span>();</code></pre>
+  </div>
+  <div class="tab-content go">
+<pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"fmt"</span>
+    <span class="st">"sync"</span>
+    <span class="st">"time"</span>
+)
+
+<span class="cm">// Go: goroutines ARE the async model. No async/await syntax.
+// Runtime multiplexes goroutines onto OS threads (M:N).</span>
+
+<span class="kw">func</span> <span class="fn">fetch</span>(name <span class="ty">string</span>, d <span class="ty">time.Duration</span>, wg *sync.<span class="ty">WaitGroup</span>, ch <span class="kw">chan</span>&lt;- <span class="ty">string</span>) {
+    <span class="kw">defer</span> wg.<span class="fn">Done</span>()
+    fmt.<span class="fn">Printf</span>(<span class="st">"start %s\n"</span>, name)
+    time.<span class="fn">Sleep</span>(d)
+    fmt.<span class="fn">Printf</span>(<span class="st">"done  %s\n"</span>, name)
+    ch &lt;- <span class="st">"result-"</span> + name
+}
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    ch := <span class="fn">make</span>(<span class="kw">chan</span> <span class="ty">string</span>, <span class="nm">3</span>)
+    <span class="kw">var</span> wg sync.<span class="ty">WaitGroup</span>
+    wg.<span class="fn">Add</span>(<span class="nm">3</span>)
+    <span class="kw">go</span> <span class="fn">fetch</span>(<span class="st">"A"</span>, <span class="nm">300</span>*time.Millisecond, &amp;wg, ch)
+    <span class="kw">go</span> <span class="fn">fetch</span>(<span class="st">"B"</span>, <span class="nm">100</span>*time.Millisecond, &amp;wg, ch)
+    <span class="kw">go</span> <span class="fn">fetch</span>(<span class="st">"C"</span>, <span class="nm">200</span>*time.Millisecond, &amp;wg, ch)
+    wg.<span class="fn">Wait</span>(); <span class="fn">close</span>(ch)
+    <span class="kw">for</span> r := <span class="kw">range</span> ch { fmt.<span class="fn">Println</span>(r) }
+}</code></pre>
+  </div>
+  <div class="tab-content rs">
+<pre><code><span class="cm">// Rust async: futures compiled to state machines — zero heap alloc</span>
+<span class="kw">use</span> tokio::time::{sleep, <span class="ty">Duration</span>};
+
+<span class="kw">async fn</span> <span class="fn">fetch</span>(name: &amp;<span class="kw">str</span>, ms: <span class="ty">u64</span>) -&gt; <span class="ty">String</span> {
+    println!(<span class="st">"start {}"</span>, name);
+    <span class="fn">sleep</span>(<span class="ty">Duration</span>::<span class="fn">from_millis</span>(ms)).<span class="kw">await</span>;
+    println!(<span class="st">"done  {}"</span>, name);
+    <span class="st">format!</span>(<span class="st">"result-{}"</span>, name)
+}
+
+<span class="pp">#[tokio::main]</span>
+<span class="kw">async fn</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> (a, b, c) = tokio::<span class="st">join!</span>(
+        <span class="fn">fetch</span>(<span class="st">"A"</span>, <span class="nm">300</span>),
+        <span class="fn">fetch</span>(<span class="st">"B"</span>, <span class="nm">100</span>),
+        <span class="fn">fetch</span>(<span class="st">"C"</span>, <span class="nm">200</span>),
+    );
+    println!(<span class="st">"{} {} {}"</span>, a, b, c);
+}</code></pre>
+  </div>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Run multiple coroutines concurrently on a single thread using asyncio.gather. Watch the interleaved execution:</p>
+<pre><code>import asyncio
+
+async def task(name, steps):
+    log = []
+    for i in range(steps):
+        log.append(f"{name}:{i}")
+        await asyncio.sleep(0)  # yield to event loop
+    return log
+
+async def main():
+    a, b, c = await asyncio.gather(
+        task("A", 3),
+        task("B", 3),
+        task("C", 3),
+    )
+    print("A:", a)
+    print("B:", b)
+    print("C:", c)
+    print("All ran concurrently on one OS thread!")
+
+asyncio.run(main())</code></pre>
+</div>
+
+<div class="lang-note">
+<div class="lang-note-label">Go's Goroutines vs Async/Await</div>
+<p>Go does not have async/await syntax. Goroutines are lightweight threads (2&ndash;8 KB stack, growable) scheduled by the Go runtime in an M:N model: M goroutines onto N OS threads. Blocking I/O automatically parks the goroutine and wakes it when the syscall completes. The programmer writes blocking-style code; the scheduler makes it non-blocking. This is a deliberate design choice: simplicity of blocking code with the efficiency of async I/O.</p>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<!-- CH 09: THE CLASSIC BUGS -->
+<!-- ============================================================ -->
+<section id="ch9">
+<h2>09 &mdash; the classic bugs</h2>
+
+<p>Every concurrent programmer eventually meets the same four villains: race conditions, deadlocks, livelocks, and starvation. They are distinct in cause and cure. Conflating them leads to wrong fixes. A developer who adds a mutex to cure a livelock has not fixed anything.</p>
+
+<h3>Race Condition vs Data Race</h3>
+
+<p>A <em>data race</em> is a specific technical term: two threads access the same memory location concurrently, at least one access is a write, and there is no synchronization between them. In C, C++, and Rust, a data race is <em>undefined behavior</em> &mdash; the compiler is allowed to assume they cannot happen, and will optimize code in ways that produce nonsensical results when they do. In Java, Go, and Python the semantics are better-defined but still produce incorrect results.</p>
+
+<p>A <em>race condition</em> is a broader term: a bug where the outcome depends on the relative timing of events. You can have a race condition <em>without</em> a data race &mdash; for example, a TOCTOU (time-of-check time-of-use) bug where you check a file's existence, then open it, and another process deletes it in between. Perfectly synchronized, no data race, still a race condition.</p>
+
+<div class="power danger">
+<div class="power-label">Data Races Are Undefined Behavior</div>
+<p>In C, C++, and Rust, a data race is UB. The compiler may assume the racing variable cannot be observed by another thread and eliminate "redundant" reads, hoist stores out of loops, or constant-fold conditionals. The result is code that appears correct in isolation but silently corrupts state when run concurrently. ThreadSanitizer (TSan) exists specifically to catch these before they reach production.</p>
+</div>
+
+<h3>Deadlock: Dining Philosophers</h3>
+
+<p>A <em>deadlock</em> occurs when a set of threads are each waiting for a resource held by another thread in the set, forming a cycle. No thread can make progress; all are stuck forever. Dijkstra's classic formulation: N philosophers sit at a round table, each with a fork to their left and right. To eat, a philosopher needs both forks. If each philosopher simultaneously picks up their left fork, no one can pick up their right fork &mdash; deadlock.</p>
+
+<p>Four conditions must all hold simultaneously for deadlock (Coffman conditions): <strong>Mutual exclusion</strong> (resources cannot be shared), <strong>Hold and wait</strong> (a thread holds a resource while waiting for another), <strong>No preemption</strong> (resources cannot be forcibly taken), and <strong>Circular wait</strong> (a cycle of threads, each waiting for the next). Breaking any one condition prevents deadlock. The most practical: enforce a global lock ordering so all threads acquire locks in the same order, breaking circular wait.</p>
+
+<div class="diagram">
+<span class="diagram-label">Deadlock Cycle &mdash; Dining Philosophers</span>
+<pre><code>        P0
+       /  \
+    f0      f1
+    |        |
+  P3          P1
+    |        |
+    f3      f2
+       \  /
+        P2
+
+  Each Pn holds fn, waits for f(n+1) mod 4
+  → circular dependency → deadlock
+
+  Fix: require all threads to acquire forks in lowest-index-first order.
+  P0: take f0, f1   P1: take f1, f2   P2: take f2, f3   P3: take f0, f3
+  P3 now takes f0 first (not f3), breaking the cycle.</code></pre>
+</div>
+
+<h3>Livelock and Starvation</h3>
+
+<p>A <em>livelock</em> is like a deadlock except the threads are not blocked &mdash; they are actively executing and retrying, but making no progress. Two people in a hallway both step aside in the same direction, repeatedly. CPU is burned, nothing gets done. Livelocks often arise from overly polite retry logic: if you always back off the moment someone else tries, you may never succeed.</p>
+
+<p><em>Starvation</em> is when one thread is perpetually denied access to a resource because other threads are always preferred. A low-priority thread may never acquire a mutex if high-priority threads continuously contend for it. Most OS thread schedulers have aging mechanisms to prevent extreme starvation, but application-level lock implementations may not.</p>
+
+<h3>Priority Inversion: Mars Pathfinder</h3>
+
+<p>In 1997, the Mars Pathfinder rover began resetting itself periodically. The cause was classic <em>priority inversion</em>: a low-priority meteorological task held a mutex protecting a shared data bus. A high-priority communications task needed that mutex, but was blocked. Meanwhile, a medium-priority task that did not need the mutex was scheduled instead of the low-priority task (because medium &gt; low). The high-priority task waited indefinitely.</p>
+
+<div class="diagram">
+<span class="diagram-label">Priority Inversion Timeline</span>
+<pre><code>  Priority:  HIGH=3   MED=2   LOW=1
+
+  t0: LOW acquires mutex M (holds it)
+  t1: HIGH tries to acquire M → BLOCKS (waiting for LOW)
+  t2: MED becomes runnable (no mutex needed)
+  t3: Scheduler: MED &gt; LOW → runs MED instead of LOW
+  t4: MED runs to completion... HIGH still waiting!
+  t5: LOW finally runs, releases M
+  t6: HIGH unblocks
+
+  Effective priority: HIGH &lt; MED &lt; LOW — inverted!
+
+  Fix: Priority Inheritance — while LOW holds M, run it at HIGH's
+  priority, so MED cannot preempt it.</code></pre>
+</div>
+
+<p>The fix is <em>priority inheritance</em>: when a high-priority thread blocks on a mutex, the lock holder temporarily inherits the higher priority until it releases. NASA's engineers patched the VxWorks kernel remotely and re-enabled priority inheritance on the shared mutex. The resets stopped. The story is a canonical example of why priority inversion must be addressed in real-time systems.</p>
+</section>
+
+<!-- ============================================================ -->
+<!-- CH 10: PATTERNS THAT WORK -->
+<!-- ============================================================ -->
+<section id="ch10">
+<h2>10 &mdash; patterns that work</h2>
+
+<p>Beyond the basic mutex, experienced concurrent programmers reach for a toolkit of higher-level patterns. Each pattern trades off simplicity, performance, and correctness in different ways. Knowing which tool to reach for &mdash; and equally important, which to avoid &mdash; separates effective concurrent programming from fearful serial programming.</p>
+
+<h3>Reader-Writer Locks</h3>
+
+<p>A plain mutex allows only one thread at a time, even for read-only accesses. If your data is read frequently and written rarely, this serializes all readers unnecessarily. A <em>reader-writer lock</em> (RWLock) allows many readers simultaneously, or exactly one writer, but not both. Reads can proceed in parallel; writes get exclusive access. This pattern is ideal for caches, configuration stores, and any structure with a high read/write ratio.</p>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-patterns" id="patterns-c" class="tc" checked>
+  <input type="radio" name="tabs-patterns" id="patterns-py" class="tpy">
+  <input type="radio" name="tabs-patterns" id="patterns-ts" class="tts">
+  <input type="radio" name="tabs-patterns" id="patterns-go" class="tgo">
+  <input type="radio" name="tabs-patterns" id="patterns-rs" class="trs">
+  <div class="tab-bar">
+    <label for="patterns-c">C</label>
+    <label for="patterns-py">Python</label>
+    <label for="patterns-ts">TypeScript</label>
+    <label for="patterns-go">Go</label>
+    <label for="patterns-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+<pre><code><span class="pp">#include</span> <span class="st">&lt;pthread.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+
+<span class="ty">pthread_rwlock_t</span> rwlock = PTHREAD_RWLOCK_INITIALIZER;
+<span class="kw">static</span> <span class="ty">int</span> data = <span class="nm">0</span>;
+
+<span class="kw">void</span> <span class="fn">read_data</span>() {
+    <span class="fn">pthread_rwlock_rdlock</span>(&amp;rwlock);  <span class="cm">/* many readers OK */</span>
+    <span class="fn">printf</span>(<span class="st">"data = %d\n"</span>, data);
+    <span class="fn">pthread_rwlock_unlock</span>(&amp;rwlock);
+}
+
+<span class="kw">void</span> <span class="fn">write_data</span>(<span class="ty">int</span> v) {
+    <span class="fn">pthread_rwlock_wrlock</span>(&amp;rwlock);  <span class="cm">/* exclusive write */</span>
+    data = v;
+    <span class="fn">pthread_rwlock_unlock</span>(&amp;rwlock);
+}</code></pre>
+  </div>
+  <div class="tab-content py">
+<pre><code><span class="kw">import</span> threading
+
+<span class="cm"># Python has no RWLock in stdlib. Use threading.Lock or a third-party lib.
+# Simulate with two locks: one for readers count, one for write exclusion.</span>
+
+<span class="kw">class</span> <span class="ty">RWLock</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self):
+        self._read_lock  = threading.<span class="ty">Lock</span>()
+        self._write_lock = threading.<span class="ty">Lock</span>()
+        self._readers = <span class="nm">0</span>
+
+    <span class="kw">def</span> <span class="fn">read_acquire</span>(self):
+        <span class="kw">with</span> self._read_lock:
+            self._readers += <span class="nm">1</span>
+            <span class="kw">if</span> self._readers == <span class="nm">1</span>:
+                self._write_lock.<span class="fn">acquire</span>()  <span class="cm"># first reader blocks writers</span>
+
+    <span class="kw">def</span> <span class="fn">read_release</span>(self):
+        <span class="kw">with</span> self._read_lock:
+            self._readers -= <span class="nm">1</span>
+            <span class="kw">if</span> self._readers == <span class="nm">0</span>:
+                self._write_lock.<span class="fn">release</span>()  <span class="cm"># last reader unblocks writers</span>
+
+    <span class="kw">def</span> <span class="fn">write_acquire</span>(self): self._write_lock.<span class="fn">acquire</span>()
+    <span class="kw">def</span> <span class="fn">write_release</span>(self): self._write_lock.<span class="fn">release</span>()</code></pre>
+  </div>
+  <div class="tab-content ts">
+<pre><code><span class="cm">// TypeScript: async RWLock</span>
+<span class="kw">class</span> <span class="ty">RWLock</span> {
+  <span class="kw">private</span> readers = <span class="nm">0</span>;
+  <span class="kw">private</span> writing = <span class="kw">false</span>;
+  <span class="kw">private</span> queue: Array&lt;() =&gt; <span class="ty">void</span>&gt; = [];
+
+  <span class="kw">async</span> <span class="fn">readLock</span>(): <span class="ty">Promise</span>&lt;<span class="ty">void</span>&gt; {
+    <span class="kw">while</span> (<span class="kw">this</span>.writing)
+      <span class="kw">await new</span> <span class="ty">Promise</span>&lt;<span class="ty">void</span>&gt;(r =&gt; <span class="kw">this</span>.queue.<span class="fn">push</span>(r));
+    <span class="kw">this</span>.readers++;
+  }
+  <span class="fn">readUnlock</span>(): <span class="ty">void</span> {
+    <span class="kw">this</span>.readers--;
+    <span class="kw">if</span> (<span class="kw">this</span>.readers === <span class="nm">0</span>) <span class="kw">this</span>.<span class="fn">_wake</span>();
+  }
+  <span class="kw">async</span> <span class="fn">writeLock</span>(): <span class="ty">Promise</span>&lt;<span class="ty">void</span>&gt; {
+    <span class="kw">while</span> (<span class="kw">this</span>.writing || <span class="kw">this</span>.readers &gt; <span class="nm">0</span>)
+      <span class="kw">await new</span> <span class="ty">Promise</span>&lt;<span class="ty">void</span>&gt;(r =&gt; <span class="kw">this</span>.queue.<span class="fn">push</span>(r));
+    <span class="kw">this</span>.writing = <span class="kw">true</span>;
+  }
+  <span class="fn">writeUnlock</span>(): <span class="ty">void</span> { <span class="kw">this</span>.writing = <span class="kw">false</span>; <span class="kw">this</span>.<span class="fn">_wake</span>(); }
+  <span class="kw">private</span> <span class="fn">_wake</span>(): <span class="ty">void</span> { <span class="kw">this</span>.queue.<span class="fn">forEach</span>(r =&gt; <span class="fn">r</span>()); <span class="kw">this</span>.queue = []; }
+}</code></pre>
+  </div>
+  <div class="tab-content go">
+<pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"fmt"</span>
+    <span class="st">"sync"</span>
+)
+
+<span class="kw">var</span> (
+    rw   sync.<span class="ty">RWMutex</span>
+    data <span class="ty">int</span>
+)
+
+<span class="kw">func</span> <span class="fn">readData</span>() <span class="ty">int</span> {
+    rw.<span class="fn">RLock</span>()         <span class="cm">// shared read lock</span>
+    <span class="kw">defer</span> rw.<span class="fn">RUnlock</span>()
+    <span class="kw">return</span> data
+}
+
+<span class="kw">func</span> <span class="fn">writeData</span>(v <span class="ty">int</span>) {
+    rw.<span class="fn">Lock</span>()          <span class="cm">// exclusive write lock</span>
+    <span class="kw">defer</span> rw.<span class="fn">Unlock</span>()
+    data = v
+}
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="fn">writeData</span>(<span class="nm">42</span>)
+    fmt.<span class="fn">Println</span>(<span class="fn">readData</span>()) <span class="cm">// 42</span>
+}</code></pre>
+  </div>
+  <div class="tab-content rs">
+<pre><code><span class="kw">use</span> std::sync::{<span class="ty">Arc</span>, <span class="ty">RwLock</span>};
+<span class="kw">use</span> std::thread;
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> data = <span class="ty">Arc</span>::<span class="fn">new</span>(<span class="ty">RwLock</span>::<span class="fn">new</span>(<span class="ty">Vec</span>::&lt;<span class="ty">i32</span>&gt;::<span class="fn">new</span>()));
+
+    <span class="kw">let</span> d = data.<span class="fn">clone</span>();
+    <span class="kw">let</span> writer = thread::<span class="fn">spawn</span>(<span class="kw">move</span> || {
+        <span class="kw">let mut</span> v = d.<span class="fn">write</span>().<span class="fn">unwrap</span>(); <span class="cm">// exclusive</span>
+        v.<span class="fn">extend</span>([<span class="nm">1</span>, <span class="nm">2</span>, <span class="nm">3</span>]);
+    });
+    writer.<span class="fn">join</span>().<span class="fn">unwrap</span>();
+
+    <span class="cm">// Many readers simultaneously:</span>
+    <span class="kw">let</span> handles: <span class="ty">Vec</span>&lt;_&gt; = (<span class="nm">0</span>..<span class="nm">4</span>).<span class="fn">map</span>(|_| {
+        <span class="kw">let</span> d = data.<span class="fn">clone</span>();
+        thread::<span class="fn">spawn</span>(<span class="kw">move</span> || {
+            <span class="kw">let</span> v = d.<span class="fn">read</span>().<span class="fn">unwrap</span>(); <span class="cm">// shared</span>
+            println!(<span class="st">"{:?}"</span>, *v);
+        })
+    }).<span class="fn">collect</span>();
+    <span class="kw">for</span> h <span class="kw">in</span> handles { h.<span class="fn">join</span>().<span class="fn">unwrap</span>(); }
+}</code></pre>
+  </div>
+</div>
+
+<h3>Work Stealing</h3>
+
+<p>In a naive thread pool, work is dispatched from a single queue. Under load the queue becomes a bottleneck: all threads contend for the same mutex. <em>Work stealing</em> solves this by giving each thread its own double-ended queue (deque). A thread pushes and pops its own work from the local end of its deque. When it runs out of work, it "steals" from the tail of another thread's deque. The algorithm was formalized by Blumofe &amp; Leiserson (1999) in their Cilk system at MIT, which proved optimal expected-time bounds. Java's <code>ForkJoinPool</code>, Go's runtime scheduler, and Tokio's multi-threaded Rust runtime all use work stealing.</p>
+
+<div class="diagram">
+<span class="diagram-label">Work-Stealing Deques</span>
+<pre><code>  Thread 0 deque:   [T0 T1 T2 T3]  ← push/pop from left (local)
+  Thread 1 deque:   [T4 T5]        ← steal from right (foreign)
+  Thread 2 deque:   []             ← empty: steal from T0's right end
+
+  Thread 2 steals T3 from Thread 0 — only one CAS needed at the tail.
+  Thread 0 works from the head — no contention with the stealer.
+  Throughput scales because each thread is mostly self-sufficient.</code></pre>
+</div>
+
+<h3>Double-Checked Locking</h3>
+
+<p>The double-checked locking pattern attempts to reduce locking overhead for lazy initialization. Check without the lock first; if the object already exists, return it without acquiring. If null, acquire the lock, check again (in case another thread initialized it while you waited), then initialize. This pattern is <em>broken in C without atomics</em> because the compiler or CPU can reorder the store to the pointer before the stores that initialize the object. In modern C++ (memory_order_acquire/release), Java (volatile), and Go (sync.Once), safe versions exist.</p>
+
+<div class="power wild">
+<div class="power-label">Use sync.Once in Go, std::call_once in C++</div>
+<p>Never implement double-checked locking by hand. The standard library implementations are correct, well-tested, and compiled to the right memory barriers for each platform. Hand-rolled versions have subtle bugs that only manifest on ARM or in optimized builds. The performance difference from the standard version is negligible.</p>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<!-- CH 11: THREAD POOLS AND CONCURRENT MAPS -->
+<!-- ============================================================ -->
+<section id="ch11">
+<h2>11 &mdash; thread pools and concurrent maps</h2>
+
+<p>Raw threads are expensive to create and destroy. A thread pool pre-allocates a fixed number of worker threads and feeds them work through a queue. The pattern appears everywhere: HTTP servers, database connection pools, image processing pipelines. Understanding the pool pattern &mdash; and its failure modes &mdash; is essential for any non-trivial concurrent system.</p>
+
+<h3>Fixed Thread Pool</h3>
+
+<p>A fixed pool has N threads and a work queue. Callers submit tasks to the queue. Workers pull tasks and execute them. The queue provides back-pressure: if the queue is bounded and full, the caller blocks (or gets an error). This prevents runaway resource consumption when producers outpace consumers.</p>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-pools" id="pools-c" class="tc" checked>
+  <input type="radio" name="tabs-pools" id="pools-py" class="tpy">
+  <input type="radio" name="tabs-pools" id="pools-ts" class="tts">
+  <input type="radio" name="tabs-pools" id="pools-go" class="tgo">
+  <input type="radio" name="tabs-pools" id="pools-rs" class="trs">
+  <div class="tab-bar">
+    <label for="pools-c">C</label>
+    <label for="pools-py">Python</label>
+    <label for="pools-ts">TypeScript</label>
+    <label for="pools-go">Go</label>
+    <label for="pools-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+<pre><code><span class="pp">#include</span> <span class="st">&lt;pthread.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdlib.h&gt;</span>
+<span class="pp">#define</span> <span class="nm">NWORKERS</span> <span class="nm">4</span>
+<span class="pp">#define</span> <span class="nm">QCAP</span>     <span class="nm">64</span>
+
+<span class="kw">typedef</span> <span class="kw">void</span> (*<span class="ty">task_fn</span>)(<span class="kw">void</span>*);
+<span class="kw">typedef</span> <span class="kw">struct</span> { <span class="ty">task_fn</span> fn; <span class="kw">void</span> *arg; } <span class="ty">Task</span>;
+<span class="kw">typedef</span> <span class="kw">struct</span> {
+    <span class="ty">Task</span>           queue[QCAP];
+    <span class="ty">int</span>            head, tail, count, shutdown;
+    <span class="ty">pthread_mutex_t</span> mu;
+    <span class="ty">pthread_cond_t</span>  not_empty;
+    <span class="ty">pthread_t</span>       workers[NWORKERS];
+} <span class="ty">Pool</span>;
+
+<span class="kw">static</span> <span class="kw">void</span> *<span class="fn">worker</span>(<span class="kw">void</span> *arg) {
+    <span class="ty">Pool</span> *p = (<span class="ty">Pool</span>*)arg;
+    <span class="kw">while</span> (<span class="nm">1</span>) {
+        <span class="fn">pthread_mutex_lock</span>(&amp;p-&gt;mu);
+        <span class="kw">while</span> (!p-&gt;count &amp;&amp; !p-&gt;shutdown)
+            <span class="fn">pthread_cond_wait</span>(&amp;p-&gt;not_empty, &amp;p-&gt;mu);
+        <span class="kw">if</span> (p-&gt;shutdown &amp;&amp; !p-&gt;count) {
+            <span class="fn">pthread_mutex_unlock</span>(&amp;p-&gt;mu); <span class="kw">return</span> <span class="kw">NULL</span>;
+        }
+        <span class="ty">Task</span> t = p-&gt;queue[p-&gt;head];
+        p-&gt;head = (p-&gt;head + <span class="nm">1</span>) % QCAP;
+        p-&gt;count--;
+        <span class="fn">pthread_mutex_unlock</span>(&amp;p-&gt;mu);
+        t.<span class="fn">fn</span>(t.arg);
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content py">
+<pre><code><span class="kw">from</span> concurrent.futures <span class="kw">import</span> <span class="ty">ThreadPoolExecutor</span>, <span class="ty">as_completed</span>
+
+<span class="kw">def</span> <span class="fn">process</span>(x):
+    <span class="kw">return</span> x * x
+
+<span class="cm"># ThreadPoolExecutor: fixed pool, submit() returns a Future</span>
+<span class="kw">with</span> <span class="ty">ThreadPoolExecutor</span>(max_workers=<span class="nm">4</span>) <span class="kw">as</span> pool:
+    futures = [pool.<span class="fn">submit</span>(process, i) <span class="kw">for</span> i <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">10</span>)]
+    <span class="kw">for</span> f <span class="kw">in</span> <span class="fn">as_completed</span>(futures):
+        <span class="fn">print</span>(f.<span class="fn">result</span>())
+
+<span class="cm"># ProcessPoolExecutor: same API, uses processes for CPU-bound work
+# (bypasses the GIL)</span>
+<span class="kw">from</span> concurrent.futures <span class="kw">import</span> <span class="ty">ProcessPoolExecutor</span>
+<span class="kw">with</span> <span class="ty">ProcessPoolExecutor</span>(max_workers=<span class="nm">4</span>) <span class="kw">as</span> pool:
+    results = <span class="fn">list</span>(pool.<span class="fn">map</span>(process, <span class="fn">range</span>(<span class="nm">10</span>)))
+    <span class="fn">print</span>(results)</code></pre>
+  </div>
+  <div class="tab-content ts">
+<pre><code><span class="cm">// TypeScript: worker_threads pool (Node.js)</span>
+<span class="kw">import</span> { <span class="ty">Worker</span>, isMainThread, parentPort, workerData }
+  <span class="kw">from</span> <span class="st">'worker_threads'</span>;
+
+<span class="kw">if</span> (isMainThread) {
+  <span class="kw">const</span> POOL_SIZE = <span class="nm">4</span>;
+  <span class="kw">const</span> workers = <span class="ty">Array</span>.<span class="fn">from</span>({ length: POOL_SIZE },
+    () =&gt; <span class="kw">new</span> <span class="ty">Worker</span>(__filename)
+  );
+
+  workers[<span class="nm">0</span>].postMessage({ task: <span class="nm">42</span> });
+  workers[<span class="nm">0</span>].on(<span class="st">'message'</span>, result =&gt; {
+    console.<span class="fn">log</span>(<span class="st">'result:'</span>, result);
+    workers[<span class="nm">0</span>].<span class="fn">terminate</span>();
+  });
+} <span class="kw">else</span> {
+  <span class="cm">// worker thread</span>
+  parentPort!.on(<span class="st">'message'</span>, ({ task }) =&gt; {
+    parentPort!.<span class="fn">postMessage</span>(task * task);
+  });
+}</code></pre>
+  </div>
+  <div class="tab-content go">
+<pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"fmt"</span>
+    <span class="st">"sync"</span>
+)
+
+<span class="cm">// Idiomatic Go pool: bounded channel as work queue</span>
+<span class="kw">func</span> <span class="fn">newPool</span>(workers <span class="ty">int</span>, jobs &lt;-<span class="kw">chan</span> <span class="ty">int</span>, results <span class="kw">chan</span>&lt;- <span class="ty">int</span>) {
+    <span class="kw">var</span> wg sync.<span class="ty">WaitGroup</span>
+    <span class="kw">for</span> i := <span class="nm">0</span>; i &lt; workers; i++ {
+        wg.<span class="fn">Add</span>(<span class="nm">1</span>)
+        <span class="kw">go func</span>() {
+            <span class="kw">defer</span> wg.<span class="fn">Done</span>()
+            <span class="kw">for</span> j := <span class="kw">range</span> jobs {
+                results &lt;- j * j
+            }
+        }()
+    }
+    <span class="kw">go func</span>() { wg.<span class="fn">Wait</span>(); <span class="fn">close</span>(results) }()
+}
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    jobs    := <span class="fn">make</span>(<span class="kw">chan</span> <span class="ty">int</span>, <span class="nm">10</span>)
+    results := <span class="fn">make</span>(<span class="kw">chan</span> <span class="ty">int</span>, <span class="nm">10</span>)
+    <span class="fn">newPool</span>(<span class="nm">4</span>, jobs, results)
+    <span class="kw">for</span> i := <span class="nm">0</span>; i &lt; <span class="nm">5</span>; i++ { jobs &lt;- i }
+    <span class="fn">close</span>(jobs)
+    <span class="kw">for</span> r := <span class="kw">range</span> results { fmt.<span class="fn">Println</span>(r) }
+}</code></pre>
+  </div>
+  <div class="tab-content rs">
+<pre><code><span class="kw">use</span> std::sync::{<span class="ty">Arc</span>, <span class="ty">Mutex</span>};
+<span class="kw">use</span> std::sync::mpsc;
+<span class="kw">use</span> std::thread;
+
+<span class="kw">struct</span> <span class="ty">ThreadPool</span> {
+    workers: <span class="ty">Vec</span>&lt;thread::<span class="ty">JoinHandle</span>&lt;()&gt;&gt;,
+    sender:  mpsc::<span class="ty">Sender</span>&lt;<span class="ty">Box</span>&lt;<span class="kw">dyn</span> FnOnce() + Send + <span class="kw">'static</span>&gt;&gt;,
+}
+
+<span class="kw">impl</span> <span class="ty">ThreadPool</span> {
+    <span class="kw">fn</span> <span class="fn">new</span>(n: <span class="ty">usize</span>) -&gt; <span class="kw">Self</span> {
+        <span class="kw">let</span> (tx, rx) = mpsc::<span class="fn">channel</span>();
+        <span class="kw">let</span> rx = <span class="ty">Arc</span>::<span class="fn">new</span>(<span class="ty">Mutex</span>::<span class="fn">new</span>(rx));
+        <span class="kw">let</span> workers = (<span class="nm">0</span>..n).<span class="fn">map</span>(|_| {
+            <span class="kw">let</span> rx = rx.<span class="fn">clone</span>();
+            thread::<span class="fn">spawn</span>(<span class="kw">move</span> || <span class="kw">loop</span> {
+                <span class="kw">let</span> job = rx.<span class="fn">lock</span>().<span class="fn">unwrap</span>().<span class="fn">recv</span>();
+                <span class="kw">match</span> job {
+                    <span class="ty">Ok</span>(f) =&gt; <span class="fn">f</span>(),
+                    <span class="ty">Err</span>(_) =&gt; <span class="kw">break</span>,
+                }
+            })
+        }).<span class="fn">collect</span>();
+        <span class="ty">ThreadPool</span> { workers, sender: tx }
+    }
+
+    <span class="kw">fn</span> <span class="fn">execute</span>&lt;F: FnOnce() + Send + <span class="kw">'static</span>&gt;(&amp;<span class="kw">self</span>, f: F) {
+        <span class="kw">self</span>.sender.<span class="fn">send</span>(<span class="ty">Box</span>::<span class="fn">new</span>(f)).<span class="fn">unwrap</span>();
+    }
+}</code></pre>
+  </div>
+</div>
+
+<h3>Concurrent Hash Maps</h3>
+
+<p>A plain <code>map</code> guarded by a single mutex serializes all reads and writes. For high-throughput systems, <em>striped locking</em> divides the map into N independent shards, each with its own lock. A key is hashed to determine its shard. Threads touching different shards proceed in parallel. Java's <code>ConcurrentHashMap</code> uses 16 stripes by default. Go's <code>sync.Map</code> uses a two-level structure: a fast read-only path using atomics, and a locked dirty map for writes.</p>
+
+<p>Fully lock-free hash maps exist (based on linear probing with CAS operations) but are significantly harder to implement correctly. For most applications, striped locking provides excellent throughput with manageable complexity. See the hash tables deep dive for the full picture of hash map implementations.</p>
+
+<div class="power">
+<div class="power-label">Thread Pool Sizing Heuristic</div>
+<p>For CPU-bound work: pool size = number of CPU cores (or cores &minus; 1 to leave headroom). For I/O-bound work: pool size = cores &times; (1 + wait_time/compute_time). If a task waits 9x as long as it computes, a 4-core machine can sustain 40 threads productively. Too few threads and CPUs sit idle. Too many and context switching overhead dominates.</p>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<!-- CH 12: TOOLS -->
+<!-- ============================================================ -->
+<section id="ch12">
+<h2>12 &mdash; tools</h2>
+
+<p>Concurrency bugs are notoriously hard to reproduce. A race that occurs one time in ten million runs is unreproducible in testing but catastrophic in production. Fortunately, a generation of sophisticated tooling has been developed to detect races, deadlocks, and ordering violations &mdash; some at compile time, some via runtime instrumentation, some statically. These tools should be part of every concurrent project's CI pipeline.</p>
+
+<h3>ThreadSanitizer (TSan)</h3>
+
+<p>ThreadSanitizer is a compile-time instrumentation tool originally from Google, now part of LLVM and GCC. Compile your program with <code>-fsanitize=thread</code> (C/C++) and TSan instruments every memory access and synchronization operation. At runtime, it maintains a shadow memory representing happens-before relationships between threads. When it detects a data race &mdash; two accesses to the same address with no happens-before ordering &mdash; it reports the exact stack traces of both conflicting accesses.</p>
+
+<p>TSan has roughly 5&ndash;15x runtime overhead and 5&ndash;10x memory overhead, making it impractical for production but excellent for testing. False positives are rare (TSan is sound: it only reports real races). False negatives exist because TSan only detects races that actually happen during the instrumented run, not races that could happen in principle. Run under heavy load with multiple threads to maximize race exposure.</p>
+
+<pre><code><span class="label">shell &mdash; TSan usage</span><span class="cm"># Compile with TSan instrumentation</span>
+$ gcc -fsanitize=thread -g -O1 -o myapp myapp.c -lpthread
+
+<span class="cm"># Run: TSan prints race reports on stderr</span>
+$ ./myapp
+==================
+WARNING: ThreadSanitizer: data race (pid=12345)
+  Write of size 8 at 0x... by thread T2:
+    #0 increment counter.c:12
+  Previous read of size 8 at 0x... by thread T1:
+    #0 read_counter counter.c:20
+==================
+
+<span class="cm"># Go: built-in race detector</span>
+$ go test -race ./...
+$ go run -race main.go</code></pre>
+
+<h3>Helgrind (Valgrind)</h3>
+
+<p>Helgrind is part of the Valgrind suite. It detects POSIX threading errors: misuse of the pthreads API, data races (via happens-before analysis), and potential deadlocks (lock ordering violations). Unlike TSan, Helgrind does not require recompilation &mdash; it instruments binaries at the instruction level. The tradeoff: 20&ndash;50x runtime overhead. Use Helgrind when you cannot recompile (third-party libraries) or when you want a second opinion.</p>
+
+<h3>Go Race Detector</h3>
+
+<p>Go ships a built-in race detector based on the same happens-before algorithm as TSan, activated with the <code>-race</code> flag. Because Go controls the scheduler, the race detector integrates tightly with goroutine scheduling and channel operations. It is significantly easier to use than TSan: just <code>go test -race ./...</code>. Google recommends running all tests with <code>-race</code> on every commit; the overhead is acceptable for test runs.</p>
+
+<h3>Rust's Borrow Checker</h3>
+
+<p>Rust's borrow checker eliminates entire <em>classes</em> of data races at compile time. The rules are simple: a reference can be either shared (<code>&amp;T</code>, many allowed) or exclusive (<code>&amp;mut T</code>, only one). These two kinds cannot coexist. This is precisely the condition needed to prevent data races: you cannot have a write concurrent with any other access if there is at most one writer and no readers during a write. Safe Rust code literally cannot have data races &mdash; the type system forbids the pattern that would cause them.</p>
+
+<div class="try-this">
+<div class="try-label">Try This</div>
+<p>Simulate detecting a threading issue by tracking lock acquire/release order in Python to find potential deadlocks:</p>
+<pre><code>import threading
+import collections
+
+# Simple lock-order tracker — records which locks each thread holds
+lock_graph = collections.defaultdict(set)
+lock_log = []
+
+class TrackedLock:
+    def __init__(self, name):
+        self.name = name
+        self._lock = threading.Lock()
+        self._holder = None
+
+    def acquire(self):
+        tid = threading.get_ident()
+        # Check for potential deadlock: does our target hold any lock we hold?
+        lock_log.append(f"Thread {tid} acquiring {self.name}")
+        self._lock.acquire()
+        self._holder = tid
+        lock_graph[tid].add(self.name)
+
+    def release(self):
+        tid = threading.get_ident()
+        lock_log.append(f"Thread {tid} releasing {self.name}")
+        lock_graph[tid].discard(self.name)
+        self._holder = None
+        self._lock.release()
+
+    def __enter__(self): self.acquire(); return self
+    def __exit__(self, *a): self.release()
+
+lockA = TrackedLock("A")
+lockB = TrackedLock("B")
+
+with lockA:
+    with lockB:
+        lock_log.append("Critical section: holding A and B")
+
+print("Lock acquisition log:")
+for entry in lock_log:
+    print(" ", entry)
+print("No deadlock — locks acquired in consistent order A -> B")</code></pre>
+</div>
+
+<div class="power zen">
+<div class="power-label">The Testing Paradox</div>
+<p>Concurrency bugs are Heisenbugs: observing them changes their probability. Adding print statements, running under a debugger, or even compiling with debug symbols can alter thread scheduling enough to hide a race. The correct response is: use TSan/race detector in CI (deterministic instrumentation), test under stress (high core count, synthetic load), and design systems to be obviously correct rather than merely apparently correct.</p>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<!-- CH 13: THE KERNEL UNDERNEATH -->
+<!-- ============================================================ -->
+<section id="ch13">
+<h2>13 &mdash; the kernel underneath</h2>
+
+<p>Concurrent programs do not run in isolation. The operating system kernel is the silent choreographer: it decides which thread runs on which core, when it is preempted, how long it sleeps, and when it wakes. Understanding the kernel's role is essential for tuning concurrent systems and for diagnosing performance problems that appear mysterious at the application level.</p>
+
+<h3>Futex Deep Dive</h3>
+
+<p>The futex (fast userspace mutex) syscall is the foundation of all userspace synchronization on Linux. Its interface is deceptively simple: <code>FUTEX_WAIT(addr, val)</code> sleeps the calling thread if <code>*addr == val</code>; <code>FUTEX_WAKE(addr, n)</code> wakes up to n threads sleeping on addr. The value check in FUTEX_WAIT is atomic with the sleep: this prevents the missed-wakeup race where a signal is sent before the waiter calls FUTEX_WAIT.</p>
+
+<pre><code><span class="label">C &mdash; futex syscall</span><span class="pp">#include</span> <span class="st">&lt;linux/futex.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;syscall.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdatomic.h&gt;</span>
+
+<span class="cm">/* Simplified mutex using futex directly */</span>
+<span class="kw">static</span> <span class="kw">inline</span> <span class="ty">int</span> <span class="fn">futex_wait</span>(<span class="ty">atomic_int</span> *addr, <span class="ty">int</span> expected) {
+    <span class="kw">return</span> <span class="fn">syscall</span>(SYS_futex, addr, FUTEX_WAIT_PRIVATE,
+                   expected, <span class="kw">NULL</span>, <span class="kw">NULL</span>, <span class="nm">0</span>);
+}
+<span class="kw">static</span> <span class="kw">inline</span> <span class="ty">int</span> <span class="fn">futex_wake</span>(<span class="ty">atomic_int</span> *addr, <span class="ty">int</span> n) {
+    <span class="kw">return</span> <span class="fn">syscall</span>(SYS_futex, addr, FUTEX_WAKE_PRIVATE,
+                   n, <span class="kw">NULL</span>, <span class="kw">NULL</span>, <span class="nm">0</span>);
+}
+
+<span class="ty">atomic_int</span> mutex_state = <span class="nm">0</span>; <span class="cm">/* 0=free, 1=locked */</span>
+
+<span class="kw">void</span> <span class="fn">lock</span>() {
+    <span class="ty">int</span> expected = <span class="nm">0</span>;
+    <span class="kw">while</span> (!<span class="fn">atomic_compare_exchange_weak</span>(&amp;mutex_state, &amp;expected, <span class="nm">1</span>)) {
+        <span class="fn">futex_wait</span>(&amp;mutex_state, <span class="nm">1</span>);  <span class="cm">/* sleep until state != 1 */</span>
+        expected = <span class="nm">0</span>;
+    }
+}
+<span class="kw">void</span> <span class="fn">unlock</span>() {
+    <span class="fn">atomic_store</span>(&amp;mutex_state, <span class="nm">0</span>);
+    <span class="fn">futex_wake</span>(&amp;mutex_state, <span class="nm">1</span>);   <span class="cm">/* wake one waiter */</span>
+}</code></pre>
+
+<h3>CFS: The Completely Fair Scheduler</h3>
+
+<p>Linux's Completely Fair Scheduler (CFS) models each runnable task as a point on a virtual timeline. A task's position is its <em>vruntime</em> (virtual runtime): the total CPU time it has consumed, scaled by its priority. CFS always runs the task with the smallest vruntime. When a task blocks (on I/O, mutex, or sleep), its vruntime stops advancing. When it unblocks, it re-enters the run queue with its old (now smaller-than-average) vruntime and gets scheduled promptly &mdash; this is why interactive tasks feel responsive.</p>
+
+<p>For concurrent programs, the key implication is that threads that frequently block (waiting on mutexes, channels, I/O) will tend to have lower vruntime and be prioritized when they become runnable. Threads that spin-wait accumulate vruntime and are deprioritized. This is one reason the OS scheduler naturally penalizes spinlocks under contention. Note: as of Linux 6.6 (October 2023), CFS has been replaced by EEVDF (Earliest Eligible Virtual Deadline First), which retains vruntime tracking but adds virtual deadlines for better latency guarantees. The transition is incremental &mdash; most documentation still refers to CFS.</p>
+
+<h3>SIMT on GPU</h3>
+
+<p>GPU concurrency is architecturally different. A CUDA kernel launches thousands to millions of threads simultaneously. These are grouped into <em>warps</em> of 32 threads (NVIDIA) that execute in lockstep &mdash; Single Instruction Multiple Thread (SIMT). If threads in a warp diverge (different code paths due to an <code>if</code> branch), both paths execute serially with the non-active threads masked off. This is <em>warp divergence</em> and kills GPU throughput. See the GPU deep dive for warp scheduling, shared memory, and atomic operations on GPU.</p>
+
+<h3>io_uring</h3>
+
+<p>Since Linux 5.1, <code>io_uring</code> provides a radically more efficient async I/O interface. Two ring buffers &mdash; a submission queue (SQ) and a completion queue (CQ) &mdash; are shared between userspace and kernel via mmap. Userspace writes I/O requests to the SQ and reads completions from the CQ. For the common case, zero syscalls are needed per operation: the kernel polls the SQ ring in kernel context, and userspace polls the CQ ring. Throughput for small I/O operations can reach millions of IOPS, far exceeding traditional <code>epoll</code>. See the syscalls deep dive for the full io_uring interface.</p>
+
+<div class="power hack">
+<div class="power-label">FUTEX_PRIVATE_FLAG</div>
+<p>Always use <code>FUTEX_WAIT_PRIVATE</code> / <code>FUTEX_WAKE_PRIVATE</code> for mutexes that are not shared between processes. The private variants skip the global hash table lookup and go directly to a per-process queue, reducing futex syscall overhead by ~30% under contention. glibc's pthreads uses this optimization automatically for non-shared mutexes.</p>
+</div>
+
+<div class="lang-note">
+<div class="lang-note-label">futex_waitv (Linux 5.16+)</div>
+<p>Linux 5.16 (January 2022) added <code>futex_waitv</code> &mdash; a multi-futex wait syscall that can block on multiple futex addresses simultaneously. This is critical for Wine and Windows game emulation (which needs <code>WaitForMultipleObjects</code> semantics). It's the first piece of the broader "futex2" redesign, though the full replacement of the original <code>SYS_futex</code> omnibus syscall is still in progress.</p>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<!-- CH 14: THE MENTAL MODEL -->
+<!-- ============================================================ -->
+<section id="ch14">
+<h2>14 &mdash; the mental model</h2>
+
+<p>After fourteen chapters of mechanisms, the most important question is: which tool do you reach for first? The answer depends on the nature of the sharing and the nature of the operation. There is a decision tree that experienced concurrent programmers carry in their heads; making it explicit speeds up design and avoids over-engineering.</p>
+
+<div class="diagram">
+<span class="diagram-label">Concurrency Primitive Decision Tree</span>
+<pre><code>  Do you need shared state?
+  │
+  ├─ NO  → Use channels / message passing
+  │        (CSP model: Go channels, Rust mpsc, Python Queue)
+  │
+  └─ YES → Is the state a single integer/flag/pointer?
+            │
+            ├─ YES → Use atomics
+            │        (fetch_add, CAS, atomic flag)
+            │        Are memory orderings correct?
+            │        └─ Relaxed (counter) / Acq+Rel (flag handoff)
+            │
+            └─ NO → How is it accessed?
+                     │
+                     ├─ Many reads, rare writes
+                     │   └─ Use RWLock
+                     │
+                     ├─ Infrequent, complex mutation
+                     │   └─ Use Mutex
+                     │
+                     └─ High-throughput map/set
+                         └─ Striped lock or sync.Map
+                             (see hash tables deep dive)</code></pre>
+</div>
+
+<h3>Layered Correctness</h3>
+
+<p>Build concurrent systems in layers. The innermost layer uses primitives: atomics, futexes, spinlocks. Above that, synchronized containers and channels. Above that, higher-level patterns: worker pools, pipelines, actor models. Each layer should be obviously correct given the guarantees of the layer beneath. Never expose raw shared state across layers &mdash; encapsulate it behind a safe interface.</p>
+
+<h3>The Immutability Escape Hatch</h3>
+
+<p>The fastest lock is no lock at all. Immutable data structures can be read by any number of threads without synchronization. Copy-on-write (COW) extends this: when you need to modify, create a new copy, make your changes, then atomically swap the pointer. Readers continue using the old copy; the new copy becomes the current after a single CAS. This pattern appears in Linux's RCU (Read-Copy-Update), persistent data structures, and configuration updates in high-performance servers.</p>
+
+<h3>Testing Concurrent Code</h3>
+
+<p>Concurrent code requires deliberate testing. Unit tests that run once are insufficient &mdash; races have probabilistic windows. Best practices: run all tests with the race detector enabled; use stress tests that spawn many goroutines/threads and run thousands of operations; inject artificial delays at key points to widen race windows; use property-based testing to generate random operation sequences; and test shutdown paths (many races lurk in teardown).</p>
+
+<div class="vs">
+<div class="vs-col">
+<h4>Reach for first</h4>
+<ul style="line-height: 2; font-size: 0.9rem;">
+  <li>Channels for producer-consumer</li>
+  <li>sync.Once / call_once for init</li>
+  <li>Atomic for counters and flags</li>
+  <li>RWLock for read-heavy data</li>
+  <li>Thread pool for CPU-bound tasks</li>
+  <li>async/await for I/O-bound tasks</li>
+</ul>
+</div>
+<div class="vs-col">
+<h4>Avoid until needed</h4>
+<ul style="line-height: 2; font-size: 0.9rem;">
+  <li>Hand-rolled lock-free structures</li>
+  <li>Double-checked locking by hand</li>
+  <li>Spinlocks for long critical sections</li>
+  <li>SeqCst everywhere "to be safe"</li>
+  <li>Unbounded thread creation</li>
+  <li>Shared mutable global state</li>
+</ul>
+</div>
+</div>
+
+<div class="power">
+<div class="power-label">Final Wisdom</div>
+<p>The goal is not to write the cleverest concurrent code. The goal is to write concurrent code that is obviously correct, efficiently enough. Start with the simplest correct solution (usually a mutex or a channel). Profile before optimizing to atomics or lock-free structures. Use the race detector on every CI run. And remember: the most reliable concurrent program is one where concurrent access is isolated to a small, well-defined, well-tested boundary &mdash; and everything else is comfortably sequential.</p>
+</div>
+</section>
+
+</div><!-- .content -->
+
+<script>
+(function() {
+  'use strict';
+
+  // === LANGUAGE DETECTION ===
+  function detectLang(codeEl, pre) {
+    const tc = pre.closest('.tab-content');
+    if (tc) {
+      if (tc.classList.contains('c')) return 'c';
+      if (tc.classList.contains('py')) return 'python';
+      if (tc.classList.contains('ts')) return 'typescript';
+      if (tc.classList.contains('go')) return 'go';
+      if (tc.classList.contains('rs')) return 'rust';
+    }
+    const label = pre.querySelector('.label');
+    if (label) {
+      const t = label.textContent.toLowerCase();
+      if (t.includes('python')) return 'python';
+      if (t.includes('typescript') || t === 'ts') return 'typescript';
+      if (t.includes('rust') || t === 'rs') return 'rust';
+      if (t.includes('go') || t === 'go') return 'go';
+      if (t.match(/^c(\s|$)/i) || t.includes('c —') || t.includes('c –')) return 'c';
+    }
+    if (pre.closest('.try-this')) {
+      const code = codeEl.textContent;
+      if (code.startsWith('python3') || code.includes('import ')) return 'python';
+    }
+    return null;
+  }
+
+  function isRunnable(pre, codeEl, lang) {
+    if (!lang) return false;
+    if (lang === 'c' || lang === 'go' || lang === 'rust') return false;
+    if (pre.closest('.diagram')) return false;
+    if (pre.closest('.try-this')) return true;
+    if (pre.closest('.tab-content')) return true;
+    const code = codeEl.textContent;
+    if (pre.querySelector('.label')) {
+      if (code.match(/\b(def |fn |func |function |int main|void |printf|println|print\(|console\.log|fmt\.)/)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function getCode(codeEl) {
+    const clone = codeEl.cloneNode(true);
+    clone.querySelectorAll('.label').forEach(el => el.remove());
+    return clone.textContent;
+  }
+
+  function getOrCreateOutput(pre) {
+    let out = pre.nextElementSibling;
+    if (out && out.classList.contains('run-output')) return out;
+    out = document.createElement('div');
+    out.className = 'run-output';
+    pre.insertAdjacentElement('afterend', out);
+    return out;
+  }
+
+  let pyodideReady = null;
+  async function loadPyodide_() {
+    if (pyodideReady) return pyodideReady;
+    pyodideReady = (async () => {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/pyodide/v0.27.4/full/pyodide.js';
+      document.head.appendChild(script);
+      await new Promise((res, rej) => { script.onload = res; script.onerror = rej; });
+      return await loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.27.4/full/' });
+    })();
+    return pyodideReady;
+  }
+
+  async function runPython(code, out) {
+    out.textContent = 'Loading Python runtime...';
+    out.classList.remove('error');
+    try {
+      const py = await loadPyodide_();
+      py.runPython(`import sys, io; sys.stdout = io.StringIO()`);
+      py.runPython(code);
+      const stdout = py.runPython('sys.stdout.getvalue()');
+      out.textContent = stdout || '(no output)';
+    } catch (e) {
+      out.textContent = String(e.message || e);
+      out.classList.add('error');
+    }
+  }
+
+  async function runPythonOneLiner(code, out) {
+    const m = code.match(/^python3?\s+-c\s+["']([\s\S]+)["']\s*$/);
+    if (m) return runPython(m[1], out);
+    const m2 = code.match(/^python3?\s+-c\s+["']([\s\S]+?)["']/);
+    if (m2) return runPython(m2[1], out);
+    return runPython(code, out);
+  }
+
+  function stripTS(code) {
+    return code
+      .replace(/:\s*(?:string|number|boolean|void|any|never|unknown|undefined|null|bigint|symbol)\b(\[\])?/g, '')
+      .replace(/:\s*(?:Record|Map|Set|Array|Promise|Partial|Required|Readonly)<[^>]+>/g, '')
+      .replace(/<(?:string|number|boolean|void|any|never|unknown|T|U|K|V)(?:\[\])?(?:\s*,\s*(?:string|number|boolean|void|any|never|unknown|T|U|K|V)(?:\[\])?)*>/g, '')
+      .replace(/\bas\s+\w+/g, '')
+      .replace(/^\s*(?:export|import)\s+type\s+.*$/gm, '')
+      .replace(/^\s*interface\s+\w+\s*\{[\s\S]*?\n\}/gm, '')
+      .replace(/^\s*type\s+\w+\s*=.*$/gm, '');
+  }
+
+  async function runJS(code, out) {
+    out.classList.remove('error');
+    const logs = [];
+    const origLog = console.log;
+    const origWarn = console.warn;
+    const origError = console.error;
+    console.log = (...args) => logs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' '));
+    console.warn = console.log;
+    console.error = (...args) => logs.push('ERROR: ' + args.map(String).join(' '));
+    try {
+      const cleaned = stripTS(code);
+      const fn = new Function(cleaned);
+      const result = fn();
+      if (result instanceof Promise) await result;
+      out.textContent = logs.join('\n') || '(no output)';
+    } catch (e) {
+      out.textContent = logs.join('\n') + (logs.length ? '\n' : '') + String(e);
+      out.classList.add('error');
+    } finally {
+      console.log = origLog;
+      console.warn = origWarn;
+      console.error = origError;
+    }
+  }
+
+  function snippetId(codeEl, pre) {
+    if (codeEl.dataset.snippetId) return codeEl.dataset.snippetId;
+    const path = location.pathname;
+    const fname = path.split('/').pop().replace(/-deep-dive\.html$/, '').replace(/\.html$/, '');
+    const prefix = fname.substring(0, 5);
+
+    const tc = pre.closest('.tab-content');
+    if (tc) {
+      const tabs = tc.closest('.lang-tabs');
+      const radio = tabs ? tabs.querySelector('input[type="radio"]') : null;
+      const groupName = radio ? radio.name.replace('tabs-', '') : 'unknown';
+      const langClass = ['c','py','ts','go','rs'].find(c => tc.classList.contains(c)) || 'x';
+      const id = prefix + '-' + groupName + '-' + langClass;
+      codeEl.dataset.snippetId = id;
+      return id;
+    }
+
+    const label = pre.querySelector('.label');
+    if (label) {
+      const slug = label.textContent.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').substring(0, 20);
+      const id = prefix + '-' + slug;
+      codeEl.dataset.snippetId = id;
+      return id;
+    }
+
+    const id = prefix + '-anon-' + Math.random().toString(36).substring(2, 8);
+    codeEl.dataset.snippetId = id;
+    return id;
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('pre > code, pre code').forEach(function(codeEl) {
+      const pre = codeEl.closest('pre');
+      if (!pre) return;
+      const lang = detectLang(codeEl, pre);
+      if (!isRunnable(pre, codeEl, lang)) return;
+
+      const btn = document.createElement('button');
+      btn.className = 'run-btn';
+      btn.textContent = '\u25B6 Run';
+      btn.title = 'Run this code';
+      pre.style.position = 'relative';
+      pre.appendChild(btn);
+
+      btn.addEventListener('click', async function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (btn.classList.contains('running')) return;
+        btn.classList.add('running');
+        btn.textContent = '\u25B6 ...';
+
+        let outputAnchor = pre;
+        const tabContent = pre.closest('.tab-content');
+        if (tabContent) {
+          outputAnchor = tabContent.closest('.lang-tabs');
+        }
+        const out = getOrCreateOutput(outputAnchor);
+        out.style.display = 'block';
+
+        const code = getCode(codeEl);
+        try {
+          switch (lang) {
+            case 'python':
+              if (pre.closest('.try-this') && code.match(/^python3?\s/)) {
+                await runPythonOneLiner(code, out);
+              } else {
+                await runPython(code, out);
+              }
+              break;
+            case 'typescript':
+            case 'javascript':
+              await runJS(code, out);
+              break;
+          }
+        } catch (e) {
+          out.textContent = String(e);
+          out.classList.add('error');
+        }
+
+        btn.classList.remove('running');
+        btn.textContent = '\u25B6 Run';
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>
