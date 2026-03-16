@@ -1,0 +1,4308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Game Characters — Movement, AI, and Game Feel</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+    --white: #e8e8f0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 2rem;
+    display: flex;
+    gap: 1.2rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.2s, text-shadow 0.2s;
+    padding: 0.3rem 0;
+  }
+  nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+  nav .nav-title {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 1rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.3);
+  }
+
+  .content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+  }
+
+  .hero {
+    text-align: center;
+    padding: 4rem 0 3rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 2rem;
+    position: relative;
+  }
+  .hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3.2rem;
+    font-weight: 600;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+  }
+  .hero .subtitle {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 500px;
+    margin: 0 auto;
+  }
+  .hero .blink {
+    display: inline-block;
+    animation: blink 1s step-end infinite;
+    color: var(--green);
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .glitch { position: relative; display: inline-block; }
+  .glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+  .glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 2s infinite linear alternate-reverse;
+    clip-path: inset(0 0 65% 0);
+  }
+  .glitch::after {
+    color: var(--magenta);
+    animation: glitch-2 3s infinite linear alternate-reverse;
+    clip-path: inset(65% 0 0 0);
+  }
+  @keyframes glitch-1 {
+    0%, 95% { transform: translateX(0); }
+    96% { transform: translateX(-2px); }
+    97% { transform: translateX(2px); }
+    98% { transform: translateX(-1px); }
+    100% { transform: translateX(0); }
+  }
+  @keyframes glitch-2 {
+    0%, 93% { transform: translateX(0); }
+    94% { transform: translateX(2px); }
+    96% { transform: translateX(-2px); }
+    98% { transform: translateX(1px); }
+    100% { transform: translateX(0); }
+  }
+
+  section { margin-bottom: 5rem; padding-top: 1rem; }
+  h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: var(--green);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: 0.02em;
+  }
+  h3 {
+    font-size: 1.25rem;
+    color: var(--cyan);
+    margin: 2.5rem 0 1rem;
+    font-weight: 600;
+  }
+  h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 2rem 0 0.8rem;
+  }
+  p { margin-bottom: 1rem; }
+
+  .drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4rem;
+    line-height: 0.8;
+    padding: 0.1em 0.15em 0 0;
+    color: var(--green);
+    font-weight: 600;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+  }
+
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    padding: 0.12em 0.4em;
+    border-radius: 3px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem 1.4rem;
+    overflow-x: auto;
+    margin: 1.2rem 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px;
+    line-height: 1.55;
+    position: relative;
+  }
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+  }
+  .cm { color: var(--text-dim); }
+  .kw { color: var(--magenta); }
+  .ty { color: var(--cyan); }
+  .st { color: var(--green); }
+  .nm { color: var(--yellow); }
+  .fn { color: var(--blue); }
+  .pp { color: var(--orange); }
+  .label {
+    position: absolute;
+    top: 0.3rem; right: 0.7rem;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    opacity: 0.5;
+  }
+
+  .diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+  }
+  .diagram pre {
+    background: none; border: none; padding: 0; margin: 0;
+    font-size: 13px; line-height: 1.45; color: var(--text);
+  }
+  .diagram pre code { color: var(--text); }
+  .diagram-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--green-dim);
+    margin-bottom: 0.8rem;
+    display: block;
+  }
+
+  .power {
+    background: var(--bg-card);
+    border-left: 3px solid var(--green);
+    padding: 1.2rem 1.4rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .power-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.3rem;
+  }
+  .power p { margin-bottom: 0; font-size: 0.95rem; }
+  .power.danger { border-left-color: var(--red); }
+  .power.danger .power-label { color: var(--red); }
+  .power.hack { border-left-color: var(--magenta); }
+  .power.hack .power-label { color: var(--magenta); }
+  .power.wild { border-left-color: var(--orange); }
+  .power.wild .power-label { color: var(--orange); }
+  .power.zen { border-left-color: var(--cyan); }
+  .power.zen .power-label { color: var(--cyan); }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.88rem;
+  }
+  th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    text-align: left;
+    padding: 0.5rem 0.7rem;
+    border-bottom: 2px solid var(--border);
+  }
+  td {
+    padding: 0.45rem 0.7rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:hover { background: rgba(0,255,136,0.02); }
+
+  details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1rem 0;
+    overflow: hidden;
+  }
+  details summary {
+    padding: 0.7rem 1.1rem;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--green);
+    user-select: none;
+    transition: background 0.2s;
+  }
+  details summary:hover { background: rgba(0,255,136,0.04); }
+  details[open] summary { border-bottom: 1px solid var(--border); }
+  details .det { padding: 1.1rem; }
+  details pre { margin: 0.8rem 0; }
+
+  .vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .vs-col {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.1rem;
+  }
+  .vs-col h4 { margin-top: 0; }
+
+  .lang-tabs {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1.2rem 0;
+    overflow: hidden;
+  }
+  .lang-tabs input[type="radio"] { display: none; }
+  .lang-tabs label {
+    display: inline-block;
+    padding: 0.5rem 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .lang-tabs label:hover { color: var(--green); }
+  .lang-tabs .tab-bar {
+    border-bottom: 1px solid var(--border);
+    padding: 0 0.5rem;
+  }
+  .lang-tabs .tab-content { display: none; }
+  .lang-tabs .tab-content pre { margin: 0; border: none; border-radius: 0; }
+
+  .lang-tabs input.tc:checked ~ .tab-content.c,
+  .lang-tabs input.tpy:checked ~ .tab-content.py,
+  .lang-tabs input.tts:checked ~ .tab-content.ts,
+  .lang-tabs input.tgo:checked ~ .tab-content.go,
+  .lang-tabs input.trs:checked ~ .tab-content.rs { display: block; }
+
+  .lang-tabs input:nth-of-type(1):checked ~ .tab-bar label:nth-child(1),
+  .lang-tabs input:nth-of-type(2):checked ~ .tab-bar label:nth-child(2),
+  .lang-tabs input:nth-of-type(3):checked ~ .tab-bar label:nth-child(3),
+  .lang-tabs input:nth-of-type(4):checked ~ .tab-bar label:nth-child(4),
+  .lang-tabs input:nth-of-type(5):checked ~ .tab-bar label:nth-child(5) {
+    color: var(--green);
+    background: rgba(0,255,136,0.06);
+    border-bottom: 2px solid var(--green);
+  }
+
+  .try-this {
+    background: rgba(0, 255, 136, 0.04);
+    border-left: 3px solid var(--green-dim);
+    padding: 1rem 1.2rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .try-this .try-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.5rem;
+  }
+  .try-this pre {
+    margin: 0.5rem 0 0;
+    font-size: 12.5px;
+  }
+  .try-this p { font-size: 0.9rem; margin-bottom: 0.5rem; }
+
+  .ticker {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--green);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    display: inline-block;
+    text-shadow: 0 0 6px rgba(0,255,136,0.3);
+  }
+
+  .run-btn {
+    position: absolute; top: 0.3rem; right: 3rem;
+    background: var(--green); color: var(--bg);
+    border: none; border-radius: 3px; cursor: pointer;
+    font: 600 10px 'JetBrains Mono', monospace; padding: 2px 8px;
+    opacity: 0.6; transition: opacity 0.2s;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    z-index: 2;
+  }
+  .run-btn:hover { opacity: 1; }
+  .run-btn.running { opacity: 0.4; cursor: wait; }
+  .run-output {
+    background: #050508; border: 1px solid var(--border);
+    border-top: none; border-radius: 0 0 6px 6px;
+    padding: 0.8rem 1rem; margin-top: -1px;
+    font: 13px/1.5 'JetBrains Mono', monospace; color: var(--green);
+    white-space: pre-wrap; max-height: 200px; overflow-y: auto;
+  }
+  .run-output.error { color: var(--red); }
+
+  /* === INLINE DEMO CANVASES === */
+  .demo-wrap {
+    position: relative;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    background: #000;
+    margin: 1.5rem 0;
+  }
+  .demo-canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    outline: none;
+  }
+  .demo-canvas:focus {
+    box-shadow: 0 0 0 1px var(--green), 0 0 12px rgba(0,255,136,0.15);
+  }
+  .demo-overlay {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.5);
+    font: 14px 'JetBrains Mono', monospace;
+    color: var(--green); cursor: pointer;
+    transition: opacity 0.3s;
+  }
+  .demo-overlay.hidden { opacity: 0; pointer-events: none; }
+  .demo-hud {
+    position: absolute; top: 8px; left: 12px;
+    font: 11px 'JetBrains Mono', monospace;
+    color: var(--green); opacity: 0.7;
+    pointer-events: none;
+    white-space: pre;
+  }
+  .demo-controls {
+    position: absolute; bottom: 8px; left: 12px;
+    display: flex; gap: 6px; flex-wrap: wrap;
+  }
+  .demo-controls button {
+    font: 600 10px 'JetBrains Mono', monospace;
+    padding: 2px 8px; border-radius: 3px;
+    background: rgba(0,255,136,0.15); color: var(--green);
+    border: 1px solid rgba(0,255,136,0.3);
+    cursor: pointer; text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .demo-controls button:hover {
+    background: rgba(0,255,136,0.3);
+  }
+  .demo-controls button.active {
+    background: var(--green); color: var(--bg);
+  }
+  .demo-hint {
+    position: absolute; bottom: 8px; right: 12px;
+    font: 10px 'JetBrains Mono', monospace;
+    color: var(--text-dim); opacity: 0.5;
+    pointer-events: none;
+  }
+
+  @media (max-width: 700px) {
+    .vs { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2rem; }
+    .content { padding: 4rem 1rem 4rem; }
+    nav { font-size: 10px; gap: 0.8rem; padding: 0.4rem 1rem; }
+    .game-canvas { height: 300px; }
+  }
+</style>
+</head>
+<body>
+<nav>
+  <span class="nav-title">&gt;_ GAMEFEEL</span>
+  <a href="#ch1">loop</a>
+  <a href="#ch2">move</a>
+  <a href="#ch3">jump</a>
+  <a href="#ch4">fsm</a>
+  <a href="#ch5">A*</a>
+  <a href="#ch6">flock</a>
+  <a href="#ch7">AI</a>
+  <a href="#ch8">combat</a>
+  <a href="#ch9">camera</a>
+  <a href="#ch10">ability</a>
+  <a href="#ch11">maps</a>
+  <a href="#ch12">arena</a>
+</nav>
+
+<div class="content">
+<div class="hero">
+  <h1><span class="glitch" data-text="GAME CHARACTERS">GAME CHARACTERS</span></h1>
+  <p class="subtitle">Movement physics, animation state machines, pathfinding, behavior trees, combat feel &mdash; the systems that make a character feel alive.<span class="blink">_</span></p>
+</div>
+
+
+<!-- ===== SHARED DEMO INFRASTRUCTURE ===== -->
+<script>
+/* drawChar — shared character renderer */
+function drawChar(ctx, x, y, w, h, color, facingR, scaleX, scaleY, flash) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scaleX || 1, scaleY || 1);
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.beginPath();
+  ctx.ellipse(0, h/2, w*0.6, 4, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.fillStyle = flash ? '#fff' : color;
+  ctx.beginPath();
+  ctx.roundRect(-w/2, -h/2, w, h, 4);
+  ctx.fill();
+  var ex = facingR ? 3 : -3;
+  ctx.fillStyle = flash ? '#ccc' : '#111';
+  ctx.beginPath(); ctx.arc(ex - 4, -h/4, 2.5, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(ex + 4, -h/4, 2.5, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+/* drawHP — shared health bar renderer */
+function drawHP(ctx, x, y, w, hp, maxHp) {
+  var pct = Math.max(0, hp / maxHp);
+  ctx.fillStyle = '#222';
+  ctx.fillRect(x - w/2, y, w, 4);
+  ctx.fillStyle = pct > 0.5 ? '#00ff88' : pct > 0.25 ? '#ffdd00' : '#ff3344';
+  ctx.fillRect(x - w/2, y, w * pct, 4);
+}
+
+/* observeVisibility — IntersectionObserver for gating rAF */
+function observeVisibility(el) {
+  var state = { visible: false };
+  var obs = new IntersectionObserver(function(entries) {
+    state.visible = entries[0].isIntersecting;
+  }, {threshold: 0.1});
+  obs.observe(el);
+  return state;
+}
+
+/* deferDemo — lazy-init a demo when its canvas scrolls near viewport */
+function deferDemo(canvasId, initFn) {
+  var canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  var launched = false;
+  var obs = new IntersectionObserver(function(entries) {
+    if (entries[0].isIntersecting && !launched) {
+      launched = true;
+      obs.disconnect();
+      initFn();
+    }
+  }, { rootMargin: '200px' });
+  obs.observe(canvas);
+}
+
+/* setDemoControls — create buttons inside a controls div */
+function setDemoControls(ctrlEl, btns, cb) {
+  ctrlEl.innerHTML = '';
+  btns.forEach(function(b) {
+    var label = typeof b === 'string' ? b : b.label;
+    var key   = typeof b === 'string' ? b : (b.key || b.label);
+    var act   = typeof b === 'string' ? false : !!b.active;
+    var el = document.createElement('button');
+    el.textContent = label;
+    if (act) el.classList.add('active');
+    el.onclick = function() {
+      ctrlEl.querySelectorAll('button').forEach(function(x){ x.classList.remove('active'); });
+      el.classList.add('active');
+      if (cb) cb(key);
+    };
+    ctrlEl.appendChild(el);
+  });
+}
+
+/* Wire up overlay clicks — overlay sits over canvas, so forward clicks */
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.demo-overlay').forEach(function(ov) {
+    ov.addEventListener('click', function() {
+      ov.classList.add('hidden');
+      var canvas = ov.closest('.demo-wrap').querySelector('.demo-canvas');
+      if (canvas) {
+        canvas.focus();
+        canvas.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+      }
+    });
+  });
+});
+</script>
+
+<!-- ========== CHAPTER 01 — GAME LOOP ========== -->
+<section id="ch1">
+<h2>01 &mdash; The Game Loop</h2>
+
+<p class="drop-cap">Every game is a loop. Read input, update state, render frame, repeat. The question is <em>how fast</em>, and what happens when the answer is &ldquo;it depends.&rdquo; A variable timestep &mdash; where <code>dt</code> is whatever the last frame took &mdash; seems natural, but it couples your physics to your framerate. Dark Souls II shipped this way. Weapons degraded per frame, not per second. At 60fps on PC, swords broke twice as fast as on the 30fps console version. From Software patched it a year later.</p>
+
+<p>The fix is a <strong>fixed timestep with accumulator</strong>. Physics runs at a locked rate &mdash; say 60Hz &mdash; regardless of monitor refresh. The leftover time becomes an interpolation factor for rendering between the two most recent physics states.</p>
+
+<div class="diagram">
+<span class="diagram-label">Fixed Timestep Accumulator</span>
+<pre><code>frameTime = now - lastFrame          <span class="cm">// real elapsed time</span>
+accumulator += frameTime
+
+<span class="kw">while</span> accumulator >= STEP:            <span class="cm">// STEP = 1/60</span>
+    previousState = currentState
+    update(currentState, STEP)        <span class="cm">// deterministic physics</span>
+    accumulator -= STEP
+
+alpha = accumulator / STEP            <span class="cm">// 0.0 to 1.0</span>
+render(lerp(previous, current, alpha))<span class="cm">// smooth between states</span></code></pre>
+</div>
+
+<p>The <code>alpha</code> value is the key insight. Without it, your rendering jitters because it shows a physics state that may be &ldquo;in the future&rdquo; of actual elapsed time. With interpolation, the visual position smoothly blends between the two most recent physics snapshots. The physics stays deterministic. The rendering stays smooth. They never fight.</p>
+
+
+<div class="demo-wrap">
+  <canvas id="demo-loop" class="demo-canvas" width="800" height="400" tabindex="0"></canvas>
+  <div class="demo-hud" id="hud-loop"></div>
+  <div class="demo-controls" id="ctrl-loop"></div>
+  <div class="demo-overlay" id="overlay-loop">Click to play — toggle timestep modes</div>
+</div>
+
+<h3>The Spiral of Death</h3>
+
+<p>What if one physics step takes longer than <code>STEP</code> to compute? The accumulator grows faster than it drains. Next frame runs more steps to catch up, which takes even longer. The accumulator explodes. The fix: clamp <code>frameTime</code> to a maximum (e.g., 250ms). The simulation slows down &mdash; &ldquo;bullet time&rdquo; &mdash; instead of spiraling. Games like Factorio make this visible: when the factory gets too complex, UPS (updates per second) drops below 60 and everything moves in slow motion.</p>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-loop" id="loop-go" class="tgo" checked>
+  <input type="radio" name="tabs-loop" id="loop-py" class="tpy">
+  <input type="radio" name="tabs-loop" id="loop-ts" class="tts">
+  <div class="tab-bar">
+    <label for="loop-go">Go</label>
+    <label for="loop-py">Python</label>
+    <label for="loop-ts">TypeScript</label>
+  </div>
+  <div class="tab-content go">
+<pre><code><span class="kw">const</span> step = time.Second / <span class="nm">60</span>
+
+<span class="kw">func</span> <span class="fn">RunLoop</span>(update <span class="kw">func</span>(<span class="ty">float64</span>), render <span class="kw">func</span>(<span class="ty">float64</span>)) {
+    prev := time.<span class="fn">Now</span>()
+    <span class="kw">var</span> accum time.Duration
+
+    <span class="kw">for</span> {
+        now := time.<span class="fn">Now</span>()
+        frame := now.<span class="fn">Sub</span>(prev)
+        <span class="kw">if</span> frame > <span class="nm">250</span>*time.Millisecond {
+            frame = <span class="nm">250</span> * time.Millisecond  <span class="cm">// clamp: prevent spiral</span>
+        }
+        prev = now
+        accum += frame
+
+        <span class="kw">for</span> accum >= step {
+            <span class="fn">update</span>(<span class="nm">1.0</span> / <span class="nm">60.0</span>)
+            accum -= step
+        }
+        alpha := <span class="ty">float64</span>(accum) / <span class="ty">float64</span>(step)
+        <span class="fn">render</span>(alpha)
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content py">
+<pre><code><span class="kw">import</span> time
+
+STEP = <span class="nm">1.0</span> / <span class="nm">60</span>
+
+<span class="kw">def</span> <span class="fn">run_loop</span>(update, render):
+    prev = time.<span class="fn">perf_counter</span>()
+    accum = <span class="nm">0.0</span>
+
+    <span class="kw">while</span> <span class="kw">True</span>:
+        now = time.<span class="fn">perf_counter</span>()
+        frame_time = <span class="fn">min</span>(now - prev, <span class="nm">0.25</span>)  <span class="cm"># clamp</span>
+        prev = now
+        accum += frame_time
+
+        <span class="kw">while</span> accum >= STEP:
+            <span class="fn">update</span>(STEP)
+            accum -= STEP
+
+        alpha = accum / STEP
+        <span class="fn">render</span>(alpha)</code></pre>
+  </div>
+  <div class="tab-content ts">
+<pre><code><span class="kw">const</span> STEP = <span class="nm">1</span> / <span class="nm">60</span>;
+<span class="kw">let</span> accum = <span class="nm">0</span>, prev = <span class="nm">0</span>;
+
+<span class="kw">function</span> <span class="fn">loop</span>(now: <span class="ty">number</span>) {
+  requestAnimationFrame(loop);
+  <span class="kw">const</span> dt = Math.<span class="fn">min</span>((now - prev) / <span class="nm">1000</span>, <span class="nm">0.25</span>);
+  prev = now;
+  accum += dt;
+
+  <span class="kw">while</span> (accum >= STEP) {
+    <span class="fn">update</span>(STEP);
+    accum -= STEP;
+  }
+  <span class="kw">const</span> alpha = accum / STEP;
+  <span class="fn">render</span>(alpha);   <span class="cm">// interpolate for smooth visuals</span>
+}
+requestAnimationFrame(loop);</code></pre>
+  </div>
+</div>
+
+<div class="power">
+<div class="power-label">Why This Matters</div>
+<p>The demo above shows the difference. In &ldquo;variable&rdquo; mode, balls stutter when the frame rate fluctuates. In &ldquo;fixed&rdquo; mode, physics is smooth but rendering shows micro-jitter from rounding. In &ldquo;interpolated&rdquo; mode, both physics and rendering are silky. Every serious game engine &mdash; Unity, Unreal, Godot &mdash; runs a fixed timestep under the hood. Now you know why.</p>
+</div>
+
+<div class="power wild">
+<div class="power-label">Dark Souls II &mdash; The 60fps Bug</div>
+<p>Weapon durability was decremented each frame when the weapon clipped through an enemy hitbox. At 30fps (PS3/360), this was fine. When the PC version ran at 60fps, double the frames meant double the collision checks, and weapons broke in half the time. The fix in <em>Scholar of the First Sin</em>: multiply durability loss by <code>dt</code>, making it time-based instead of frame-based. A one-line fix for a bug that plagued the game for a year.</p>
+</div>
+</section>
+
+<script>
+deferDemo('demo-loop', function() {
+  var canvas = document.getElementById('demo-loop');
+  var hud    = document.getElementById('hud-loop');
+  var ctrl   = document.getElementById('ctrl-loop');
+  var overlay= document.getElementById('overlay-loop');
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var vis = observeVisibility(canvas);
+  var active = false;
+
+  canvas.addEventListener('click', function() { canvas.focus(); overlay.classList.add('hidden'); active = true; });
+
+  var W = 800, H = 400;
+  var GRAVITY = 400;
+  var STEP = 1/60;
+  var mode = 'interpolated'; // variable, fixed, interpolated
+  var accumulator = 0;
+
+  var colors = ['#e74c3c','#3498db','#2ecc71','#f1c40f','#9b59b6','#e67e22','#1abc9c','#ec407a','#7c4dff','#00bcd4'];
+  var balls = [];
+  for (var i = 0; i < 10; i++) {
+    var r = 12 + Math.random() * 14;
+    balls.push({
+      x: 60 + Math.random() * (W - 120),
+      y: 60 + Math.random() * (H - 200),
+      prevX: 0, prevY: 0,
+      vx: (Math.random() - 0.5) * 300,
+      vy: (Math.random() - 0.5) * 200,
+      r: r,
+      color: colors[i]
+    });
+  }
+  for (var i = 0; i < balls.length; i++) {
+    balls[i].prevX = balls[i].x;
+    balls[i].prevY = balls[i].y;
+  }
+
+  setDemoControls(ctrl, ['Variable','Fixed','Interpolated'], function(label) {
+    mode = label.toLowerCase();
+  });
+  // set default active
+  var btns = ctrl.querySelectorAll('button');
+  for (var i = 0; i < btns.length; i++) {
+    btns[i].classList.toggle('active', btns[i].textContent === 'Interpolated');
+  }
+
+  function stepPhysics(dt) {
+    for (var i = 0; i < balls.length; i++) {
+      var b = balls[i];
+      b.prevX = b.x;
+      b.prevY = b.y;
+      b.vy += GRAVITY * dt;
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      // walls
+      if (b.x - b.r < 0)   { b.x = b.r;     b.vx = Math.abs(b.vx) * 0.95; }
+      if (b.x + b.r > W)   { b.x = W - b.r;  b.vx = -Math.abs(b.vx) * 0.95; }
+      if (b.y - b.r < 0)   { b.y = b.r;     b.vy = Math.abs(b.vy) * 0.95; }
+      if (b.y + b.r > H)   { b.y = H - b.r;  b.vy = -Math.abs(b.vy) * 0.85; }
+    }
+  }
+
+  function render(alpha) {
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, W, H);
+    for (var i = 0; i < balls.length; i++) {
+      var b = balls[i];
+      var dx, dy;
+      if (mode === 'interpolated') {
+        dx = b.prevX + (b.x - b.prevX) * alpha;
+        dy = b.prevY + (b.y - b.prevY) * alpha;
+      } else {
+        dx = b.x;
+        dy = b.y;
+      }
+      ctx.beginPath();
+      ctx.arc(dx, dy, b.r, 0, Math.PI * 2);
+      ctx.fillStyle = b.color;
+      ctx.fill();
+      // highlight
+      ctx.beginPath();
+      ctx.arc(dx - b.r * 0.25, dy - b.r * 0.25, b.r * 0.35, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.fill();
+    }
+  }
+
+  var lastT = 0;
+  var fps = 60;
+  var fpsSmooth = 60;
+
+  function loop(t) {
+    if (!vis.visible) { lastT = 0; requestAnimationFrame(loop); return; }
+    if (!lastT) { lastT = t; requestAnimationFrame(loop); return; }
+    var rawDt = (t - lastT) / 1000;
+    lastT = t;
+    if (rawDt > 0.1) rawDt = 0.1;
+
+    fps = 1 / rawDt;
+    fpsSmooth += (fps - fpsSmooth) * 0.1;
+
+    if (active) {
+      if (mode === 'variable') {
+        // simulate jitter: occasionally double the dt
+        var jitteredDt = rawDt;
+        if (Math.random() < 0.1) jitteredDt = rawDt * 2.5;
+        stepPhysics(jitteredDt);
+        accumulator = 0;
+        render(1);
+      } else if (mode === 'fixed') {
+        accumulator += rawDt;
+        while (accumulator >= STEP) {
+          stepPhysics(STEP);
+          accumulator -= STEP;
+        }
+        render(1);
+      } else {
+        // interpolated
+        accumulator += rawDt;
+        while (accumulator >= STEP) {
+          stepPhysics(STEP);
+          accumulator -= STEP;
+        }
+        var alpha = accumulator / STEP;
+        render(alpha);
+      }
+    } else {
+      render(1);
+    }
+
+    hud.textContent = 'FPS: ' + Math.round(fpsSmooth) + '  Mode: ' + mode + '  Accum: ' + accumulator.toFixed(4);
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+});
+</script>
+
+<!-- ========== CHAPTER 02 — MOVEMENT PHYSICS ========== -->
+<section id="ch2" data-demo="move">
+<h2>02 &mdash; Movement Physics</h2>
+
+<p class="drop-cap">Mario doesn&rsquo;t move like a car. He doesn&rsquo;t move like a person. He moves like <em>Mario</em>. The NES game uses 8.4 fixed-point arithmetic &mdash; 16 subpixels per pixel &mdash; to track position and velocity on hardware with no floating-point unit. Walking caps at 1.5 pixels/frame, running at 2.5. Acceleration doubles when reversing direction, which is why turnarounds feel snappy. Air friction is halved compared to ground friction, so jumps preserve momentum but you can&rsquo;t accelerate as fast. Every constant was tuned until it felt right.</p>
+
+<p>The core loop is simple: <code>velocity += acceleration * dt</code>, <code>position += velocity * dt</code>. What makes each game feel different is the <em>constants</em>.</p>
+
+<table>
+<tr><th>Parameter</th><th>Mario</th><th>Celeste</th><th>Ice Level</th></tr>
+<tr><td>Max speed</td><td><code>250</code></td><td><code>200</code></td><td><code>300</code></td></tr>
+<tr><td>Acceleration</td><td><code>1800</code></td><td><code>1000</code></td><td><code>400</code></td></tr>
+<tr><td>Friction</td><td><code>2000</code></td><td><code>1600</code></td><td><code>200</code></td></tr>
+<tr><td>Air control</td><td><code>80%</code></td><td><code>65%</code></td><td><code>30%</code></td></tr>
+</table>
+
+<p>Celeste&rsquo;s Madeline has <code>RunAccel = 1000</code>, <code>RunReduce = 400</code> (deceleration when releasing input), and an <code>AirMult = 0.65</code> that cuts both acceleration and deceleration in the air to 65% of ground values. This makes aerial movement feel committed &mdash; you can adjust, but you can&rsquo;t reverse on a dime. Ice physics drop friction to near zero, so stopping takes forever and the character slides.</p>
+
+
+<div class="demo-wrap">
+  <canvas id="demo-move" class="demo-canvas" width="800" height="400" tabindex="0"></canvas>
+  <div class="demo-hud" id="hud-move"></div>
+  <div class="demo-controls" id="ctrl-move"></div>
+  <div class="demo-overlay" id="overlay-move">Click to play — WASD to move</div>
+</div>
+
+<h3>The Movement Update</h3>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-move" id="move-go" class="tgo" checked>
+  <input type="radio" name="tabs-move" id="move-py" class="tpy">
+  <input type="radio" name="tabs-move" id="move-ts" class="tts">
+  <div class="tab-bar">
+    <label for="move-go">Go</label>
+    <label for="move-py">Python</label>
+    <label for="move-ts">TypeScript</label>
+  </div>
+  <div class="tab-content go">
+<pre><code><span class="kw">type</span> <span class="ty">Player</span> <span class="kw">struct</span> {
+    X, Y, VX, VY    <span class="ty">float64</span>
+    Accel, Friction  <span class="ty">float64</span>
+    MaxSpeed, AirMul <span class="ty">float64</span>
+    OnGround         <span class="ty">bool</span>
+}
+
+<span class="kw">func</span> (p *<span class="ty">Player</span>) <span class="fn">Update</span>(dt <span class="ty">float64</span>, inputX <span class="ty">float64</span>) {
+    mul := <span class="nm">1.0</span>
+    <span class="kw">if</span> !p.OnGround { mul = p.AirMul }
+
+    <span class="kw">if</span> inputX != <span class="nm">0</span> {
+        p.VX += inputX * p.Accel * mul * dt
+    } <span class="kw">else</span> {
+        <span class="cm">// Apply friction toward zero</span>
+        <span class="kw">if</span> p.VX > <span class="nm">0</span> {
+            p.VX = <span class="fn">max</span>(<span class="nm">0</span>, p.VX - p.Friction*mul*dt)
+        } <span class="kw">else</span> {
+            p.VX = <span class="fn">min</span>(<span class="nm">0</span>, p.VX + p.Friction*mul*dt)
+        }
+    }
+    <span class="cm">// Clamp to max speed</span>
+    p.VX = <span class="fn">clamp</span>(p.VX, -p.MaxSpeed, p.MaxSpeed)
+    p.X += p.VX * dt
+}</code></pre>
+  </div>
+  <div class="tab-content py">
+<pre><code><span class="kw">def</span> <span class="fn">update_movement</span>(player, dt, input_x):
+    mul = <span class="nm">1.0</span> <span class="kw">if</span> player.on_ground <span class="kw">else</span> player.air_mul
+
+    <span class="kw">if</span> input_x != <span class="nm">0</span>:
+        player.vx += input_x * player.accel * mul * dt
+    <span class="kw">else</span>:
+        <span class="cm"># Friction: decelerate toward zero</span>
+        <span class="kw">if</span> player.vx > <span class="nm">0</span>:
+            player.vx = <span class="fn">max</span>(<span class="nm">0</span>, player.vx - player.friction * mul * dt)
+        <span class="kw">else</span>:
+            player.vx = <span class="fn">min</span>(<span class="nm">0</span>, player.vx + player.friction * mul * dt)
+
+    player.vx = <span class="fn">max</span>(-player.max_speed, <span class="fn">min</span>(player.max_speed, player.vx))
+    player.x += player.vx * dt</code></pre>
+  </div>
+  <div class="tab-content ts">
+<pre><code><span class="kw">function</span> <span class="fn">updateMovement</span>(p: Player, dt: <span class="ty">number</span>, inputX: <span class="ty">number</span>) {
+  <span class="kw">const</span> mul = p.onGround ? <span class="nm">1</span> : p.airMul;
+
+  <span class="kw">if</span> (inputX !== <span class="nm">0</span>) {
+    p.vx += inputX * p.accel * mul * dt;
+  } <span class="kw">else</span> {
+    <span class="cm">// Friction</span>
+    <span class="kw">if</span> (p.vx > <span class="nm">0</span>) p.vx = Math.<span class="fn">max</span>(<span class="nm">0</span>, p.vx - p.friction * mul * dt);
+    <span class="kw">else</span> p.vx = Math.<span class="fn">min</span>(<span class="nm">0</span>, p.vx + p.friction * mul * dt);
+  }
+  p.vx = Math.<span class="fn">max</span>(-p.maxSpeed, Math.<span class="fn">min</span>(p.maxSpeed, p.vx));
+  p.x += p.vx * dt;
+}</code></pre>
+  </div>
+</div>
+
+<p>Try the demo above with the three presets. &ldquo;Mario&rdquo; has high acceleration and high friction &mdash; responsive but stops fast. &ldquo;Celeste&rdquo; has moderate acceleration with 65% air control &mdash; committed jumps. &ldquo;Ice&rdquo; has low friction and low air control &mdash; you slide everywhere. Same code, different constants, wildly different feel.</p>
+
+<div class="power zen">
+<div class="power-label">Design Insight</div>
+<p>Game feel is not about code. It&rsquo;s about constants. A designer can spend weeks tuning <code>acceleration</code> from 900 to 1000 to 1050. Celeste shipped with over 40 movement constants in <code>Player.cs</code>, each the result of thousands of playtest iterations. The <em>code</em> is the same for every platformer. The <em>numbers</em> are what make each one unique.</p>
+</div>
+</section>
+
+<script>
+deferDemo('demo-move', function() {
+  var canvas = document.getElementById('demo-move');
+  var hud    = document.getElementById('hud-move');
+  var ctrl   = document.getElementById('ctrl-move');
+  var overlay= document.getElementById('overlay-move');
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var vis = observeVisibility(canvas);
+  var keys = {};
+  var active = false;
+
+  canvas.addEventListener('click', function() { canvas.focus(); overlay.classList.add('hidden'); active = true; });
+  canvas.addEventListener('keydown', function(e) { keys[e.code] = true; e.preventDefault(); });
+  canvas.addEventListener('keyup',   function(e) { keys[e.code] = false; });
+  canvas.addEventListener('blur',    function()  { keys = {}; });
+
+  var W = 800, H = 400;
+  var GRAVITY = 980;
+  var STEP = 1/60;
+
+  var presets = {
+    mario:   { accel: 1800, friction: 2000, air: 0.8, jump: -420 },
+    celeste: { accel: 1000, friction: 1600, air: 0.65, jump: -380 },
+    ice:     { accel: 400,  friction: 200,  air: 0.3, jump: -400 }
+  };
+  var preset = 'mario';
+
+  var platforms = [
+    { x: 0, y: H - 20, w: W, h: 20 },        // ground
+    { x: 150, y: 300, w: 120, h: 16 },
+    { x: 350, y: 240, w: 140, h: 16 },
+    { x: 560, y: 180, w: 100, h: 16 },
+    { x: 200, y: 140, w: 130, h: 16 },
+    { x: 500, y: 310, w: 110, h: 16 }
+  ];
+
+  var p = { x: 100, y: H - 60, vx: 0, vy: 0, onGround: false, facingR: true, w: 22, h: 30 };
+
+  setDemoControls(ctrl, ['Mario','Celeste','Ice'], function(label) {
+    preset = label.toLowerCase();
+  });
+  var btns = ctrl.querySelectorAll('button');
+  for (var i = 0; i < btns.length; i++) {
+    btns[i].classList.toggle('active', btns[i].textContent === 'Mario');
+  }
+
+  var lastT = 0, accum = 0;
+
+  function update(dt) {
+    var cfg = presets[preset];
+    var inputX = 0;
+    if (keys['KeyA'] || keys['ArrowLeft'])  inputX = -1;
+    if (keys['KeyD'] || keys['ArrowRight']) inputX = 1;
+
+    var accelMul = p.onGround ? 1 : cfg.air;
+
+    if (inputX !== 0) {
+      p.vx += inputX * cfg.accel * accelMul * dt;
+      p.facingR = inputX > 0;
+    } else {
+      // friction
+      if (p.onGround) {
+        var fric = cfg.friction * dt;
+        if (Math.abs(p.vx) < fric) p.vx = 0;
+        else p.vx -= Math.sign(p.vx) * fric;
+      }
+    }
+
+    // clamp speed
+    var maxSpd = 300;
+    if (p.vx > maxSpd) p.vx = maxSpd;
+    if (p.vx < -maxSpd) p.vx = -maxSpd;
+
+    // jump
+    if ((keys['KeyW'] || keys['ArrowUp'] || keys['Space']) && p.onGround) {
+      p.vy = cfg.jump;
+      p.onGround = false;
+    }
+
+    // gravity
+    p.vy += GRAVITY * dt;
+
+    var prevY = p.y;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+
+    // walls
+    if (p.x - p.w/2 < 0) { p.x = p.w/2; p.vx = 0; }
+    if (p.x + p.w/2 > W) { p.x = W - p.w/2; p.vx = 0; }
+
+    // platform collision (top only)
+    p.onGround = false;
+    for (var i = 0; i < platforms.length; i++) {
+      var pl = platforms[i];
+      if (p.x + p.w/2 > pl.x && p.x - p.w/2 < pl.x + pl.w) {
+        var feet = p.y + p.h/2;
+        var prevFeet = prevY + p.h/2;
+        if (prevFeet <= pl.y && feet >= pl.y) {
+          p.y = pl.y - p.h/2;
+          p.vy = 0;
+          p.onGround = true;
+        }
+      }
+    }
+
+    // fall out bottom
+    if (p.y > H + 50) {
+      p.x = 100; p.y = H - 60; p.vx = 0; p.vy = 0;
+    }
+  }
+
+  function render() {
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, W, H);
+
+    // platforms
+    ctx.fillStyle = '#444';
+    for (var i = 0; i < platforms.length; i++) {
+      var pl = platforms[i];
+      ctx.fillRect(pl.x, pl.y, pl.w, pl.h);
+      // platform top highlight
+      ctx.fillStyle = '#666';
+      ctx.fillRect(pl.x, pl.y, pl.w, 2);
+      ctx.fillStyle = '#444';
+    }
+
+    // velocity arrow
+    var arrowLen = p.vx * 0.15;
+    if (Math.abs(arrowLen) > 3) {
+      ctx.strokeStyle = '#ff0';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x + arrowLen, p.y);
+      // arrowhead
+      var dir = Math.sign(arrowLen);
+      ctx.lineTo(p.x + arrowLen - dir * 6, p.y - 4);
+      ctx.moveTo(p.x + arrowLen, p.y);
+      ctx.lineTo(p.x + arrowLen - dir * 6, p.y + 4);
+      ctx.stroke();
+    }
+
+    // character
+    drawChar(ctx, p.x, p.y, p.w, p.h, '#2ecc71', p.facingR, 1, 1, false);
+
+    hud.textContent = 'Preset: ' + preset + '  vx: ' + Math.round(p.vx) + '  ground: ' + p.onGround;
+  }
+
+  function loop(t) {
+    if (!vis.visible) { lastT = 0; accum = 0; requestAnimationFrame(loop); return; }
+    if (!lastT) { lastT = t; requestAnimationFrame(loop); return; }
+    var dt = Math.min((t - lastT) / 1000, 0.05); lastT = t;
+    if (active) { accum += dt; while (accum >= STEP) { update(STEP); accum -= STEP; } }
+    render();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+});
+</script>
+
+<!-- ========== CHAPTER 03 — JUMP FEEL ========== -->
+<section id="ch3" data-demo="jump">
+<h2>03 &mdash; Jump Feel</h2>
+
+<p class="drop-cap">Jumping is the most scrutinized mechanic in game design. A jump that feels &ldquo;off&rdquo; ruins a platformer. Celeste, Hollow Knight, Super Meat Boy &mdash; each spent months on jump feel alone. The secret: it&rsquo;s not one mechanic. It&rsquo;s at least five, layered on top of each other, and most players never notice any of them.</p>
+
+
+<div class="demo-wrap">
+  <canvas id="demo-jump" class="demo-canvas" width="800" height="400" tabindex="0"></canvas>
+  <div class="demo-hud" id="hud-jump"></div>
+  <div class="demo-controls" id="ctrl-jump"></div>
+  <div class="demo-overlay" id="overlay-jump">Click to play — Space to jump, A/D to move</div>
+</div>
+
+<h3>Variable Jump Height</h3>
+
+<p>Tap the button: short hop. Hold the button: full jump. Implementation: while the player holds jump during ascent, apply reduced gravity (half or less). When they release, immediately switch to full (or boosted) gravity. Celeste applies half gravity when vertical speed is below <code>HalfGravThreshold (40f)</code>, giving a subtle float at the apex.</p>
+
+<h3>Coyote Time</h3>
+
+<p>Named after Wile E. Coyote, who runs off a cliff and doesn&rsquo;t fall until he looks down. After walking off a ledge, the player can still jump for a few frames. Celeste: 6 frames (100ms). Without this, players feel cheated &mdash; &ldquo;I pressed jump! I was on the edge!&rdquo; They were, visually. But their character had already left the platform one frame ago. Coyote time bridges the gap between what the player <em>sees</em> and what the engine <em>knows</em>.</p>
+
+<h3>Input Buffering</h3>
+
+<p>The player presses jump 4 frames before landing. Without buffering, the input is lost &mdash; they weren&rsquo;t on the ground yet. With a 4-6 frame buffer, the jump input is stored and fires the instant they touch down. Combined with coyote time, this makes jumps feel impossibly responsive. The player doesn&rsquo;t need frame-perfect timing. The engine quietly helps.</p>
+
+<h3>Apex Modifier</h3>
+
+<p>At the peak of a jump, when vertical velocity is near zero, reduce gravity further. This gives 2-3 extra frames of hang time at the top, letting the player fine-tune their landing position. Sonic games hold max height for 2-3 frames. Celeste uses <code>HalfGravThreshold</code>. Dead Cells uses a multiplier that smoothly increases gravity as you pass the apex. All achieve the same goal: the jump&rsquo;s peak feels <em>floaty</em> and <em>controllable</em>.</p>
+
+<div class="diagram">
+<span class="diagram-label">Jump Arc — Gravity Zones</span>
+<pre><code>          ┌─── apex: 0.5× gravity ───┐
+         ╱                             ╲
+        ╱  hold jump: 0.7× gravity      ╲
+       ╱                                  ╲  release: 2× gravity
+      ╱                                    ╲
+     ╱                                      ╲
+────╱── coyote: 6 frames ──┐                 ╲────────────
+    ▲                       │                  ▲
+ buffer: 4 frames      jump fires         squash on land</code></pre>
+</div>
+
+<h3>Squash &amp; Stretch</h3>
+
+<p>Purely visual, but critical for weight. On jump takeoff: stretch the sprite vertically <code>(0.8, 1.2)</code>. On landing: squash <code>(1.3, 0.7)</code>. Lerp back to normal over 3-5 frames. The volume-preservation rule from traditional animation: compress one axis, expand the other proportionally. A character without squash-stretch feels like a rigid box. With it, they feel alive.</p>
+
+<div class="power hack">
+<div class="power-label">The Forgiveness Stack</div>
+<p>Coyote time. Input buffering. Corner correction (Celeste nudges you around corners within 4 pixels). Ledge assist. These are all <em>lies</em> the engine tells to make the player feel skilled. Maddy Thorson called this &ldquo;forgiveness&rdquo; &mdash; the game bends its rules invisibly to make the player&rsquo;s intent succeed. The best platformers feel precise because they are secretly lenient.</p>
+</div>
+</section>
+
+<script>
+deferDemo('demo-jump', function() {
+  var canvas = document.getElementById('demo-jump');
+  var hud    = document.getElementById('hud-jump');
+  var ctrl   = document.getElementById('ctrl-jump');
+  var overlay= document.getElementById('overlay-jump');
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var vis = observeVisibility(canvas);
+  var keys = {};
+  var active = false;
+
+  canvas.addEventListener('click', function() { canvas.focus(); overlay.classList.add('hidden'); active = true; });
+  canvas.addEventListener('keydown', function(e) {
+    if (!keys[e.code] && e.code === 'Space') jumpPressed = true;
+    keys[e.code] = true;
+    e.preventDefault();
+  });
+  canvas.addEventListener('keyup',   function(e) { keys[e.code] = false; });
+  canvas.addEventListener('blur',    function()  { keys = {}; });
+
+  var W = 800, H = 400;
+  var BASE_GRAVITY = 1400;
+  var JUMP_VEL = -480;
+  var ACCEL = 1200;
+  var FRICTION = 1800;
+  var AIR_MUL = 0.7;
+  var MAX_SPD = 260;
+  var STEP = 1/60;
+  var COYOTE_MAX = 6;  // frames
+  var BUFFER_MAX = 6;  // frames
+
+  var useCoyote = true;
+  var useBuffer = true;
+  var useApex = true;
+
+  var platforms = [
+    { x: 0, y: H - 20, w: W, h: 20 },
+    { x: 80,  y: 310, w: 100, h: 14 },
+    { x: 240, y: 260, w: 110, h: 14 },
+    { x: 420, y: 210, w: 100, h: 14 },
+    { x: 580, y: 160, w: 120, h: 14 },
+    { x: 350, y: 120, w: 100, h: 14 },
+    { x: 140, y: 160, w: 90,  h: 14 },
+    { x: 650, y: 290, w: 100, h: 14 },
+    { x: 500, y: 330, w: 80,  h: 14 }
+  ];
+
+  var p = {
+    x: 100, y: H - 60, vx: 0, vy: 0,
+    onGround: false, facingR: true,
+    w: 22, h: 30,
+    scaleX: 1, scaleY: 1,
+    targetSX: 1, targetSY: 1,
+    coyoteTimer: 0,
+    bufferTimer: 0,
+    holdingJump: false,
+    wasOnGround: false
+  };
+
+  var jumpPressed = false;
+
+  setDemoControls(ctrl, ['Coyote','Buffer','Apex'], function(label) {
+    if (label === 'Coyote') useCoyote = !useCoyote;
+    if (label === 'Buffer') useBuffer = !useBuffer;
+    if (label === 'Apex')   useApex   = !useApex;
+    // toggle active class
+    var btns = ctrl.querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++) {
+      var b = btns[i];
+      if (b.textContent === 'Coyote') b.classList.toggle('active', useCoyote);
+      if (b.textContent === 'Buffer') b.classList.toggle('active', useBuffer);
+      if (b.textContent === 'Apex')   b.classList.toggle('active', useApex);
+    }
+  });
+  // set defaults active
+  var btns = ctrl.querySelectorAll('button');
+  for (var i = 0; i < btns.length; i++) btns[i].classList.add('active');
+
+  var lastT = 0, accum = 0;
+
+  function doJump() {
+    p.vy = JUMP_VEL;
+    p.onGround = false;
+    p.coyoteTimer = 0;
+    p.bufferTimer = 0;
+    p.holdingJump = true;
+    // squash on jump: tall and narrow
+    p.targetSX = 0.8;
+    p.targetSY = 1.2;
+  }
+
+  function update(dt) {
+    var inputX = 0;
+    if (keys['KeyA'] || keys['ArrowLeft'])  inputX = -1;
+    if (keys['KeyD'] || keys['ArrowRight']) inputX = 1;
+
+    var accelMul = p.onGround ? 1 : AIR_MUL;
+    if (inputX !== 0) {
+      p.vx += inputX * ACCEL * accelMul * dt;
+      p.facingR = inputX > 0;
+    } else if (p.onGround) {
+      var fric = FRICTION * dt;
+      if (Math.abs(p.vx) < fric) p.vx = 0;
+      else p.vx -= Math.sign(p.vx) * fric;
+    }
+    if (p.vx > MAX_SPD) p.vx = MAX_SPD;
+    if (p.vx < -MAX_SPD) p.vx = -MAX_SPD;
+
+    // coyote timer
+    if (p.onGround) {
+      p.coyoteTimer = COYOTE_MAX;
+    } else if (p.coyoteTimer > 0) {
+      p.coyoteTimer--;
+    }
+
+    // buffer timer
+    if (jumpPressed) {
+      p.bufferTimer = BUFFER_MAX;
+      jumpPressed = false;
+    } else if (p.bufferTimer > 0) {
+      p.bufferTimer--;
+    }
+
+    // jump logic
+    var canCoyote = useCoyote ? p.coyoteTimer > 0 : p.onGround;
+    var hasBuffer = useBuffer ? p.bufferTimer > 0 : jumpPressed;
+
+    if (hasBuffer && canCoyote) {
+      doJump();
+    }
+
+    // variable jump: holding = lower gravity on ascent, release = higher gravity
+    if (!keys['Space']) {
+      p.holdingJump = false;
+    }
+
+    // gravity
+    var gravity = BASE_GRAVITY;
+    if (p.vy < 0 && p.holdingJump) {
+      gravity *= 0.5; // holding: floatier ascent
+    } else if (p.vy < 0 && !p.holdingJump) {
+      gravity *= 2.0; // released: fast fall cut
+    }
+
+    // apex modifier
+    if (useApex && Math.abs(p.vy) < 40) {
+      gravity *= 0.5;
+    }
+
+    p.vy += gravity * dt;
+
+    var prevY = p.y;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+
+    // walls
+    if (p.x - p.w/2 < 0) { p.x = p.w/2; p.vx = 0; }
+    if (p.x + p.w/2 > W) { p.x = W - p.w/2; p.vx = 0; }
+
+    // platform collision
+    p.wasOnGround = p.onGround;
+    p.onGround = false;
+    for (var i = 0; i < platforms.length; i++) {
+      var pl = platforms[i];
+      if (p.x + p.w/2 > pl.x && p.x - p.w/2 < pl.x + pl.w) {
+        var feet = p.y + p.h/2;
+        var prevFeet = prevY + p.h/2;
+        if (prevFeet <= pl.y && feet >= pl.y) {
+          p.y = pl.y - p.h/2;
+          p.vy = 0;
+          p.onGround = true;
+        }
+      }
+    }
+
+    // land squash
+    if (p.onGround && !p.wasOnGround) {
+      p.targetSX = 1.3;
+      p.targetSY = 0.7;
+    }
+
+    // lerp squash/stretch back to 1
+    p.scaleX += (p.targetSX - p.scaleX) * 0.2;
+    p.scaleY += (p.targetSY - p.scaleY) * 0.2;
+    p.targetSX += (1 - p.targetSX) * 0.15;
+    p.targetSY += (1 - p.targetSY) * 0.15;
+
+    // fall out
+    if (p.y > H + 50) {
+      p.x = 100; p.y = H - 60; p.vx = 0; p.vy = 0;
+      p.scaleX = 1; p.scaleY = 1; p.targetSX = 1; p.targetSY = 1;
+    }
+  }
+
+  function render() {
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, W, H);
+
+    // platforms
+    for (var i = 0; i < platforms.length; i++) {
+      var pl = platforms[i];
+      ctx.fillStyle = '#444';
+      ctx.fillRect(pl.x, pl.y, pl.w, pl.h);
+      ctx.fillStyle = '#666';
+      ctx.fillRect(pl.x, pl.y, pl.w, 2);
+    }
+
+    // coyote indicator (small dot under character when coyote active and airborne)
+    if (useCoyote && p.coyoteTimer > 0 && !p.onGround) {
+      ctx.fillStyle = 'rgba(46,204,113,0.5)';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y + p.h/2 + 6, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // buffer indicator (small dot above character when buffer active)
+    if (useBuffer && p.bufferTimer > 0 && !p.onGround) {
+      ctx.fillStyle = 'rgba(241,196,15,0.5)';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y - p.h/2 - 6, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // character with squash/stretch
+    drawChar(ctx, p.x, p.y, p.w, p.h, '#2ecc71', p.facingR, p.scaleX, p.scaleY, false);
+
+    hud.textContent =
+      'vy: ' + Math.round(p.vy) +
+      '  coyote: ' + p.coyoteTimer +
+      '  buffer: ' + p.bufferTimer +
+      '  ground: ' + p.onGround +
+      '  squash: ' + p.scaleX.toFixed(2) + '/' + p.scaleY.toFixed(2);
+  }
+
+  function loop(t) {
+    if (!vis.visible) { lastT = 0; accum = 0; requestAnimationFrame(loop); return; }
+    if (!lastT) { lastT = t; requestAnimationFrame(loop); return; }
+    var dt = Math.min((t - lastT) / 1000, 0.05); lastT = t;
+    if (active) { accum += dt; while (accum >= STEP) { update(STEP); accum -= STEP; } }
+    render();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+});
+</script>
+
+<!-- ========== CHAPTER 04 — STATE MACHINES ========== -->
+<section id="ch4">
+<h2>04 &mdash; State Machines</h2>
+
+<p class="drop-cap">A character is always in exactly one state. Idle. Walking. Jumping. Falling. Attacking. Getting hit. Dying. The finite state machine enforces this constraint: one state active, transitions between them guarded by conditions, and each state owns its own update logic. It&rsquo;s the oldest pattern in game AI and still the most common for player characters.</p>
+
+<p>Each state defines three hooks: <code>enter()</code> (play animation, reset timers), <code>update(dt)</code> (run per-frame logic), and <code>exit()</code> (cleanup). Transitions have priorities &mdash; <code>Die</code> overrides everything, <code>Hit</code> overrides <code>Attack</code>, <code>Attack</code> overrides <code>Jump</code>. This prevents impossible states like attacking while dead.</p>
+
+<div class="demo-wrap">
+  <canvas id="demo-fsm" class="demo-canvas" width="800" height="400" tabindex="0"></canvas>
+  <div class="demo-hud" id="hud-fsm"></div>
+  <div class="demo-controls" id="ctrl-fsm"></div>
+  <div class="demo-overlay" id="overlay-fsm">Click to play &mdash; WASD+Space+J</div>
+</div>
+<script>
+(function() {
+  var canvas = document.getElementById('demo-fsm');
+  var ctx = canvas.getContext('2d');
+  var hud = document.getElementById('hud-fsm');
+  var overlay = document.getElementById('overlay-fsm');
+  var ctrlEl = document.getElementById('ctrl-fsm');
+
+  var keys = {}, mouse = {x:0, y:0, down:false};
+  var animId = 0, prev = 0, STEP = 1/60, accum = 0;
+  var running = false;
+
+  var p, state, stateTimer, attackTimer;
+  var states = ['IDLE','WALK','JUMP','FALL','ATTACK','HIT'];
+  var stateColors = {IDLE:'#6a6a7e',WALK:'#00ff88',JUMP:'#00ddff',FALL:'#ff8800',ATTACK:'#ff00aa',HIT:'#ff3344'};
+  var platforms;
+
+  function init() {
+    canvas.width = canvas.clientWidth;
+    canvas.height = canvas.clientHeight;
+    p = {x:200, y:0, vx:0, vy:0, onGround:false, facingR:true, prevX:200, prevY:0, w:24, h:32,
+         flash:0, hitTimer:0};
+    state = 'IDLE'; stateTimer = 0; attackTimer = 0;
+    platforms = [{x:0,y:canvas.height-30,w:canvas.width,h:30},
+      {x:100,y:canvas.height-110,w:140,h:14},{x:320,y:canvas.height-140,w:140,h:14}];
+  }
+
+  function update(dt) {
+    stateTimer += dt;
+    if (attackTimer > 0) attackTimer -= dt;
+    if (p.flash > 0) p.flash -= dt;
+    if (p.hitTimer > 0) { p.hitTimer -= dt; if (p.hitTimer <= 0) state = 'IDLE'; }
+
+    var ix = 0;
+    if (state !== 'ATTACK' && state !== 'HIT') {
+      if (keys.KeyA || keys.ArrowLeft) ix = -1;
+      if (keys.KeyD || keys.ArrowRight) ix = 1;
+    }
+    if (ix) p.facingR = ix > 0;
+    var mul = p.onGround ? 1 : 0.7;
+    if (ix) p.vx += ix * 1200 * mul * dt;
+    else { if(p.vx>0) p.vx=Math.max(0,p.vx-2000*dt); else p.vx=Math.min(0,p.vx+2000*dt); }
+    p.vx = Math.max(-200, Math.min(200, p.vx));
+    p.vy += 900 * dt; if (p.vy > 600) p.vy = 600;
+
+    p.prevX = p.x; p.prevY = p.y;
+    p.x += p.vx * dt; p.y += p.vy * dt;
+
+    p.onGround = false;
+    for (var i = 0; i < platforms.length; i++) {
+      var pl = platforms[i];
+      if (p.x+p.w/2>pl.x && p.x-p.w/2<pl.x+pl.w && p.y+p.h/2>pl.y && p.prevY+p.h/2<=pl.y+4) {
+        p.y=pl.y-p.h/2; p.vy=0; p.onGround=true;
+      }
+    }
+    if (state !== 'ATTACK' && state !== 'HIT') {
+      if (!p.onGround && p.vy > 0) state = 'FALL';
+      else if (!p.onGround && p.vy <= 0) state = 'JUMP';
+      else if (Math.abs(p.vx) > 10) state = 'WALK';
+      else state = 'IDLE';
+    }
+    if (state === 'ATTACK' && attackTimer <= 0) state = p.onGround ? 'IDLE' : 'FALL';
+    if (p.onGround && (keys.Space||keys.KeyW) && state!=='ATTACK' && state!=='HIT') {
+      p.vy=-370; p.onGround=false; state='JUMP'; stateTimer=0;
+    }
+    if (keys.KeyJ && state!=='ATTACK' && state!=='HIT' && attackTimer<=0) {
+      state='ATTACK'; stateTimer=0; attackTimer=0.4;
+    }
+
+    var W = canvas.width;
+    if (p.x < p.w/2) { p.x=p.w/2; p.vx=0; }
+    if (p.x > W-p.w/2) { p.x=W-p.w/2; p.vx=0; }
+    if (p.y > canvas.height+50) { p.x=200; p.y=0; p.vx=0; p.vy=0; }
+  }
+
+  function render(alpha) {
+    ctx.fillStyle='#0a0a0f'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    for (var i=0;i<platforms.length;i++) {
+      var pl=platforms[i]; ctx.fillStyle='#1e1e2e'; ctx.fillRect(pl.x,pl.y,pl.w,pl.h);
+      ctx.fillStyle='#ff00aa'; ctx.fillRect(pl.x,pl.y,pl.w,2);
+    }
+    var dx=p.prevX+(p.x-p.prevX)*alpha, dy=p.prevY+(p.y-p.prevY)*alpha;
+    drawCharLocal(ctx,dx,dy,p.w,p.h,stateColors[state]||'#00ff88',p.facingR,1,1,p.flash>0);
+    if (state==='ATTACK' && attackTimer>0.2) {
+      ctx.strokeStyle='rgba(255,0,170,0.5)'; ctx.lineWidth=2;
+      var hx = dx + (p.facingR?p.w:-p.w);
+      ctx.strokeRect(hx-12, dy-p.h/2, 24, p.h);
+    }
+    var gx=canvas.width-180, gy=40;
+    ctx.font='bold 11px JetBrains Mono, monospace';
+    for (var s=0;s<states.length;s++) {
+      var st=states[s], sx=gx+((s%3)*60), sy=gy+Math.floor(s/3)*50;
+      var active=st===state;
+      ctx.fillStyle=active?stateColors[st]:'#1e1e2e';
+      ctx.beginPath(); ctx.roundRect(sx-25,sy-12,50,24,4); ctx.fill();
+      ctx.fillStyle=active?'#0a0a0f':'#6a6a7e';
+      ctx.fillText(st,sx-ctx.measureText(st).width/2,sy+4);
+      if (active) {
+        ctx.strokeStyle=stateColors[st]; ctx.lineWidth=1;
+        ctx.strokeRect(sx-27,sy-14,54,28);
+      }
+    }
+    hud.textContent='STATE: '+state+'\nTIMER: '+stateTimer.toFixed(2)+'s';
+  }
+
+  function drawCharLocal(ctx, x, y, w, h, color, facingR, scaleX, scaleY, flash) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(scaleX || 1, scaleY || 1);
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath(); ctx.ellipse(0, h/2, w*0.6, 4, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = flash ? '#fff' : color;
+    ctx.beginPath(); ctx.roundRect(-w/2, -h/2, w, h, 4); ctx.fill();
+    var ex = facingR ? 3 : -3;
+    ctx.fillStyle = flash ? '#ccc' : '#111';
+    ctx.beginPath(); ctx.arc(ex - 4, -h/4, 2.5, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(ex + 4, -h/4, 2.5, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  }
+
+  function loop(now) {
+    animId = requestAnimationFrame(loop);
+    if (!running) return;
+    var dt = Math.min((now - prev) / 1000, 0.1);
+    prev = now;
+    accum += dt;
+    while (accum >= STEP) { update(STEP); accum -= STEP; }
+    render(accum / STEP);
+  }
+
+  function onKey(e) {
+    if (document.activeElement !== canvas) return;
+    if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','KeyW','KeyA','KeyS','KeyD','KeyJ'].indexOf(e.code) >= 0)
+      e.preventDefault();
+  }
+  document.addEventListener('keydown', function(e) { keys[e.code] = true; onKey(e); });
+  document.addEventListener('keyup', function(e) { keys[e.code] = false; });
+
+  canvas.addEventListener('click', function() {
+    canvas.focus();
+    overlay.classList.add('hidden');
+    if (!running) { running = true; init(); prev = performance.now(); }
+  });
+
+  function observeVisibility(el) {
+    var obs = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          if (!animId) { prev = performance.now(); animId = requestAnimationFrame(loop); }
+        } else {
+          if (animId) { cancelAnimationFrame(animId); animId = 0; }
+        }
+      });
+    }, {threshold: 0.1});
+    obs.observe(el);
+  }
+
+  function deferDemo(id, fn) {
+    var el = document.getElementById(id);
+    var started = false;
+    var obs = new IntersectionObserver(function(entries) {
+      if (!started && entries[0].isIntersecting) { started = true; fn(); }
+    }, {threshold: 0.1});
+    obs.observe(el);
+  }
+
+  deferDemo('demo-fsm', function() {
+    observeVisibility(canvas);
+  });
+})();
+</script>
+
+<div class="diagram">
+<span class="diagram-label">Character FSM</span>
+<pre><code>                    &#x250C;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2510;
+              &#x250C;&#x2500;&#x2500;&#x2500;&#x2500;&#x25B6;&#x2502;   IDLE   &#x2502;&#x25C0;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2510;
+              &#x2502;     &#x2514;&#x2500;&#x2500;&#x2500;&#x2500;&#x252C;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2518;        &#x2502;
+         vx=0 &#x2502;          &#x2502; input    land&#x2502;&amp;&amp; vx=0
+              &#x2502;          &#x25BC;              &#x2502;
+              &#x2502;     &#x250C;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2510;        &#x2502;
+              &#x2502;     &#x2502;   WALK   &#x2502;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2524;
+              &#x2502;     &#x2514;&#x2500;&#x2500;&#x2500;&#x2500;&#x252C;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2518;        &#x2502;
+              &#x2502;          &#x2502; jump    land &#x2502;
+              &#x2502;          &#x25BC;              &#x2502;
+              &#x2502;     &#x250C;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2510;   &#x250C;&#x2500;&#x2500;&#x2500;&#x2500;&#x2534;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2510;
+              &#x2502;     &#x2502;   JUMP   &#x2502;&#x2500;&#x2500;&#x25B6;&#x2502;   FALL   &#x2502;
+              &#x2502;     &#x2514;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2518;   &#x2514;&#x2500;&#x2500;&#x2500;&#x2500;&#x252C;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2518;
+              &#x2502;                         &#x2502; land
+              &#x2502;          &#x250C;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2510;   &#x2502;
+              &#x2514;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2502;  ATTACK  &#x2502;&#x25C0;&#x2500;&#x2500;&#x2518; (click any state)
+                         &#x2514;&#x2500;&#x2500;&#x2500;&#x2500;&#x252C;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2518;
+                              &#x2502; timer
+                              &#x25BC;
+                         &#x250C;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2510;
+                         &#x2502;   HIT    &#x2502; (damage received)
+                         &#x2514;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2518;</code></pre>
+</div>
+
+<h3>Frame Data</h3>
+
+<p>Fighting games formalize state timing with <em>frame data</em>. Every attack has startup frames (vulnerable, no hitbox), active frames (hitbox live), and recovery frames (vulnerable again). A jab might be 4-3-7: 4 frames of windup, 3 frames where it can hit, 7 frames of cooldown. Frame advantage determines who acts first after an exchange &mdash; if your recovery ends before the opponent&rsquo;s hitstun, you&rsquo;re &ldquo;plus&rdquo; and get to act first.</p>
+
+<table>
+<tr><th>Move</th><th>Startup</th><th>Active</th><th>Recovery</th><th>Advantage</th></tr>
+<tr><td>Jab</td><td><code>4f</code></td><td><code>3f</code></td><td><code>7f</code></td><td><code>+2</code></td></tr>
+<tr><td>Heavy</td><td><code>12f</code></td><td><code>4f</code></td><td><code>18f</code></td><td><code>-6</code></td></tr>
+<tr><td>Special</td><td><code>8f</code></td><td><code>6f</code></td><td><code>22f</code></td><td><code>-10</code></td></tr>
+</table>
+
+<h3>The State Explosion Problem</h3>
+
+<p>An FSM with N states potentially needs N&times;(N-1) transitions. 10 states = up to 90 transition rules. Adding &ldquo;Swimming&rdquo; means evaluating transitions to and from every existing state. Code duplication creeps in &mdash; <code>RunState</code> and <code>JumpState</code> share camera logic but can&rsquo;t easily share code in a flat FSM. The solution: <strong>hierarchical FSMs</strong>. A top-level FSM has states like <code>OnFoot</code>, <code>InVehicle</code>, <code>Swimming</code>, each containing its own sub-FSM. Transitions at the super-state level apply to all children. Halo used this for Elites &mdash; a top-level <code>Combat</code>/<code>Search</code>/<code>Patrol</code> FSM, with <code>Combat</code> containing its own <code>Engage</code>/<code>Flank</code>/<code>Retreat</code> sub-states.</p>
+
+<div class="power">
+<div class="power-label">When to Move Beyond FSMs</div>
+<p>FSMs are perfect for player characters (10-15 states, hand-tuned transitions). For NPCs that need dozens of behaviors that combine in unpredictable ways, behavior trees (Chapter 7) or GOAP scale better. The rule of thumb: if you&rsquo;re adding transitions faster than states, it&rsquo;s time to switch.</p>
+</div>
+</section>
+
+<!-- ========== CHAPTER 05 — A* PATHFINDING ========== -->
+<section id="ch5">
+<h2>05 &mdash; Pathfinding</h2>
+
+<p class="drop-cap">Click a destination on a map. An NPC walks there, avoiding walls. Behind this simple interaction is A*, the algorithm that powers pathfinding in nearly every game since 1990. It finds the shortest path on a graph by exploring nodes in order of <code>f(n) = g(n) + h(n)</code> &mdash; actual cost from start plus estimated cost to goal.</p>
+
+<p>The heuristic <code>h(n)</code> is what makes A* fast. Dijkstra&rsquo;s algorithm explores equally in all directions (h=0). A* guides the search <em>toward</em> the goal. On a grid, Manhattan distance (<code>|dx| + |dy|</code>) works for 4-directional movement. Euclidean distance (<code>sqrt(dx&sup2;+dy&sup2;)</code>) works for any-angle movement. The heuristic must be <em>admissible</em> &mdash; never overestimate &mdash; or the path may not be optimal.</p>
+
+<div class="demo-wrap">
+  <canvas id="demo-astar" class="demo-canvas" width="800" height="400" tabindex="0"></canvas>
+  <div class="demo-hud" id="hud-astar"></div>
+  <div class="demo-controls" id="ctrl-astar"></div>
+  <div class="demo-overlay" id="overlay-astar">Click to play &mdash; L-click: walls | R-click: destination</div>
+</div>
+<script>
+(function() {
+  var canvas = document.getElementById('demo-astar');
+  var ctx = canvas.getContext('2d');
+  var hud = document.getElementById('hud-astar');
+  var overlay = document.getElementById('overlay-astar');
+  var ctrlEl = document.getElementById('ctrl-astar');
+
+  var animId = 0, prev = 0, STEP = 1/60, accum = 0;
+  var running = false;
+
+  var COLS, ROWS, CELL, grid, path, start, goal, agent, agentPath, agentIdx;
+  var openSet, closedSet, algo;
+
+  function heuristic(ax,ay,bx,by) { return Math.abs(ax-bx)+Math.abs(ay-by); }
+
+  function findPath() {
+    path=[]; openSet=[]; closedSet=[];
+    if (!goal) return;
+    var open=[{x:start.x,y:start.y,g:0,f:0}], from={}, g={};
+    var key = function(x,y){return x+','+y;};
+    g[key(start.x,start.y)]=0;
+    while(open.length) {
+      open.sort(function(a,b){return a.f-b.f;});
+      var c=open.shift();
+      closedSet.push({x:c.x,y:c.y});
+      if(c.x===goal.x&&c.y===goal.y) {
+        var p={x:goal.x,y:goal.y};
+        while(from[key(p.x,p.y)]) { path.unshift(p); p=from[key(p.x,p.y)]; }
+        agentPath=path.slice(); agentIdx=0;
+        return;
+      }
+      var dirs=[[0,1],[1,0],[0,-1],[-1,0]];
+      for(var d=0;d<4;d++) {
+        var nx=c.x+dirs[d][0], ny=c.y+dirs[d][1];
+        if(nx<0||ny<0||nx>=COLS||ny>=ROWS||grid[ny][nx]===1) continue;
+        var ng=c.g+1, nk=key(nx,ny);
+        if(g[nk]===undefined||ng<g[nk]) {
+          g[nk]=ng; from[nk]={x:c.x,y:c.y};
+          var h = algo==='dijkstra' ? 0 : heuristic(nx,ny,goal.x,goal.y);
+          open.push({x:nx,y:ny,g:ng,f:ng+h});
+          openSet.push({x:nx,y:ny});
+        }
+      }
+    }
+  }
+
+  function init() {
+    canvas.width = canvas.clientWidth;
+    canvas.height = canvas.clientHeight;
+    CELL=20; COLS=Math.floor(canvas.width/CELL); ROWS=Math.floor(canvas.height/CELL);
+    grid=[]; for(var r=0;r<ROWS;r++){grid[r]=[];for(var c=0;c<COLS;c++)grid[r][c]=0;}
+    start={x:2,y:Math.floor(ROWS/2)};
+    goal={x:COLS-3,y:Math.floor(ROWS/2)};
+    agent={x:start.x*CELL+CELL/2,y:start.y*CELL+CELL/2};
+    agentPath=[]; agentIdx=0; path=[]; openSet=[]; closedSet=[]; algo='astar';
+    findPath();
+    setControls([
+      {label:'A*', key:'astar', active:true},
+      {label:'Dijkstra', key:'dijkstra'}
+    ], function(k) { algo=k; findPath(); });
+  }
+
+  function setControls(btns, cb) {
+    ctrlEl.innerHTML = '';
+    btns.forEach(function(b) {
+      var el = document.createElement('button');
+      el.textContent = b.label;
+      if (b.active) el.classList.add('active');
+      el.onclick = function() {
+        ctrlEl.querySelectorAll('button').forEach(function(x){x.classList.remove('active');});
+        el.classList.add('active');
+        if (cb) cb(b.key);
+      };
+      ctrlEl.appendChild(el);
+    });
+  }
+
+  function update(dt) {
+    if(agentPath.length && agentIdx<agentPath.length) {
+      var tgt={x:agentPath[agentIdx].x*CELL+CELL/2,y:agentPath[agentIdx].y*CELL+CELL/2};
+      var dx=tgt.x-agent.x, dy=tgt.y-agent.y, d=Math.sqrt(dx*dx+dy*dy);
+      if(d<2) { agentIdx++; } else { var spd=150*dt; agent.x+=dx/d*spd; agent.y+=dy/d*spd; }
+    }
+  }
+
+  function render() {
+    ctx.fillStyle='#0a0a0f'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    for(var r=0;r<ROWS;r++) for(var c=0;c<COLS;c++) {
+      var x=c*CELL,y=r*CELL;
+      if(grid[r][c]) { ctx.fillStyle='#2a2a4a'; ctx.fillRect(x+1,y+1,CELL-2,CELL-2); }
+      else { ctx.strokeStyle='rgba(30,30,46,0.3)'; ctx.strokeRect(x,y,CELL,CELL); }
+    }
+    for(var i=0;i<closedSet.length;i++) {
+      ctx.fillStyle='rgba(255,0,170,0.1)';
+      ctx.fillRect(closedSet[i].x*CELL+1,closedSet[i].y*CELL+1,CELL-2,CELL-2);
+    }
+    for(var i=0;i<openSet.length;i++) {
+      ctx.fillStyle='rgba(0,221,255,0.1)';
+      ctx.fillRect(openSet[i].x*CELL+1,openSet[i].y*CELL+1,CELL-2,CELL-2);
+    }
+    ctx.fillStyle='rgba(0,255,136,0.3)';
+    for(var i=0;i<path.length;i++) ctx.fillRect(path[i].x*CELL+2,path[i].y*CELL+2,CELL-4,CELL-4);
+    ctx.fillStyle='#00ff88';
+    ctx.fillRect(start.x*CELL+4,start.y*CELL+4,CELL-8,CELL-8);
+    if(goal){ctx.fillStyle='#ff3344';ctx.fillRect(goal.x*CELL+4,goal.y*CELL+4,CELL-8,CELL-8);}
+    ctx.fillStyle='#00ddff';
+    ctx.beginPath(); ctx.arc(agent.x,agent.y,6,0,Math.PI*2); ctx.fill();
+
+    hud.textContent='ALGO: '+(algo==='astar'?'A*':'DIJKSTRA')+
+      '\nPATH: '+path.length+' cells'+
+      '\nSEARCHED: '+closedSet.length+' nodes';
+  }
+
+  function loop(now) {
+    animId = requestAnimationFrame(loop);
+    if (!running) return;
+    var dt = Math.min((now - prev) / 1000, 0.1);
+    prev = now;
+    accum += dt;
+    while (accum >= STEP) { update(STEP); accum -= STEP; }
+    render();
+  }
+
+  canvas.addEventListener('click', function(e) {
+    canvas.focus();
+    overlay.classList.add('hidden');
+    if (!running) { running = true; init(); prev = performance.now(); }
+    var r = canvas.getBoundingClientRect();
+    var mx = (e.clientX - r.left) * (canvas.width / r.width);
+    var my = (e.clientY - r.top) * (canvas.height / r.height);
+    var cx=Math.floor(mx/CELL), cy=Math.floor(my/CELL);
+    if(cx>=0&&cy>=0&&cx<COLS&&cy<ROWS) {
+      grid[cy][cx]=grid[cy][cx]?0:1;
+      findPath();
+    }
+  });
+  canvas.addEventListener('contextmenu', function(e) {
+    e.preventDefault();
+    if (!running) return;
+    var r = canvas.getBoundingClientRect();
+    var mx = (e.clientX - r.left) * (canvas.width / r.width);
+    var my = (e.clientY - r.top) * (canvas.height / r.height);
+    var cx=Math.floor(mx/CELL), cy=Math.floor(my/CELL);
+    if(cx>=0&&cy>=0&&cx<COLS&&cy<ROWS) {
+      goal={x:cx,y:cy};
+      findPath();
+    }
+  });
+
+  function observeVisibility(el) {
+    var obs = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          if (!animId) { prev = performance.now(); animId = requestAnimationFrame(loop); }
+        } else {
+          if (animId) { cancelAnimationFrame(animId); animId = 0; }
+        }
+      });
+    }, {threshold: 0.1});
+    obs.observe(el);
+  }
+
+  function deferDemo(id, fn) {
+    var el = document.getElementById(id);
+    var started = false;
+    var obs = new IntersectionObserver(function(entries) {
+      if (!started && entries[0].isIntersecting) { started = true; fn(); }
+    }, {threshold: 0.1});
+    obs.observe(el);
+  }
+
+  deferDemo('demo-astar', function() {
+    observeVisibility(canvas);
+  });
+})();
+</script>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-astar" id="astar-py" class="tpy" checked>
+  <input type="radio" name="tabs-astar" id="astar-ts" class="tts">
+  <input type="radio" name="tabs-astar" id="astar-go" class="tgo">
+  <div class="tab-bar">
+    <label for="astar-py">Python</label>
+    <label for="astar-ts">TypeScript</label>
+    <label for="astar-go">Go</label>
+  </div>
+  <div class="tab-content py">
+<pre><code><span class="kw">import</span> heapq
+
+<span class="kw">def</span> <span class="fn">astar</span>(grid, start, goal):
+    <span class="st">"""A* on a 2D grid. Returns path as list of (x,y)."""</span>
+    open_set = [(<span class="nm">0</span>, start)]
+    came_from = {}
+    g = {start: <span class="nm">0</span>}
+
+    <span class="kw">while</span> open_set:
+        _, current = heapq.<span class="fn">heappop</span>(open_set)
+        <span class="kw">if</span> current == goal:
+            path = []
+            <span class="kw">while</span> current <span class="kw">in</span> came_from:
+                path.<span class="fn">append</span>(current)
+                current = came_from[current]
+            <span class="kw">return</span> path[::-<span class="nm">1</span>]
+
+        <span class="kw">for</span> dx, dy <span class="kw">in</span> [(<span class="nm">0</span>,<span class="nm">1</span>),(<span class="nm">1</span>,<span class="nm">0</span>),(<span class="nm">0</span>,-<span class="nm">1</span>),(-<span class="nm">1</span>,<span class="nm">0</span>)]:
+            nx, ny = current[<span class="nm">0</span>]+dx, current[<span class="nm">1</span>]+dy
+            <span class="kw">if</span> <span class="nm">0</span> &lt;= nx &lt; <span class="fn">len</span>(grid[<span class="nm">0</span>]) <span class="kw">and</span> <span class="nm">0</span> &lt;= ny &lt; <span class="fn">len</span>(grid) <span class="kw">and</span> grid[ny][nx] == <span class="nm">0</span>:
+                ng = g[current] + <span class="nm">1</span>
+                <span class="kw">if</span> ng &lt; g.<span class="fn">get</span>((nx,ny), <span class="fn">float</span>(<span class="st">'inf'</span>)):
+                    g[(nx,ny)] = ng
+                    f = ng + <span class="fn">abs</span>(nx-goal[<span class="nm">0</span>]) + <span class="fn">abs</span>(ny-goal[<span class="nm">1</span>])
+                    heapq.<span class="fn">heappush</span>(open_set, (f, (nx,ny)))
+                    came_from[(nx,ny)] = current
+    <span class="kw">return</span> []  <span class="cm"># no path</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+<pre><code><span class="kw">function</span> <span class="fn">astar</span>(grid: <span class="ty">number</span>[][], start: [<span class="ty">number</span>,<span class="ty">number</span>], goal: [<span class="ty">number</span>,<span class="ty">number</span>]) {
+  <span class="kw">const</span> open: [<span class="ty">number</span>,<span class="ty">number</span>,<span class="ty">number</span>][] = [[<span class="nm">0</span>, start[<span class="nm">0</span>], start[<span class="nm">1</span>]]];
+  <span class="kw">const</span> g = <span class="kw">new</span> Map&lt;<span class="ty">string</span>,<span class="ty">number</span>&gt;();
+  <span class="kw">const</span> from = <span class="kw">new</span> Map&lt;<span class="ty">string</span>,<span class="ty">string</span>&gt;();
+  g.<span class="fn">set</span>(<span class="st">`</span>${start[<span class="nm">0</span>]},${start[<span class="nm">1</span>]}<span class="st">`</span>, <span class="nm">0</span>);
+
+  <span class="kw">while</span> (open.length) {
+    open.<span class="fn">sort</span>((a,b) =&gt; a[<span class="nm">0</span>]-b[<span class="nm">0</span>]);
+    <span class="kw">const</span> [,cx,cy] = open.<span class="fn">shift</span>()!;
+    <span class="kw">if</span> (cx===goal[<span class="nm">0</span>] &amp;&amp; cy===goal[<span class="nm">1</span>]) {
+      <span class="kw">const</span> path: [<span class="ty">number</span>,<span class="ty">number</span>][] = [];
+      <span class="kw">let</span> k = <span class="st">`</span>${cx},${cy}<span class="st">`</span>;
+      <span class="kw">while</span> (from.<span class="fn">has</span>(k)) { <span class="kw">const</span> [x,y]=k.<span class="fn">split</span>(<span class="st">','</span>).<span class="fn">map</span>(Number); path.<span class="fn">unshift</span>([x,y]); k=from.<span class="fn">get</span>(k)!; }
+      <span class="kw">return</span> path;
+    }
+    <span class="kw">for</span> (<span class="kw">const</span> [dx,dy] <span class="kw">of</span> [[<span class="nm">0</span>,<span class="nm">1</span>],[<span class="nm">1</span>,<span class="nm">0</span>],[<span class="nm">0</span>,-<span class="nm">1</span>],[-<span class="nm">1</span>,<span class="nm">0</span>]]) {
+      <span class="kw">const</span> nx=cx+dx, ny=cy+dy, nk=<span class="st">`</span>${nx},${ny}<span class="st">`</span>;
+      <span class="kw">if</span> (nx&gt;=<span class="nm">0</span>&amp;&amp;ny&gt;=<span class="nm">0</span>&amp;&amp;ny&lt;grid.length&amp;&amp;nx&lt;grid[<span class="nm">0</span>].length&amp;&amp;grid[ny][nx]===<span class="nm">0</span>) {
+        <span class="kw">const</span> ng = (g.<span class="fn">get</span>(<span class="st">`</span>${cx},${cy}<span class="st">`</span>)||<span class="nm">0</span>)+<span class="nm">1</span>;
+        <span class="kw">if</span> (ng &lt; (g.<span class="fn">get</span>(nk)||Infinity)) {
+          g.<span class="fn">set</span>(nk,ng); from.<span class="fn">set</span>(nk,<span class="st">`</span>${cx},${cy}<span class="st">`</span>);
+          open.<span class="fn">push</span>([ng+Math.<span class="fn">abs</span>(nx-goal[<span class="nm">0</span>])+Math.<span class="fn">abs</span>(ny-goal[<span class="nm">1</span>]),nx,ny]);
+        }
+      }
+    }
+  }
+  <span class="kw">return</span> [];
+}</code></pre>
+  </div>
+  <div class="tab-content go">
+<pre><code><span class="kw">func</span> <span class="fn">AStar</span>(grid [][]<span class="ty">int</span>, sx, sy, gx, gy <span class="ty">int</span>) [][<span class="nm">2</span>]<span class="ty">int</span> {
+    <span class="kw">type</span> <span class="ty">node</span> <span class="kw">struct</span>{ x, y, f, g <span class="ty">int</span> }
+    open := []<span class="ty">node</span>{{sx, sy, <span class="nm">0</span>, <span class="nm">0</span>}}
+    gScore := <span class="kw">map</span>[[<span class="nm">2</span>]<span class="ty">int</span>]<span class="ty">int</span>{{sx, sy}: <span class="nm">0</span>}
+    from := <span class="kw">map</span>[[<span class="nm">2</span>]<span class="ty">int</span>][<span class="nm">2</span>]<span class="ty">int</span>{}
+    dirs := [][<span class="nm">2</span>]<span class="ty">int</span>{{<span class="nm">0</span>,<span class="nm">1</span>},{<span class="nm">1</span>,<span class="nm">0</span>},{<span class="nm">0</span>,-<span class="nm">1</span>},{-<span class="nm">1</span>,<span class="nm">0</span>}}
+
+    <span class="kw">for</span> <span class="fn">len</span>(open) > <span class="nm">0</span> {
+        <span class="cm">// pop lowest f</span>
+        best := <span class="nm">0</span>
+        <span class="kw">for</span> i, n := <span class="kw">range</span> open { <span class="kw">if</span> n.f &lt; open[best].f { best = i } }
+        c := open[best]
+        open = <span class="fn">append</span>(open[:best], open[best+<span class="nm">1</span>:]...)
+        <span class="kw">if</span> c.x == gx &amp;&amp; c.y == gy {
+            <span class="kw">var</span> path [][<span class="nm">2</span>]<span class="ty">int</span>
+            p := [<span class="nm">2</span>]<span class="ty">int</span>{gx, gy}
+            <span class="kw">for</span> p != ([<span class="nm">2</span>]<span class="ty">int</span>{sx, sy}) { path = <span class="fn">append</span>([][<span class="nm">2</span>]<span class="ty">int</span>{p}, path...); p = from[p] }
+            <span class="kw">return</span> path
+        }
+        <span class="kw">for</span> _, d := <span class="kw">range</span> dirs {
+            nx, ny := c.x+d[<span class="nm">0</span>], c.y+d[<span class="nm">1</span>]
+            <span class="kw">if</span> nx &lt; <span class="nm">0</span> || ny &lt; <span class="nm">0</span> || ny >= <span class="fn">len</span>(grid) || nx >= <span class="fn">len</span>(grid[<span class="nm">0</span>]) || grid[ny][nx] != <span class="nm">0</span> { <span class="kw">continue</span> }
+            ng := c.g + <span class="nm">1</span>
+            nk := [<span class="nm">2</span>]<span class="ty">int</span>{nx, ny}
+            <span class="kw">if</span> prev, ok := gScore[nk]; !ok || ng &lt; prev {
+                gScore[nk] = ng
+                from[nk] = [<span class="nm">2</span>]<span class="ty">int</span>{c.x, c.y}
+                h := <span class="fn">abs</span>(nx-gx) + <span class="fn">abs</span>(ny-gy)
+                open = <span class="fn">append</span>(open, <span class="ty">node</span>{nx, ny, ng + h, ng})
+            }
+        }
+    }
+    <span class="kw">return</span> <span class="kw">nil</span>
+}</code></pre>
+  </div>
+</div>
+
+<h3>Jump Point Search</h3>
+
+<p>A* on a uniform grid explores many symmetric paths &mdash; paths that differ in order but have the same cost. Jump Point Search (JPS) eliminates this by &ldquo;jumping&rdquo; along straight and diagonal lines until hitting a wall or a &ldquo;forced neighbor&rdquo; (a node that requires a turn). This prunes the open set dramatically &mdash; an order of magnitude faster on open maps. The catch: JPS only works on uniform-cost grids. Weighted terrain (swamp costs 3, road costs 1) breaks its pruning assumptions.</p>
+
+<h3>StarCraft&rsquo;s Pathfinding Hack</h3>
+
+<p>StarCraft 1 used region-based decomposition: the map was split into ~200 regions, with A* finding a path between region waypoints and local steering handling movement within each region. It was famously imperfect &mdash; units got stuck on ramps, Dragoons walked in circles. StarCraft 2 switched to navigation meshes with hierarchical A* at the region level and flow fields for local movement within each region, handling 200-unit armies smoothly.</p>
+
+<div class="power">
+<div class="power-label">Flow Fields for Armies</div>
+<p>When 100 units need to reach the same destination, computing 100 individual A* paths is wasteful. A <strong>flow field</strong> runs Dijkstra once <em>from the goal outward</em>, giving every cell a direction vector toward the goal. Units just follow the arrow under their feet. Cost is O(cells), not O(units). Supreme Commander 2 and Planetary Annihilation use this for their massive armies.</p>
+</div>
+</section>
+
+<!-- ========== CHAPTER 06 — FLOCKING ========== -->
+<section id="ch6">
+<h2>06 &mdash; Flocking &amp; Steering</h2>
+
+<p class="drop-cap">In 1986, Craig Reynolds simulated bird flocking with three simple rules applied to each &ldquo;boid&rdquo;: separate from nearby neighbors, align heading with neighbors, move toward the center of nearby neighbors. No leader. No global coordination. Just three local forces per agent, and emergent flocking behavior appears. The paper, published at SIGGRAPH 1987, remains one of the most cited in game AI.</p>
+
+<div class="demo-wrap">
+  <canvas id="demo-flock" class="demo-canvas" width="800" height="400" tabindex="0"></canvas>
+  <div class="demo-hud" id="hud-flock"></div>
+  <div class="demo-controls" id="ctrl-flock"></div>
+  <div class="demo-overlay" id="overlay-flock">Click to play &mdash; Mouse attracts | Right-click repels</div>
+</div>
+<script>
+(function() {
+  var canvas = document.getElementById('demo-flock');
+  var ctx = canvas.getContext('2d');
+  var hud = document.getElementById('hud-flock');
+  var overlay = document.getElementById('overlay-flock');
+  var ctrlEl = document.getElementById('ctrl-flock');
+
+  var animId = 0, prev = 0, STEP = 1/60, accum = 0;
+  var running = false;
+  var mouse = {x:0, y:0, down:false, right:false};
+
+  var boids, wSep, wAli, wCoh, N;
+
+  function init() {
+    canvas.width = canvas.clientWidth;
+    canvas.height = canvas.clientHeight;
+    N=120; wSep=2.0; wAli=1.0; wCoh=1.0;
+    boids=[];
+    for(var i=0;i<N;i++) boids.push({
+      x:Math.random()*canvas.width, y:Math.random()*canvas.height,
+      vx:(Math.random()-0.5)*100, vy:(Math.random()-0.5)*100
+    });
+    setControls([
+      {label:'Sep+',key:'sep+'},{label:'Sep-',key:'sep-'},
+      {label:'Ali+',key:'ali+'},{label:'Ali-',key:'ali-'},
+      {label:'Coh+',key:'coh+'},{label:'Coh-',key:'coh-'}
+    ], function(k) {
+      if(k==='sep+')wSep=Math.min(5,wSep+0.5); if(k==='sep-')wSep=Math.max(0,wSep-0.5);
+      if(k==='ali+')wAli=Math.min(5,wAli+0.5); if(k==='ali-')wAli=Math.max(0,wAli-0.5);
+      if(k==='coh+')wCoh=Math.min(5,wCoh+0.5); if(k==='coh-')wCoh=Math.max(0,wCoh-0.5);
+    });
+  }
+
+  function setControls(btns, cb) {
+    ctrlEl.innerHTML = '';
+    btns.forEach(function(b) {
+      var el = document.createElement('button');
+      el.textContent = b.label;
+      if (b.active) el.classList.add('active');
+      el.onclick = function() { if (cb) cb(b.key); };
+      ctrlEl.appendChild(el);
+    });
+  }
+
+  function update(dt) {
+    var W=canvas.width, H=canvas.height, RANGE=60;
+    for(var i=0;i<boids.length;i++) {
+      var b=boids[i], sx=0,sy=0,ax=0,ay=0,cx=0,cy=0,n=0;
+      for(var j=0;j<boids.length;j++) {
+        if(i===j) continue;
+        var o=boids[j], dx=b.x-o.x, dy=b.y-o.y, d=Math.sqrt(dx*dx+dy*dy);
+        if(d<1||d>RANGE) continue;
+        sx+=dx/d; sy+=dy/d; ax+=o.vx; ay+=o.vy; cx+=o.x; cy+=o.y; n++;
+      }
+      if(n){ax/=n;ay/=n;cx=cx/n-b.x;cy=cy/n-b.y;}
+      b.vx+=sx*wSep*dt*60+ax*wAli*dt*2+cx*wCoh*dt*2;
+      b.vy+=sy*wSep*dt*60+ay*wAli*dt*2+cy*wCoh*dt*2;
+      // mouse
+      var mdx=mouse.x-b.x, mdy=mouse.y-b.y, md=Math.sqrt(mdx*mdx+mdy*mdy);
+      if(md<120&&md>1) {
+        var force=mouse.right?-200:mouse.down?200:0;
+        if(force){b.vx+=mdx/md*force*dt;b.vy+=mdy/md*force*dt;}
+      }
+      // speed limit
+      var spd=Math.sqrt(b.vx*b.vx+b.vy*b.vy);
+      if(spd>150){b.vx=b.vx/spd*150;b.vy=b.vy/spd*150;}
+      if(spd<30){b.vx=b.vx/Math.max(spd,1)*30;b.vy=b.vy/Math.max(spd,1)*30;}
+      b.x+=b.vx*dt; b.y+=b.vy*dt;
+      // wrap
+      if(b.x<0)b.x+=W;if(b.x>W)b.x-=W;if(b.y<0)b.y+=H;if(b.y>H)b.y-=H;
+    }
+  }
+
+  function render() {
+    ctx.fillStyle='#0a0a0f'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    for(var i=0;i<boids.length;i++) {
+      var b=boids[i], ang=Math.atan2(b.vy,b.vx);
+      ctx.save(); ctx.translate(b.x,b.y); ctx.rotate(ang);
+      ctx.fillStyle='#00ff88';
+      ctx.beginPath(); ctx.moveTo(6,0); ctx.lineTo(-4,-3); ctx.lineTo(-4,3); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+    hud.textContent='BOIDS: '+N+
+      '\nSEP: '+wSep.toFixed(1)+'  ALI: '+wAli.toFixed(1)+'  COH: '+wCoh.toFixed(1);
+  }
+
+  function loop(now) {
+    animId = requestAnimationFrame(loop);
+    if (!running) return;
+    var dt = Math.min((now - prev) / 1000, 0.1);
+    prev = now;
+    accum += dt;
+    while (accum >= STEP) { update(STEP); accum -= STEP; }
+    render();
+  }
+
+  canvas.addEventListener('click', function(e) {
+    canvas.focus();
+    overlay.classList.add('hidden');
+    if (!running) { running = true; init(); prev = performance.now(); }
+  });
+  canvas.addEventListener('mousemove', function(e) {
+    var r = canvas.getBoundingClientRect();
+    mouse.x = (e.clientX - r.left) * (canvas.width / r.width);
+    mouse.y = (e.clientY - r.top) * (canvas.height / r.height);
+  });
+  canvas.addEventListener('mousedown', function(e) { if(e.button===0)mouse.down=true; if(e.button===2)mouse.right=true; });
+  canvas.addEventListener('mouseup', function(e) { if(e.button===0)mouse.down=false; if(e.button===2)mouse.right=false; });
+  canvas.addEventListener('contextmenu', function(e) { e.preventDefault(); });
+
+  function observeVisibility(el) {
+    var obs = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          if (!animId) { prev = performance.now(); animId = requestAnimationFrame(loop); }
+        } else {
+          if (animId) { cancelAnimationFrame(animId); animId = 0; }
+        }
+      });
+    }, {threshold: 0.1});
+    obs.observe(el);
+  }
+
+  function deferDemo(id, fn) {
+    var el = document.getElementById(id);
+    var started = false;
+    var obs = new IntersectionObserver(function(entries) {
+      if (!started && entries[0].isIntersecting) { started = true; fn(); }
+    }, {threshold: 0.1});
+    obs.observe(el);
+  }
+
+  deferDemo('demo-flock', function() {
+    observeVisibility(canvas);
+  });
+})();
+</script>
+
+<h3>The Three Rules</h3>
+
+<div class="vs">
+  <div class="vs-col">
+    <h4>Separation</h4>
+    <p>Steer away from neighbors within a &ldquo;protected range.&rdquo; Force increases as distance decreases (inverse distance). Prevents crowding.</p>
+  </div>
+  <div class="vs-col">
+    <h4>Alignment</h4>
+    <p>Steer toward the average heading of visible neighbors. Makes the flock move in the same general direction.</p>
+  </div>
+</div>
+<div class="vs">
+  <div class="vs-col">
+    <h4>Cohesion</h4>
+    <p>Steer toward the average position (centroid) of visible neighbors. Keeps the flock together.</p>
+  </div>
+  <div class="vs-col">
+    <h4>Combined</h4>
+    <p>Final steering = <code>w&#x2081;&#xB7;sep + w&#x2082;&#xB7;align + w&#x2083;&#xB7;cohere</code>. Tuning the weights changes behavior: high separation = loose swarm; high cohesion = tight ball; high alignment = school of fish.</p>
+  </div>
+</div>
+
+<h3>The O(n&sup2;) Problem</h3>
+
+<p>Each boid checks every other boid for neighbor queries. 100 boids = 10,000 distance checks per frame. 1,000 boids = 1,000,000. The solution: <strong>spatial hashing</strong>. Divide the world into a grid of cells sized to the interaction radius. Hash each boid into a cell. For neighbor queries, only check the boid&rsquo;s cell and its 8 neighbors (2D). Insertion and lookup are O(1). The grid rebuilds every frame, but that&rsquo;s just a linear scan. With spatial hashing, 10,000+ boids run at 60fps.</p>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-flock" id="flock-py" class="tpy" checked>
+  <input type="radio" name="tabs-flock" id="flock-ts" class="tts">
+  <div class="tab-bar">
+    <label for="flock-py">Python</label>
+    <label for="flock-ts">TypeScript</label>
+  </div>
+  <div class="tab-content py">
+<pre><code><span class="kw">def</span> <span class="fn">boid_steer</span>(boid, neighbors, w_sep, w_ali, w_coh):
+    sep = [<span class="nm">0</span>, <span class="nm">0</span>]; ali = [<span class="nm">0</span>, <span class="nm">0</span>]; coh = [<span class="nm">0</span>, <span class="nm">0</span>]
+    count = <span class="nm">0</span>
+
+    <span class="kw">for</span> other <span class="kw">in</span> neighbors:
+        dx = boid.x - other.x
+        dy = boid.y - other.y
+        dist = (dx*dx + dy*dy) ** <span class="nm">0.5</span>
+        <span class="kw">if</span> dist &lt; <span class="nm">1e-6</span> <span class="kw">or</span> dist > boid.visual_range:
+            <span class="kw">continue</span>
+        <span class="cm"># Separation: inverse distance</span>
+        sep[<span class="nm">0</span>] += dx / dist
+        sep[<span class="nm">1</span>] += dy / dist
+        <span class="cm"># Alignment: average heading</span>
+        ali[<span class="nm">0</span>] += other.vx
+        ali[<span class="nm">1</span>] += other.vy
+        <span class="cm"># Cohesion: average position</span>
+        coh[<span class="nm">0</span>] += other.x
+        coh[<span class="nm">1</span>] += other.y
+        count += <span class="nm">1</span>
+
+    <span class="kw">if</span> count > <span class="nm">0</span>:
+        ali[<span class="nm">0</span>] /= count; ali[<span class="nm">1</span>] /= count
+        coh[<span class="nm">0</span>] = coh[<span class="nm">0</span>]/count - boid.x
+        coh[<span class="nm">1</span>] = coh[<span class="nm">1</span>]/count - boid.y
+
+    boid.vx += sep[<span class="nm">0</span>]*w_sep + ali[<span class="nm">0</span>]*w_ali + coh[<span class="nm">0</span>]*w_coh
+    boid.vy += sep[<span class="nm">1</span>]*w_sep + ali[<span class="nm">1</span>]*w_ali + coh[<span class="nm">1</span>]*w_coh</code></pre>
+  </div>
+  <div class="tab-content ts">
+<pre><code><span class="kw">function</span> <span class="fn">steer</span>(boid: Boid, neighbors: Boid[], wS: <span class="ty">number</span>, wA: <span class="ty">number</span>, wC: <span class="ty">number</span>) {
+  <span class="kw">let</span> sx=<span class="nm">0</span>,sy=<span class="nm">0</span>, ax=<span class="nm">0</span>,ay=<span class="nm">0</span>, cx=<span class="nm">0</span>,cy=<span class="nm">0</span>, n=<span class="nm">0</span>;
+  <span class="kw">for</span> (<span class="kw">const</span> o <span class="kw">of</span> neighbors) {
+    <span class="kw">const</span> dx=boid.x-o.x, dy=boid.y-o.y;
+    <span class="kw">const</span> d=Math.<span class="fn">hypot</span>(dx,dy);
+    <span class="kw">if</span> (d &lt; <span class="nm">1e-6</span> || d > boid.range) <span class="kw">continue</span>;
+    sx+=dx/d; sy+=dy/d;   <span class="cm">// separation</span>
+    ax+=o.vx; ay+=o.vy;   <span class="cm">// alignment</span>
+    cx+=o.x;  cy+=o.y;    <span class="cm">// cohesion</span>
+    n++;
+  }
+  <span class="kw">if</span> (n) { ax/=n; ay/=n; cx=cx/n-boid.x; cy=cy/n-boid.y; }
+  boid.vx += sx*wS + ax*wA + cx*wC;
+  boid.vy += sy*wS + ay*wA + cy*wC;
+}</code></pre>
+  </div>
+</div>
+
+<p>The demo above lets you tune the three weights with the control buttons and attract/repel boids with your mouse. High separation with low cohesion creates a loose swarm that avoids itself. High cohesion with high alignment creates a tight school of fish. Zero alignment makes it look like a crowd of panicked individuals.</p>
+
+<div class="power zen">
+<div class="power-label">Emergence</div>
+<p>Flocking is the canonical example of emergent behavior &mdash; complex group dynamics arising from simple local rules. No boid knows about the flock. Each follows three rules about its immediate neighbors, and the group-level pattern falls out. The same principle applies to ant colonies, traffic flow, and Conway&rsquo;s Game of Life. Simple rules, complex results.</p>
+</div>
+</section>
+
+<!-- ========== CHAPTER 07 — GAME AI ========== -->
+<section id="ch7">
+<h2>07 &mdash; Game AI</h2>
+
+<p class="drop-cap">Halo 2 changed how games think. Before 2004, most NPCs ran on finite state machines &mdash; hard-coded transition tables that worked for simple enemies but collapsed under complexity. Damian Isla at Bungie introduced <strong>behavior trees</strong>: a hierarchical structure where decisions flow from root to leaf, evaluated every tick. The Halo 2 AI used a behavior DAG of about 50 behaviors, and Elites could flank, retreat, throw grenades, and coordinate suppression fire &mdash; all without a single scripted sequence.</p>
+
+<div class="demo-wrap">
+  <canvas id="demo-ai" class="demo-canvas" width="800" height="400" tabindex="0"></canvas>
+  <div class="demo-hud" id="hud-ai"></div>
+  <div class="demo-controls" id="ctrl-ai"></div>
+  <div class="demo-overlay" id="overlay-ai">Click to play &mdash; WASD+J</div>
+</div>
+
+<h3>Behavior Tree Nodes</h3>
+
+<div class="diagram">
+<span class="diagram-label">Behavior Tree Structure</span>
+<pre><code>                    [Selector]              <span class="cm">&larr; try children until one succeeds</span>
+                   ╱          ╲
+          [Sequence]        [Sequence]       <span class="cm">&larr; all children must succeed</span>
+          ╱       ╲          ╱       ╲
+    (CanSee?)  (Attack)  (Heard?)  (Investigate)
+     <span class="ty">condition</span>  <span class="ty">action</span>   <span class="ty">condition</span>   <span class="ty">action</span>
+
+    [Decorator: Repeat]                      <span class="cm">&larr; wraps a single child</span>
+         │
+    (Patrol)                                 <span class="cm">&larr; fallback if nothing else fires</span></code></pre>
+</div>
+
+<p>A <strong>Selector</strong> tries children left to right, stops on the first SUCCESS (logical OR). A <strong>Sequence</strong> runs children left to right, stops on the first FAILURE (logical AND). <strong>Decorators</strong> modify a single child &mdash; Inverter flips the result, Repeater loops N times, AlwaysSucceed swallows failures. <strong>Conditions</strong> check world state. <strong>Actions</strong> do things.</p>
+
+<h3>Blackboards</h3>
+
+<p>Unreal Engine 4/5 pairs behavior trees with a <strong>blackboard</strong> &mdash; a typed key-value store that serves as the AI&rsquo;s working memory. Keys like <code>TargetActor</code>, <code>LastKnownPosition</code>, <code>AmmoCount</code> are set by Service nodes (which tick on configurable intervals) and read by Decorator conditions. This decouples perception from decision &mdash; a &ldquo;perception&rdquo; service updates the blackboard, and the tree reacts to what&rsquo;s written there.</p>
+
+<h3>GOAP: F.E.A.R.&rsquo;s Innovation</h3>
+
+<p>F.E.A.R. (2005) took a radically different approach. Jeff Orkin at Monolith gave each NPC a <strong>goal</strong> (e.g., &ldquo;KillEnemy&rdquo;), a set of <strong>actions</strong> with preconditions and effects, and an <strong>A* planner</strong> that searched through action space to find a sequence that achieves the goal from the current world state.</p>
+
+<p>The entire NPC FSM had just three states: <code>Goto</code> (move somewhere), <code>Animate</code> (play animation in place), and <code>UseSmartObject</code> (interact with a prop). All complex behavior &mdash; flanking, taking cover, flushing players with grenades &mdash; emerged from the planner choosing sequences of these primitives. Adding a new action like &ldquo;DiveThroughWindow&rdquo; automatically made it available to any goal whose preconditions it could satisfy, without editing existing behaviors.</p>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-ai" id="ai-ts" class="tts" checked>
+  <input type="radio" name="tabs-ai" id="ai-go" class="tgo">
+  <div class="tab-bar">
+    <label for="ai-ts">TypeScript</label>
+    <label for="ai-go">Go</label>
+  </div>
+  <div class="tab-content ts">
+<pre><code><span class="cm">// Minimal Behavior Tree runner</span>
+<span class="kw">type</span> Status = <span class="st">'success'</span> | <span class="st">'failure'</span> | <span class="st">'running'</span>;
+
+<span class="kw">interface</span> <span class="ty">BTNode</span> { <span class="fn">tick</span>(bb: Record&lt;<span class="ty">string</span>,<span class="ty">any</span>&gt;): Status; }
+
+<span class="kw">class</span> <span class="ty">Selector</span> <span class="kw">implements</span> <span class="ty">BTNode</span> {
+  <span class="kw">constructor</span>(<span class="kw">private</span> children: <span class="ty">BTNode</span>[]) {}
+  <span class="fn">tick</span>(bb) {
+    <span class="kw">for</span> (<span class="kw">const</span> c <span class="kw">of</span> <span class="kw">this</span>.children) {
+      <span class="kw">const</span> s = c.<span class="fn">tick</span>(bb);
+      <span class="kw">if</span> (s !== <span class="st">'failure'</span>) <span class="kw">return</span> s;  <span class="cm">// success or running</span>
+    }
+    <span class="kw">return</span> <span class="st">'failure'</span>;
+  }
+}
+
+<span class="kw">class</span> <span class="ty">Sequence</span> <span class="kw">implements</span> <span class="ty">BTNode</span> {
+  <span class="kw">constructor</span>(<span class="kw">private</span> children: <span class="ty">BTNode</span>[]) {}
+  <span class="fn">tick</span>(bb) {
+    <span class="kw">for</span> (<span class="kw">const</span> c <span class="kw">of</span> <span class="kw">this</span>.children) {
+      <span class="kw">const</span> s = c.<span class="fn">tick</span>(bb);
+      <span class="kw">if</span> (s !== <span class="st">'success'</span>) <span class="kw">return</span> s;  <span class="cm">// failure or running</span>
+    }
+    <span class="kw">return</span> <span class="st">'success'</span>;
+  }
+}</code></pre>
+  </div>
+  <div class="tab-content go">
+<pre><code><span class="kw">type</span> <span class="ty">Status</span> <span class="ty">int</span>
+<span class="kw">const</span> ( Success <span class="ty">Status</span> = <span class="kw">iota</span>; Failure; Running )
+
+<span class="kw">type</span> <span class="ty">Node</span> <span class="kw">interface</span> { <span class="fn">Tick</span>(bb <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">any</span>) <span class="ty">Status</span> }
+
+<span class="kw">type</span> <span class="ty">Selector</span> <span class="kw">struct</span>{ Children []<span class="ty">Node</span> }
+<span class="kw">func</span> (s *<span class="ty">Selector</span>) <span class="fn">Tick</span>(bb <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">any</span>) <span class="ty">Status</span> {
+    <span class="kw">for</span> _, c := <span class="kw">range</span> s.Children {
+        <span class="kw">if</span> r := c.<span class="fn">Tick</span>(bb); r != Failure { <span class="kw">return</span> r }
+    }
+    <span class="kw">return</span> Failure
+}
+
+<span class="kw">type</span> <span class="ty">Sequence</span> <span class="kw">struct</span>{ Children []<span class="ty">Node</span> }
+<span class="kw">func</span> (s *<span class="ty">Sequence</span>) <span class="fn">Tick</span>(bb <span class="kw">map</span>[<span class="ty">string</span>]<span class="kw">any</span>) <span class="ty">Status</span> {
+    <span class="kw">for</span> _, c := <span class="kw">range</span> s.Children {
+        <span class="kw">if</span> r := c.<span class="fn">Tick</span>(bb); r != Success { <span class="kw">return</span> r }
+    }
+    <span class="kw">return</span> Success
+}</code></pre>
+  </div>
+</div>
+
+<div class="power">
+<div class="power-label">BT vs FSM vs GOAP</div>
+<p>Use <strong>FSMs</strong> for player characters (few states, hand-tuned). Use <strong>Behavior Trees</strong> for NPCs with many behaviors that need clear priority ordering (most games). Use <strong>GOAP</strong> when you want emergent behavior from combining simple actions in novel ways (immersive sims, complex squad AI). Most shipped games use BTs &mdash; they&rsquo;re debuggable, designable, and scale to hundreds of behaviors.</p>
+</div>
+</section>
+
+<script>
+deferDemo('demo-ai', function() {
+  var canvas = document.getElementById('demo-ai');
+  var hud    = document.getElementById('hud-ai');
+  var ctrl   = document.getElementById('ctrl-ai');
+  var overlay= document.getElementById('overlay-ai');
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var vis = observeVisibility(canvas);
+  var keys = {};
+  var active = false;
+  var player, npcs, platforms;
+
+  canvas.addEventListener('click', function() { canvas.focus(); overlay.classList.add('hidden'); active = true; });
+  canvas.addEventListener('keydown', function(e) { keys[e.code] = true; e.preventDefault(); });
+  canvas.addEventListener('keyup',   function(e) { keys[e.code] = false; });
+  canvas.addEventListener('blur',    function()  { keys = {}; });
+
+  function mkNPC(x, y) {
+    return {x:x,y:y,vx:0,vy:0,w:22,h:30,prevX:x,prevY:y,facingR:true,onGround:false,
+            state:'PATROL',patrolDir:1,patrolTimer:0,seePlayer:false,
+            hp:3,maxHp:3,flash:0,atkCd:0,btState:'idle'};
+  }
+  function canSee(npc, pl, range) {
+    var dx = pl.x - npc.x, dy = pl.y - npc.y, d = Math.sqrt(dx*dx + dy*dy);
+    if (d > range) return false;
+    if (npc.facingR && dx < 0) return false;
+    if (!npc.facingR && dx > 0) return false;
+    return true;
+  }
+
+  var W = canvas.width, H = canvas.height;
+  player = {x:100,y:0,vx:0,vy:0,w:22,h:30,prevX:100,prevY:0,facingR:true,onGround:false,
+            hp:5,maxHp:5,flash:0,iFrames:0};
+  npcs = [mkNPC(400,0), mkNPC(600,0), mkNPC(250,H-200)];
+  platforms = [
+    {x:0, y:H-30, w:W, h:30},
+    {x:80, y:H-110, w:160, h:14},
+    {x:350, y:H-130, w:160, h:14},
+    {x:550, y:H-100, w:160, h:14}
+  ];
+
+  var lastT = 0, accum = 0;
+  var TICK = 1/60;
+
+  function update(dt) {
+    var ix = 0;
+    if (keys.KeyA || keys.ArrowLeft) ix = -1;
+    if (keys.KeyD || keys.ArrowRight) ix = 1;
+    if (ix) player.facingR = ix > 0;
+    if (ix) player.vx += ix * 1200 * (player.onGround ? 1 : 0.7) * dt;
+    else { if (player.vx > 0) player.vx = Math.max(0, player.vx - 2000*dt); else player.vx = Math.min(0, player.vx + 2000*dt); }
+    player.vx = Math.max(-200, Math.min(200, player.vx));
+    player.vy += 900*dt; if (player.vy > 600) player.vy = 600;
+    if (player.flash > 0) player.flash -= dt;
+    if (player.iFrames > 0) player.iFrames -= dt;
+
+    player.prevX = player.x; player.prevY = player.y;
+    player.x += player.vx*dt; player.y += player.vy*dt;
+    player.onGround = false;
+    for (var i = 0; i < platforms.length; i++) {
+      var pl = platforms[i];
+      if (player.x+player.w/2 > pl.x && player.x-player.w/2 < pl.x+pl.w &&
+          player.y+player.h/2 > pl.y && player.prevY+player.h/2 <= pl.y+4) {
+        player.y = pl.y - player.h/2; player.vy = 0; player.onGround = true;
+      }
+    }
+    if (player.onGround && (keys.Space || keys.KeyW)) { player.vy = -370; player.onGround = false; }
+    if (player.x < player.w/2) player.x = player.w/2;
+    if (player.x > W - player.w/2) player.x = W - player.w/2;
+    if (player.y > H + 50) { player.x = 100; player.y = 0; player.vx = 0; player.vy = 0; player.hp = player.maxHp; }
+
+    // NPC behavior tree
+    for (var n = 0; n < npcs.length; n++) {
+      var npc = npcs[n];
+      if (npc.hp <= 0) continue;
+      if (npc.flash > 0) npc.flash -= dt;
+      if (npc.atkCd > 0) npc.atkCd -= dt;
+      npc.seePlayer = canSee(npc, player, 180);
+      var dx = player.x - npc.x, dy = player.y - npc.y, dist = Math.sqrt(dx*dx + dy*dy);
+
+      if (npc.seePlayer && dist < 40 && npc.atkCd <= 0) {
+        npc.state = 'ATTACK'; npc.btState = 'attack'; npc.atkCd = 0.8;
+        if (player.iFrames <= 0) { player.hp--; player.flash = 0.1; player.iFrames = 0.5; player.vx = (player.x > npc.x ? 200 : -200); }
+      } else if (npc.seePlayer) {
+        npc.state = 'CHASE'; npc.btState = 'chase'; npc.facingR = dx > 0;
+        npc.vx += (dx > 0 ? 1 : -1) * 600 * dt;
+      } else {
+        npc.state = 'PATROL'; npc.btState = 'patrol';
+        npc.patrolTimer += dt;
+        if (npc.patrolTimer > 2) { npc.patrolDir *= -1; npc.patrolTimer = 0; npc.facingR = npc.patrolDir > 0; }
+        npc.vx += npc.patrolDir * 400 * dt;
+      }
+      if (Math.abs(npc.vx) > 120) npc.vx = 120 * (npc.vx > 0 ? 1 : -1);
+      npc.vx *= 0.95;
+      npc.vy += 900*dt; if (npc.vy > 600) npc.vy = 600;
+      npc.prevX = npc.x; npc.prevY = npc.y;
+      npc.x += npc.vx*dt; npc.y += npc.vy*dt;
+      npc.onGround = false;
+      for (var i = 0; i < platforms.length; i++) {
+        var pl = platforms[i];
+        if (npc.x+npc.w/2 > pl.x && npc.x-npc.w/2 < pl.x+pl.w &&
+            npc.y+npc.h/2 > pl.y && npc.prevY+npc.h/2 <= pl.y+4) {
+          npc.y = pl.y - npc.h/2; npc.vy = 0; npc.onGround = true;
+        }
+      }
+      if (npc.x < npc.w/2) { npc.x = npc.w/2; npc.patrolDir = 1; }
+      if (npc.x > W - npc.w/2) { npc.x = W - npc.w/2; npc.patrolDir = -1; }
+    }
+    // player attack
+    if (keys.KeyJ) {
+      for (var n = 0; n < npcs.length; n++) {
+        var npc = npcs[n]; if (npc.hp <= 0) continue;
+        var adx = npc.x - player.x, ady = npc.y - player.y;
+        var inFront = player.facingR ? adx > 0 : adx < 0;
+        if (inFront && Math.abs(adx) < 45 && Math.abs(ady) < 30) {
+          npc.hp--; npc.flash = 0.1; npc.vx = (adx > 0 ? 200 : -200);
+        }
+      }
+    }
+  }
+
+  function render(alpha) {
+    ctx.fillStyle = '#0a0a0f'; ctx.fillRect(0, 0, W, H);
+    for (var i = 0; i < platforms.length; i++) {
+      var pl = platforms[i]; ctx.fillStyle = '#1e1e2e'; ctx.fillRect(pl.x, pl.y, pl.w, pl.h);
+      ctx.fillStyle = '#4488ff'; ctx.fillRect(pl.x, pl.y, pl.w, 2);
+    }
+    // vision cones
+    for (var n = 0; n < npcs.length; n++) {
+      var npc = npcs[n]; if (npc.hp <= 0) continue;
+      ctx.save(); ctx.globalAlpha = 0.08;
+      ctx.fillStyle = npc.seePlayer ? '#ff3344' : '#ffdd00';
+      ctx.beginPath(); ctx.moveTo(npc.x, npc.y);
+      var ang = npc.facingR ? 0 : Math.PI;
+      ctx.arc(npc.x, npc.y, 180, ang - 0.5, ang + 0.5); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+    // player
+    var px = player.prevX + (player.x - player.prevX)*alpha;
+    var py = player.prevY + (player.y - player.prevY)*alpha;
+    drawChar(ctx, px, py, player.w, player.h, '#00ff88', player.facingR, 1, 1, player.flash > 0);
+    drawHP(ctx, px, py - player.h/2 - 8, 30, player.hp, player.maxHp);
+    // npcs
+    for (var n = 0; n < npcs.length; n++) {
+      var npc = npcs[n]; if (npc.hp <= 0) continue;
+      var nx = npc.prevX + (npc.x - npc.prevX)*alpha;
+      var ny = npc.prevY + (npc.y - npc.prevY)*alpha;
+      drawChar(ctx, nx, ny, npc.w, npc.h, '#ff3344', npc.facingR, 1, 1, npc.flash > 0);
+      drawHP(ctx, nx, ny - npc.h/2 - 8, 30, npc.hp, npc.maxHp);
+      ctx.font = '9px JetBrains Mono, monospace'; ctx.fillStyle = '#ff3344';
+      ctx.fillText(npc.state, nx - 15, ny - npc.h/2 - 14);
+    }
+    // BT panel
+    var bx = W - 170, by = 30;
+    ctx.fillStyle = 'rgba(18,18,26,0.9)'; ctx.fillRect(bx - 10, by - 10, 160, 100);
+    ctx.strokeStyle = '#1e1e2e'; ctx.strokeRect(bx - 10, by - 10, 160, 100);
+    ctx.font = 'bold 10px JetBrains Mono, monospace';
+    ctx.fillStyle = '#6a6a7e'; ctx.fillText('BEHAVIOR TREE', bx, by);
+    var nodes = [
+      {l:'Selector', y:by+18, c:'#aa44ff'},
+      {l:'-> CanSee + Attack', y:by+34, c:npcs[0] && npcs[0].btState === 'attack' ? '#ff00aa' : '#2a2a4a'},
+      {l:'-> CanSee + Chase',  y:by+50, c:npcs[0] && npcs[0].btState === 'chase'  ? '#ff8800' : '#2a2a4a'},
+      {l:'-> Patrol',          y:by+66, c:npcs[0] && npcs[0].btState === 'patrol'  ? '#00ff88' : '#2a2a4a'}
+    ];
+    for (var i = 0; i < nodes.length; i++) {
+      ctx.fillStyle = nodes[i].c; ctx.fillText(nodes[i].l, bx + 4, nodes[i].y);
+    }
+    hud.textContent = 'HP: ' + player.hp + '/' + player.maxHp;
+  }
+
+  function loop(t) {
+    if (!vis.visible) { lastT = 0; accum = 0; requestAnimationFrame(loop); return; }
+    if (!lastT) { lastT = t; requestAnimationFrame(loop); return; }
+    var dt = Math.min((t - lastT) / 1000, 0.05); lastT = t;
+    if (active) { accum += dt; while (accum >= TICK) { update(TICK); accum -= TICK; } }
+    render(1);
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+});
+</script>
+
+<!-- ========== CHAPTER 08 — COMBAT ========== -->
+<section id="ch8">
+<h2>08 &mdash; Combat Systems</h2>
+
+<p class="drop-cap">The first frame of a punch lands. Both characters freeze for 9 frames. A damage number floats upward. The victim flashes white, launches backward, and tumbles. In those 150 milliseconds of hitstop, the player <em>felt</em> the impact &mdash; not because of physics simulation, but because the game lied about time. Combat feel is built from temporal manipulation, visual feedback, and precisely timed collision boxes.</p>
+
+<div class="demo-wrap">
+  <canvas id="demo-combat" class="demo-canvas" width="800" height="400" tabindex="0"></canvas>
+  <div class="demo-hud" id="hud-combat"></div>
+  <div class="demo-controls" id="ctrl-combat"></div>
+  <div class="demo-overlay" id="overlay-combat">Click to play &mdash; WASD+J/K</div>
+</div>
+
+<h3>Hitboxes and Hurtboxes</h3>
+
+<p>These are separate concepts. A <strong>hitbox</strong> is attached to an attack &mdash; it exists only during the active frames of a move. A <strong>hurtbox</strong> is attached to a character &mdash; it&rsquo;s where they can be hit. Collision is hitbox-vs-hurtbox only. Two hurtboxes never interact. Two hitboxes never interact. This separation gives precise control: a sword swing&rsquo;s hitbox can be active for exactly 4 frames, while the character&rsquo;s hurtbox can shrink during a dodge roll.</p>
+
+<h3>AABB Collision</h3>
+
+<p>Axis-Aligned Bounding Box: the simplest and fastest collision test. Two rectangles overlap if and only if they overlap on both axes:</p>
+
+<pre><code><span class="cm">// Four comparisons — that's it</span>
+<span class="kw">function</span> <span class="fn">aabbOverlap</span>(a, b) {
+  <span class="kw">return</span> a.left &lt; b.right &amp;&amp; a.right &gt; b.left &amp;&amp;
+         a.top &lt; b.bottom &amp;&amp; a.bottom &gt; b.top;
+}</code></pre>
+
+<h3>Damage &amp; Knockback</h3>
+
+<p>Common damage formula: <code>finalDamage = max(1, baseDamage * multiplier - defense)</code>. The <code>max(1,...)</code> ensures attacks always deal at least 1 damage. Multipliers come from crits (1.5-2&times;), elemental weakness (2&times; in Pok&eacute;mon), or headshots (2-4&times; in FPS games).</p>
+
+<p>Smash Bros. Melee&rsquo;s knockback formula factors in the victim&rsquo;s accumulated damage, the move&rsquo;s damage, the victim&rsquo;s weight, and two per-move constants (base knockback and knockback growth). The <code>p * d</code> term makes knockback grow quadratically with damage percentage &mdash; this is why kill moves become lethal at high percents.</p>
+
+<h3>Hitstop &amp; Freeze Frames</h3>
+
+<p>Both attacker and victim freeze in place on hit. Street Fighter: light attacks ~9 frames, heavy ~13 frames. Smash Bros: <code>hitlag = floor(damage/3 + 3)</code>, capped at 20 frames. This freeze gives the eye time to register the collision, extends the cancel window for combo inputs, and &mdash; most importantly &mdash; makes the hit feel <em>heavy</em>. Without hitstop, a sword swing feels like swinging through air. With it, the sword feels like it <em>connected</em>.</p>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-combat" id="combat-ts" class="tts" checked>
+  <input type="radio" name="tabs-combat" id="combat-py" class="tpy">
+  <div class="tab-bar">
+    <label for="combat-ts">TypeScript</label>
+    <label for="combat-py">Python</label>
+  </div>
+  <div class="tab-content ts">
+<pre><code><span class="kw">function</span> <span class="fn">applyHit</span>(attacker: Fighter, victim: Fighter, move: Move) {
+  <span class="cm">// Damage</span>
+  <span class="kw">const</span> dmg = Math.<span class="fn">max</span>(<span class="nm">1</span>, move.baseDamage * move.multiplier - victim.defense);
+  victim.hp -= dmg;
+
+  <span class="cm">// Knockback vector</span>
+  <span class="kw">const</span> dir = Math.<span class="fn">sign</span>(victim.x - attacker.x) || <span class="nm">1</span>;
+  victim.vx = dir * move.knockback * (<span class="nm">1</span> + victim.damagePct * <span class="nm">0.01</span>);
+  victim.vy = -move.knockback * <span class="nm">0.5</span>;
+
+  <span class="cm">// Hitstop: both fighters freeze</span>
+  <span class="kw">const</span> hitlag = Math.<span class="fn">min</span>(<span class="nm">20</span>, Math.<span class="fn">floor</span>(dmg / <span class="nm">3</span> + <span class="nm">3</span>));
+  attacker.freezeFrames = hitlag;
+  victim.freezeFrames = hitlag;
+
+  <span class="cm">// Visual feedback</span>
+  victim.flashTimer = <span class="nm">3</span>;           <span class="cm">// white flash frames</span>
+  victim.iFrames = <span class="nm">20</span>;             <span class="cm">// invincibility</span>
+  <span class="fn">spawnDamageNumber</span>(victim.x, victim.y - <span class="nm">20</span>, dmg);
+}</code></pre>
+  </div>
+  <div class="tab-content py">
+<pre><code><span class="kw">def</span> <span class="fn">apply_hit</span>(attacker, victim, move):
+    dmg = <span class="fn">max</span>(<span class="nm">1</span>, move.base_damage * move.multiplier - victim.defense)
+    victim.hp -= dmg
+
+    <span class="cm"># Knockback</span>
+    direction = <span class="nm">1</span> <span class="kw">if</span> victim.x > attacker.x <span class="kw">else</span> -<span class="nm">1</span>
+    victim.vx = direction * move.knockback * (<span class="nm">1</span> + victim.damage_pct * <span class="nm">0.01</span>)
+    victim.vy = -move.knockback * <span class="nm">0.5</span>
+
+    <span class="cm"># Hitstop</span>
+    hitlag = <span class="fn">min</span>(<span class="nm">20</span>, dmg // <span class="nm">3</span> + <span class="nm">3</span>)
+    attacker.freeze_frames = hitlag
+    victim.freeze_frames = hitlag
+
+    <span class="cm"># Feedback</span>
+    victim.flash_timer = <span class="nm">3</span>
+    victim.i_frames = <span class="nm">20</span>
+    <span class="fn">spawn_damage_number</span>(victim.x, victim.y - <span class="nm">20</span>, dmg)</code></pre>
+  </div>
+</div>
+
+<div class="power danger">
+<div class="power-label">I-Frames Are Not Optional</div>
+<p>After being hit, the character must be invulnerable for a window (Dark Souls: ~13 frames during rolls, Mega Man: ~90 frames after damage). Without i-frames, a character can be hit by every frame of a multi-frame attack, draining their health instantly. Multi-hit moves in Smash Bros. work <em>because</em> each hit resets the hitlag and i-frame timer precisely.</p>
+</div>
+</section>
+
+<script>
+deferDemo('demo-combat', function() {
+  var canvas = document.getElementById('demo-combat');
+  var hud    = document.getElementById('hud-combat');
+  var ctrl   = document.getElementById('ctrl-combat');
+  var overlay= document.getElementById('overlay-combat');
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var vis = observeVisibility(canvas);
+  var keys = {};
+  var active = false;
+  var p1, p2, dmgNums, showBoxes, freezeFrames;
+  var W = canvas.width, H = canvas.height;
+
+  canvas.addEventListener('click', function() { canvas.focus(); overlay.classList.add('hidden'); active = true; });
+  canvas.addEventListener('keydown', function(e) { keys[e.code] = true; e.preventDefault(); });
+  canvas.addEventListener('keyup',   function(e) { keys[e.code] = false; });
+  canvas.addEventListener('blur',    function()  { keys = {}; });
+
+  function mkFighter(x, facingR, color, ai) {
+    return {x:x,y:0,vx:0,vy:0,w:26,h:34,prevX:x,prevY:0,facingR:facingR,onGround:false,
+            hp:100,maxHp:100,flash:0,iFrames:0,color:color,ai:ai,
+            atkState:'none',atkTimer:0,comboCount:0};
+  }
+
+  var floorY = H - 40;
+  p1 = mkFighter(200, true, '#00ff88', false);
+  p2 = mkFighter(W - 200, false, '#ff3344', true);
+  dmgNums = []; showBoxes = true; freezeFrames = 0;
+
+  // controls
+  var boxBtn = document.createElement('button');
+  boxBtn.className = 'demo-btn active'; boxBtn.textContent = 'Hitboxes';
+  boxBtn.addEventListener('click', function() { showBoxes = !showBoxes; boxBtn.classList.toggle('active', showBoxes); });
+  var rstBtn = document.createElement('button');
+  rstBtn.className = 'demo-btn'; rstBtn.textContent = 'Reset';
+  rstBtn.addEventListener('click', function() { p1.hp = 100; p2.hp = 100; p1.x = 200; p2.x = W - 200; });
+  ctrl.appendChild(boxBtn); ctrl.appendChild(rstBtn);
+
+  var lastT = 0, accum = 0;
+  var TICK = 1/60;
+
+  function update(dt) {
+    if (freezeFrames > 0) { freezeFrames -= dt; return; }
+    // player 1
+    var ix = 0;
+    if (keys.KeyA || keys.ArrowLeft) ix = -1;
+    if (keys.KeyD || keys.ArrowRight) ix = 1;
+    if (ix) p1.facingR = ix > 0;
+    if (ix) p1.vx += ix * 1500 * dt;
+    else { if (p1.vx > 0) p1.vx = Math.max(0, p1.vx - 2500*dt); else p1.vx = Math.min(0, p1.vx + 2500*dt); }
+    p1.vx = Math.max(-180, Math.min(180, p1.vx));
+    p1.vy += 900*dt;
+    if (p1.flash > 0) p1.flash -= dt;
+    if (p1.iFrames > 0) p1.iFrames -= dt;
+    if (p1.atkTimer > 0) p1.atkTimer -= dt; else p1.atkState = 'none';
+
+    p1.prevX = p1.x; p1.prevY = p1.y;
+    p1.x += p1.vx*dt; p1.y += p1.vy*dt;
+    if (p1.y + p1.h/2 > floorY) { p1.y = floorY - p1.h/2; p1.vy = 0; p1.onGround = true; }
+    if (p1.onGround && (keys.Space || keys.KeyW)) { p1.vy = -400; p1.onGround = false; }
+    if (keys.KeyJ && p1.atkState === 'none') { p1.atkState = 'punch'; p1.atkTimer = 0.3; }
+    if (keys.KeyK && p1.atkState === 'none') { p1.atkState = 'kick'; p1.atkTimer = 0.4; }
+    if (p1.x < p1.w/2) p1.x = p1.w/2;
+    if (p1.x > W - p1.w/2) p1.x = W - p1.w/2;
+
+    // AI for p2
+    var dx = p1.x - p2.x, dist = Math.abs(dx);
+    p2.facingR = dx > 0;
+    if (dist > 60) p2.vx += (dx > 0 ? 1 : -1) * 800 * dt;
+    else if (dist < 40) p2.vx += (dx > 0 ? -1 : 1) * 400 * dt;
+    if (dist < 50 && p2.atkState === 'none' && Math.random() < 0.03) { p2.atkState = 'punch'; p2.atkTimer = 0.3; }
+    p2.vx *= 0.95; p2.vx = Math.max(-150, Math.min(150, p2.vx));
+    p2.vy += 900*dt;
+    if (p2.flash > 0) p2.flash -= dt;
+    if (p2.iFrames > 0) p2.iFrames -= dt;
+    if (p2.atkTimer > 0) p2.atkTimer -= dt; else p2.atkState = 'none';
+    p2.prevX = p2.x; p2.prevY = p2.y;
+    p2.x += p2.vx*dt; p2.y += p2.vy*dt;
+    if (p2.y + p2.h/2 > floorY) { p2.y = floorY - p2.h/2; p2.vy = 0; p2.onGround = true; }
+    if (p2.x < p2.w/2) p2.x = p2.w/2;
+    if (p2.x > W - p2.w/2) p2.x = W - p2.w/2;
+
+    // hit detection
+    function tryHit(atk, def) {
+      if (atk.atkState === 'none' || atk.atkTimer < 0.15 || def.iFrames > 0) return;
+      var hx = atk.x + (atk.facingR ? atk.w : -atk.w);
+      var hw = 30, hh = atk.h;
+      if (Math.abs(hx - def.x) < hw && Math.abs(atk.y - def.y) < hh/2 + def.h/2) {
+        var dmg = atk.atkState === 'kick' ? 15 : 10;
+        def.hp = Math.max(0, def.hp - dmg);
+        def.flash = 0.08; def.iFrames = 0.3;
+        def.vx = (def.x > atk.x ? 250 : -250); def.vy = -100;
+        freezeFrames = dmg/3/60 + 0.05;
+        dmgNums.push({x:def.x, y:def.y - def.h/2, val:dmg, t:1.0});
+      }
+    }
+    tryHit(p1, p2); tryHit(p2, p1);
+    // damage numbers
+    for (var i = dmgNums.length - 1; i >= 0; i--) {
+      dmgNums[i].y -= 60*dt; dmgNums[i].t -= dt;
+      if (dmgNums[i].t <= 0) dmgNums.splice(i, 1);
+    }
+  }
+
+  function render(alpha) {
+    ctx.fillStyle = '#0a0a0f'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#1e1e2e'; ctx.fillRect(0, floorY, W, 40);
+    ctx.fillStyle = '#ff00aa'; ctx.fillRect(0, floorY, W, 2);
+
+    function drawFighter(f, a) {
+      var fx = f.prevX + (f.x - f.prevX)*a;
+      var fy = f.prevY + (f.y - f.prevY)*a;
+      drawChar(ctx, fx, fy, f.w, f.h, f.color, f.facingR, 1, 1, f.flash > 0);
+      drawHP(ctx, fx, fy - f.h/2 - 10, 40, f.hp, f.maxHp);
+      if (showBoxes) {
+        ctx.strokeStyle = 'rgba(0,255,136,0.3)'; ctx.lineWidth = 1;
+        ctx.strokeRect(fx - f.w/2, fy - f.h/2, f.w, f.h);
+        if (f.atkState !== 'none' && f.atkTimer > 0.15) {
+          ctx.strokeStyle = 'rgba(255,0,170,0.6)'; ctx.lineWidth = 2;
+          var hx = fx + (f.facingR ? f.w : -f.w);
+          ctx.strokeRect(hx - 15, fy - f.h/2, 30, f.h);
+        }
+      }
+    }
+    drawFighter(p1, alpha); drawFighter(p2, alpha);
+    // damage numbers
+    ctx.font = 'bold 16px JetBrains Mono, monospace';
+    for (var i = 0; i < dmgNums.length; i++) {
+      var d = dmgNums[i]; ctx.globalAlpha = d.t; ctx.fillStyle = '#ffdd00';
+      ctx.fillText('-' + d.val, d.x - 10, d.y);
+    }
+    ctx.globalAlpha = 1;
+    hud.textContent = 'P1: ' + p1.hp + 'hp  P2: ' + p2.hp + 'hp';
+  }
+
+  function loop(t) {
+    if (!vis.visible) { lastT = 0; accum = 0; requestAnimationFrame(loop); return; }
+    if (!lastT) { lastT = t; requestAnimationFrame(loop); return; }
+    var dt = Math.min((t - lastT) / 1000, 0.05); lastT = t;
+    if (active) { accum += dt; while (accum >= TICK) { update(TICK); accum -= TICK; } }
+    render(1);
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+});
+</script>
+
+<!-- ========== CHAPTER 09 — CAMERA ========== -->
+<section id="ch9">
+<h2>09 &mdash; Camera Systems</h2>
+
+<p class="drop-cap">The camera is the most underrated system in any game. A bad camera makes a good game unplayable. A great camera is invisible &mdash; the player never thinks about it. The trick is that &ldquo;just follow the player&rdquo; feels terrible. Locking the camera to the player&rsquo;s position causes every movement to translate directly to screen movement, which is nauseating and makes the world feel unstable. Every solution below introduces some form of <em>lag</em> between the player and the camera.</p>
+
+<div class="demo-wrap">
+  <canvas id="demo-camera" class="demo-canvas" width="800" height="400" tabindex="0"></canvas>
+  <div class="demo-hud" id="hud-camera"></div>
+  <div class="demo-controls" id="ctrl-camera"></div>
+  <div class="demo-overlay" id="overlay-camera">Click to play &mdash; WASD</div>
+</div>
+
+<h3>Lerp Follow</h3>
+
+<p><code>camera = lerp(camera, target, t * dt)</code>. The camera smoothly chases the player. At <code>t = 0.05</code>, it feels cinematic and floaty. At <code>t = 0.3</code>, it feels responsive. The exponential decay creates natural easing &mdash; fast when far, slow when close. This is the baseline for 90% of games.</p>
+
+<h3>Dead Zone</h3>
+
+<p>A rectangle in screen space where the player can move without the camera reacting. The camera only scrolls when the player exits the dead zone. This gives stability &mdash; small movements don&rsquo;t jostle the view. Classic Mario uses this: inside the zone, nothing happens; at the edge, the camera scrolls to keep Mario inside. A narrow dead zone feels responsive; a wide one feels stable. Most games use a dead zone combined with lerp for the best of both.</p>
+
+<h3>Look-Ahead</h3>
+
+<p>Pan the camera in the direction the player is moving, showing more of what&rsquo;s ahead. Implementation: offset the target by <code>velocity.normalized * lookAheadDistance</code>. Smooth the transition with lerp to prevent snapping when the player reverses. Typical distance: 2-5 tiles. This is why running right in a platformer shows more terrain to the right &mdash; the camera anticipates where you&rsquo;re going.</p>
+
+<h3>Screen Shake</h3>
+
+<p>Impact feedback through camera displacement. The key: a <code>trauma</code> variable (0.0 to 1.0) that decays over time. Actual offset = <code>maxOffset * trauma&sup2; * random(-1, 1)</code>. The squared term gives a sharp onset that smoothly fades. Add <code>+0.3</code> trauma for a small hit, <code>+0.7</code> for an explosion. Perlin noise gives smoother, more organic shake than pure random. Jan Willem Nijman&rsquo;s &ldquo;Art of Screenshake&rdquo; talk is the definitive reference.</p>
+
+<div class="diagram">
+<span class="diagram-label">Camera Mode Comparison</span>
+<pre><code>LOCKED          LERP            DEADZONE        LOOKAHEAD
+┌───────┐      ┌───────┐      ┌───────┐      ┌───────┐
+│   ●   │      │  ●    │      │ ░░●░░ │      │    ●→→│
+│ player│      │ lag→  │      │ ░zone░│      │  ahead│
+│=center│      │ smooth│      │ ░░░░░ │      │  bias │
+└───────┘      └───────┘      └───────┘      └───────┘
+jittery        smooth         stable          anticipatory</code></pre>
+</div>
+
+<p>Celeste uses room-based camera: the camera is locked to the room, not the player. Within a room, a subtle offset nudges the focal point ahead of Madeline&rsquo;s movement direction. On room transitions, the camera lerps to the new room center. This avoids disorientation in a precision platformer where stable visual reference points are critical for judging jump distances.</p>
+
+<div class="power">
+<div class="power-label">The Invisible System</div>
+<p>Try the demo above with each mode. &ldquo;Locked&rdquo; feels jittery. &ldquo;Lerp&rdquo; feels smooth but laggy. &ldquo;Deadzone&rdquo; feels stable but can surprise you at the edges. &ldquo;Lookahead&rdquo; feels like the game is reading your mind. Most shipped games combine lerp + deadzone + lookahead. The camera you never notice is the best camera.</p>
+</div>
+</section>
+
+<script>
+deferDemo('demo-camera', function() {
+  var canvas = document.getElementById('demo-camera');
+  var hud    = document.getElementById('hud-camera');
+  var ctrl   = document.getElementById('ctrl-camera');
+  var overlay= document.getElementById('overlay-camera');
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var vis = observeVisibility(canvas);
+  var keys = {};
+  var active = false;
+  var W = canvas.width, H = canvas.height;
+
+  canvas.addEventListener('click', function() { canvas.focus(); overlay.classList.add('hidden'); active = true; });
+  canvas.addEventListener('keydown', function(e) { keys[e.code] = true; e.preventDefault(); });
+  canvas.addEventListener('keyup',   function(e) { keys[e.code] = false; });
+  canvas.addEventListener('blur',    function()  { keys = {}; });
+
+  var worldW = 2000, worldH = 800;
+  var player = {x:400, y:worldH-60, vx:0, vy:0, w:22, h:30, prevX:400, prevY:worldH-60, facingR:true, onGround:false};
+  var cam = {x:0, y:0, deadX:80, deadY:50};
+  var mode = 'lerp', trauma = 0, shakeX = 0, shakeY = 0;
+  var objects = [];
+  for (var i = 0; i < 40; i++) objects.push({
+    x: Math.random()*worldW, y: worldH - 30 - Math.random()*200,
+    w: 10 + Math.random()*30, h: 10 + Math.random()*40,
+    color: ['#1e1e2e','#2a2a4a','#1a1a2a'][Math.floor(Math.random()*3)]
+  });
+
+  // controls
+  var modes = ['locked','lerp','deadzone','lookahead'];
+  var modeButtons = {};
+  modes.forEach(function(m) {
+    var btn = document.createElement('button');
+    btn.className = 'demo-btn' + (m === mode ? ' active' : '');
+    btn.textContent = m.charAt(0).toUpperCase() + m.slice(1);
+    btn.addEventListener('click', function() {
+      mode = m;
+      modes.forEach(function(k) { modeButtons[k].classList.toggle('active', k === m); });
+    });
+    ctrl.appendChild(btn);
+    modeButtons[m] = btn;
+  });
+  var shakeBtn = document.createElement('button');
+  shakeBtn.className = 'demo-btn'; shakeBtn.textContent = 'Shake!';
+  shakeBtn.addEventListener('click', function() { trauma = Math.min(1, trauma + 0.6); });
+  ctrl.appendChild(shakeBtn);
+
+  var lastT = 0, accum = 0;
+  var TICK = 1/60;
+
+  function update(dt) {
+    var ix = 0;
+    if (keys.KeyA || keys.ArrowLeft) ix = -1;
+    if (keys.KeyD || keys.ArrowRight) ix = 1;
+    if (ix) player.facingR = ix > 0;
+    if (ix) player.vx += ix * 1400 * dt;
+    else { if (player.vx > 0) player.vx = Math.max(0, player.vx - 2000*dt); else player.vx = Math.min(0, player.vx + 2000*dt); }
+    player.vx = Math.max(-250, Math.min(250, player.vx));
+    player.vy += 900*dt; if (player.vy > 600) player.vy = 600;
+    player.prevX = player.x; player.prevY = player.y;
+    player.x += player.vx*dt; player.y += player.vy*dt;
+    if (player.y + player.h/2 > worldH - 20) { player.y = worldH - 20 - player.h/2; player.vy = 0; player.onGround = true; }
+    else player.onGround = false;
+    if (player.onGround && (keys.Space || keys.KeyW)) { player.vy = -400; player.onGround = false; }
+    if (player.x < player.w/2) player.x = player.w/2;
+    if (player.x > worldW - player.w/2) player.x = worldW - player.w/2;
+
+    // camera
+    var tx = player.x - W/2, ty = player.y - H/2;
+    if (mode === 'locked') { cam.x = tx; cam.y = ty; }
+    else if (mode === 'lerp') { cam.x += (tx - cam.x)*4*dt; cam.y += (ty - cam.y)*4*dt; }
+    else if (mode === 'deadzone') {
+      if (player.x - cam.x > W/2 + cam.deadX) cam.x = player.x - W/2 - cam.deadX;
+      if (player.x - cam.x < W/2 - cam.deadX) cam.x = player.x - W/2 + cam.deadX;
+      if (player.y - cam.y > H/2 + cam.deadY) cam.y = player.y - H/2 - cam.deadY;
+      if (player.y - cam.y < H/2 - cam.deadY) cam.y = player.y - H/2 + cam.deadY;
+    }
+    else if (mode === 'lookahead') {
+      var lx = player.x + player.vx*0.4 - W/2;
+      cam.x += (lx - cam.x)*3*dt; cam.y += (ty - cam.y)*3*dt;
+    }
+    cam.x = Math.max(0, Math.min(worldW - W, cam.x));
+    cam.y = Math.max(0, Math.min(worldH - H, cam.y));
+    // shake
+    if (trauma > 0) {
+      var t2 = trauma * trauma;
+      shakeX = (Math.random()*2 - 1) * t2 * 12;
+      shakeY = (Math.random()*2 - 1) * t2 * 8;
+      trauma = Math.max(0, trauma - 1.5*dt);
+    } else { shakeX = 0; shakeY = 0; }
+  }
+
+  function render(alpha) {
+    ctx.fillStyle = '#0a0a0f'; ctx.fillRect(0, 0, W, H);
+    ctx.save();
+    ctx.translate(-cam.x + shakeX, -cam.y + shakeY);
+    // ground
+    ctx.fillStyle = '#1e1e2e'; ctx.fillRect(0, worldH - 20, worldW, 20);
+    ctx.fillStyle = '#00ff88'; ctx.fillRect(0, worldH - 20, worldW, 2);
+    // grid
+    ctx.strokeStyle = 'rgba(30,30,46,0.3)'; ctx.lineWidth = 1;
+    for (var gx = 0; gx < worldW; gx += 80) { ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, worldH); ctx.stroke(); }
+    // objects
+    for (var i = 0; i < objects.length; i++) { var o = objects[i]; ctx.fillStyle = o.color; ctx.fillRect(o.x, o.y, o.w, o.h); }
+    // player
+    var px = player.prevX + (player.x - player.prevX)*alpha;
+    var py = player.prevY + (player.y - player.prevY)*alpha;
+    drawChar(ctx, px, py, player.w, player.h, '#00ff88', player.facingR, 1, 1, false);
+    // deadzone rect
+    if (mode === 'deadzone') {
+      ctx.strokeStyle = 'rgba(0,255,136,0.2)'; ctx.lineWidth = 1; ctx.setLineDash([4,4]);
+      ctx.strokeRect(cam.x + W/2 - cam.deadX, cam.y + H/2 - cam.deadY, cam.deadX*2, cam.deadY*2);
+      ctx.setLineDash([]);
+    }
+    ctx.restore();
+    hud.textContent = 'CAM: ' + mode.toUpperCase() +
+      '\nPOS: ' + Math.round(player.x) + ',' + Math.round(player.y) +
+      '\nTRAUMA: ' + trauma.toFixed(2);
+  }
+
+  function loop(t) {
+    if (!vis.visible) { lastT = 0; accum = 0; requestAnimationFrame(loop); return; }
+    if (!lastT) { lastT = t; requestAnimationFrame(loop); return; }
+    var dt = Math.min((t - lastT) / 1000, 0.05); lastT = t;
+    if (active) { accum += dt; while (accum >= TICK) { update(TICK); accum -= TICK; } }
+    render(1);
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+});
+</script>
+
+<!-- ========== CHAPTER 10 — ABILITIES ========== -->
+<section id="ch10" data-demo="ability">
+<h2>10 &mdash; Abilities &amp; Combos</h2>
+
+<p class="drop-cap">World of Warcraft&rsquo;s Global Cooldown is 1.5 seconds. Every ability triggers it. Rogues get 1.0 seconds. Haste reduces it to a floor of 0.75 seconds. This single timer gates the entire combat system &mdash; it prevents button-mashing, creates rhythm, and makes haste feel meaningful. On top of the GCD, individual abilities have their own cooldowns (30 seconds, 2 minutes, etc.). The interaction between global and individual cooldowns creates the &ldquo;rotation&rdquo; &mdash; the optimal sequence of abilities that maximizes damage per second.</p>
+
+
+<div class="demo-wrap">
+  <canvas id="demo-ability" class="demo-canvas" width="800" height="400" tabindex="0"></canvas>
+  <div class="demo-hud" id="hud-ability"></div>
+  <div class="demo-controls" id="ctrl-ability"></div>
+  <div class="demo-overlay" id="overlay-ability">Click to play — WASD+1234</div>
+</div>
+
+<h3>Ability Queuing</h3>
+
+<p>WoW introduced an ability queue in Patch 4.0.1. You can press the next ability slightly before the current GCD finishes, and it fires on the first available frame. Without this, network latency creates dead time between abilities &mdash; you can&rsquo;t press the next button until the server confirms the previous one finished. The queue window (configurable as &ldquo;Lag Tolerance&rdquo;) bridges this gap, making rotations feel crisp even at 100ms ping.</p>
+
+<h3>Combo Detection</h3>
+
+<p>Fighting games store recent inputs in a circular buffer with timestamps. Each frame, the buffer is scanned against known patterns. A Hadouken is Down &rarr; Down-Forward &rarr; Forward + Punch, with each transition within 8-15 frames. The system matches the most specific (longest) pattern first to avoid false positives &mdash; if both &ldquo;D, DF, F + P&rdquo; (Hadouken) and &ldquo;F + P&rdquo; (forward punch) match, the Hadouken wins.</p>
+
+<h3>Object Pooling</h3>
+
+<p>Abilities spawn projectiles, particles, damage numbers. Creating and destroying these every frame triggers garbage collection spikes. The solution: pre-allocate a pool of objects at load time. Firing a projectile dequeues an inactive one, sets its position and velocity, activates it. When it hits or goes off-screen, it deactivates and re-enters the pool. A bullet-hell might pool 500+ projectiles. An FPS pools 50. Zero per-frame allocation.</p>
+
+<div class="power hack">
+<div class="power-label">Input Buffer — Smash Bros</div>
+<p>Smash Bros. Ultimate has a 9-frame input buffer. Any action pressed within 9 frames of becoming actionable will execute immediately when possible. This is why new players sometimes throw out unwanted moves &mdash; they pressed a button during endlag that the buffer faithfully queued. Competitive players learn to be precise <em>despite</em> the buffer, not because of it.</p>
+</div>
+</section>
+
+<script>
+deferDemo('demo-ability', function() {
+  var canvas = document.getElementById('demo-ability');
+  var hud    = document.getElementById('hud-ability');
+  var ctrl   = document.getElementById('ctrl-ability');
+  var overlay= document.getElementById('overlay-ability');
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var vis = observeVisibility(canvas);
+  var keys = {};
+  var active = false;
+
+  canvas.addEventListener('click', function() { canvas.focus(); overlay.classList.add('hidden'); active = true; });
+  canvas.addEventListener('keydown', function(e) { keys[e.code] = true; e.preventDefault(); });
+  canvas.addEventListener('keyup',   function(e) { keys[e.code] = false; });
+  canvas.addEventListener('blur',    function()  { keys = {}; });
+
+  var lastT = 0, accum = 0, TICK = 1/60;
+  var W = canvas.width, H = canvas.height;
+  var GRAVITY = 1200, GROUND = H - 40;
+
+  // Platforms
+  var platforms = [
+    {x:0, y:GROUND, w:W, h:40},
+    {x:150, y:280, w:140, h:16},
+    {x:400, y:240, w:160, h:16},
+    {x:600, y:300, w:140, h:16}
+  ];
+
+  // Player
+  var P = {x:100, y:GROUND-15, w:22, h:30, vx:0, vy:0, hp:100, maxHp:100,
+           facingR:true, onGround:false, shieldT:0, slamState:0, slamVy:0,
+           iframes:0, flashT:0};
+
+  // Abilities: name, cooldown, remaining, key
+  var abilities = [
+    {name:'Fireball', cd:8, rem:0, key:'Digit1'},
+    {name:'Dash',     cd:4, rem:0, key:'Digit2'},
+    {name:'Shield',   cd:12,rem:0, key:'Digit3'},
+    {name:'Slam',     cd:10,rem:0, key:'Digit4'}
+  ];
+  var gcd = 0, GCD_TIME = 0.5;
+
+  // Combo
+  var comboSeq = [], comboWindow = 1.5, comboTimer = 0, comboFlash = 0, comboCount = 0;
+
+  // Projectiles
+  var projectiles = [];
+
+  // AoE
+  var aoeEffects = [];
+
+  // Enemies
+  var enemies = [];
+  var waveTimer = 0;
+
+  function spawnWave() {
+    for (var i = 0; i < 3; i++) {
+      enemies.push({x: 500 + i*100, y: GROUND-15, w:20, h:28, vx:0, vy:0,
+        hp:40, maxHp:40, facingR:false, onGround:false, patrol:1,
+        patrolT:Math.random()*3, sightRange:180, atkCd:0, flashT:0, iframes:0});
+    }
+  }
+  spawnWave();
+
+  // Damage numbers
+  var dmgNums = [];
+
+  function spawnDmg(x, y, val) {
+    dmgNums.push({x:x, y:y, val:val, t:1.0});
+  }
+
+  function collideRect(a, b) {
+    return a.x - a.w/2 < b.x + b.w/2 && a.x + a.w/2 > b.x - b.w/2 &&
+           a.y - a.h/2 < b.y + b.h/2 && a.y + a.h/2 > b.y - b.h/2;
+  }
+
+  function landOnPlatforms(ent, dt) {
+    ent.vy += GRAVITY * dt;
+    ent.y += ent.vy * dt;
+    ent.x += ent.vx * dt;
+    ent.onGround = false;
+    for (var i = 0; i < platforms.length; i++) {
+      var p = platforms[i];
+      if (ent.x + ent.w/2 > p.x && ent.x - ent.w/2 < p.x + p.w) {
+        var feet = ent.y + ent.h/2;
+        if (feet >= p.y && feet - ent.vy * dt <= p.y + 4) {
+          ent.y = p.y - ent.h/2;
+          ent.vy = 0;
+          ent.onGround = true;
+        }
+      }
+    }
+    if (ent.x < ent.w/2) ent.x = ent.w/2;
+    if (ent.x > W - ent.w/2) ent.x = W - ent.w/2;
+  }
+
+  function useAbility(idx) {
+    if (gcd > 0 || abilities[idx].rem > 0) return;
+    gcd = GCD_TIME;
+    abilities[idx].rem = abilities[idx].cd;
+
+    // Combo tracking
+    comboSeq.push(idx);
+    comboTimer = comboWindow;
+    if (comboSeq.length >= 3) {
+      // Check for 1,1,2 combo (indices 0,0,1)
+      var s = comboSeq;
+      if (s[s.length-3] === 0 && s[s.length-2] === 0 && s[s.length-1] === 1) {
+        comboCount++;
+        comboFlash = 1.5;
+        comboSeq = [];
+      }
+    }
+
+    if (idx === 0) { // Fireball
+      var dir = P.facingR ? 1 : -1;
+      projectiles.push({x: P.x + dir*20, y: P.y, vx: dir*400, life:2.0, r:6});
+    } else if (idx === 1) { // Dash
+      P.vx = (P.facingR ? 1 : -1) * 600;
+    } else if (idx === 2) { // Shield
+      P.shieldT = 2.0;
+    } else if (idx === 3) { // Slam
+      P.slamState = 1;
+      P.vy = -500;
+    }
+  }
+
+  function update(dt) {
+    // GCD
+    if (gcd > 0) gcd -= dt;
+    // Ability cooldowns
+    for (var i = 0; i < 4; i++) {
+      if (abilities[i].rem > 0) abilities[i].rem = Math.max(0, abilities[i].rem - dt);
+    }
+    // Combo timer
+    if (comboTimer > 0) { comboTimer -= dt; if (comboTimer <= 0) comboSeq = []; }
+    if (comboFlash > 0) comboFlash -= dt;
+    if (P.shieldT > 0) P.shieldT -= dt;
+    if (P.iframes > 0) P.iframes -= dt;
+    if (P.flashT > 0) P.flashT -= dt;
+
+    // Player movement
+    var moveX = 0;
+    if (keys['KeyA']) { moveX = -1; P.facingR = false; }
+    if (keys['KeyD']) { moveX = 1;  P.facingR = true;  }
+    if (P.slamState === 0) {
+      P.vx = P.vx * 0.85 + moveX * 280 * 0.15;
+    }
+    if (keys['KeyW'] && P.onGround && P.slamState === 0) P.vy = -450;
+
+    // Ability keys
+    if (keys['Digit1']) { keys['Digit1'] = false; useAbility(0); }
+    if (keys['Digit2']) { keys['Digit2'] = false; useAbility(1); }
+    if (keys['Digit3']) { keys['Digit3'] = false; useAbility(2); }
+    if (keys['Digit4']) { keys['Digit4'] = false; useAbility(3); }
+
+    // Slam logic
+    if (P.slamState === 1 && P.vy > 0) {
+      P.slamState = 2;
+      P.vy = 700;
+    }
+    if (P.slamState === 2 && P.onGround) {
+      P.slamState = 0;
+      aoeEffects.push({x: P.x, y: P.y + P.h/2, r:0, maxR:80, t:0.4});
+      // Damage nearby enemies
+      for (var i = 0; i < enemies.length; i++) {
+        var e = enemies[i];
+        var dx = e.x - P.x;
+        if (Math.abs(dx) < 90 && Math.abs(e.y - P.y) < 50) {
+          e.hp -= 25;
+          e.flashT = 0.1;
+          spawnDmg(e.x, e.y - 20, 25);
+        }
+      }
+    }
+
+    landOnPlatforms(P, dt);
+
+    // Projectiles
+    for (var i = projectiles.length - 1; i >= 0; i--) {
+      var pr = projectiles[i];
+      pr.x += pr.vx * dt;
+      pr.life -= dt;
+      if (pr.life <= 0 || pr.x < -10 || pr.x > W + 10) { projectiles.splice(i, 1); continue; }
+      for (var j = enemies.length - 1; j >= 0; j--) {
+        var e = enemies[j];
+        var dx = pr.x - e.x, dy = pr.y - e.y;
+        if (Math.abs(dx) < e.w/2 + pr.r && Math.abs(dy) < e.h/2 + pr.r) {
+          e.hp -= 20;
+          e.flashT = 0.1;
+          spawnDmg(e.x, e.y - 20, 20);
+          projectiles.splice(i, 1);
+          break;
+        }
+      }
+    }
+
+    // AoE effects
+    for (var i = aoeEffects.length - 1; i >= 0; i--) {
+      aoeEffects[i].t -= dt;
+      aoeEffects[i].r = aoeEffects[i].maxR * (1 - aoeEffects[i].t / 0.4);
+      if (aoeEffects[i].t <= 0) aoeEffects.splice(i, 1);
+    }
+
+    // Enemies
+    for (var i = enemies.length - 1; i >= 0; i--) {
+      var e = enemies[i];
+      if (e.flashT > 0) e.flashT -= dt;
+      if (e.iframes > 0) e.iframes -= dt;
+      if (e.atkCd > 0) e.atkCd -= dt;
+
+      if (e.hp <= 0) { enemies.splice(i, 1); continue; }
+
+      var dx = P.x - e.x, dist = Math.abs(dx);
+      if (dist < e.sightRange) {
+        // Chase
+        e.vx = (dx > 0 ? 1 : -1) * 120;
+        e.facingR = dx > 0;
+        // Attack
+        if (dist < 35 && e.atkCd <= 0) {
+          e.atkCd = 1.0;
+          if (P.shieldT <= 0 && P.iframes <= 0) {
+            P.hp -= 8;
+            P.iframes = 0.5;
+            P.flashT = 0.1;
+            spawnDmg(P.x, P.y - 20, 8);
+          }
+        }
+      } else {
+        // Patrol
+        e.patrolT -= dt;
+        if (e.patrolT <= 0) { e.patrol *= -1; e.patrolT = 2 + Math.random()*2; }
+        e.vx = e.patrol * 50;
+        e.facingR = e.patrol > 0;
+      }
+      landOnPlatforms(e, dt);
+    }
+
+    // Respawn waves
+    if (enemies.length === 0) {
+      waveTimer += dt;
+      if (waveTimer > 1.5) { spawnWave(); waveTimer = 0; }
+    }
+
+    // Damage numbers
+    for (var i = dmgNums.length - 1; i >= 0; i--) {
+      dmgNums[i].y -= 40 * dt;
+      dmgNums[i].t -= dt;
+      if (dmgNums[i].t <= 0) dmgNums.splice(i, 1);
+    }
+
+    // Clamp HP
+    if (P.hp <= 0) { P.hp = P.maxHp; P.x = 100; P.y = GROUND - 15; P.vx = 0; P.vy = 0; }
+  }
+
+  function render() {
+    ctx.clearRect(0, 0, W, H);
+
+    // Background
+    ctx.fillStyle = '#1a1a2e';
+    ctx.fillRect(0, 0, W, H);
+
+    // Platforms
+    ctx.fillStyle = '#444';
+    for (var i = 0; i < platforms.length; i++) {
+      var p = platforms[i];
+      ctx.fillRect(p.x, p.y, p.w, p.h);
+    }
+
+    // AoE effects
+    for (var i = 0; i < aoeEffects.length; i++) {
+      var a = aoeEffects[i];
+      ctx.beginPath();
+      ctx.arc(a.x, a.y, a.r, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(255,200,50,' + (a.t/0.4 * 0.4) + ')';
+      ctx.fill();
+    }
+
+    // Shield aura
+    if (P.shieldT > 0) {
+      ctx.beginPath();
+      ctx.arc(P.x, P.y, 28, 0, Math.PI*2);
+      ctx.strokeStyle = 'rgba(100,200,255,0.7)';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.lineWidth = 1;
+    }
+
+    // Player
+    drawChar(ctx, P.x, P.y, P.w, P.h, '#4f4', P.facingR, 1, 1, P.flashT > 0);
+    drawHP(ctx, P.x - 16, P.y - P.h/2 - 8, 32, P.hp, P.maxHp);
+
+    // Enemies
+    for (var i = 0; i < enemies.length; i++) {
+      var e = enemies[i];
+      drawChar(ctx, e.x, e.y, e.w, e.h, '#f44', e.facingR, 1, 1, e.flashT > 0);
+      drawHP(ctx, e.x - 14, e.y - e.h/2 - 8, 28, e.hp, e.maxHp);
+    }
+
+    // Projectiles (fireballs)
+    for (var i = 0; i < projectiles.length; i++) {
+      var pr = projectiles[i];
+      ctx.beginPath();
+      ctx.arc(pr.x, pr.y, pr.r, 0, Math.PI*2);
+      ctx.fillStyle = '#f80';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(pr.x, pr.y, pr.r - 2, 0, Math.PI*2);
+      ctx.fillStyle = '#ff0';
+      ctx.fill();
+    }
+
+    // Damage numbers
+    ctx.font = 'bold 14px monospace';
+    for (var i = 0; i < dmgNums.length; i++) {
+      var d = dmgNums[i];
+      ctx.globalAlpha = Math.min(1, d.t * 2);
+      ctx.fillStyle = '#ff4';
+      ctx.fillText('-' + d.val, d.x - 10, d.y);
+    }
+    ctx.globalAlpha = 1;
+
+    // Combo flash
+    if (comboFlash > 0) {
+      ctx.font = 'bold 28px monospace';
+      ctx.fillStyle = 'rgba(255,255,100,' + Math.min(1, comboFlash) + ')';
+      ctx.textAlign = 'center';
+      ctx.fillText('COMBO x' + comboCount, W/2, 60);
+      ctx.textAlign = 'left';
+    }
+
+    // Cooldown radials (bottom-right)
+    var colors = ['#f80','#0af','#6cf','#fa0'];
+    var labels = ['1','2','3','4'];
+    for (var i = 0; i < 4; i++) {
+      var cx = W - 140 + i * 36, cy = H - 30, r = 14;
+      var ab = abilities[i];
+      var frac = ab.cd > 0 ? ab.rem / ab.cd : 0;
+      // Background
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI*2);
+      ctx.fillStyle = '#222';
+      ctx.fill();
+      ctx.strokeStyle = colors[i];
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      // Cooldown sweep
+      if (frac > 0) {
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.arc(cx, cy, r, -Math.PI/2, -Math.PI/2 + Math.PI*2*frac);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fill();
+      }
+      // Label
+      ctx.fillStyle = frac > 0 ? '#666' : '#fff';
+      ctx.font = 'bold 12px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(labels[i], cx, cy);
+    }
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.lineWidth = 1;
+
+    // GCD bar
+    if (gcd > 0) {
+      var gw = 60 * (gcd / GCD_TIME);
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+      ctx.fillRect(W - 170, H - 50, gw, 4);
+    }
+
+    // HUD
+    var parts = [];
+    for (var i = 0; i < 4; i++) {
+      var ab = abilities[i];
+      parts.push((i+1) + ':' + ab.name + (ab.rem > 0 ? ' ' + ab.rem.toFixed(1) + 's' : ' RDY'));
+    }
+    parts.push('GCD:' + (gcd > 0 ? gcd.toFixed(1) : '0'));
+    parts.push('Combo:' + comboCount);
+    hud.textContent = parts.join(' | ');
+  }
+
+  function loop(t) {
+    if (!vis.visible) { lastT = 0; accum = 0; requestAnimationFrame(loop); return; }
+    if (!lastT) { lastT = t; requestAnimationFrame(loop); return; }
+    var dt = Math.min((t - lastT) / 1000, 0.05); lastT = t;
+    if (active) { accum += dt; while (accum >= TICK) { update(TICK); accum -= TICK; } }
+    render();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+});
+</script>
+
+<!-- ========== CHAPTER 11 — INFLUENCE MAPS ========== -->
+<section id="ch11" data-demo="maps">
+<h2>11 &mdash; Influence Maps</h2>
+
+<p class="drop-cap">Where should an RTS unit move? Not just &ldquo;toward the enemy&rdquo; &mdash; toward the enemy while staying near allies, avoiding threats, and preferring high ground. Influence maps answer this by overlaying numeric fields on the game world. Each unit projects influence onto surrounding cells with distance-based decay: <code>influence = strength * e<sup>-decay&middot;d&sup2;</sup></code>. The result is a heatmap that makes spatial reasoning possible for AI.</p>
+
+
+<div class="demo-wrap">
+  <canvas id="demo-maps" class="demo-canvas" width="800" height="400" tabindex="0"></canvas>
+  <div class="demo-hud" id="hud-maps"></div>
+  <div class="demo-controls" id="ctrl-maps"></div>
+  <div class="demo-overlay" id="overlay-maps">Click to place units — Right-click enemies</div>
+</div>
+
+<h3>Layered Maps</h3>
+
+<p>Multiple independent maps represent different concerns. A <strong>threat map</strong> shows where enemy units can deal damage. A <strong>support map</strong> shows where friendly units provide cover. A <strong>resource map</strong> shows proximity to resource nodes. Combining them with weights creates different AI personalities: aggressive AI weights threat negatively (seeks danger), defensive AI weights support positively (stays near allies).</p>
+
+<p>The combined potential at any cell: <code>potential = w₁&middot;threat + w₂&middot;support + w₃&middot;resource</code>. Units follow the gradient &mdash; the steepest ascent toward favorable cells. This is a <strong>potential field</strong>: attractive potentials pull toward objectives, repulsive ones push away from threats. StarCraft AI bots use this for kiting &mdash; ranged units maintain distance from melee threats by following the repulsive gradient while staying within attack range.</p>
+
+<div class="diagram">
+<span class="diagram-label">Influence Map — Gaussian Falloff</span>
+<pre><code>Friendly unit at (5,5), strength=1.0, decay=0.1:
+
+  0.0  0.0  0.0  0.1  0.1  0.1  0.1  0.1  0.0  0.0
+  0.0  0.0  0.1  0.2  0.3  0.3  0.3  0.2  0.1  0.0
+  0.0  0.1  0.2  0.4  0.5  0.6  0.5  0.4  0.2  0.1
+  0.1  0.2  0.4  0.6  0.8  0.8  0.8  0.6  0.4  0.2
+  0.1  0.3  0.5  0.8  0.9  <span class="st">1.0</span>  0.9  0.8  0.5  0.3
+  0.1  0.3  0.6  0.8  <span class="st">1.0</span>  <span class="st">■■■</span>  <span class="st">1.0</span>  0.8  0.6  0.3
+  0.1  0.3  0.5  0.8  0.9  <span class="st">1.0</span>  0.9  0.8  0.5  0.3
+  0.1  0.2  0.4  0.6  0.8  0.8  0.8  0.6  0.4  0.2
+  0.0  0.1  0.2  0.4  0.5  0.6  0.5  0.4  0.2  0.1
+  0.0  0.0  0.1  0.2  0.3  0.3  0.3  0.2  0.1  0.0</code></pre>
+</div>
+
+<div class="power zen">
+<div class="power-label">When to Use Influence Maps</div>
+<p>Influence maps excel at <em>where</em> questions: where to attack, where to build, where to retreat. They complement pathfinding (A* answers <em>how</em> to get there) and behavior trees (which answer <em>what</em> to do). RTS games are the natural fit, but tower defense, stealth games, and even FPS bot AI use influence maps for spatial reasoning.</p>
+</div>
+</section>
+
+<script>
+deferDemo('demo-maps', function() {
+  var canvas = document.getElementById('demo-maps');
+  var hud    = document.getElementById('hud-maps');
+  var ctrl   = document.getElementById('ctrl-maps');
+  var overlay= document.getElementById('overlay-maps');
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var vis = observeVisibility(canvas);
+  var active = false;
+
+  var W = canvas.width, H = canvas.height;
+  var CELL = 20;
+  var COLS = Math.floor(W / CELL), ROWS = Math.floor(H / CELL);
+
+  var friendlyUnits = [];
+  var enemyUnits = [];
+  var showMode = 'combined'; // 'friendly', 'enemy', 'combined'
+
+  // Influence grid: [row][col] = {f: friendly, e: enemy}
+  var grid = [];
+  function resetGrid() {
+    grid = [];
+    for (var r = 0; r < ROWS; r++) {
+      grid[r] = [];
+      for (var c = 0; c < COLS; c++) {
+        grid[r][c] = {f:0, e:0};
+      }
+    }
+  }
+  resetGrid();
+
+  canvas.addEventListener('click', function(ev) {
+    if (!active) { overlay.classList.add('hidden'); active = true; }
+    var rect = canvas.getBoundingClientRect();
+    var mx = (ev.clientX - rect.left) * (W / rect.width);
+    var my = (ev.clientY - rect.top) * (H / rect.height);
+    friendlyUnits.push({x: mx, y: my, strength: 1.0});
+    recalc();
+  });
+
+  canvas.addEventListener('contextmenu', function(ev) {
+    ev.preventDefault();
+    if (!active) { overlay.classList.add('hidden'); active = true; }
+    var rect = canvas.getBoundingClientRect();
+    var mx = (ev.clientX - rect.left) * (W / rect.width);
+    var my = (ev.clientY - rect.top) * (H / rect.height);
+    enemyUnits.push({x: mx, y: my, strength: 1.0});
+    recalc();
+  });
+
+  var DECAY = 0.008;
+
+  function recalc() {
+    resetGrid();
+    // Friendly influence
+    for (var u = 0; u < friendlyUnits.length; u++) {
+      var unit = friendlyUnits[u];
+      var uc = Math.floor(unit.x / CELL), ur = Math.floor(unit.y / CELL);
+      for (var r = 0; r < ROWS; r++) {
+        for (var c = 0; c < COLS; c++) {
+          var dr = r - ur, dc = c - uc;
+          var d2 = dr*dr + dc*dc;
+          grid[r][c].f += unit.strength * Math.exp(-DECAY * d2);
+        }
+      }
+    }
+    // Enemy influence
+    for (var u = 0; u < enemyUnits.length; u++) {
+      var unit = enemyUnits[u];
+      var uc = Math.floor(unit.x / CELL), ur = Math.floor(unit.y / CELL);
+      for (var r = 0; r < ROWS; r++) {
+        for (var c = 0; c < COLS; c++) {
+          var dr = r - ur, dc = c - uc;
+          var d2 = dr*dr + dc*dc;
+          grid[r][c].e += unit.strength * Math.exp(-DECAY * d2);
+        }
+      }
+    }
+    render();
+    updateHud();
+  }
+
+  function updateHud() {
+    var peak = 0;
+    for (var r = 0; r < ROWS; r++) {
+      for (var c = 0; c < COLS; c++) {
+        var v = Math.max(grid[r][c].f, grid[r][c].e);
+        if (v > peak) peak = v;
+      }
+    }
+    hud.textContent = 'Cells: ' + (COLS*ROWS) + ' | Friendly: ' + friendlyUnits.length +
+      ' | Enemy: ' + enemyUnits.length + ' | Peak: ' + peak.toFixed(2);
+  }
+
+  setDemoControls(ctrl, ['Friendly','Enemy','Combined','Clear'], function(label) {
+    if (label === 'Clear') {
+      friendlyUnits = [];
+      enemyUnits = [];
+      resetGrid();
+      render();
+      updateHud();
+    } else {
+      showMode = label.toLowerCase();
+      render();
+    }
+  });
+
+  function render() {
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, W, H);
+
+    // Draw influence cells
+    for (var r = 0; r < ROWS; r++) {
+      for (var c = 0; c < COLS; c++) {
+        var f = grid[r][c].f;
+        var e = grid[r][c].e;
+        var rr = 0, gg = 0, bb = 0, aa = 0;
+
+        if (showMode === 'friendly' || showMode === 'combined') {
+          gg += Math.min(1, f) * 200;
+          aa = Math.max(aa, Math.min(0.8, f * 0.6));
+        }
+        if (showMode === 'enemy' || showMode === 'combined') {
+          rr += Math.min(1, e) * 200;
+          aa = Math.max(aa, Math.min(0.8, e * 0.6));
+        }
+        if (showMode === 'combined' && f > 0.01 && e > 0.01) {
+          // Blend toward yellow where overlap
+          var blend = Math.min(f, e);
+          rr = Math.min(255, rr + blend * 80);
+          gg = Math.min(255, gg + blend * 80);
+        }
+
+        if (aa > 0.01) {
+          ctx.fillStyle = 'rgba(' + Math.round(rr) + ',' + Math.round(gg) + ',' + Math.round(bb) + ',' + aa.toFixed(2) + ')';
+          ctx.fillRect(c * CELL, r * CELL, CELL, CELL);
+        }
+      }
+    }
+
+    // Grid lines
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 0.5;
+    for (var c = 0; c <= COLS; c++) {
+      ctx.beginPath(); ctx.moveTo(c*CELL, 0); ctx.lineTo(c*CELL, H); ctx.stroke();
+    }
+    for (var r = 0; r <= ROWS; r++) {
+      ctx.beginPath(); ctx.moveTo(0, r*CELL); ctx.lineTo(W, r*CELL); ctx.stroke();
+    }
+    ctx.lineWidth = 1;
+
+    // Units
+    for (var i = 0; i < friendlyUnits.length; i++) {
+      var u = friendlyUnits[i];
+      ctx.fillStyle = '#4f4';
+      ctx.fillRect(u.x - 5, u.y - 5, 10, 10);
+      ctx.strokeStyle = '#fff';
+      ctx.strokeRect(u.x - 5, u.y - 5, 10, 10);
+    }
+    for (var i = 0; i < enemyUnits.length; i++) {
+      var u = enemyUnits[i];
+      ctx.fillStyle = '#f44';
+      ctx.fillRect(u.x - 5, u.y - 5, 10, 10);
+      ctx.strokeStyle = '#fff';
+      ctx.strokeRect(u.x - 5, u.y - 5, 10, 10);
+    }
+  }
+
+  var lastT = 0;
+  function loop(t) {
+    if (!vis.visible) { lastT = 0; requestAnimationFrame(loop); return; }
+    if (!lastT) { lastT = t; render(); updateHud(); }
+    lastT = t;
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+});
+</script>
+
+<!-- ========== CHAPTER 12 — ARENA ========== -->
+<section id="ch12" data-demo="arena">
+<h2>12 &mdash; The Arena</h2>
+
+<p class="drop-cap">Everything comes together. The arena demo above combines movement physics (Chapter 2), jump mechanics (Chapter 3), state machine transitions (Chapter 4), AI-driven enemies with behavior trees (Chapter 7), hitbox/hurtbox combat with hitstop (Chapter 8), camera follow with screen shake (Chapter 9), and ability cooldowns (Chapter 10). One game loop drives it all. One canvas renders it all. The character has weight because of squash-stretch. The hits feel impactful because of freeze frames. The enemies feel alive because of behavior trees. The camera feels invisible because of dead zones and look-ahead.</p>
+
+
+<div class="demo-wrap">
+  <canvas id="demo-arena" class="demo-canvas" width="800" height="400" tabindex="0"></canvas>
+  <div class="demo-hud" id="hud-arena"></div>
+  <div class="demo-controls" id="ctrl-arena"></div>
+  <div class="demo-overlay" id="overlay-arena">Click to play — WASD+Space+J+1234</div>
+</div>
+
+<h3>The Juice Checklist</h3>
+
+<p>Jan Willem Nijman of Vlambeer distilled &ldquo;game feel&rdquo; into a checklist of techniques. Each is small. Together, they transform a flat prototype into something that feels <em>alive</em>:</p>
+
+<table>
+<tr><th>Technique</th><th>Effect</th><th>Cost</th></tr>
+<tr><td>Hitstop (3-9 frames)</td><td>Impact weight</td><td>3 lines</td></tr>
+<tr><td>Screen shake (trauma&sup2;)</td><td>Kinetic feedback</td><td>5 lines</td></tr>
+<tr><td>White flash (1-3 frames)</td><td>Hit confirmation</td><td>2 lines</td></tr>
+<tr><td>Squash/stretch on land</td><td>Weight &amp; elasticity</td><td>4 lines</td></tr>
+<tr><td>Damage numbers (float up)</td><td>Numeric feedback</td><td>10 lines</td></tr>
+<tr><td>Knockback impulse</td><td>Directional impact</td><td>3 lines</td></tr>
+<tr><td>Particle burst on hit</td><td>Visual punctuation</td><td>15 lines</td></tr>
+<tr><td>Bigger projectiles (3-5&times;)</td><td>Readability</td><td>0 lines</td></tr>
+<tr><td>Muzzle flash (1-2 frames)</td><td>Attack emphasis</td><td>3 lines</td></tr>
+<tr><td>Permanence (don&rsquo;t despawn)</td><td>Consequence</td><td>0 lines</td></tr>
+</table>
+
+<p>Each technique costs nearly nothing to implement. A hitstop is three lines: <code>if (freezeFrames > 0) { freezeFrames--; return; }</code>. A white flash is two: <code>if (flashTimer > 0) { ctx.globalCompositeOperation = 'source-atop'; ctx.fillRect(...) }</code>. Screen shake is five lines of Perlin-sampled offset. The arena demo includes all of them.</p>
+
+<div class="power">
+<div class="power-label">What We Built</div>
+<p>A fixed-timestep game loop with interpolated rendering. Acceleration-based movement with tunable physics presets. A jump system with coyote time, input buffering, variable height, and apex modification. Finite state machines for character animation. A* pathfinding with spatial hashing for neighbor queries. Boids flocking with three-rule steering. Behavior tree AI with blackboard perception. Hitbox/hurtbox combat with hitstop, knockback, and i-frames. Lerp/deadzone/lookahead camera with trauma-based screen shake. Ability cooldowns with input buffering and object pools. Influence map spatial reasoning. Every system exists because the one before it was not enough.</p>
+</div>
+
+<div class="power wild">
+<div class="power-label">What We Didn&rsquo;t Cover</div>
+<p><a href="gamephysics-deep-dive.html" style="color:var(--green)">Physics engines</a> (Box2D, Rapier) for rigid-body collisions and ragdoll. Animation blending and inverse kinematics. <a href="navigation-deep-dive.html" style="color:var(--green)">Navmeshes and navigation</a> for 3D pathfinding. Dialog trees and quest systems. Procedural generation for levels and loot. Networking for multiplayer characters (covered in the <a href="gameserver-deep-dive.html" style="color:var(--green)">Game Servers deep dive</a>). Audio spatialization and footstep systems. Each of these is its own deep dive. The character systems we built are the foundation they all sit on.</p>
+</div>
+</section>
+
+<script>
+deferDemo('demo-arena', function() {
+  var canvas = document.getElementById('demo-arena');
+  var hud    = document.getElementById('hud-arena');
+  var ctrl   = document.getElementById('ctrl-arena');
+  var overlay= document.getElementById('overlay-arena');
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var vis = observeVisibility(canvas);
+  var keys = {};
+  var active = false;
+
+  canvas.addEventListener('click', function() { canvas.focus(); overlay.classList.add('hidden'); active = true; });
+  canvas.addEventListener('keydown', function(e) { keys[e.code] = true; e.preventDefault(); });
+  canvas.addEventListener('keyup',   function(e) { keys[e.code] = false; });
+  canvas.addEventListener('blur',    function()  { keys = {}; });
+
+  setDemoControls(ctrl, ['Reset'], function(label) {
+    if (label === 'Reset') resetArena();
+  });
+
+  var lastT = 0, accum = 0, TICK = 1/60;
+  var W = canvas.width, H = canvas.height;
+  var WORLD_W = 1600, WORLD_H = 600;
+  var GRAVITY = 1200;
+
+  // Camera
+  var cam = {x:0, y:0, shakeX:0, shakeY:0, shakeT:0};
+  var DEAD_ZONE = 40;
+
+  // Platforms
+  var platforms = [
+    {x:0, y:WORLD_H-40, w:WORLD_W, h:40},
+    {x:200, y:440, w:160, h:16},
+    {x:500, y:380, w:200, h:16},
+    {x:850, y:420, w:150, h:16},
+    {x:1100, y:360, w:180, h:16},
+    {x:1350, y:440, w:160, h:16},
+    {x:50, y:340, w:120, h:16},
+    {x:700, y:300, w:140, h:16}
+  ];
+
+  // Player
+  var P;
+  var score = 0;
+  var kills = 0;
+
+  // Abilities
+  var abilities;
+  var gcd, GCD_TIME = 0.5;
+
+  // Projectiles, AoE, enemies, damage numbers, hitstop
+  var projectiles, aoeEffects, enemies, dmgNums;
+  var hitstopT = 0;
+  var frameCount = 0, fpsT = 0, fps = 60;
+
+  function resetArena() {
+    P = {x:200, y:WORLD_H-55, w:22, h:30, vx:0, vy:0, hp:100, maxHp:100,
+         facingR:true, onGround:false, coyoteT:0, jumpBuf:0,
+         shieldT:0, slamState:0, iframes:0, flashT:0,
+         scaleX:1, scaleY:1, squashT:0, atkT:0, atkBox:null};
+    abilities = [
+      {name:'Fireball', cd:8, rem:0},
+      {name:'Dash',     cd:4, rem:0},
+      {name:'Shield',   cd:12,rem:0},
+      {name:'Slam',     cd:10,rem:0}
+    ];
+    gcd = 0;
+    projectiles = [];
+    aoeEffects = [];
+    dmgNums = [];
+    enemies = [];
+    hitstopT = 0;
+    score = 0;
+    kills = 0;
+    spawnEnemies();
+  }
+
+  function spawnEnemies() {
+    var spawns = [
+      {x:600, y:WORLD_H-55},
+      {x:900, y:WORLD_H-55},
+      {x:1300, y:WORLD_H-55}
+    ];
+    for (var i = 0; i < spawns.length; i++) {
+      enemies.push({x:spawns[i].x, y:spawns[i].y, w:20, h:28, vx:0, vy:0,
+        hp:50, maxHp:50, facingR:false, onGround:false,
+        patrol:1, patrolT:Math.random()*3, sightRange:200, atkCd:0,
+        flashT:0, iframes:0, dead:false, respawnT:0,
+        spawnX:spawns[i].x, spawnY:spawns[i].y});
+    }
+  }
+
+  resetArena();
+
+  function spawnDmg(x, y, val) {
+    dmgNums.push({x:x, y:y, val:val, t:1.2});
+  }
+
+  function shake(amount) {
+    cam.shakeT = 0.15;
+    cam.shakeX = (Math.random()-0.5) * amount;
+    cam.shakeY = (Math.random()-0.5) * amount;
+  }
+
+  function landOnPlatforms(ent, dt) {
+    ent.vy += GRAVITY * dt;
+    ent.y += ent.vy * dt;
+    ent.x += ent.vx * dt;
+    var wasOnGround = ent.onGround;
+    ent.onGround = false;
+    for (var i = 0; i < platforms.length; i++) {
+      var p = platforms[i];
+      if (ent.x + ent.w/2 > p.x && ent.x - ent.w/2 < p.x + p.w) {
+        var feet = ent.y + ent.h/2;
+        if (feet >= p.y && feet - ent.vy * dt <= p.y + 4) {
+          ent.y = p.y - ent.h/2;
+          ent.vy = 0;
+          ent.onGround = true;
+        }
+      }
+    }
+    // World bounds
+    if (ent.x < ent.w/2) ent.x = ent.w/2;
+    if (ent.x > WORLD_W - ent.w/2) ent.x = WORLD_W - ent.w/2;
+    return !wasOnGround && ent.onGround; // landed this frame
+  }
+
+  function useAbility(idx) {
+    if (gcd > 0 || abilities[idx].rem > 0) return;
+    gcd = GCD_TIME;
+    abilities[idx].rem = abilities[idx].cd;
+
+    if (idx === 0) { // Fireball
+      var dir = P.facingR ? 1 : -1;
+      projectiles.push({x: P.x + dir*20, y: P.y, vx: dir*450, life:2.5, r:6});
+    } else if (idx === 1) { // Dash
+      P.vx = (P.facingR ? 1 : -1) * 650;
+      P.iframes = 0.2;
+    } else if (idx === 2) { // Shield
+      P.shieldT = 2.0;
+    } else if (idx === 3) { // Slam
+      P.slamState = 1;
+      P.vy = -550;
+    }
+  }
+
+  function hurtEnemy(e, dmg) {
+    if (e.iframes > 0 || e.dead) return;
+    e.hp -= dmg;
+    e.flashT = 0.12;
+    e.iframes = 0.3;
+    spawnDmg(e.x, e.y - 20, dmg);
+    hitstopT = 0.06;
+    shake(6);
+    if (e.hp <= 0) {
+      e.dead = true;
+      e.respawnT = 4.0;
+      kills++;
+      score += 100;
+    }
+  }
+
+  function update(dt) {
+    frameCount++;
+
+    // Hitstop
+    if (hitstopT > 0) { hitstopT -= dt; return; }
+
+    // Timers
+    if (gcd > 0) gcd -= dt;
+    for (var i = 0; i < 4; i++) {
+      if (abilities[i].rem > 0) abilities[i].rem = Math.max(0, abilities[i].rem - dt);
+    }
+    if (P.shieldT > 0) P.shieldT -= dt;
+    if (P.iframes > 0) P.iframes -= dt;
+    if (P.flashT > 0) P.flashT -= dt;
+    if (P.atkT > 0) P.atkT -= dt;
+    if (P.squashT > 0) {
+      P.squashT -= dt;
+      var t = P.squashT / 0.15;
+      P.scaleX = 1 + 0.3 * t;
+      P.scaleY = 1 - 0.2 * t;
+      if (P.squashT <= 0) { P.scaleX = 1; P.scaleY = 1; }
+    }
+
+    // Coyote time
+    if (P.onGround) P.coyoteT = 0.08;
+    else if (P.coyoteT > 0) P.coyoteT -= dt;
+
+    // Jump buffer
+    if (keys['Space']) P.jumpBuf = 0.1;
+    else if (P.jumpBuf > 0) P.jumpBuf -= dt;
+
+    // Movement
+    var moveX = 0;
+    if (keys['KeyA']) { moveX = -1; P.facingR = false; }
+    if (keys['KeyD']) { moveX = 1;  P.facingR = true;  }
+    if (P.slamState === 0) {
+      P.vx = P.vx * 0.82 + moveX * 300 * 0.18;
+      // Friction
+      if (moveX === 0 && P.onGround) P.vx *= 0.88;
+    }
+
+    // Jump (coyote + buffer)
+    if (P.jumpBuf > 0 && P.coyoteT > 0 && P.slamState === 0) {
+      P.vy = -480;
+      P.jumpBuf = 0;
+      P.coyoteT = 0;
+    }
+
+    // Attack (J key)
+    if (keys['KeyJ'] && P.atkT <= 0) {
+      keys['KeyJ'] = false;
+      P.atkT = 0.3;
+      var dir = P.facingR ? 1 : -1;
+      P.atkBox = {x: P.x + dir*22, y: P.y, w: 28, h: 26, life:0.1};
+    }
+
+    // Attack hitbox
+    if (P.atkBox) {
+      P.atkBox.life -= dt;
+      if (P.atkBox.life <= 0) { P.atkBox = null; }
+      else {
+        for (var i = 0; i < enemies.length; i++) {
+          var e = enemies[i];
+          if (e.dead) continue;
+          var ab = P.atkBox;
+          if (Math.abs(ab.x - e.x) < (ab.w + e.w)/2 && Math.abs(ab.y - e.y) < (ab.h + e.h)/2) {
+            var kb = P.facingR ? 200 : -200;
+            e.vx = kb;
+            e.vy = -100;
+            hurtEnemy(e, 15);
+          }
+        }
+      }
+    }
+
+    // Ability keys
+    if (keys['Digit1']) { keys['Digit1'] = false; useAbility(0); }
+    if (keys['Digit2']) { keys['Digit2'] = false; useAbility(1); }
+    if (keys['Digit3']) { keys['Digit3'] = false; useAbility(2); }
+    if (keys['Digit4']) { keys['Digit4'] = false; useAbility(3); }
+
+    // Slam
+    if (P.slamState === 1 && P.vy > 0) { P.slamState = 2; P.vy = 750; }
+    if (P.slamState === 2 && P.onGround) {
+      P.slamState = 0;
+      aoeEffects.push({x: P.x, y: P.y + P.h/2, r:0, maxR:90, t:0.4});
+      shake(10);
+      for (var i = 0; i < enemies.length; i++) {
+        var e = enemies[i];
+        if (Math.abs(e.x - P.x) < 100 && Math.abs(e.y - P.y) < 60) {
+          hurtEnemy(e, 30);
+          e.vx = (e.x > P.x ? 1 : -1) * 250;
+          e.vy = -150;
+        }
+      }
+    }
+
+    var landed = landOnPlatforms(P, dt);
+    if (landed) { P.squashT = 0.15; }
+
+    // Projectiles
+    for (var i = projectiles.length - 1; i >= 0; i--) {
+      var pr = projectiles[i];
+      pr.x += pr.vx * dt;
+      pr.life -= dt;
+      if (pr.life <= 0 || pr.x < -20 || pr.x > WORLD_W + 20) { projectiles.splice(i, 1); continue; }
+      for (var j = 0; j < enemies.length; j++) {
+        var e = enemies[j];
+        if (e.dead) continue;
+        if (Math.abs(pr.x - e.x) < e.w/2 + pr.r && Math.abs(pr.y - e.y) < e.h/2 + pr.r) {
+          hurtEnemy(e, 20);
+          e.vx = (pr.vx > 0 ? 1 : -1) * 150;
+          projectiles.splice(i, 1);
+          break;
+        }
+      }
+    }
+
+    // AoE effects
+    for (var i = aoeEffects.length - 1; i >= 0; i--) {
+      aoeEffects[i].t -= dt;
+      aoeEffects[i].r = aoeEffects[i].maxR * (1 - aoeEffects[i].t / 0.4);
+      if (aoeEffects[i].t <= 0) aoeEffects.splice(i, 1);
+    }
+
+    // Enemies
+    for (var i = 0; i < enemies.length; i++) {
+      var e = enemies[i];
+      if (e.dead) {
+        e.respawnT -= dt;
+        if (e.respawnT <= 0) {
+          e.dead = false;
+          e.hp = e.maxHp;
+          e.x = e.spawnX; e.y = e.spawnY;
+          e.vx = 0; e.vy = 0;
+        }
+        continue;
+      }
+      if (e.flashT > 0) e.flashT -= dt;
+      if (e.iframes > 0) e.iframes -= dt;
+      if (e.atkCd > 0) e.atkCd -= dt;
+
+      var dx = P.x - e.x, dist = Math.abs(dx);
+      if (dist < e.sightRange) {
+        e.vx = (dx > 0 ? 1 : -1) * 110;
+        e.facingR = dx > 0;
+        if (dist < 35 && e.atkCd <= 0) {
+          e.atkCd = 1.2;
+          if (P.shieldT <= 0 && P.iframes <= 0) {
+            P.hp -= 10;
+            P.iframes = 0.5;
+            P.flashT = 0.12;
+            spawnDmg(P.x, P.y - 20, 10);
+            shake(4);
+            P.vx = (dx > 0 ? -1 : 1) * 180;
+          }
+        }
+      } else {
+        e.patrolT -= dt;
+        if (e.patrolT <= 0) { e.patrol *= -1; e.patrolT = 2 + Math.random()*2; }
+        e.vx = e.patrol * 50;
+        e.facingR = e.patrol > 0;
+      }
+      landOnPlatforms(e, dt);
+    }
+
+    // Camera shake decay
+    if (cam.shakeT > 0) {
+      cam.shakeT -= dt;
+      cam.shakeX = (Math.random()-0.5) * 8 * (cam.shakeT / 0.15);
+      cam.shakeY = (Math.random()-0.5) * 8 * (cam.shakeT / 0.15);
+    } else { cam.shakeX = 0; cam.shakeY = 0; }
+
+    // Damage numbers
+    for (var i = dmgNums.length - 1; i >= 0; i--) {
+      dmgNums[i].y -= 45 * dt;
+      dmgNums[i].t -= dt;
+      if (dmgNums[i].t <= 0) dmgNums.splice(i, 1);
+    }
+
+    // Death respawn
+    if (P.hp <= 0) {
+      P.hp = P.maxHp;
+      P.x = 200; P.y = WORLD_H - 55;
+      P.vx = 0; P.vy = 0;
+      score = Math.max(0, score - 50);
+    }
+  }
+
+  function render() {
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#0d0d1a';
+    ctx.fillRect(0, 0, W, H);
+
+    // Camera: lerp with dead zone
+    var targetX = P.x - W/2;
+    var targetY = P.y - H/2 + 60;
+    var dxCam = targetX - cam.x, dyCam = targetY - cam.y;
+    if (Math.abs(dxCam) > DEAD_ZONE) cam.x += (dxCam - (dxCam > 0 ? DEAD_ZONE : -DEAD_ZONE)) * 0.08;
+    if (Math.abs(dyCam) > DEAD_ZONE) cam.y += (dyCam - (dyCam > 0 ? DEAD_ZONE : -DEAD_ZONE)) * 0.08;
+    cam.x = Math.max(0, Math.min(WORLD_W - W, cam.x));
+    cam.y = Math.max(0, Math.min(WORLD_H - H, cam.y));
+
+    ctx.save();
+    ctx.translate(-cam.x + cam.shakeX, -cam.y + cam.shakeY);
+
+    // Platforms
+    ctx.fillStyle = '#3a3a4a';
+    for (var i = 0; i < platforms.length; i++) {
+      var p = platforms[i];
+      ctx.fillRect(p.x, p.y, p.w, p.h);
+    }
+    // Platform top edge highlight
+    ctx.strokeStyle = '#5a5a7a';
+    ctx.lineWidth = 2;
+    for (var i = 1; i < platforms.length; i++) {
+      var p = platforms[i];
+      ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x+p.w, p.y); ctx.stroke();
+    }
+    ctx.lineWidth = 1;
+
+    // AoE effects
+    for (var i = 0; i < aoeEffects.length; i++) {
+      var a = aoeEffects[i];
+      ctx.beginPath(); ctx.arc(a.x, a.y, a.r, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(255,200,50,' + (a.t/0.4 * 0.4) + ')';
+      ctx.fill();
+    }
+
+    // Shield aura
+    if (P.shieldT > 0) {
+      ctx.beginPath(); ctx.arc(P.x, P.y, 30, 0, Math.PI*2);
+      ctx.strokeStyle = 'rgba(100,200,255,' + Math.min(0.7, P.shieldT * 0.5) + ')';
+      ctx.lineWidth = 3; ctx.stroke(); ctx.lineWidth = 1;
+    }
+
+    // Player
+    drawChar(ctx, P.x, P.y, P.w, P.h, '#4f4', P.facingR, P.scaleX, P.scaleY, P.flashT > 0);
+    drawHP(ctx, P.x - 16, P.y - P.h/2 - 10, 32, P.hp, P.maxHp);
+
+    // Attack hitbox (debug-ish visualization)
+    if (P.atkBox) {
+      ctx.strokeStyle = 'rgba(255,255,100,0.5)';
+      ctx.strokeRect(P.atkBox.x - P.atkBox.w/2, P.atkBox.y - P.atkBox.h/2, P.atkBox.w, P.atkBox.h);
+    }
+
+    // Enemies
+    for (var i = 0; i < enemies.length; i++) {
+      var e = enemies[i];
+      if (e.dead) continue;
+      drawChar(ctx, e.x, e.y, e.w, e.h, '#f44', e.facingR, 1, 1, e.flashT > 0);
+      drawHP(ctx, e.x - 14, e.y - e.h/2 - 8, 28, e.hp, e.maxHp);
+    }
+
+    // Projectiles
+    for (var i = 0; i < projectiles.length; i++) {
+      var pr = projectiles[i];
+      ctx.beginPath(); ctx.arc(pr.x, pr.y, pr.r, 0, Math.PI*2);
+      ctx.fillStyle = '#f80'; ctx.fill();
+      ctx.beginPath(); ctx.arc(pr.x, pr.y, pr.r - 2, 0, Math.PI*2);
+      ctx.fillStyle = '#ff0'; ctx.fill();
+    }
+
+    // Damage numbers
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'left';
+    for (var i = 0; i < dmgNums.length; i++) {
+      var d = dmgNums[i];
+      ctx.globalAlpha = Math.min(1, d.t * 2);
+      ctx.fillStyle = '#ff4';
+      ctx.fillText('-' + d.val, d.x - 10, d.y);
+    }
+    ctx.globalAlpha = 1;
+
+    ctx.restore();
+
+    // === HUD (screen-space) ===
+
+    // HP bar top-left
+    ctx.fillStyle = '#222';
+    ctx.fillRect(10, 10, 104, 14);
+    var hpFrac = P.hp / P.maxHp;
+    ctx.fillStyle = hpFrac > 0.3 ? '#4f4' : '#f44';
+    ctx.fillRect(12, 12, 100 * hpFrac, 10);
+    ctx.strokeStyle = '#888';
+    ctx.strokeRect(10, 10, 104, 14);
+
+    ctx.font = '12px monospace';
+    ctx.fillStyle = '#fff';
+    ctx.fillText('HP ' + P.hp + '/' + P.maxHp, 120, 22);
+
+    // Score
+    ctx.fillText('Score: ' + score + '  Kills: ' + kills, 10, 40);
+
+    // FPS
+    fpsT += TICK;
+    if (fpsT >= 0.5) { fps = Math.round(frameCount / fpsT); frameCount = 0; fpsT = 0; }
+    ctx.fillText('FPS: ' + fps, W - 80, 22);
+
+    // Cooldown radials (bottom-right)
+    var colors = ['#f80','#0af','#6cf','#fa0'];
+    var labels = ['1','2','3','4'];
+    for (var i = 0; i < 4; i++) {
+      var cx = W - 140 + i * 36, cy = H - 30, r = 14;
+      var ab = abilities[i];
+      var frac = ab.cd > 0 ? ab.rem / ab.cd : 0;
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2);
+      ctx.fillStyle = '#222'; ctx.fill();
+      ctx.strokeStyle = colors[i]; ctx.lineWidth = 2; ctx.stroke();
+      if (frac > 0) {
+        ctx.beginPath(); ctx.moveTo(cx, cy);
+        ctx.arc(cx, cy, r, -Math.PI/2, -Math.PI/2 + Math.PI*2*frac);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fill();
+      }
+      ctx.fillStyle = frac > 0 ? '#666' : '#fff';
+      ctx.font = 'bold 12px monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(labels[i], cx, cy);
+    }
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.lineWidth = 1;
+
+    // GCD bar
+    if (gcd > 0) {
+      var gw = 60 * (gcd / GCD_TIME);
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+      ctx.fillRect(W - 170, H - 50, gw, 4);
+    }
+
+    // HUD text
+    var parts = [];
+    for (var i = 0; i < 4; i++) {
+      var ab = abilities[i];
+      parts.push((i+1) + ':' + ab.name + (ab.rem > 0 ? ' ' + ab.rem.toFixed(1) : ' RDY'));
+    }
+    hud.textContent = parts.join(' | ');
+  }
+
+  function loop(t) {
+    if (!vis.visible) { lastT = 0; accum = 0; requestAnimationFrame(loop); return; }
+    if (!lastT) { lastT = t; requestAnimationFrame(loop); return; }
+    var dt = Math.min((t - lastT) / 1000, 0.05); lastT = t;
+    if (active) { accum += dt; while (accum >= TICK) { update(TICK); accum -= TICK; } }
+    render();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+});
+</script>
+
+</div><!-- .content -->
+
+<!-- ===== PYODIDE + CODE RUNNER ===== -->
+<script>
+(function() {
+  'use strict';
+
+  function detectLang(codeEl, pre) {
+    var tc = pre.closest('.tab-content');
+    if (tc) {
+      if (tc.classList.contains('c')) return 'c';
+      if (tc.classList.contains('py')) return 'python';
+      if (tc.classList.contains('ts')) return 'typescript';
+      if (tc.classList.contains('go')) return 'go';
+      if (tc.classList.contains('rs')) return 'rust';
+    }
+    var label = pre.querySelector('.label');
+    if (label) {
+      var t = label.textContent.toLowerCase();
+      if (t.includes('python')) return 'python';
+      if (t.includes('typescript') || t === 'ts') return 'typescript';
+      if (t.includes('rust')) return 'rust';
+      if (t.includes('go')) return 'go';
+      if (t.match(/^c(\s|$)/i)) return 'c';
+    }
+    return null;
+  }
+
+  function isRunnable(pre, codeEl, lang) {
+    if (!lang) return false;
+    if (lang === 'c' || lang === 'go' || lang === 'rust') return false;
+    if (pre.closest('.diagram')) return false;
+    if (pre.closest('.try-this')) return true;
+    if (pre.closest('.tab-content')) return true;
+    return false;
+  }
+
+  function getCode(codeEl) {
+    var clone = codeEl.cloneNode(true);
+    clone.querySelectorAll('.label').forEach(function(el) { el.remove(); });
+    return clone.textContent;
+  }
+
+  function getOrCreateOutput(pre) {
+    var out = pre.nextElementSibling;
+    if (out && out.classList.contains('run-output')) return out;
+    out = document.createElement('div');
+    out.className = 'run-output';
+    pre.insertAdjacentElement('afterend', out);
+    return out;
+  }
+
+  var pyodideReady = null;
+  function loadPyodide_() {
+    if (pyodideReady) return pyodideReady;
+    pyodideReady = (async function() {
+      var script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/pyodide/v0.27.4/full/pyodide.js';
+      document.head.appendChild(script);
+      await new Promise(function(res, rej) { script.onload = res; script.onerror = rej; });
+      return await loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.27.4/full/' });
+    })();
+    return pyodideReady;
+  }
+
+  async function runPython(code, out) {
+    out.textContent = 'Loading Python runtime...';
+    out.classList.remove('error');
+    try {
+      var py = await loadPyodide_();
+      py.runPython('import sys, io; sys.stdout = io.StringIO()');
+      py.runPython(code);
+      var stdout = py.runPython('sys.stdout.getvalue()');
+      out.textContent = stdout || '(no output)';
+    } catch (e) {
+      out.textContent = String(e.message || e);
+      out.classList.add('error');
+    }
+  }
+
+  function stripTS(code) {
+    return code
+      .replace(/:\s*(?:string|number|boolean|void|any|never|unknown|undefined|null)\b(\[\])?/g, '')
+      .replace(/:\s*(?:Record|Map|Set|Array|Promise)<[^>]+>/g, '')
+      .replace(/<(?:string|number|boolean|void|any|never|unknown|T|U|K|V)(?:\[\])?(?:\s*,\s*(?:string|number|boolean))*>/g, '')
+      .replace(/\bas\s+\w+/g, '')
+      .replace(/^\s*(?:export|import)\s+type\s+.*$/gm, '')
+      .replace(/^\s*interface\s+\w+\s*\{[\s\S]*?\n\}/gm, '')
+      .replace(/^\s*type\s+\w+\s*=.*$/gm, '');
+  }
+
+  async function runJS(code, out) {
+    out.classList.remove('error');
+    var logs = [];
+    var origLog = console.log, origWarn = console.warn, origError = console.error;
+    console.log = function() { logs.push(Array.prototype.map.call(arguments, function(a) { return typeof a==='object'?JSON.stringify(a,null,2):String(a); }).join(' ')); };
+    console.warn = console.log;
+    console.error = function() { logs.push('ERROR: ' + Array.prototype.map.call(arguments, String).join(' ')); };
+    try {
+      var cleaned = stripTS(code);
+      var fn = new Function(cleaned);
+      var result = fn();
+      if (result instanceof Promise) await result;
+      out.textContent = logs.join('\n') || '(no output)';
+    } catch (e) {
+      out.textContent = logs.join('\n') + (logs.length ? '\n' : '') + String(e);
+      out.classList.add('error');
+    } finally {
+      console.log = origLog; console.warn = origWarn; console.error = origError;
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('pre > code, pre code').forEach(function(codeEl) {
+      var pre = codeEl.closest('pre');
+      if (!pre) return;
+      var lang = detectLang(codeEl, pre);
+      if (!isRunnable(pre, codeEl, lang)) return;
+
+      var btn = document.createElement('button');
+      btn.className = 'run-btn';
+      btn.textContent = '\u25B6 Run';
+      btn.title = 'Run this code';
+      pre.style.position = 'relative';
+      pre.appendChild(btn);
+
+      btn.addEventListener('click', async function(e) {
+        e.preventDefault(); e.stopPropagation();
+        if (btn.classList.contains('running')) return;
+        btn.classList.add('running'); btn.textContent = '\u25B6 ...';
+
+        var outputAnchor = pre;
+        var tabContent = pre.closest('.tab-content');
+        if (tabContent) outputAnchor = tabContent.closest('.lang-tabs');
+        var out = getOrCreateOutput(outputAnchor);
+        out.style.display = 'block';
+
+        var code = getCode(codeEl);
+        try {
+          if (lang === 'python') await runPython(code, out);
+          else await runJS(code, out);
+        } catch (e) {
+          out.textContent = String(e); out.classList.add('error');
+        }
+        btn.classList.remove('running'); btn.textContent = '\u25B6 Run';
+      });
+    });
+  });
+})();
+</script>
+
+</body>
+</html>
