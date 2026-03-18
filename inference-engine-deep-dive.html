@@ -2118,6 +2118,10 @@ out  = h @ W_down     <span class="cm"># [17408] &rarr; [5120]  compress back</s
 
 <p class="drop-cap">When a user sends a prompt, the engine processes all prompt tokens at once &mdash; a batch matrix multiply, compute-bound, GPU-friendly. This is <strong>prefill</strong>. When the engine starts generating the response, it produces one token at a time &mdash; a vector-matrix multiply, memory-bound, bandwidth-limited. This is <strong>decode</strong>. Same model, same weights, same code &mdash; but the performance profile is so different they might as well be separate workloads.</p>
 
+<p>During prefill, the GPU is doing what it was built for: crunching thousands of tokens through massive matrix multiplications in parallel. The ALUs are busy, utilization is high, and the bottleneck is raw compute. This is why long prompts process surprisingly fast &mdash; the GPU chews through 3,000 tokens on a 3090 or 15,000 on an H100 in a single second. The user-facing metric is <strong>Time To First Token (TTFT)</strong>: how long until the response starts streaming.</p>
+
+<p>Decode is the opposite. One token at a time. Each token requires reading the <em>entire model</em> from memory, multiplying it against a single vector, and producing one output. The GPU's compute units are 95% idle, waiting for data. The bottleneck is memory bandwidth, not FLOPS. On a 3090, that's ~45 tokens per second for Qwen-3.5 27B Q4 &mdash; the user sees this as <strong>Inter-Token Latency (ITL)</strong>, roughly 22ms between each word appearing on screen.</p>
+
 <table>
 <tr><th>Metric</th><th>Prefill</th><th>Decode</th></tr>
 <tr><td>Tokens per step</td><td>N (hundreds to thousands)</td><td>1</td></tr>
