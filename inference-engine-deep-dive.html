@@ -1651,7 +1651,7 @@ out  = h @ W_down     <span class="cm"># [17408] → [5120]</span>
 <p>We now know what the model <em>is</em>: 64 repetitions of norm &rarr; attention &rarr; norm &rarr; FFN, with residual connections. We know what each weight matrix does and its exact dimensions. Seven matrix multiplications per block. Sixty-four blocks. 44 billion FLOPs per token. For every single token the model generates, all of this runs. Every matrix. Every layer. Every time.</p>
 </div>
 
-<p>We can write the forward pass. We know the math. Qwen-3.5 27B is 54 GB in FP16 &mdash; our GPU has 24 GB. But quantize to Q4 (~15 GB) and it fits. Even so, those 44 billion FLOPs should take about 0.04 ms on an H100, but reading 15 GB of weights takes 4.5 ms. The computation isn't the bottleneck. The <em>memory</em> is. Let's understand why.</p>
+<p>We can write the forward pass. We know the math. But the forward pass only produces a vector of raw scores &mdash; <strong>logits</strong>. How do you turn those into an actual word? That's the sampling pipeline, and it's the final step that completes the picture: weights &rarr; forward pass &rarr; logits &rarr; token. Let's close that loop.</p>
 
 </section>
 <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -1814,6 +1814,8 @@ out  = h @ W_down     <span class="cm"># [17408] → [5120]</span>
 <span class="kw">Creative writing:</span> temperature=<span class="nm">1.0</span>, min_p=<span class="nm">0.02</span>, top_p=<span class="nm">0.95</span>
 <span class="pp">Factual Q&amp;A:</span>      temperature=<span class="nm">0</span>. Always greedy for facts.
 </code></pre>
+
+<p>We now understand the complete pipeline: embed &rarr; N transformer blocks &rarr; logits &rarr; sample &rarr; token. The entire sequence of operations that turns a prompt into streaming text. But we've been abstract about the weights themselves &mdash; what <em>exactly</em> is in that file you download from Hugging Face?</p>
 
 </section>
 <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -2027,7 +2029,7 @@ out  = h @ W_down     <span class="cm"># [17408] → [5120]</span>
 
 <div class="power danger">
 <div class="power-label">The First Problem</div>
-<p>54 gigabytes at FP16. Your RTX 3090 has 24 GB of VRAM. <strong>It doesn't fit at full precision.</strong> But quantize to 4-bit (~15 GB) and it fits with room for a KV cache. Larger models like 72B still don't fit at all. Before we solve the fitting problem (quantization, Chapter 8), we need to understand what computation we're trying to run. What exactly does the forward pass do with these matrices?</p>
+<p>54 gigabytes at FP16. Your RTX 3090 has 24 GB of VRAM. <strong>It doesn't fit at full precision.</strong> But quantize to 4-bit (~15 GB) and it fits with room for a KV cache. Larger models like 72B still don't fit at all. We know the forward pass (Chapter 2) and the sampling pipeline (Chapter 3). Now let's understand the two very different computational regimes that make serving so much harder than it looks.</p>
 </div>
 
 </section>
@@ -2325,7 +2327,7 @@ bytes_per_token = <span class="nm">4,096</span> * <span class="nm">64</span> = <
 <p>On your 3090 with Qwen-3.5 27B Q4 (~15 GB model): 9 GB for KV cache. At 4 KV heads (GQA) &times; 256 dim &times; 64 layers &times; 2 bytes &times; 2 (K+V) = ~256 KB per token. 9 GB / 256 KB = ~36K tokens of context. That's generous for one user. But serve 10 concurrent users at 4K context and you've used 10 GB &mdash; <strong>over your budget</strong>.</p>
 </div>
 
-<p>The KV cache solves redundant computation. But now we have a new bottleneck: the attention computation itself. During prefill, the attention matrix is [N &times; N]. For a 32K prompt, materializing that matrix in GPU memory takes 2 GB per head per layer. That's not fine at all.</p>
+<p>The KV cache solves redundant computation. But we're still reading the <em>entire model</em> from memory for every single token. How fast can we actually go? To answer that, we need to understand the fundamental constraint: the memory wall.</p>
 
 </section>
 <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -2837,7 +2839,7 @@ O = reduce_with_lse(partial_out, lse)
 <p>llama.cpp: <strong>11 &rarr; 32 tok/s</strong> on M3 Max after FlashAttention. vLLM: <strong>2-3&times; throughput</strong> on long contexts. FA2 on Hopper: 20-50% higher FLOPS/s vs Ampere. The math is identical &mdash; it's the same computation. The improvement comes entirely from doing that math in fast SRAM instead of slow HBM. FlashAttention didn't speed up attention. It removed the memory bottleneck that was hiding how fast attention already was.</p>
 </div>
 
-<p>We now have a working, efficient single-user engine. But "one user" is a toy. A real service handles hundreds of concurrent requests. And there's a wrinkle we've been ignoring: the model processes the prompt and generates tokens through two <em>completely different</em> computational regimes.</p>
+<p>We now have a working, efficient single-user engine: quantized weights, KV cache, FlashAttention. But "one user" is a toy. A real service handles hundreds of concurrent requests. How do you serve them all without buying a GPU per user?</p>
 
 </section>
 <!-- ═══════════════════════════════════════════════════════════════ -->
