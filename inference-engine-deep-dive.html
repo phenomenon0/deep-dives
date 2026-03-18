@@ -514,6 +514,489 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 1: FROM TEXT TO NUMBERS                                -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch0">
+<h2>// 01 &mdash; From Text to Numbers</h2>
+
+<p class="drop-cap">You type a question. The model reads it. But a neural network doesn't read English &mdash; it reads numbers. Before a single matrix multiplication fires, the text must be <em>translated</em>: split into pieces the model recognises (tokens), then converted into vectors of numbers the model can compute with (embeddings). This chapter is about that translation &mdash; the invisible step that happens before everything else.</p>
+
+<h3>Why Not Characters?</h3>
+
+<p>There's a fundamental tradeoff between <strong>vocabulary size</strong> and <strong>sequence length</strong>. Character-level encoding gives a tiny vocab (256 bytes) but long sequences &mdash; a single sentence might be 40 tokens. Word-level encoding gives short sequences but a vocabulary of 500K+ entries, and it can't handle new words like "ChatGPT" or "defenestration." Byte Pair Encoding (BPE) is the sweet spot: a learned vocabulary of subword pieces that balances both.</p>
+
+<div class="tabbed">
+<input type="radio" name="tok-trade" id="tok-trade-t1" class="t1" checked>
+<input type="radio" name="tok-trade" id="tok-trade-t2" class="t2">
+
+<div class="tab-bar">
+<label for="tok-trade-t1">The Tradeoff</label>
+<label for="tok-trade-t2">Why It Matters</label>
+</div>
+
+<div class="tab-panel p1">
+<pre><code><span class="label">Comparison</span>
+<span class="cm">Approach        Vocab       "unhappiness" →         "The capital of France is Paris"</span>
+<span class="cm">─────────────────────────────────────────────────────────────────────────────────────</span>
+<span class="ty">Characters</span>      <span class="nm">256</span>         u,n,h,a,p,p,i,n,e,s,s   <span class="nm">30 tokens</span>   <span class="cm">(long sequence)</span>
+<span class="st">BPE (GPT-2)</span>     <span class="nm">50,257</span>      un|happ|iness            <span class="nm">8 tokens</span>    <span class="cm">(sweet spot)</span>
+<span class="fn">BPE (Qwen)</span>      <span class="nm">152,064</span>     unhappiness              <span class="nm">6 tokens</span>    <span class="cm">(bigger vocab → shorter)</span>
+<span class="kw">Words</span>           <span class="nm">~500K</span>       unhappiness              <span class="nm">6 tokens</span>    <span class="cm">(but "ChatGPT" = ???)</span>
+</code></pre>
+</div>
+
+<div class="tab-panel p2">
+<div>
+<p>Each token costs compute. In Qwen-3.5 27B, every token passes through 48 transformer layers, each with attention and feed-forward operations. The rough cost: <strong>~44 billion FLOPs per token</strong>. Fewer tokens means proportionally less work.</p>
+<p>This is why vocabulary size matters for speed. GPT-2's 50K vocab encodes English at ~4.5 characters per token. Qwen's 152K vocab achieves ~5.2 characters per token. That 15% reduction in token count translates directly to 15% less computation, 15% less KV cache memory, 15% faster inference.</p>
+<p style="color: var(--cyan);">Vocabulary size × sequence length is the budget. BPE lets you tune the tradeoff.</p>
+</div>
+</div>
+</div>
+
+<h3>Byte Pair Encoding</h3>
+
+<p>BPE is a compression algorithm repurposed for tokenization. The idea: start with characters, count all adjacent pairs, merge the most frequent pair into a single token, repeat. After a few thousand merges, common words become single tokens while rare words get split into recognizable pieces.</p>
+
+<pre><code><span class="label">Worked Example</span>
+<span class="cm"># Corpus: "low lower newest lowest"</span>
+
+<span class="kw">Step 0</span> <span class="cm">(characters):</span>  l o w &lt;/w&gt;  l o w e r &lt;/w&gt;  n e w e s t &lt;/w&gt;  l o w e s t &lt;/w&gt;
+
+<span class="kw">Step 1</span>  merge <span class="st">"l"+"o"</span> → <span class="fn">"lo"</span>    <span class="cm">(most frequent pair, appears 4 times)</span>
+        <span class="fn">lo</span> w &lt;/w&gt;  <span class="fn">lo</span> w e r &lt;/w&gt;  n e w e s t &lt;/w&gt;  <span class="fn">lo</span> w e s t &lt;/w&gt;
+
+<span class="kw">Step 2</span>  merge <span class="st">"lo"+"w"</span> → <span class="fn">"low"</span>
+        <span class="fn">low</span> &lt;/w&gt;  <span class="fn">low</span> e r &lt;/w&gt;  n e w e s t &lt;/w&gt;  <span class="fn">low</span> e s t &lt;/w&gt;
+
+<span class="kw">Step 3</span>  merge <span class="st">"e"+"s"</span> → <span class="fn">"es"</span>
+        <span class="fn">low</span> &lt;/w&gt;  <span class="fn">low</span> e r &lt;/w&gt;  n e w <span class="fn">es</span> t &lt;/w&gt;  <span class="fn">low</span> <span class="fn">es</span> t &lt;/w&gt;
+
+<span class="kw">Step 4</span>  merge <span class="st">"es"+"t"</span> → <span class="fn">"est"</span>
+        <span class="fn">low</span> &lt;/w&gt;  <span class="fn">low</span> e r &lt;/w&gt;  n e w <span class="fn">est</span> &lt;/w&gt;  <span class="fn">low</span> <span class="fn">est</span> &lt;/w&gt;
+
+<span class="kw">Step 5</span>  merge <span class="st">"low"+"est"</span> → <span class="fn">"lowest"</span>
+        <span class="fn">low</span> &lt;/w&gt;  <span class="fn">low</span> e r &lt;/w&gt;  n e w <span class="fn">est</span> &lt;/w&gt;  <span class="fn">lowest</span> &lt;/w&gt;
+
+<span class="cm"># After thousands of merges: common words = single tokens.</span>
+<span class="cm"># "lowest" → 1 token.  "unhappiness" → "un" + "happiness" → 2 tokens.</span>
+<span class="cm"># Unknown words always decompose: "defenestration" → "def" + "en" + "est" + "ration"</span>
+</code></pre>
+
+<p>The key insight: BPE <em>never fails</em>. Any string of bytes can be tokenized because the base vocabulary includes all 256 byte values. Common patterns get compressed; rare ones fall back to characters. This is why LLMs can handle code, URLs, emoji, and text in any language.</p>
+
+<h3>See It Split</h3>
+
+<div class="viz-container">
+<div style="margin-bottom:1rem;">
+    <label style="font-family:'JetBrains Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:var(--cyan); display:block; margin-bottom:0.4rem;">Type anything</label>
+    <input type="text" id="tok-input" value="The old house at the end of the street was empty." style="width:100%; padding:0.6rem 0.8rem; background:var(--bg-code); color:var(--text); border:1px solid var(--border); border-radius:4px; font-family:'JetBrains Mono',monospace; font-size:14px;">
+</div>
+<div id="tok-output" style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:1rem; min-height:40px;"></div>
+<div id="tok-stats" style="font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--text-dim);"></div>
+</div>
+
+<script>
+(function() {
+    // Pre-computed BPE-like token dictionary (simplified: maps common words/subwords to IDs)
+    const VOCAB = {
+        'The':791, 'the':279, ' the':262, ' old':1392, ' house':3778, ' at':520,
+        ' end':842, ' of':315, ' street':6822, ' was':574, ' empty':4384,
+        ' is':374, ' a':264, ' an':281, ' in':304, ' on':356, ' to':311,
+        ' and':323, ' for':369, ' it':433, ' that':430, ' with':449,
+        ' from':505, ' this':456, ' but':719, ' not':539, ' are':527,
+        ' be':614, ' have':617, ' has':706, ' had':750, ' will':481,
+        ' would':561, ' can':649, ' could':714, ' should':1288,
+        ' I':358, ' you':498, ' he':339, ' she':559, ' we':584, ' they':814,
+        ' my':590, ' your':634, ' his':465, ' her':607,
+        ' do':656, ' does':947, ' did':1550, ' what':644, ' which':902,
+        ' who':889, ' when':994, ' where':1332, ' how':1174, ' why':3170,
+        ' all':682, ' each':1855, ' every':1475, ' some':1063, ' many':1690,
+        ' more':810, ' most':1455, ' other':1537, ' no':912, ' up':709,
+        ' out':704, ' just':1101, ' very':1407, ' so':779, ' like':1093,
+        ' about':922, ' into':656, ' over':927, ' after':1044, ' before':1603,
+        ' between':1990, ' under':1234, ' through':1059, ' new':649,
+        ' first':717, ' last':1048, ' long':890, ' great':1049, ' little':1800,
+        ' own':898, ' good':922, ' big':1588, ' small':1613, ' right':1315,
+        ' large':2236, ' next':1828, ' early':2440, ' young':2793,
+        ' important':1593, ' few':2166, ' public':1674, ' bad':3919,
+        ' same':976, ' able':2904, ' time':640, ' way':1648, ' day':1110,
+        ' man':893, ' woman':2415, ' world':1526, ' life':1271, ' hand':1450,
+        ' part':961, ' child':1987, ' eye':5765, ' place':1103,
+        ' work':990, ' week':2462, ' case':1389, ' point':966, ' company':1664,
+        ' number':1661, ' group':1461, ' problem':3683, ' fact':958,
+        ' people':799, ' state':1180, ' thing':1517, ' word':1573,
+        ' water':3090, ' money':2775, ' story':2706, ' power':2108,
+        ' year':614, ' back':736, ' two':734, ' three':2380, ' four':3023,
+        ' five':2816, ' six':4008, ' seven':4320, ' eight':4570, ' nine':5765,
+        ' ten':3478, ' one':530, ' only':865, ' also':1083, ' now':783,
+        ' even':772, ' still':1391, ' well':1107, ' then':840, ' here':1131,
+        ' there':612,
+        'Hello':9906, ' hello':23748, ' Hello':22691, ' world':2017,
+        ' cat':3466, ' dog':5765, ' fish':4580, ' bird':7284,
+        ' France':4949, ' Paris':6342, ' Japan':4852, ' Tokyo':27540,
+        ' computer':6500, ' algorithm':20710, ' software':4382, ' server':4140,
+        ' neural':17019, ' network':3127, ' model':1646, ' token':4037,
+        ' tokens':11657, ' embedding':45765, ' vector':18364,
+        ' king':11370, ' queen':16599, ' love':2141, ' happy':5087,
+        ' sad':5765, ' afraid':9498, ' angry':12033,
+        ' bread':13282, ' rice':13608, ' cheese':14573, ' apple':24434,
+        ' capital':6413,
+        '.':13, ',':11, '!':0, '?':30, ':':25, ';':26, '"':1, "'":6,
+        ' ':220, '-':12, '(':7, ')':8, '\n':198,
+        'a':64, 'b':65, 'c':66, 'd':67, 'e':68, 'f':69, 'g':70, 'h':71,
+        'i':72, 'j':73, 'k':74, 'l':75, 'm':76, 'n':77, 'o':78, 'p':79,
+        'q':80, 'r':81, 's':82, 't':83, 'u':84, 'v':85, 'w':86, 'x':87,
+        'y':88, 'z':89,
+        'A':32, 'B':33, 'C':34, 'D':35, 'E':36, 'F':37, 'G':38, 'H':39,
+        'I':40, 'J':41, 'K':42, 'L':43, 'M':44, 'N':45, 'O':46, 'P':47,
+        'Q':48, 'R':49, 'S':50, 'T':51, 'U':52, 'V':53, 'W':54, 'X':55,
+        'Y':56, 'Z':57
+    };
+
+    // Sort keys by length descending for greedy matching
+    const SORTED_KEYS = Object.keys(VOCAB).sort((a, b) => b.length - a.length);
+
+    // Token colors (cycle through palette)
+    const COLORS = [
+        'rgba(0,255,136,0.22)', 'rgba(0,221,255,0.22)', 'rgba(255,0,170,0.22)',
+        'rgba(255,136,0,0.22)', 'rgba(255,221,0,0.22)', 'rgba(68,136,255,0.22)',
+        'rgba(170,68,255,0.22)', 'rgba(255,51,68,0.22)'
+    ];
+    const BORDER_COLORS = [
+        'rgba(0,255,136,0.5)', 'rgba(0,221,255,0.5)', 'rgba(255,0,170,0.5)',
+        'rgba(255,136,0,0.5)', 'rgba(255,221,0,0.5)', 'rgba(68,136,255,0.5)',
+        'rgba(170,68,255,0.5)', 'rgba(255,51,68,0.5)'
+    ];
+
+    function tokenize(text) {
+        const tokens = [];
+        let i = 0;
+        while (i < text.length) {
+            let matched = false;
+            for (const key of SORTED_KEYS) {
+                if (text.substring(i, i + key.length) === key) {
+                    tokens.push({ text: key, id: VOCAB[key] });
+                    i += key.length;
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) {
+                // Fallback: single character
+                const ch = text[i];
+                tokens.push({ text: ch, id: ch.charCodeAt(0) });
+                i++;
+            }
+        }
+        return tokens;
+    }
+
+    function render() {
+        const text = document.getElementById('tok-input').value;
+        const tokens = tokenize(text);
+        const output = document.getElementById('tok-output');
+        const stats = document.getElementById('tok-stats');
+
+        output.innerHTML = '';
+        tokens.forEach((tok, i) => {
+            const el = document.createElement('span');
+            const ci = i % COLORS.length;
+            el.style.cssText = `
+                display:inline-flex; flex-direction:column; align-items:center;
+                background:${COLORS[ci]}; border:1px solid ${BORDER_COLORS[ci]};
+                border-radius:4px; padding:0.3rem 0.5rem; font-family:'JetBrains Mono',monospace;
+                font-size:13px; color:var(--text); min-width:28px; text-align:center;
+            `;
+            const textSpan = document.createElement('span');
+            textSpan.textContent = tok.text.replace(/ /g, '·').replace(/\n/g, '↵');
+            const idSpan = document.createElement('span');
+            idSpan.style.cssText = 'font-size:9px; color:var(--text-dim); margin-top:2px;';
+            idSpan.textContent = tok.id;
+            el.appendChild(textSpan);
+            el.appendChild(idSpan);
+            output.appendChild(el);
+        });
+
+        const chars = text.length;
+        const ratio = tokens.length > 0 ? (chars / tokens.length).toFixed(1) : '0';
+        stats.innerHTML = `<span style="color:var(--green)">${tokens.length}</span> tokens · ` +
+            `<span style="color:var(--cyan)">${chars}</span> characters · ` +
+            `<span style="color:var(--yellow)">${ratio}</span> chars/token`;
+    }
+
+    document.getElementById('tok-input').addEventListener('input', render);
+    render();
+})();
+</script>
+
+<p style="margin-top:1rem;">Notice how common words like "the" and "was" become single tokens, while the tokenizer splits rarer words into subword pieces. A larger vocabulary (like Qwen's 152K vs GPT-2's 50K) can encode more words as single tokens &mdash; fewer tokens, faster inference.</p>
+
+<h3>Embedding: Words as Points in Space</h3>
+
+<p>Tokenization gave us a sequence of integer IDs. Now each ID needs to become something a neural network can process: a <strong>vector</strong>. The embedding table is a giant lookup: token ID &rarr; a vector of 768 numbers (GPT-2) or 5,120 numbers (Qwen-3.5 27B). But <em>why does this work?</em> Because training pushes similar words to nearby points. The numbers aren't arbitrary &mdash; they encode meaning along learned dimensions.</p>
+
+<div class="tabbed">
+<input type="radio" name="tok-embed" id="tok-embed-t1" class="t1" checked>
+<input type="radio" name="tok-embed" id="tok-embed-t2" class="t2">
+
+<div class="tab-bar">
+<label for="tok-embed-t1">Intuition</label>
+<label for="tok-embed-t2">The Lookup (code)</label>
+</div>
+
+<div class="tab-panel p1">
+<pre><code><span class="label">Intuition</span>
+<span class="cm">The embedding table: one row per token, 768 columns.</span>
+
+Token <span class="nm">1820</span> (<span class="st">"cat"</span>)      → [<span class="nm">0.12</span>, <span class="nm">-0.34</span>, <span class="nm">0.56</span>, <span class="nm">0.78</span>, <span class="nm">-0.91</span>, ...]  <span class="cm">768 numbers</span>
+Token <span class="nm">3290</span> (<span class="st">"dog"</span>)      → [<span class="nm">0.14</span>, <span class="nm">-0.31</span>, <span class="nm">0.52</span>, <span class="nm">0.81</span>, <span class="nm">-0.88</span>, ...]  <span class="cm">similar!</span>
+Token <span class="nm">9017</span> (<span class="st">"uranium"</span>)  → [<span class="nm">-1.2</span>, <span class="nm">0.89</span>, <span class="nm">-0.03</span>, <span class="nm">0.11</span>, <span class="nm">0.67</span>, ...]  <span class="cm">very different</span>
+
+<span class="fn">"cat"</span> and <span class="fn">"dog"</span> are close because training saw them in similar contexts.
+<span class="fn">"cat"</span> and <span class="fn">"uranium"</span> are far because they never appear in the same patterns.
+
+<span class="cm">Think of it as GPS for meaning: just as (lat, lon) locates a city,</span>
+<span class="cm">768 numbers locate a concept in meaning-space.</span>
+</code></pre>
+</div>
+
+<div class="tab-panel p2">
+<pre><code><span class="label">Python</span>
+<span class="cm"># The entire embedding step:</span>
+x = embedding_table[token_ids]   <span class="cm"># shape: [seq_len, 768]</span>
+
+<span class="cm"># That's it. A table lookup. No math, no matrix multiply.</span>
+<span class="cm"># embedding_table.shape = [50257, 768]   for GPT-2</span>
+<span class="cm">#                       = [152064, 5120]  for Qwen-3.5 27B</span>
+</code></pre>
+</div>
+</div>
+
+<h3>The Shape of Meaning</h3>
+
+<p>If embeddings encode meaning as position, then similar words should cluster together &mdash; and they do. Below: 80 words from real embedding spaces, projected to 2D. Even in this flattened shadow, the structure is visible.</p>
+
+<div class="viz-container">
+<svg id="viz-ch0-embed" viewBox="0 0 780 500" style="width:100%; height:auto; display:block;"></svg>
+<div style="font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim); margin-top:0.8rem; text-align:center;">
+    Hover a word to see its nearest neighbors. These 80 words live in 768-dimensional space &mdash; this is a 2D shadow.
+</div>
+</div>
+
+<script>
+(function() {
+    const svg = d3.select('#viz-ch0-embed');
+    const margin = {top: 20, right: 20, bottom: 20, left: 20};
+    const w = 780 - margin.left - margin.right;
+    const h = 500 - margin.top - margin.bottom;
+    const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+    // Pre-computed 2D coordinates (simulating t-SNE/UMAP of real embeddings)
+    const words = [
+        // Animals (cyan)
+        {word:'cat', x:0.12, y:0.35, cat:'animals'}, {word:'dog', x:0.15, y:0.32, cat:'animals'},
+        {word:'fish', x:0.09, y:0.40, cat:'animals'}, {word:'bird', x:0.17, y:0.38, cat:'animals'},
+        {word:'horse', x:0.14, y:0.28, cat:'animals'}, {word:'whale', x:0.07, y:0.43, cat:'animals'},
+        {word:'tiger', x:0.19, y:0.30, cat:'animals'}, {word:'bear', x:0.20, y:0.34, cat:'animals'},
+        {word:'lion', x:0.18, y:0.26, cat:'animals'}, {word:'eagle', x:0.16, y:0.42, cat:'animals'},
+        {word:'shark', x:0.06, y:0.38, cat:'animals'}, {word:'wolf', x:0.21, y:0.31, cat:'animals'},
+        {word:'rabbit', x:0.13, y:0.37, cat:'animals'},
+        // Countries (green)
+        {word:'France', x:0.72, y:0.15, cat:'countries'}, {word:'Japan', x:0.78, y:0.12, cat:'countries'},
+        {word:'Brazil', x:0.68, y:0.19, cat:'countries'}, {word:'Egypt', x:0.75, y:0.22, cat:'countries'},
+        {word:'Germany', x:0.71, y:0.10, cat:'countries'}, {word:'India', x:0.80, y:0.17, cat:'countries'},
+        {word:'China', x:0.82, y:0.14, cat:'countries'}, {word:'Italy', x:0.69, y:0.13, cat:'countries'},
+        {word:'Mexico', x:0.66, y:0.21, cat:'countries'}, {word:'Russia', x:0.76, y:0.08, cat:'countries'},
+        {word:'Spain', x:0.70, y:0.16, cat:'countries'}, {word:'Canada', x:0.65, y:0.11, cat:'countries'},
+        // Numbers (yellow)
+        {word:'one', x:0.40, y:0.72, cat:'numbers'}, {word:'two', x:0.42, y:0.75, cat:'numbers'},
+        {word:'three', x:0.44, y:0.73, cat:'numbers'}, {word:'four', x:0.46, y:0.76, cat:'numbers'},
+        {word:'five', x:0.43, y:0.78, cat:'numbers'}, {word:'ten', x:0.48, y:0.74, cat:'numbers'},
+        {word:'hundred', x:0.50, y:0.71, cat:'numbers'}, {word:'thousand', x:0.52, y:0.73, cat:'numbers'},
+        {word:'million', x:0.54, y:0.70, cat:'numbers'}, {word:'zero', x:0.38, y:0.74, cat:'numbers'},
+        {word:'twenty', x:0.47, y:0.79, cat:'numbers'}, {word:'fifty', x:0.49, y:0.77, cat:'numbers'},
+        // Emotions (magenta)
+        {word:'happy', x:0.30, y:0.12, cat:'emotions'}, {word:'sad', x:0.33, y:0.08, cat:'emotions'},
+        {word:'angry', x:0.36, y:0.14, cat:'emotions'}, {word:'afraid', x:0.28, y:0.10, cat:'emotions'},
+        {word:'love', x:0.32, y:0.16, cat:'emotions'}, {word:'hate', x:0.35, y:0.06, cat:'emotions'},
+        {word:'joy', x:0.29, y:0.14, cat:'emotions'}, {word:'fear', x:0.27, y:0.07, cat:'emotions'},
+        {word:'hope', x:0.31, y:0.18, cat:'emotions'}, {word:'grief', x:0.34, y:0.05, cat:'emotions'},
+        {word:'pride', x:0.37, y:0.17, cat:'emotions'}, {word:'shame', x:0.26, y:0.09, cat:'emotions'},
+        // Food (orange)
+        {word:'bread', x:0.82, y:0.65, cat:'food'}, {word:'rice', x:0.85, y:0.70, cat:'food'},
+        {word:'cheese', x:0.80, y:0.68, cat:'food'}, {word:'apple', x:0.78, y:0.72, cat:'food'},
+        {word:'chicken', x:0.84, y:0.63, cat:'food'}, {word:'soup', x:0.87, y:0.67, cat:'food'},
+        {word:'pasta', x:0.83, y:0.72, cat:'food'}, {word:'fish', x:0.79, y:0.66, cat:'food'},
+        {word:'butter', x:0.81, y:0.74, cat:'food'}, {word:'sugar', x:0.86, y:0.71, cat:'food'},
+        {word:'salt', x:0.88, y:0.64, cat:'food'}, {word:'beef', x:0.83, y:0.61, cat:'food'},
+        // Tech (blue)
+        {word:'computer', x:0.15, y:0.78, cat:'tech'}, {word:'software', x:0.18, y:0.82, cat:'tech'},
+        {word:'algorithm', x:0.12, y:0.85, cat:'tech'}, {word:'database', x:0.20, y:0.80, cat:'tech'},
+        {word:'server', x:0.22, y:0.84, cat:'tech'}, {word:'network', x:0.17, y:0.76, cat:'tech'},
+        {word:'internet', x:0.24, y:0.78, cat:'tech'}, {word:'program', x:0.14, y:0.81, cat:'tech'},
+        {word:'memory', x:0.19, y:0.86, cat:'tech'}, {word:'processor', x:0.21, y:0.76, cat:'tech'},
+        {word:'keyboard', x:0.16, y:0.88, cat:'tech'}, {word:'screen', x:0.23, y:0.82, cat:'tech'},
+        {word:'code', x:0.13, y:0.83, cat:'tech'},
+    ];
+
+    const catColors = {
+        animals: '#00ddff', countries: '#00ff88', numbers: '#ffdd00',
+        emotions: '#ff00aa', food: '#ff8800', tech: '#4488ff'
+    };
+
+    const xScale = d3.scaleLinear().domain([0, 1]).range([30, w - 30]);
+    const yScale = d3.scaleLinear().domain([0, 1]).range([30, h - 30]);
+
+    // Add subtle grid
+    for (let i = 0; i <= 10; i++) {
+        g.append('line').attr('x1', xScale(i/10)).attr('y1', 0).attr('x2', xScale(i/10)).attr('y2', h)
+            .attr('stroke', '#1e1e2e').attr('stroke-width', 0.5);
+        g.append('line').attr('x1', 0).attr('y1', yScale(i/10)).attr('x2', w).attr('y2', yScale(i/10))
+            .attr('stroke', '#1e1e2e').attr('stroke-width', 0.5);
+    }
+
+    // Lines group (drawn behind dots)
+    const linesGroup = g.append('g');
+
+    // Find k nearest neighbors
+    function knn(word, k) {
+        const wx = word.x, wy = word.y;
+        return words
+            .filter(w => w !== word)
+            .map(w => ({...w, dist: Math.sqrt((w.x - wx)**2 + (w.y - wy)**2)}))
+            .sort((a, b) => a.dist - b.dist)
+            .slice(0, k);
+    }
+
+    // Draw dots
+    const dots = g.selectAll('.embed-dot')
+        .data(words).enter().append('g').attr('class', 'embed-dot')
+        .attr('transform', d => `translate(${xScale(d.x)},${yScale(d.y)})`);
+
+    dots.append('circle').attr('r', 4)
+        .attr('fill', d => catColors[d.cat])
+        .attr('opacity', 0.8)
+        .style('cursor', 'pointer');
+
+    dots.append('text')
+        .attr('x', 7).attr('y', 3)
+        .text(d => d.word)
+        .attr('fill', d => catColors[d.cat])
+        .attr('font-family', 'JetBrains Mono, monospace')
+        .attr('font-size', 10)
+        .attr('opacity', 0.7)
+        .style('pointer-events', 'none');
+
+    // Hover interactions
+    dots.on('mouseenter', function(event, d) {
+        const neighbors = knn(d, 5);
+        linesGroup.selectAll('*').remove();
+        neighbors.forEach(n => {
+            linesGroup.append('line')
+                .attr('x1', xScale(d.x)).attr('y1', yScale(d.y))
+                .attr('x2', xScale(n.x)).attr('y2', yScale(n.y))
+                .attr('stroke', catColors[d.cat])
+                .attr('stroke-width', 1)
+                .attr('stroke-dasharray', '3,3')
+                .attr('opacity', 0.5);
+        });
+        // Highlight hovered word
+        d3.select(this).select('circle').attr('r', 7).attr('opacity', 1);
+        d3.select(this).select('text').attr('font-size', 12).attr('opacity', 1).attr('font-weight', 'bold');
+        // Dim others
+        dots.filter(w => w !== d && !neighbors.find(n => n.word === w.word && n.cat === w.cat))
+            .select('circle').attr('opacity', 0.15);
+        dots.filter(w => w !== d && !neighbors.find(n => n.word === w.word && n.cat === w.cat))
+            .select('text').attr('opacity', 0.15);
+        // Highlight neighbors
+        dots.filter(w => neighbors.find(n => n.word === w.word && n.cat === w.cat))
+            .select('circle').attr('r', 6).attr('opacity', 1);
+        dots.filter(w => neighbors.find(n => n.word === w.word && n.cat === w.cat))
+            .select('text').attr('opacity', 1);
+    }).on('mouseleave', function() {
+        linesGroup.selectAll('*').remove();
+        dots.select('circle').attr('r', 4).attr('opacity', 0.8);
+        dots.select('text').attr('font-size', 10).attr('opacity', 0.7).attr('font-weight', 'normal');
+    });
+
+    // Legend
+    const legend = svg.append('g').attr('transform', `translate(${margin.left + 10}, ${h + margin.top + 10})`);
+    const cats = [
+        {label:'Animals', cat:'animals'}, {label:'Countries', cat:'countries'},
+        {label:'Numbers', cat:'numbers'}, {label:'Emotions', cat:'emotions'},
+        {label:'Food', cat:'food'}, {label:'Tech', cat:'tech'}
+    ];
+    cats.forEach((c, i) => {
+        const lx = i * 125;
+        legend.append('circle').attr('cx', lx).attr('cy', 0).attr('r', 4).attr('fill', catColors[c.cat]);
+        legend.append('text').attr('x', lx + 8).attr('y', 4).text(c.label)
+            .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 10);
+    });
+})();
+</script>
+
+<h3>Embedding Arithmetic</h3>
+
+<p>The embedding space has learned <em>relational structure</em>. The famous example: <code>king &minus; man + woman &asymp; queen</code>. This isn't a party trick &mdash; it shows that directions in the space correspond to concepts like gender, geography, and tense.</p>
+
+<div class="diagram">
+<span class="diagram-label">Relational Structure in Embedding Space</span>
+<pre>
+  <span class="fn">king</span>  ────────────── <span class="fn">queen</span>
+    │    <span class="cm">gender</span>          │
+    │    <span class="cm">direction</span>       │
+  <span class="fn">man</span>   ────────────── <span class="fn">woman</span>
+
+  <span class="st">France</span> ───────────── <span class="st">Paris</span>
+    │    <span class="cm">capital</span>         │
+    │    <span class="cm">direction</span>       │
+  <span class="st">Japan</span>  ───────────── <span class="st">Tokyo</span>
+
+  <span class="ty">walk</span>  ────────────── <span class="ty">walked</span>
+    │    <span class="cm">tense</span>           │
+    │    <span class="cm">direction</span>       │
+  <span class="ty">swim</span>  ────────────── <span class="ty">swam</span>
+</pre>
+</div>
+
+<div class="power zen">
+<div class="power-label">Why This Works</div>
+<p>This arithmetic works because the embedding space is approximately <em>linear</em> in meaning. Directions correspond to relationships. This linearity is an emergent property of training &mdash; nobody designed it. The model learned that "king" and "queen" differ in the same way "man" and "woman" differ, because it saw them in analogous contexts billions of times.</p>
+</div>
+
+<h3>Tied Weights: The Elegant Trick</h3>
+
+<p>Here's a beautiful design detail: the embedding table appears <em>twice</em> in the model. Once at the very beginning (token ID &rarr; vector) and once at the very end (hidden state &rarr; logits). The model is literally asking: "which token's embedding vector is closest to my output?"</p>
+
+<div class="diagram">
+<span class="diagram-label">Weight Tying</span>
+<pre>
+  <span class="kw">INPUT:</span>   token <span class="nm">1820</span> (<span class="st">"cat"</span>) → embedding_table[<span class="nm">1820</span>] → [<span class="nm">0.12</span>, <span class="nm">-0.34</span>, ...]
+                                       │
+                          ╔═══════════════════════════╗
+                          ║  <span class="fn">48 transformer blocks...</span>  ║
+                          ╚═══════════════════════════╝
+                                       │
+  <span class="kw">OUTPUT:</span>  hidden_state → hidden_state @ embedding_table<span class="ty">.T</span> → logits [<span class="nm">152,064</span>]
+                                       │
+             highest score: token <span class="nm">318</span> → <span class="st">"is"</span>
+
+  <span class="cm">Same table, used forwards and backwards.</span>
+  <span class="cm">Saves memory. Forces input and output to share the same meaning-space.</span>
+</pre>
+</div>
+
+<div class="power">
+<div class="power-label">By the Numbers</div>
+<p>Qwen-3.5 27B: <strong>152,064 tokens &times; 5,120 dimensions = 778 million parameters</strong> (~1.5 GB at FP16). That's ~5% of the model &mdash; small, but it's every word the model can read or write. The remaining 95% is the transformer blocks that <em>process</em> these vectors.</p>
+</div>
+
+<p>The text is now numbers. Each token has been looked up in the embedding table, producing a sequence of 5,120-dimensional vectors. Position information will be added via RoPE (we'll see exactly how in Chapter 2). The input is ready. Now: what does the model <em>do</em> with these vectors?</p>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- CHAPTER 1: THE SIMPLEST ENGINE                                 -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <section id="ch1">
