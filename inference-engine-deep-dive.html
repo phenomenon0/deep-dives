@@ -1306,22 +1306,99 @@ Output = 0.231·V₀ + 0.234·V₁ + 0.329·V₂ + 0.206·V₃
 
 <h4>Step 5: SwiGLU FFN</h4>
 
-<p>After attention, the FFN processes each token position independently. Modern models use SwiGLU instead of GPT-2's simple GELU:</p>
+<p>After attention blends information <em>across</em> tokens, the FFN processes each token <em>independently</em>. This is where the model actually "thinks" &mdash; pattern matching, fact recall, reasoning. It's the largest single compute cost per block, and modern models use a gated variant called <strong>SwiGLU</strong> that's fundamentally different from GPT-2's simple approach.</p>
 
-<pre><code><span class="label">Math</span>
-<span class="cm"># SwiGLU: gated activation</span>
-gate = x @ W_gate    <span class="cm"># [5120] → [17408]</span>
-up   = x @ W_up      <span class="cm"># [5120] → [17408]</span>
-h    = SiLU(gate) &odot; up   <span class="cm"># element-wise: sigmoid(gate) × gate × up</span>
-out  = h @ W_down     <span class="cm"># [17408] → [5120]</span>
+<div class="tabbed">
+<input type="radio" name="swiglu-exp" id="swiglu-exp-t1" class="t1" checked>
+<input type="radio" name="swiglu-exp" id="swiglu-exp-t2" class="t2">
+<input type="radio" name="swiglu-exp" id="swiglu-exp-t3" class="t3">
 
-<span class="cm"># SiLU(x) = x * sigmoid(x) — smooth version of ReLU</span>
-<span class="cm"># The gate controls information flow: if gate ≈ 0, output ≈ 0</span>
-<span class="cm"># This is why the FFN needs 3 matrices (not 2 like GPT-2)</span>
+<div class="tab-bar">
+<label for="swiglu-exp-t1">Intuition</label>
+<label for="swiglu-exp-t2">Code</label>
+<label for="swiglu-exp-t3">SiLU Deep Dive</label>
+</div>
 
-<span class="cm"># FLOPs for FFN: 3 × 5120 × 17408 × 2 = 535 MILLION per block per token</span>
-<span class="cm"># The FFN is ~78% of the compute in each block.</span>
+<!-- ── TAB 1: intuition ── -->
+<div class="tab-panel p1">
+<div style="padding: 1.4rem;">
+
+<p style="margin-bottom:1.2rem;"><strong>The problem SwiGLU solves.</strong> GPT-2's FFN was simple: expand the vector to 4&times; width, apply GELU activation, shrink back. Two matrices, one non-linearity. The activation decided which dimensions to keep &mdash; but it had to make that decision using only the <em>expanded</em> representation itself. There was no separate "should I use this?" signal.</p>
+
+<p style="margin-bottom:1.2rem;">SwiGLU splits the <strong>decision</strong> from the <strong>content</strong>. Two parallel projections from the same input:</p>
+
+<div class="diagram" style="margin:0 0 1.2rem; border: none; background: none; padding:0;">
+<pre><code>
+  <span class="cm">Same input x feeds both paths:</span>
+
+  <span style="color:var(--orange)">GATE path</span>   x &rarr; W_gate &rarr; SiLU &rarr; <strong>"should this feature activate?"</strong>
+                                     high &rarr; open the gate
+                                     low  &rarr; shut it down
+
+  <span style="color:var(--cyan)">UP path</span>     x &rarr; W_up &rarr;          <strong>"what value should it carry?"</strong>
+                                     the candidate content
+
+  <span style="color:var(--green)">COMBINE</span>     SiLU(gate) &odot; up          element-wise multiply
+                                     gate decides, up provides
+
+  <span style="color:var(--magenta)">DOWN</span>        result &rarr; W_down &rarr;       compress back to [5120]
 </code></pre>
+</div>
+
+<p style="margin-bottom:1rem;">The <strong>gate</strong> learns <em>which</em> features are relevant for this token. The <strong>up</strong> path computes <em>candidate values</em> for every feature. Multiplying them is selective routing: if the gate says "this feature doesn't matter here," it drives the output toward zero &mdash; regardless of what up computed.</p>
+
+<p style="margin-bottom:1rem;">Think of it like a mixing board. Each of the 17,408 channels has a fader (the gate) and an audio signal (the up value). The model learned which faders to push up for each kind of input. A token about geography might open channels for location features and close channels for emotion features. A token about sentiment does the opposite. Same weights, different routing per token.</p>
+
+<p style="margin-bottom:0.5rem;">The cost: <strong>three</strong> weight matrices instead of two. That's why the FFN dominates compute &mdash; 535M FLOPs per block, ~78% of the per-block budget. But the quality improvement is consistent and significant, which is why every post-2022 model uses it.</p>
+
+</div>
+</div>
+
+<!-- ── TAB 2: code ── -->
+<div class="tab-panel p2">
+<pre><code><span class="label">SwiGLU (4 lines)</span>
+gate = x @ W_gate    <span class="cm"># [5120] &rarr; [17408]  "should this feature activate?"</span>
+up   = x @ W_up      <span class="cm"># [5120] &rarr; [17408]  "what value should it carry?"</span>
+h    = SiLU(gate) &odot; up   <span class="cm"># element-wise: gate decides, up provides</span>
+out  = h @ W_down     <span class="cm"># [17408] &rarr; [5120]  compress back</span>
+
+<span class="cm"># vs GPT-2's FFN (2 matrices, no gate):</span>
+<span class="cm"># h = GELU(x @ W_fc)     # expand + activate</span>
+<span class="cm"># out = h @ W_proj        # compress</span>
+
+<span class="cm"># FLOPs: 3 &times; 5120 &times; 17408 &times; 2 = 535M per block per token</span>
+<span class="cm"># Attention FLOPs: ~147M. FFN is ~78% of per-block compute.</span>
+</code></pre>
+</div>
+
+<!-- ── TAB 3: SiLU deep dive ── -->
+<div class="tab-panel p3">
+<div style="padding: 1.4rem;">
+
+<p style="margin-bottom:1rem;"><strong>SiLU</strong> (Sigmoid Linear Unit): <code>SiLU(x) = x &times; sigmoid(x)</code></p>
+
+<div class="diagram" style="margin:0 0 1rem; border: none; background: none; padding:0;">
+<pre><code>
+  <span class="cm">How SiLU behaves at different gate values:</span>
+
+  gate = <span class="nm">-3.0</span>  &rarr;  sigmoid = 0.05  &rarr;  SiLU = <span style="color:var(--red)">-0.14</span>    <span style="color:var(--red)">nearly killed</span>
+  gate = <span class="nm">-1.0</span>  &rarr;  sigmoid = 0.27  &rarr;  SiLU = <span style="color:var(--red)">-0.27</span>    <span style="color:var(--red)">suppressed</span>
+  gate =  <span class="nm">0.0</span>  &rarr;  sigmoid = 0.50  &rarr;  SiLU =  <span style="color:var(--yellow)">0.00</span>    <span style="color:var(--yellow)">on the fence</span>
+  gate =  <span class="nm">1.0</span>  &rarr;  sigmoid = 0.73  &rarr;  SiLU =  <span style="color:var(--green)">0.73</span>    <span style="color:var(--green)">mostly open</span>
+  gate =  <span class="nm">3.0</span>  &rarr;  sigmoid = 0.95  &rarr;  SiLU =  <span style="color:var(--green)">2.86</span>    <span style="color:var(--green)">wide open</span>
+
+  <span class="pp">vs ReLU: hard cutoff at 0. Everything negative &rarr; dead zero.</span>
+  <span class="pp">vs SiLU: smooth transition. Gradients flow even for negative inputs.</span>
+  <span class="pp">This smoothness gives the model fine-grained control over</span>
+  <span class="pp">"how open" each gate is &mdash; not just on/off.</span>
+</code></pre>
+</div>
+
+<p style="margin-bottom:0;">SiLU has a unique property: it can output small <em>negative</em> values (minimum around -0.28 at x &asymp; -1.28). This means the gate can slightly <em>invert</em> a feature, not just suppress it. ReLU can't do this. GELU is similar but lacks the clean multiplicative gating structure that makes SwiGLU work.</p>
+
+</div>
+</div>
+</div>
 
 <div class="tabbed">
 <input type="radio" name="swiglu" id="swiglu-t1" class="t1" checked>
