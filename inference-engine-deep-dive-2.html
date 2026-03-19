@@ -496,6 +496,7 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
     <span class="nav-title">&gt;_ INFERENCE II</span>
     <a href="inference-engine-deep-dive.html" style="color:var(--orange)">&larr; Part 1</a>
     <span style="color:var(--border)">&middot;</span>
+    <a href="#ch5">the file</a>
     <a href="#ch6">two phases</a>
     <a href="#ch7">remembering</a>
     <a href="#ch8">the wall</a>
@@ -518,11 +519,230 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 <div class="hero">
     <h1><span class="glitch" data-text="INFERENCE ENGINES">INFERENCE ENGINES</span></h1>
     <div class="subtitle">
-        The model works. Now make it fast, make it fit, make it serve thousands.<span class="blink">_</span>
+        You've seen the pipeline. Now here's the 54 GB file that won't fit on your GPU &mdash;<br>
+        and the engineering that makes it fast, makes it fit, and serves thousands.<span class="blink">_</span>
     </div>
     <div style="margin-top:1.2rem; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.1em;">Part II &mdash; Optimization &amp; Production</div>
 </div>
 
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 5: THE FILE                                            -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch5">
+<h2>// 05 &mdash; The Numbers in the File</h2>
+
+<p class="drop-cap">It starts with a download. You point your browser at Hugging Face, pick a model &mdash; say, Qwen-3.5 27B &mdash; and wait. What arrives is not a program. It is a file of numbers &mdash; twenty-seven billion of them, each a 16-bit floating-point value, arranged in matrices that were painstakingly tuned over months of training on thousands of GPUs. The file is 54 gigabytes. It contains no instructions, no logic, no if-statements. Just weights.</p>
+
+<h3>Walking Through the Bytes</h3>
+
+<p>Let's look at what's actually on disk. The two dominant formats organize the data differently, but both follow the same principle: a header describing the model's architecture, followed by raw tensor data.</p>
+
+<div class="tabbed">
+<input type="radio" name="gguf" id="gguf-t1" class="t1" checked>
+<input type="radio" name="gguf" id="gguf-t2" class="t2">
+
+<div class="tab-bar">
+<label for="gguf-t1">What It Means</label>
+<label for="gguf-t2">Raw Bytes</label>
+</div>
+
+<div class="tab-panel p1">
+<div class="diagram">
+<span class="diagram-label">GGUF file layout &mdash; annotated</span>
+<pre><code>
+<span class="st">┌─────────────────────────────────────────────────────────────┐</span>
+<span class="st">│</span>  <span style="color:var(--green);font-weight:bold">HEADER</span>  (24 bytes)                                         <span class="st">│</span>
+<span class="st">│</span>  ┌────────────┐ ┌─────────┐ ┌───────────┐ ┌──────────────┐ <span class="st">│</span>
+<span class="st">│</span>  │ <span class="st">"GGUF"</span>     │ │ <span class="nm">ver 3</span>   │ │ <span class="nm">419</span>       │ │ <span class="nm">26</span>           │ <span class="st">│</span>
+<span class="st">│</span>  │ magic      │ │ format  │ │ tensors   │ │ metadata kvs │ <span class="st">│</span>
+<span class="st">│</span>  └────────────┘ └─────────┘ └───────────┘ └──────────────┘ <span class="st">│</span>
+<span class="st">│</span>  <span class="cm">The engine reads these 24 bytes to know what it's</span>          <span class="st">│</span>
+<span class="st">│</span>  <span class="cm">dealing with &mdash; before touching any weights.</span>               <span class="st">│</span>
+<span class="st">├─────────────────────────────────────────────────────────────┤</span>
+<span class="st">│</span>  <span style="color:var(--cyan);font-weight:bold">METADATA</span>  (variable length)                                <span class="st">│</span>
+<span class="st">│</span>  <span class="cm">Key-value pairs that ARE the model's blueprint:</span>            <span class="st">│</span>
+<span class="st">│</span>                                                             <span class="st">│</span>
+<span class="st">│</span>  <span class="ty">"general.architecture"</span> = <span class="st">"qwen3"</span>                          <span class="st">│</span>
+<span class="st">│</span>     <span class="cm">→ which forward pass code to run</span>                       <span class="st">│</span>
+<span class="st">│</span>  <span class="ty">"qwen3.block_count"</span> = <span class="nm">64</span>                                   <span class="st">│</span>
+<span class="st">│</span>     <span class="cm">→ how many transformer blocks to allocate</span>              <span class="st">│</span>
+<span class="st">│</span>  <span class="ty">"qwen3.attention.head_count_kv"</span> = <span class="nm">4</span>                       <span class="st">│</span>
+<span class="st">│</span>     <span class="cm">→ GQA ratio &mdash; determines KV cache size</span>                <span class="st">│</span>
+<span class="st">│</span>  <span class="ty">"tokenizer.ggml.tokens"</span> = [...]                            <span class="st">│</span>
+<span class="st">│</span>     <span class="cm">→ the vocabulary, embedded in the file</span>                 <span class="st">│</span>
+<span class="st">│</span>                                                             <span class="st">│</span>
+<span class="st">│</span>  <strong>No sidecar files. One file = runnable model.</strong>              <span class="st">│</span>
+<span class="st">├──────────</span> <span class="pp">padding to 16-byte alignment</span> <span class="st">──────────────────────┤</span>
+<span class="st">│</span>  <span style="color:var(--magenta);font-weight:bold">TENSOR DATA</span>  (the weights &mdash; 99.9% of the file)            <span class="st">│</span>
+<span class="st">│</span>                                                             <span class="st">│</span>
+<span class="st">│</span>  blk.0.attn_q.weight  [5120 &times; 6144]  <span class="ty">Q4_K</span>                <span class="st">│</span>
+<span class="st">│</span>  blk.0.ffn_gate.weight [5120 &times; 17408] <span class="ty">Q6_K</span> <span class="cm">← sensitive</span>    <span class="st">│</span>
+<span class="st">│</span>  ...339 tensors, contiguous, aligned                        <span class="st">│</span>
+<span class="st">│</span>                                                             <span class="st">│</span>
+<span class="st">│</span>  <span class="cm">mmap maps this directly into GPU address space.</span>            <span class="st">│</span>
+<span class="st">│</span>  <strong>The weights ARE the file. No deserialization.</strong>             <span class="st">│</span>
+<span class="st">│</span>  <span class="cm">← this is why mmap works: data starts at a known</span>          <span class="st">│</span>
+<span class="st">│</span>  <span class="cm">  aligned offset</span>                                           <span class="st">│</span>
+<span class="st">└─────────────────────────────────────────────────────────────┘</span>
+</code></pre>
+</div>
+</div>
+
+<div class="tab-panel p2">
+<div class="diagram">
+<span class="diagram-label">GGUF file layout (llama.cpp) &mdash; byte by byte</span>
+<pre><code>
+  <span class="st">Offset 0x00:</span>  47 47 55 46          <span class="cm">← ASCII "GGUF" (magic bytes)</span>
+  <span class="st">Offset 0x04:</span>  03 00 00 00          <span class="cm">← Version 3 (uint32, little-endian)</span>
+  <span class="st">Offset 0x08:</span>  A3 01 00 00 00 00 00 00  <span class="cm">← n_tensors = 419 (uint64)</span>
+  <span class="st">Offset 0x10:</span>  1A 00 00 00 00 00 00 00  <span class="cm">← n_kv_pairs = 26 (uint64)</span>
+
+  <span class="cm">Then the metadata key-value pairs:</span>
+  <span class="ty">Key: "general.architecture"</span>     = <span class="st">"qwen3"</span>
+  <span class="ty">Key: "qwen3.block_count"</span>         = <span class="nm">64</span>
+  <span class="ty">Key: "qwen3.attention.head_count"</span> = <span class="nm">24</span>
+  <span class="ty">Key: "qwen3.attention.head_count_kv"</span> = <span class="nm">4</span>   <span class="cm">← GQA!</span>
+  <span class="ty">Key: "qwen3.embedding_length"</span>    = <span class="nm">5120</span>
+  <span class="ty">Key: "qwen3.feed_forward_length"</span> = <span class="nm">17408</span>
+  <span class="ty">Key: "qwen3.rope.freq_base"</span>      = <span class="nm">10000000.0</span>
+  <span class="ty">Key: "tokenizer.ggml.tokens"</span>     = [<span class="st">"&lt;unk&gt;"</span>, <span class="st">"&lt;s&gt;"</span>, ...]
+  <span class="cm">(everything the engine needs to run &mdash; self-contained)</span>
+
+  <span class="pp">───── padding to 16-byte alignment ─────</span>
+
+  <span class="st">Tensor data:</span>
+  blk.0.attn_q.weight   [5120 &times; 6144]  type=Q4_K  <span class="cm">← quantized</span>
+  blk.0.attn_k.weight   [5120 &times; 1024]  type=Q4_K
+  blk.0.attn_v.weight   [5120 &times; 1024]  type=Q4_K
+  blk.0.attn_output.weight [6144 &times; 5120]  type=Q4_K
+  blk.0.ffn_gate.weight [5120 &times; 17408] type=Q6_K  <span class="cm">← sensitive layer, higher bits</span>
+  ...
+  <span class="cm">(339 tensors, twenty-seven billion numbers)</span>
+</code></pre>
+</div>
+</div>
+</div>
+
+<div class="power zen">
+<div class="power-label">The Design Insight</div>
+<p><strong>Self-contained + aligned = instant load.</strong> GGUF embeds the tokenizer, architecture params, and weights in one file. The tensor data starts at a 16-byte-aligned offset. This means <code>mmap()</code> can map the file directly &mdash; the OS's virtual memory system becomes your model loader. A 15 GB model "loads" in under a second because nothing is read until computation touches a page.</p>
+</div>
+
+<p><strong>Safetensors</strong> (Hugging Face) is a multi-file format used by Python-based engines like vLLM. An 8-byte length prefix, then a JSON header describing tensor names/shapes/offsets, then raw tensor data. The tokenizer lives in separate files, and the weights are typically sharded across multiple files (<code>model-00001-of-00004.safetensors</code>) for parallel loading.</p>
+
+<h3>The Numbers Themselves</h3>
+
+<p>Let's be concrete about what 27 billion parameters looks like versus our toy GPT-2. The model is a stack of identical transformer blocks, each containing the same seven large weight matrices:</p>
+
+<table>
+<tr><th>Matrix</th><th>GPT-2 (124M)</th><th>Qwen-3.5 27B</th><th>Role</th></tr>
+<tr><td>W_q</td><td>768 &times; 768 (1.1 MB)</td><td>5120 &times; 6144 (60 MB)</td><td>Query projection</td></tr>
+<tr><td>W_k</td><td>768 &times; 768 (1.1 MB)</td><td>5120 &times; 1024 (10 MB)</td><td>Key projection (GQA)</td></tr>
+<tr><td>W_v</td><td>768 &times; 768 (1.1 MB)</td><td>5120 &times; 1024 (10 MB)</td><td>Value projection (GQA)</td></tr>
+<tr><td>W_o</td><td>768 &times; 768 (1.1 MB)</td><td>6144 &times; 5120 (60 MB)</td><td>Attention output</td></tr>
+<tr><td>W_gate</td><td>&mdash;</td><td>5120 &times; 17408 (170 MB)</td><td>FFN gate (SwiGLU)</td></tr>
+<tr><td>W_up</td><td>768 &times; 3072 (4.5 MB)</td><td>5120 &times; 17408 (170 MB)</td><td>FFN up projection</td></tr>
+<tr><td>W_down</td><td>3072 &times; 768 (4.5 MB)</td><td>17408 &times; 5120 (170 MB)</td><td>FFN down projection</td></tr>
+<tr><td><strong>Per block</strong></td><td><strong>~14 MB</strong></td><td><strong>~650 MB</strong></td><td></td></tr>
+<tr><td><strong>&times; N blocks</strong></td><td><strong>&times;12 = ~168 MB</strong></td><td><strong>&times;64 = ~41 GB</strong></td><td></td></tr>
+</table>
+
+<p>Plus the embedding table (~2.4 GB) and the LM head (~2.4 GB), you get roughly 46 GB of weight data. FP16 &times; 27 billion = 54 GB. The math checks out.</p>
+
+<h3>The Growth</h3>
+
+<div class="viz-container">
+<svg id="viz-ch5" viewBox="0 0 780 340"></svg>
+</div>
+
+<script>
+(function() {
+    const svg = d3.select('#viz-ch5');
+    const W = 780, H = 340;
+    const margin = {top: 40, right: 30, bottom: 60, left: 80};
+    const w = W - margin.left - margin.right;
+    const h = H - margin.top - margin.bottom;
+
+    const models = [
+        { name: 'GPT-2', params: 0.124, embed: 0.038, attn: 0.043, ffn: 0.036, other: 0.007, year: 2019 },
+        { name: 'Qwen-2.5 7B', params: 7, embed: 0.30, attn: 1.61, ffn: 4.83, other: 0.26, year: 2024 },
+        { name: 'Qwen-3.5 27B', params: 27, embed: 1.27, attn: 8.9, ffn: 16.0, other: 0.83, year: 2025 },
+        { name: 'Qwen-2.5 72B', params: 72, embed: 1.25, attn: 17.2, ffn: 51.0, other: 2.55, year: 2024 },
+        { name: 'DeepSeek-V3', params: 671, embed: 3.8, attn: 45.0, ffn: 600.0, other: 22.2, year: 2025 },
+    ];
+
+    const categories = ['embed', 'attn', 'ffn', 'other'];
+    const colors = { embed: '#ffdd00', attn: '#00ddff', ffn: '#ff00aa', other: '#6a6a7e' };
+    const labels = { embed: 'Embedding', attn: 'Attention', ffn: 'Feed-Forward', other: 'Norms/Other' };
+
+    const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+    const x = d3.scaleBand().domain(models.map(m => m.name)).range([0, w]).padding(0.3);
+    const y = d3.scaleLinear().domain([0, 420]).range([h, 0]);
+
+    // Axes
+    g.append('g').attr('transform', `translate(0,${h})`)
+        .call(d3.axisBottom(x)).selectAll('text')
+        .attr('fill','#c8c8d4').attr('font-family','JetBrains Mono, monospace').attr('font-size',11);
+    g.append('g').call(d3.axisLeft(y).ticks(6).tickFormat(d => d + 'B'))
+        .selectAll('text').attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',10);
+
+    g.selectAll('.domain, .tick line').attr('stroke','#1e1e2e');
+
+    // Title
+    svg.append('text').attr('x', W/2).attr('y', 20).text('Parameter Count by Component')
+        .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',11)
+        .attr('text-anchor','middle').attr('text-transform','uppercase').attr('letter-spacing','0.1em');
+
+    // Stacked bars
+    const stack = d3.stack().keys(categories);
+    const series = stack(models);
+
+    series.forEach((s, si) => {
+        g.selectAll(`.bar-${si}`).data(s).enter().append('rect')
+            .attr('x', d => x(d.data.name))
+            .attr('y', d => y(d[1]))
+            .attr('height', d => y(d[0]) - y(d[1]))
+            .attr('width', x.bandwidth())
+            .attr('fill', colors[categories[si]])
+            .attr('opacity', 0.6)
+            .attr('rx', 2);
+    });
+
+    // Total labels
+    models.forEach(m => {
+        const total = m.embed + m.attn + m.ffn + m.other;
+        g.append('text')
+            .attr('x', x(m.name) + x.bandwidth()/2)
+            .attr('y', y(total) - 6)
+            .text(m.params >= 1 ? m.params + 'B' : (m.params * 1000) + 'M')
+            .attr('fill','#c8c8d4').attr('font-family','JetBrains Mono, monospace').attr('font-size',11)
+            .attr('text-anchor','middle');
+    });
+
+    // Legend
+    const leg = svg.append('g').attr('transform', `translate(${margin.left}, ${H - 15})`);
+    categories.forEach((c, i) => {
+        const lx = i * 160;
+        leg.append('rect').attr('x', lx).attr('y', -8).attr('width', 12).attr('height', 12)
+            .attr('fill', colors[c]).attr('opacity', 0.6).attr('rx', 2);
+        leg.append('text').attr('x', lx + 18).attr('y', 3).text(labels[c])
+            .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',10);
+    });
+})();
+</script>
+
+<p>The FFN dominates. In Qwen-3.5 27B, the feed-forward network is ~60% of all parameters. Attention is ~33%. Embeddings are ~5% (larger vocabulary). This is why the FFN is the primary target for quantization &mdash; it's where the bytes are.</p>
+
+<div class="power danger">
+<div class="power-label">The First Problem</div>
+<p>54 gigabytes at FP16. Your RTX 3090 has 24 GB of VRAM. <strong>It doesn't fit at full precision.</strong> But quantize to 4-bit (~15 GB) and it fits with room for a KV cache. Larger models like 72B still don't fit at all.</p>
+</div>
+
+<p>We have the weights, we know their shapes, we know they don't fit at full precision. But what happens when we actually <em>run</em> inference? The answer depends on <em>which phase</em> of inference you're in &mdash; and they're nothing alike.</p>
+
+</section>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- CHAPTER 6: TWO PHASES                                          -->
@@ -1356,6 +1576,108 @@ Time = 15.2 GB / 936 GB/s = <span class="st">16.2 ms/token → 62 tok/s</span>
 <span class="cm"># This is EXACT. Not an approximation. Bit-for-bit identical.</span>
 <span class="cm"># The S matrix never existed in HBM. Saved: 128 MB per head.</span>
 </code></pre>
+
+<h3>Attention Visualized</h3>
+
+<p>Switch between prefill, decode, and FlashAttention tiling to see how the attention matrix changes shape and access pattern:</p>
+
+<div class="viz-container">
+<svg id="viz-ch10-attn" viewBox="0 0 780 380"></svg>
+<div class="viz-controls">
+<div>
+    <label>Mode</label>
+    <select id="viz-ch10-mode">
+        <option value="prefill">Prefill (full causal mask)</option>
+        <option value="decode">Decode (single query)</option>
+        <option value="flash">FlashAttention tiles</option>
+    </select>
+</div>
+<div>
+    <label>Sequence Length</label>
+    <input type="range" id="viz-ch10-seq" min="4" max="20" value="10">
+    <span class="val" id="viz-ch10-seq-val">10</span>
+</div>
+<div>
+    <label>Tile Size</label>
+    <input type="range" id="viz-ch10-tile" min="2" max="6" value="4">
+    <span class="val" id="viz-ch10-tile-val">4</span>
+</div>
+</div>
+</div>
+
+<script>
+(function() {
+    function drawAttn() {
+        const svg = d3.select('#viz-ch10-attn');
+        svg.selectAll('*').remove();
+        const N = +document.getElementById('viz-ch10-seq').value;
+        const mode = document.getElementById('viz-ch10-mode').value;
+        const tileSize = +document.getElementById('viz-ch10-tile').value;
+        d3.select('#viz-ch10-seq-val').text(N);
+        d3.select('#viz-ch10-tile-val').text(tileSize);
+
+        const cellSize = Math.min(Math.floor(260 / N), 26);
+        const gridW = N * cellSize;
+        const startX = 80, startY = 50;
+
+        // Labels
+        svg.append('text').attr('x', startX + gridW/2).attr('y', startY - 20).text('Keys (K)')
+            .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',11).attr('text-anchor','middle');
+        svg.append('text').attr('x', startX - 25).attr('y', startY + gridW/2 + 4).text('Q')
+            .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',11).attr('text-anchor','middle')
+            .attr('transform', `rotate(-90, ${startX-25}, ${startY + gridW/2})`);
+
+        const colors = ['#00ff88','#00ddff','#ff00aa','#ff8800','#aa44ff','#ffdd00'];
+
+        for (let i = 0; i < N; i++) {
+            for (let j = 0; j < N; j++) {
+                const x = startX + j * cellSize;
+                const y = startY + i * cellSize;
+                const causal = j <= i;
+
+                let fill;
+                if (mode === 'prefill') {
+                    fill = causal ? `rgba(0,255,136,${0.15 + Math.random()*0.45})` : 'rgba(106,106,126,0.05)';
+                } else if (mode === 'decode') {
+                    if (i === N-1 && causal) fill = `rgba(255,0,170,${0.2 + Math.random()*0.5})`;
+                    else if (causal) fill = 'rgba(0,255,136,0.06)';
+                    else fill = 'rgba(106,106,126,0.03)';
+                } else {
+                    if (causal) {
+                        const ti = Math.floor(i/tileSize), tj = Math.floor(j/tileSize);
+                        const ci = (ti * 7 + tj) % colors.length;
+                        fill = colors[ci] + '55';
+                    } else fill = 'rgba(106,106,126,0.03)';
+                }
+
+                svg.append('rect').attr('x',x).attr('y',y).attr('width',cellSize-1).attr('height',cellSize-1)
+                    .attr('fill',fill).attr('rx',1);
+
+                if (mode === 'flash' && causal) {
+                    if (i % tileSize === 0) svg.append('line').attr('x1',x).attr('y1',y).attr('x2',x+cellSize-1).attr('y2',y).attr('stroke','rgba(255,255,255,0.15)');
+                    if (j % tileSize === 0) svg.append('line').attr('x1',x).attr('y1',y).attr('x2',x).attr('y2',y+cellSize-1).attr('stroke','rgba(255,255,255,0.15)');
+                }
+            }
+        }
+
+        // Legend
+        const ly = startY + gridW + 30;
+        const legendText = {
+            prefill: `PREFILL: All ${N} query rows active. ${N*N} scores. Compute-bound, GPU-friendly.`,
+            decode: `DECODE: Only last row active (1 new token → ${N} cached keys). Memory-bound.`,
+            flash: `FLASH: ${tileSize}×${tileSize} tiles in SRAM. Online softmax across tiles. Never materializes N×N.`
+        };
+        const legendColor = { prefill: '#00ff88', decode: '#ff00aa', flash: '#00ddff' };
+        svg.append('text').attr('x', startX).attr('y', ly).text(legendText[mode])
+            .attr('fill', legendColor[mode]).attr('font-family','JetBrains Mono, monospace').attr('font-size',11);
+    }
+
+    drawAttn();
+    d3.select('#viz-ch10-mode').on('change', drawAttn);
+    d3.select('#viz-ch10-seq').on('input', drawAttn);
+    d3.select('#viz-ch10-tile').on('input', drawAttn);
+})();
+</script>
 
 <h3>FlashDecoding: Parallelizing Over KV Length</h3>
 

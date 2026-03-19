@@ -278,10 +278,11 @@ pre code {
 .power {
     border-left: 3px solid var(--green-dim);
     background: rgba(0,255,136,0.04);
-    padding: 1rem 1.2rem;
+    padding: 0.8rem 1.2rem;
     margin: 1.5rem 0;
     border-radius: 0 6px 6px 0;
 }
+.power p { font-size: 0.85rem; line-height: 1.6; }
 .power.danger { border-left-color: var(--red); background: rgba(255,51,68,0.04); }
 .power.hack { border-left-color: var(--magenta); background: rgba(255,0,170,0.04); }
 .power.wild { border-left-color: var(--orange); background: rgba(255,136,0,0.04); }
@@ -460,13 +461,15 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 .tabbed .tab-panel > .diagram { margin: 0; border: none; border-radius: 0; }
 .tabbed .tab-panel > div, .tabbed .tab-panel > p { padding: 1rem 1.4rem; }
 
-/* Wire up to 3 tabs per group via unique name prefix */
+/* Wire up to 4 tabs per group via unique name prefix */
 .tabbed input.t1:checked ~ .tab-bar label[for$="-t1"] { color: var(--green); border-bottom-color: var(--green); }
 .tabbed input.t2:checked ~ .tab-bar label[for$="-t2"] { color: var(--green); border-bottom-color: var(--green); }
 .tabbed input.t3:checked ~ .tab-bar label[for$="-t3"] { color: var(--green); border-bottom-color: var(--green); }
+.tabbed input.t4:checked ~ .tab-bar label[for$="-t4"] { color: var(--green); border-bottom-color: var(--green); }
 .tabbed input.t1:checked ~ .tab-panel.p1 { display: block; }
 .tabbed input.t2:checked ~ .tab-panel.p2 { display: block; }
 .tabbed input.t3:checked ~ .tab-panel.p3 { display: block; }
+.tabbed input.t4:checked ~ .tab-panel.p4 { display: block; }
 
 .act-break {
     text-align: center;
@@ -484,8 +487,17 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
     .vs { grid-template-columns: 1fr; }
     nav { font-size: 9px; gap: 0.7rem; }
     body { font-size: 16px; }
-    pre { font-size: 11.5px; padding: 0.8rem; }
+    .content { padding: 3rem 0.8rem 4rem; }
+    pre { font-size: 10.5px; padding: 0.7rem; }
+    .diagram pre { font-size: 10.5px; }
+    .diagram { padding: 1rem; }
     .mc { width: 22px; height: 18px; font-size: 7px; }
+    .tabbed .tab-bar { flex-wrap: wrap; gap: 0; }
+    .tabbed .tab-bar label { padding: 0.4rem 0.7rem; font-size: 9px; letter-spacing: 0.05em; }
+    .power { padding: 0.6rem 0.8rem; }
+    .viz-controls { flex-wrap: wrap; gap: 0.5rem; }
+    h2 { font-size: 1.3rem; }
+    h3 { font-size: 1.1rem; }
 }
 </style>
 </head>
@@ -494,12 +506,10 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 
 <nav>
     <span class="nav-title">&gt;_ INFERENCE</span>
-    <a href="#ch1">text to numbers</a>
-    <a href="#ch2">simplest engine</a>
+    <a href="#ch1">the pipeline</a>
+    <a href="#ch2">text to numbers</a>
     <a href="#ch3">forward pass</a>
     <a href="#ch4">choosing words</a>
-    <span style="color:var(--border)">&middot;</span>
-    <a href="#ch5">the file</a>
     <span style="color:var(--border)">&middot;</span>
     <a href="inference-engine-deep-dive-2.html" style="color:var(--orange)">Part 2 &rarr;</a>
 </nav>
@@ -516,516 +526,175 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 </div>
 
 
-<!-- CHAPTER 1: FROM TEXT TO NUMBERS                                -->
+<!-- CHAPTER 1: THE PIPELINE                                        -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <section id="ch1">
-<h2>// 01 &mdash; From Text to Numbers</h2>
+<h2>// 01 &mdash; The Pipeline</h2>
+<div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--green)">EMBED</span> &rarr; <span style="color:var(--yellow)">NORM</span> &rarr; <span style="color:var(--magenta)">ATTN</span> &rarr; <span style="color:var(--orange)">FFN</span> &rarr; <span style="color:var(--cyan)">PROJECT</span> &rarr; <span style="color:var(--green)">SAMPLE</span> &nbsp; <span style="color:var(--green)">&larr; the whole map</span></div>
+<div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
+    Text in, probability distribution out. 86 matrix multiplies for GPT-2, 450 for Qwen.<br>
+    Same skeleton, different scale. This chapter is the map you'll reference for everything after.<span class="blink">_</span>
+</div>
 
-<p class="drop-cap">You type a question. The model reads it. But a neural network doesn't read English &mdash; it reads numbers. Before a single matrix multiplication fires, the text must be <em>translated</em>: split into pieces the model recognises (tokens), then converted into vectors of numbers the model can compute with (embeddings). This chapter is about that translation &mdash; the invisible step that happens before everything else.</p>
-
-<h3>Why Not Characters?</h3>
-
-<p>There's a fundamental tradeoff between <strong>vocabulary size</strong> and <strong>sequence length</strong>. Character-level encoding gives a tiny vocab (256 bytes) but long sequences &mdash; a single sentence might be 40 tokens. Word-level encoding gives short sequences but a vocabulary of 500K+ entries, and it can't handle new words like "ChatGPT" or "defenestration." Byte Pair Encoding (BPE) is the sweet spot: a learned vocabulary of subword pieces that balances both.</p>
+<p class="drop-cap">When you talk to a language model, words appear as if it's composing a thought. It isn't. Each word is a separate run through the same fixed pipeline &mdash; hundreds of matrix multiplications that read everything so far, produce a probability for every word it knows, and pick one. Append. Repeat. The model that wrote word five is the same machine that wrote word five thousand. Same weights, same path, same math.</p>
 
 <div class="tabbed">
-<input type="radio" name="tok-trade" id="tok-trade-t1" class="t1" checked>
-<input type="radio" name="tok-trade" id="tok-trade-t2" class="t2">
+<input type="radio" name="gen" id="gen-t1" class="t1" checked>
+<input type="radio" name="gen" id="gen-t2" class="t2">
 
 <div class="tab-bar">
-<label for="tok-trade-t1">The Tradeoff</label>
-<label for="tok-trade-t2">Why It Matters</label>
+<label for="gen-t1">Watch It Generate</label>
+<label for="gen-t2">The Loop</label>
 </div>
 
+<!-- ── TAB 1: interactive D3 viz ── -->
 <div class="tab-panel p1">
-<pre><code><span class="label">Comparison</span>
-<span class="cm">Approach        Vocab       "unhappiness" →         "The capital of France is Paris"</span>
-<span class="cm">─────────────────────────────────────────────────────────────────────────────────────</span>
-<span class="ty">Characters</span>      <span class="nm">256</span>         u,n,h,a,p,p,i,n,e,s,s   <span class="nm">30 tokens</span>   <span class="cm">(long sequence)</span>
-<span class="st">BPE (GPT-2)</span>     <span class="nm">50,257</span>      un|happ|iness            <span class="nm">8 tokens</span>    <span class="cm">(sweet spot)</span>
-<span class="fn">BPE (Qwen)</span>      <span class="nm">152,064</span>     unhappiness              <span class="nm">6 tokens</span>    <span class="cm">(bigger vocab → shorter)</span>
-<span class="kw">Words</span>           <span class="nm">~500K</span>       unhappiness              <span class="nm">6 tokens</span>    <span class="cm">(but "ChatGPT" = ???)</span>
-</code></pre>
+<div style="padding: 0.6rem 1rem 0;">
+<svg id="viz-ch1-auto" viewBox="0 0 780 185" style="width:100%; height:auto; display:block;"></svg>
+<div class="viz-controls" style="padding-bottom:0.5rem;">
+<button id="viz-ch1-auto-start">Generate</button>
+<button id="viz-ch1-auto-reset" class="secondary">Reset</button>
+<span id="viz-ch1-auto-status" style="color: var(--text-dim);"></span>
+</div>
+</div>
 </div>
 
+<!-- ── TAB 2: the loop ── -->
 <div class="tab-panel p2">
-<div>
-<p>Each token costs compute. In Qwen-3.5 27B, every token passes through 48 transformer layers, each with attention and feed-forward operations. The rough cost: <strong>~44 billion FLOPs per token</strong>. Fewer tokens means proportionally less work.</p>
-<p>This is why vocabulary size matters for speed. GPT-2's 50K vocab encodes English at ~4.5 characters per token. Qwen's 152K vocab achieves ~5.2 characters per token. That 15% reduction in token count translates directly to 15% less computation, 15% less KV cache memory, 15% faster inference.</p>
-<p style="color: var(--cyan);">Vocabulary size × sequence length is the budget. BPE lets you tune the tradeoff.</p>
-</div>
-</div>
-</div>
-
-<h3>Byte Pair Encoding</h3>
-
-<p>BPE is a compression algorithm repurposed for tokenization. The idea: start with characters, count all adjacent pairs, merge the most frequent pair into a single token, repeat. After a few thousand merges, common words become single tokens while rare words get split into recognizable pieces.</p>
-
-<pre><code><span class="label">Worked Example</span>
-<span class="cm"># Corpus: "low lower newest lowest"</span>
-
-<span class="kw">Step 0</span> <span class="cm">(characters):</span>  l o w &lt;/w&gt;  l o w e r &lt;/w&gt;  n e w e s t &lt;/w&gt;  l o w e s t &lt;/w&gt;
-
-<span class="kw">Step 1</span>  merge <span class="st">"l"+"o"</span> → <span class="fn">"lo"</span>    <span class="cm">(most frequent pair, appears 4 times)</span>
-        <span class="fn">lo</span> w &lt;/w&gt;  <span class="fn">lo</span> w e r &lt;/w&gt;  n e w e s t &lt;/w&gt;  <span class="fn">lo</span> w e s t &lt;/w&gt;
-
-<span class="kw">Step 2</span>  merge <span class="st">"lo"+"w"</span> → <span class="fn">"low"</span>
-        <span class="fn">low</span> &lt;/w&gt;  <span class="fn">low</span> e r &lt;/w&gt;  n e w e s t &lt;/w&gt;  <span class="fn">low</span> e s t &lt;/w&gt;
-
-<span class="kw">Step 3</span>  merge <span class="st">"e"+"s"</span> → <span class="fn">"es"</span>
-        <span class="fn">low</span> &lt;/w&gt;  <span class="fn">low</span> e r &lt;/w&gt;  n e w <span class="fn">es</span> t &lt;/w&gt;  <span class="fn">low</span> <span class="fn">es</span> t &lt;/w&gt;
-
-<span class="kw">Step 4</span>  merge <span class="st">"es"+"t"</span> → <span class="fn">"est"</span>
-        <span class="fn">low</span> &lt;/w&gt;  <span class="fn">low</span> e r &lt;/w&gt;  n e w <span class="fn">est</span> &lt;/w&gt;  <span class="fn">low</span> <span class="fn">est</span> &lt;/w&gt;
-
-<span class="kw">Step 5</span>  merge <span class="st">"low"+"est"</span> → <span class="fn">"lowest"</span>
-        <span class="fn">low</span> &lt;/w&gt;  <span class="fn">low</span> e r &lt;/w&gt;  n e w <span class="fn">est</span> &lt;/w&gt;  <span class="fn">lowest</span> &lt;/w&gt;
-
-<span class="cm"># After thousands of merges: common words = single tokens.</span>
-<span class="cm"># "lowest" → 1 token.  "unhappiness" → "un" + "happiness" → 2 tokens.</span>
-<span class="cm"># Unknown words always decompose: "defenestration" → "def" + "en" + "est" + "ration"</span>
+<pre><code><span class="label">The whole loop</span>
+<span class="kw">def</span> <span class="fn">generate</span>(prompt_tokens, model, max_tokens=<span class="nm">50</span>):
+    tokens = list(prompt_tokens)
+    <span class="kw">for</span> _ <span class="kw">in</span> range(max_tokens):
+        logits = forward_pass(tokens, model)   <span class="cm"># ALL tokens, ALL layers</span>
+        probs = softmax(logits[-<span class="nm">1</span>] / temperature)
+        tokens.append(sample(probs))
+        <span class="kw">if</span> tokens[-<span class="nm">1</span>] == eos_token: <span class="kw">break</span>
+    <span class="kw">return</span> tokens
+<span class="cm"># forward_pass → pick a word → append → repeat. That's it.</span>
 </code></pre>
-
-<p>The key insight: BPE <em>never fails</em>. Any string of bytes can be tokenized because the base vocabulary includes all 256 byte values. Common patterns get compressed; rare ones fall back to characters. This is why LLMs can handle code, URLs, emoji, and text in any language.</p>
-
-<h3>See It Split</h3>
-
-<div class="viz-container">
-<div style="margin-bottom:1rem;">
-    <label style="font-family:'JetBrains Mono',monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:var(--cyan); display:block; margin-bottom:0.4rem;">Type anything</label>
-    <input type="text" id="tok-input" value="The old house at the end of the street was empty." style="width:100%; padding:0.6rem 0.8rem; background:var(--bg-code); color:var(--text); border:1px solid var(--border); border-radius:4px; font-family:'JetBrains Mono',monospace; font-size:14px;">
 </div>
-<div id="tok-output" style="display:flex; flex-wrap:wrap; gap:4px; margin-bottom:1rem; min-height:40px;"></div>
-<div id="tok-stats" style="font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--text-dim);"></div>
 </div>
 
 <script>
 (function() {
-    // Pre-computed BPE-like token dictionary (simplified: maps common words/subwords to IDs)
-    const VOCAB = {
-        'The':791, 'the':279, ' the':262, ' old':1392, ' house':3778, ' at':520,
-        ' end':842, ' of':315, ' street':6822, ' was':574, ' empty':4384,
-        ' is':374, ' a':264, ' an':281, ' in':304, ' on':356, ' to':311,
-        ' and':323, ' for':369, ' it':433, ' that':430, ' with':449,
-        ' from':505, ' this':456, ' but':719, ' not':539, ' are':527,
-        ' be':614, ' have':617, ' has':706, ' had':750, ' will':481,
-        ' would':561, ' can':649, ' could':714, ' should':1288,
-        ' I':358, ' you':498, ' he':339, ' she':559, ' we':584, ' they':814,
-        ' my':590, ' your':634, ' his':465, ' her':607,
-        ' do':656, ' does':947, ' did':1550, ' what':644, ' which':902,
-        ' who':889, ' when':994, ' where':1332, ' how':1174, ' why':3170,
-        ' all':682, ' each':1855, ' every':1475, ' some':1063, ' many':1690,
-        ' more':810, ' most':1455, ' other':1537, ' no':912, ' up':709,
-        ' out':704, ' just':1101, ' very':1407, ' so':779, ' like':1093,
-        ' about':922, ' into':656, ' over':927, ' after':1044, ' before':1603,
-        ' between':1990, ' under':1234, ' through':1059, ' new':649,
-        ' first':717, ' last':1048, ' long':890, ' great':1049, ' little':1800,
-        ' own':898, ' good':922, ' big':1588, ' small':1613, ' right':1315,
-        ' large':2236, ' next':1828, ' early':2440, ' young':2793,
-        ' important':1593, ' few':2166, ' public':1674, ' bad':3919,
-        ' same':976, ' able':2904, ' time':640, ' way':1648, ' day':1110,
-        ' man':893, ' woman':2415, ' world':1526, ' life':1271, ' hand':1450,
-        ' part':961, ' child':1987, ' eye':5765, ' place':1103,
-        ' work':990, ' week':2462, ' case':1389, ' point':966, ' company':1664,
-        ' number':1661, ' group':1461, ' problem':3683, ' fact':958,
-        ' people':799, ' state':1180, ' thing':1517, ' word':1573,
-        ' water':3090, ' money':2775, ' story':2706, ' power':2108,
-        ' year':614, ' back':736, ' two':734, ' three':2380, ' four':3023,
-        ' five':2816, ' six':4008, ' seven':4320, ' eight':4570, ' nine':5765,
-        ' ten':3478, ' one':530, ' only':865, ' also':1083, ' now':783,
-        ' even':772, ' still':1391, ' well':1107, ' then':840, ' here':1131,
-        ' there':612,
-        'Hello':9906, ' hello':23748, ' Hello':22691, ' world':2017,
-        ' cat':3466, ' dog':5765, ' fish':4580, ' bird':7284,
-        ' France':4949, ' Paris':6342, ' Japan':4852, ' Tokyo':27540,
-        ' computer':6500, ' algorithm':20710, ' software':4382, ' server':4140,
-        ' neural':17019, ' network':3127, ' model':1646, ' token':4037,
-        ' tokens':11657, ' embedding':45765, ' vector':18364,
-        ' king':11370, ' queen':16599, ' love':2141, ' happy':5087,
-        ' sad':5765, ' afraid':9498, ' angry':12033,
-        ' bread':13282, ' rice':13608, ' cheese':14573, ' apple':24434,
-        ' capital':6413,
-        '.':13, ',':11, '!':0, '?':30, ':':25, ';':26, '"':1, "'":6,
-        ' ':220, '-':12, '(':7, ')':8, '\n':198,
-        'a':64, 'b':65, 'c':66, 'd':67, 'e':68, 'f':69, 'g':70, 'h':71,
-        'i':72, 'j':73, 'k':74, 'l':75, 'm':76, 'n':77, 'o':78, 'p':79,
-        'q':80, 'r':81, 's':82, 't':83, 'u':84, 'v':85, 'w':86, 'x':87,
-        'y':88, 'z':89,
-        'A':32, 'B':33, 'C':34, 'D':35, 'E':36, 'F':37, 'G':38, 'H':39,
-        'I':40, 'J':41, 'K':42, 'L':43, 'M':44, 'N':45, 'O':46, 'P':47,
-        'Q':48, 'R':49, 'S':50, 'T':51, 'U':52, 'V':53, 'W':54, 'X':55,
-        'Y':56, 'Z':57
-    };
+    const svg = d3.select('#viz-ch1-auto');
+    const W = 780, H = 185;
+    const promptTokens = ['The', ' capital', ' of', ' France'];
+    const genTokens = [' is', ' Paris', ',', ' the', ' city', ' of', ' light', '.'];
+    let step = 0, animTimer = null;
 
-    // Sort keys by length descending for greedy matching
-    const SORTED_KEYS = Object.keys(VOCAB).sort((a, b) => b.length - a.length);
+    function draw() {
+        svg.selectAll('*').remove();
+        const all = [...promptTokens, ...genTokens.slice(0, Math.max(0, step - 1))];
 
-    // Token colors (cycle through palette)
-    const COLORS = [
-        'rgba(0,255,136,0.22)', 'rgba(0,221,255,0.22)', 'rgba(255,0,170,0.22)',
-        'rgba(255,136,0,0.22)', 'rgba(255,221,0,0.22)', 'rgba(68,136,255,0.22)',
-        'rgba(170,68,255,0.22)', 'rgba(255,51,68,0.22)'
-    ];
-    const BORDER_COLORS = [
-        'rgba(0,255,136,0.5)', 'rgba(0,221,255,0.5)', 'rgba(255,0,170,0.5)',
-        'rgba(255,136,0,0.5)', 'rgba(255,221,0,0.5)', 'rgba(68,136,255,0.5)',
-        'rgba(170,68,255,0.5)', 'rgba(255,51,68,0.5)'
-    ];
+        // Token row
+        let tx = 15;
+        const tokenG = svg.append('g').attr('transform','translate(0,10)');
+        all.forEach((t, i) => {
+            const isPrompt = i < promptTokens.length;
+            const isNew = !isPrompt && i === all.length - 1 && step > 1;
+            const color = isNew ? '#ff00aa' : isPrompt ? '#00ff88' : '#00ddff';
+            const bgColor = isNew ? 'rgba(255,0,170,0.15)' : isPrompt ? 'rgba(0,255,136,0.08)' : 'rgba(0,221,255,0.08)';
+            const tw = t.length * 7.5 + 10;
+            tokenG.append('rect').attr('x',tx).attr('y',0).attr('width',tw).attr('height',22)
+                .attr('fill',bgColor).attr('rx',3);
+            if(isNew) tokenG.append('rect').attr('x',tx).attr('y',0).attr('width',tw).attr('height',22)
+                .attr('stroke',color).attr('stroke-width',1.5).attr('fill','none').attr('rx',3);
+            tokenG.append('text').attr('x',tx+5).attr('y',15).text(t)
+                .attr('fill',color).attr('font-family','JetBrains Mono, monospace').attr('font-size',11);
+            tx += tw + 3;
+        });
 
-    function tokenize(text) {
-        const tokens = [];
-        let i = 0;
-        while (i < text.length) {
-            let matched = false;
-            for (const key of SORTED_KEYS) {
-                if (text.substring(i, i + key.length) === key) {
-                    tokens.push({ text: key, id: VOCAB[key] });
-                    i += key.length;
-                    matched = true;
-                    break;
+        // Forward pass — compact
+        if (step >= 1) {
+            const fpG = svg.append('g').attr('transform','translate(15,48)');
+            const layers = ['embed','L1','L2','L3','\u2026','L12','norm','logits'];
+            const layerW = 52, gap = 3;
+            let lx = 0;
+            layers.forEach((l, i) => {
+                fpG.append('rect').attr('x', lx).attr('y', 0).attr('width', layerW).attr('height', 20)
+                    .attr('fill','rgba(0,221,255,0.12)').attr('stroke','#00ddff33').attr('rx', 2);
+                fpG.append('text').attr('x', lx + layerW/2).attr('y', 14).text(l)
+                    .attr('fill','#00ddff').attr('font-family','JetBrains Mono, monospace')
+                    .attr('font-size',9).attr('text-anchor','middle');
+                lx += layerW + gap;
+                if (i < layers.length - 1) {
+                    fpG.append('text').attr('x', lx - gap/2).attr('y', 14).text('\u203a')
+                        .attr('fill','#6a6a7e').attr('font-size',10).attr('text-anchor','middle');
                 }
-            }
-            if (!matched) {
-                // Fallback: single character
-                const ch = text[i];
-                tokens.push({ text: ch, id: ch.charCodeAt(0) });
-                i++;
+            });
+            // result arrow
+            if (step > 1) {
+                const nextTok = genTokens[step - 2] || '';
+                fpG.append('text').attr('x', lx + 2).attr('y', 14).text('\u2192 "' + nextTok.trim() + '"')
+                    .attr('fill','#ff00aa').attr('font-family','JetBrains Mono, monospace').attr('font-size',10);
             }
         }
-        return tokens;
+
+        // Output
+        if (step > 1) {
+            const outG = svg.append('g').attr('transform','translate(15,90)');
+            const outText = promptTokens.join('') + genTokens.slice(0, step - 1).join('');
+            outG.append('text').attr('x',0).attr('y',12).text(outText)
+                .attr('fill','#c8c8d4').attr('font-family','JetBrains Mono, monospace').attr('font-size',12);
+            const cursorX = outText.length * 7.2;
+            outG.append('rect').attr('x',cursorX).attr('y',1).attr('width',7).attr('height',14)
+                .attr('fill','#00ff88').attr('opacity',0.7)
+                .append('animate').attr('attributeName','opacity')
+                .attr('values','0.7;0;0.7').attr('dur','1s').attr('repeatCount','indefinite');
+        }
+
+        // Step counter — tight
+        const label = step === 0 ? 'Hit generate.' : step === 1 ? 'Processing prompt\u2026' :
+            `Run ${step-1}/${genTokens.length}: ${all.length} tokens \u2192 all layers \u2192 one word`;
+        const labelColor = step === 0 ? '#6a6a7e' : step === 1 ? '#00ff88' : '#ffdd00';
+        svg.append('text').attr('x', 15).attr('y', H - 10).text(label)
+            .attr('fill',labelColor).attr('font-family','JetBrains Mono, monospace').attr('font-size',10);
     }
 
-    function render() {
-        const text = document.getElementById('tok-input').value;
-        const tokens = tokenize(text);
-        const output = document.getElementById('tok-output');
-        const stats = document.getElementById('tok-stats');
+    draw();
 
-        output.innerHTML = '';
-        tokens.forEach((tok, i) => {
-            const el = document.createElement('span');
-            const ci = i % COLORS.length;
-            el.style.cssText = `
-                display:inline-flex; flex-direction:column; align-items:center;
-                background:${COLORS[ci]}; border:1px solid ${BORDER_COLORS[ci]};
-                border-radius:4px; padding:0.3rem 0.5rem; font-family:'JetBrains Mono',monospace;
-                font-size:13px; color:var(--text); min-width:28px; text-align:center;
-            `;
-            const textSpan = document.createElement('span');
-            textSpan.textContent = tok.text.replace(/ /g, '·').replace(/\n/g, '↵');
-            const idSpan = document.createElement('span');
-            idSpan.style.cssText = 'font-size:9px; color:var(--text-dim); margin-top:2px;';
-            idSpan.textContent = tok.id;
-            el.appendChild(textSpan);
-            el.appendChild(idSpan);
-            output.appendChild(el);
-        });
-
-        const chars = text.length;
-        const ratio = tokens.length > 0 ? (chars / tokens.length).toFixed(1) : '0';
-        stats.innerHTML = `<span style="color:var(--green)">${tokens.length}</span> tokens · ` +
-            `<span style="color:var(--cyan)">${chars}</span> characters · ` +
-            `<span style="color:var(--yellow)">${ratio}</span> chars/token`;
-    }
-
-    document.getElementById('tok-input').addEventListener('input', render);
-    render();
-})();
-</script>
-
-<p style="margin-top:1rem;">Notice how common words like "the" and "was" become single tokens, while the tokenizer splits rarer words into subword pieces. A larger vocabulary (like Qwen's 152K vs GPT-2's 50K) can encode more words as single tokens &mdash; fewer tokens, faster inference.</p>
-
-<h3>Embedding: Words as Points in Space</h3>
-
-<p>Tokenization gave us a sequence of integer IDs. Now each ID needs to become something a neural network can process: a <strong>vector</strong>. The embedding table is a giant lookup: token ID &rarr; a vector of 768 numbers (GPT-2) or 5,120 numbers (Qwen-3.5 27B). But <em>why does this work?</em> Because training pushes similar words to nearby points. The numbers aren't arbitrary &mdash; they encode meaning along learned dimensions.</p>
-
-<div class="tabbed">
-<input type="radio" name="tok-embed" id="tok-embed-t1" class="t1" checked>
-<input type="radio" name="tok-embed" id="tok-embed-t2" class="t2">
-
-<div class="tab-bar">
-<label for="tok-embed-t1">Intuition</label>
-<label for="tok-embed-t2">The Lookup (code)</label>
-</div>
-
-<div class="tab-panel p1">
-<pre><code><span class="label">Intuition</span>
-<span class="cm">The embedding table: one row per token, 768 columns.</span>
-
-Token <span class="nm">1820</span> (<span class="st">"cat"</span>)      → [<span class="nm">0.12</span>, <span class="nm">-0.34</span>, <span class="nm">0.56</span>, <span class="nm">0.78</span>, <span class="nm">-0.91</span>, ...]  <span class="cm">768 numbers</span>
-Token <span class="nm">3290</span> (<span class="st">"dog"</span>)      → [<span class="nm">0.14</span>, <span class="nm">-0.31</span>, <span class="nm">0.52</span>, <span class="nm">0.81</span>, <span class="nm">-0.88</span>, ...]  <span class="cm">similar!</span>
-Token <span class="nm">9017</span> (<span class="st">"uranium"</span>)  → [<span class="nm">-1.2</span>, <span class="nm">0.89</span>, <span class="nm">-0.03</span>, <span class="nm">0.11</span>, <span class="nm">0.67</span>, ...]  <span class="cm">very different</span>
-
-<span class="fn">"cat"</span> and <span class="fn">"dog"</span> are close because training saw them in similar contexts.
-<span class="fn">"cat"</span> and <span class="fn">"uranium"</span> are far because they never appear in the same patterns.
-
-<span class="cm">Think of it as GPS for meaning: just as (lat, lon) locates a city,</span>
-<span class="cm">768 numbers locate a concept in meaning-space.</span>
-</code></pre>
-</div>
-
-<div class="tab-panel p2">
-<pre><code><span class="label">Python</span>
-<span class="cm"># The entire embedding step:</span>
-x = embedding_table[token_ids]   <span class="cm"># shape: [seq_len, 768]</span>
-
-<span class="cm"># That's it. A table lookup. No math, no matrix multiply.</span>
-<span class="cm"># embedding_table.shape = [50257, 768]   for GPT-2</span>
-<span class="cm">#                       = [152064, 5120]  for Qwen-3.5 27B</span>
-</code></pre>
-</div>
-</div>
-
-<h3>The Shape of Meaning</h3>
-
-<p>If embeddings encode meaning as position, then similar words should cluster together &mdash; and they do. Below: 80 words from real embedding spaces, projected to 2D. Even in this flattened shadow, the structure is visible.</p>
-
-<div class="viz-container">
-<svg id="viz-ch1-embed" viewBox="0 0 780 500" style="width:100%; height:auto; display:block;"></svg>
-<div style="font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim); margin-top:0.8rem; text-align:center;">
-    Hover a word to see its nearest neighbors. These 80 words live in 768-dimensional space &mdash; this is a 2D shadow.
-</div>
-</div>
-
-<script>
-(function() {
-    const svg = d3.select('#viz-ch1-embed');
-    const margin = {top: 20, right: 20, bottom: 20, left: 20};
-    const w = 780 - margin.left - margin.right;
-    const h = 500 - margin.top - margin.bottom;
-    const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
-
-    // Pre-computed 2D coordinates (simulating t-SNE/UMAP of real embeddings)
-    const words = [
-        // Animals (cyan)
-        {word:'cat', x:0.12, y:0.35, cat:'animals'}, {word:'dog', x:0.15, y:0.32, cat:'animals'},
-        {word:'fish', x:0.09, y:0.40, cat:'animals'}, {word:'bird', x:0.17, y:0.38, cat:'animals'},
-        {word:'horse', x:0.14, y:0.28, cat:'animals'}, {word:'whale', x:0.07, y:0.43, cat:'animals'},
-        {word:'tiger', x:0.19, y:0.30, cat:'animals'}, {word:'bear', x:0.20, y:0.34, cat:'animals'},
-        {word:'lion', x:0.18, y:0.26, cat:'animals'}, {word:'eagle', x:0.16, y:0.42, cat:'animals'},
-        {word:'shark', x:0.06, y:0.38, cat:'animals'}, {word:'wolf', x:0.21, y:0.31, cat:'animals'},
-        {word:'rabbit', x:0.13, y:0.37, cat:'animals'},
-        // Countries (green)
-        {word:'France', x:0.72, y:0.15, cat:'countries'}, {word:'Japan', x:0.78, y:0.12, cat:'countries'},
-        {word:'Brazil', x:0.68, y:0.19, cat:'countries'}, {word:'Egypt', x:0.75, y:0.22, cat:'countries'},
-        {word:'Germany', x:0.71, y:0.10, cat:'countries'}, {word:'India', x:0.80, y:0.17, cat:'countries'},
-        {word:'China', x:0.82, y:0.14, cat:'countries'}, {word:'Italy', x:0.69, y:0.13, cat:'countries'},
-        {word:'Mexico', x:0.66, y:0.21, cat:'countries'}, {word:'Russia', x:0.76, y:0.08, cat:'countries'},
-        {word:'Spain', x:0.70, y:0.16, cat:'countries'}, {word:'Canada', x:0.65, y:0.11, cat:'countries'},
-        // Numbers (yellow)
-        {word:'one', x:0.40, y:0.72, cat:'numbers'}, {word:'two', x:0.42, y:0.75, cat:'numbers'},
-        {word:'three', x:0.44, y:0.73, cat:'numbers'}, {word:'four', x:0.46, y:0.76, cat:'numbers'},
-        {word:'five', x:0.43, y:0.78, cat:'numbers'}, {word:'ten', x:0.48, y:0.74, cat:'numbers'},
-        {word:'hundred', x:0.50, y:0.71, cat:'numbers'}, {word:'thousand', x:0.52, y:0.73, cat:'numbers'},
-        {word:'million', x:0.54, y:0.70, cat:'numbers'}, {word:'zero', x:0.38, y:0.74, cat:'numbers'},
-        {word:'twenty', x:0.47, y:0.79, cat:'numbers'}, {word:'fifty', x:0.49, y:0.77, cat:'numbers'},
-        // Emotions (magenta)
-        {word:'happy', x:0.30, y:0.12, cat:'emotions'}, {word:'sad', x:0.33, y:0.08, cat:'emotions'},
-        {word:'angry', x:0.36, y:0.14, cat:'emotions'}, {word:'afraid', x:0.28, y:0.10, cat:'emotions'},
-        {word:'love', x:0.32, y:0.16, cat:'emotions'}, {word:'hate', x:0.35, y:0.06, cat:'emotions'},
-        {word:'joy', x:0.29, y:0.14, cat:'emotions'}, {word:'fear', x:0.27, y:0.07, cat:'emotions'},
-        {word:'hope', x:0.31, y:0.18, cat:'emotions'}, {word:'grief', x:0.34, y:0.05, cat:'emotions'},
-        {word:'pride', x:0.37, y:0.17, cat:'emotions'}, {word:'shame', x:0.26, y:0.09, cat:'emotions'},
-        // Food (orange)
-        {word:'bread', x:0.82, y:0.65, cat:'food'}, {word:'rice', x:0.85, y:0.70, cat:'food'},
-        {word:'cheese', x:0.80, y:0.68, cat:'food'}, {word:'apple', x:0.78, y:0.72, cat:'food'},
-        {word:'chicken', x:0.84, y:0.63, cat:'food'}, {word:'soup', x:0.87, y:0.67, cat:'food'},
-        {word:'pasta', x:0.83, y:0.72, cat:'food'}, {word:'fish', x:0.79, y:0.66, cat:'food'},
-        {word:'butter', x:0.81, y:0.74, cat:'food'}, {word:'sugar', x:0.86, y:0.71, cat:'food'},
-        {word:'salt', x:0.88, y:0.64, cat:'food'}, {word:'beef', x:0.83, y:0.61, cat:'food'},
-        // Tech (blue)
-        {word:'computer', x:0.15, y:0.78, cat:'tech'}, {word:'software', x:0.18, y:0.82, cat:'tech'},
-        {word:'algorithm', x:0.12, y:0.85, cat:'tech'}, {word:'database', x:0.20, y:0.80, cat:'tech'},
-        {word:'server', x:0.22, y:0.84, cat:'tech'}, {word:'network', x:0.17, y:0.76, cat:'tech'},
-        {word:'internet', x:0.24, y:0.78, cat:'tech'}, {word:'program', x:0.14, y:0.81, cat:'tech'},
-        {word:'memory', x:0.19, y:0.86, cat:'tech'}, {word:'processor', x:0.21, y:0.76, cat:'tech'},
-        {word:'keyboard', x:0.16, y:0.88, cat:'tech'}, {word:'screen', x:0.23, y:0.82, cat:'tech'},
-        {word:'code', x:0.13, y:0.83, cat:'tech'},
-    ];
-
-    const catColors = {
-        animals: '#00ddff', countries: '#00ff88', numbers: '#ffdd00',
-        emotions: '#ff00aa', food: '#ff8800', tech: '#4488ff'
-    };
-
-    const xScale = d3.scaleLinear().domain([0, 1]).range([30, w - 30]);
-    const yScale = d3.scaleLinear().domain([0, 1]).range([30, h - 30]);
-
-    // Add subtle grid
-    for (let i = 0; i <= 10; i++) {
-        g.append('line').attr('x1', xScale(i/10)).attr('y1', 0).attr('x2', xScale(i/10)).attr('y2', h)
-            .attr('stroke', '#1e1e2e').attr('stroke-width', 0.5);
-        g.append('line').attr('x1', 0).attr('y1', yScale(i/10)).attr('x2', w).attr('y2', yScale(i/10))
-            .attr('stroke', '#1e1e2e').attr('stroke-width', 0.5);
-    }
-
-    // Lines group (drawn behind dots)
-    const linesGroup = g.append('g');
-
-    // Find k nearest neighbors
-    function knn(word, k) {
-        const wx = word.x, wy = word.y;
-        return words
-            .filter(w => w !== word)
-            .map(w => ({...w, dist: Math.sqrt((w.x - wx)**2 + (w.y - wy)**2)}))
-            .sort((a, b) => a.dist - b.dist)
-            .slice(0, k);
-    }
-
-    // Draw dots
-    const dots = g.selectAll('.embed-dot')
-        .data(words).enter().append('g').attr('class', 'embed-dot')
-        .attr('transform', d => `translate(${xScale(d.x)},${yScale(d.y)})`);
-
-    dots.append('circle').attr('r', 4)
-        .attr('fill', d => catColors[d.cat])
-        .attr('opacity', 0.8)
-        .style('cursor', 'pointer');
-
-    dots.append('text')
-        .attr('x', 7).attr('y', 3)
-        .text(d => d.word)
-        .attr('fill', d => catColors[d.cat])
-        .attr('font-family', 'JetBrains Mono, monospace')
-        .attr('font-size', 10)
-        .attr('opacity', 0.7)
-        .style('pointer-events', 'none');
-
-    // Hover interactions
-    dots.on('mouseenter', function(event, d) {
-        const neighbors = knn(d, 5);
-        linesGroup.selectAll('*').remove();
-        neighbors.forEach(n => {
-            linesGroup.append('line')
-                .attr('x1', xScale(d.x)).attr('y1', yScale(d.y))
-                .attr('x2', xScale(n.x)).attr('y2', yScale(n.y))
-                .attr('stroke', catColors[d.cat])
-                .attr('stroke-width', 1)
-                .attr('stroke-dasharray', '3,3')
-                .attr('opacity', 0.5);
-        });
-        // Highlight hovered word
-        d3.select(this).select('circle').attr('r', 7).attr('opacity', 1);
-        d3.select(this).select('text').attr('font-size', 12).attr('opacity', 1).attr('font-weight', 'bold');
-        // Dim others
-        dots.filter(w => w !== d && !neighbors.find(n => n.word === w.word && n.cat === w.cat))
-            .select('circle').attr('opacity', 0.15);
-        dots.filter(w => w !== d && !neighbors.find(n => n.word === w.word && n.cat === w.cat))
-            .select('text').attr('opacity', 0.15);
-        // Highlight neighbors
-        dots.filter(w => neighbors.find(n => n.word === w.word && n.cat === w.cat))
-            .select('circle').attr('r', 6).attr('opacity', 1);
-        dots.filter(w => neighbors.find(n => n.word === w.word && n.cat === w.cat))
-            .select('text').attr('opacity', 1);
-    }).on('mouseleave', function() {
-        linesGroup.selectAll('*').remove();
-        dots.select('circle').attr('r', 4).attr('opacity', 0.8);
-        dots.select('text').attr('font-size', 10).attr('opacity', 0.7).attr('font-weight', 'normal');
+    d3.select('#viz-ch1-auto-start').on('click', function() {
+        if (animTimer) return;
+        const totalSteps = genTokens.length + 1;
+        function tick() {
+            step++;
+            if (step > totalSteps) { animTimer = null; d3.select('#viz-ch1-auto-status').text('8 words, 8 full passes.'); return; }
+            draw();
+            d3.select('#viz-ch1-auto-status').text(
+                step === 1 ? 'Processing prompt\u2026' :
+                `"${genTokens.slice(0, step - 1).join('')}"`
+            );
+            animTimer = setTimeout(tick, step === 1 ? 500 : 350);
+        }
+        tick();
     });
 
-    // Legend
-    const legend = svg.append('g').attr('transform', `translate(${margin.left + 10}, ${h + margin.top + 10})`);
-    const cats = [
-        {label:'Animals', cat:'animals'}, {label:'Countries', cat:'countries'},
-        {label:'Numbers', cat:'numbers'}, {label:'Emotions', cat:'emotions'},
-        {label:'Food', cat:'food'}, {label:'Tech', cat:'tech'}
-    ];
-    cats.forEach((c, i) => {
-        const lx = i * 125;
-        legend.append('circle').attr('cx', lx).attr('cy', 0).attr('r', 4).attr('fill', catColors[c.cat]);
-        legend.append('text').attr('x', lx + 8).attr('y', 4).text(c.label)
-            .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 10);
+    d3.select('#viz-ch1-auto-reset').on('click', function() {
+        if (animTimer) { clearTimeout(animTimer); animTimer = null; }
+        step = 0;
+        d3.select('#viz-ch1-auto-status').text('');
+        draw();
     });
 })();
 </script>
-
-<h3>Embedding Arithmetic</h3>
-
-<p>The embedding space has learned <em>relational structure</em>. The famous example: <code>king &minus; man + woman &asymp; queen</code>. This isn't a party trick &mdash; it shows that directions in the space correspond to concepts like gender, geography, and tense.</p>
-
-<div class="diagram">
-<span class="diagram-label">Relational Structure in Embedding Space</span>
-<pre>
-  <span class="fn">king</span>  ────────────── <span class="fn">queen</span>
-    │    <span class="cm">gender</span>          │
-    │    <span class="cm">direction</span>       │
-  <span class="fn">man</span>   ────────────── <span class="fn">woman</span>
-
-  <span class="st">France</span> ───────────── <span class="st">Paris</span>
-    │    <span class="cm">capital</span>         │
-    │    <span class="cm">direction</span>       │
-  <span class="st">Japan</span>  ───────────── <span class="st">Tokyo</span>
-
-  <span class="ty">walk</span>  ────────────── <span class="ty">walked</span>
-    │    <span class="cm">tense</span>           │
-    │    <span class="cm">direction</span>       │
-  <span class="ty">swim</span>  ────────────── <span class="ty">swam</span>
-</pre>
-</div>
-
-<div class="power zen">
-<div class="power-label">Why This Works</div>
-<p>This arithmetic works because the embedding space is approximately <em>linear</em> in meaning. Directions correspond to relationships. This linearity is an emergent property of training &mdash; nobody designed it. The model learned that "king" and "queen" differ in the same way "man" and "woman" differ, because it saw them in analogous contexts billions of times.</p>
-</div>
-
-<h3>Tied Weights: The Elegant Trick</h3>
-
-<p>Here's a beautiful design detail: the embedding table appears <em>twice</em> in the model. Once at the very beginning (token ID &rarr; vector) and once at the very end (hidden state &rarr; logits). The model is literally asking: "which token's embedding vector is closest to my output?"</p>
-
-<div class="diagram">
-<span class="diagram-label">Weight Tying</span>
-<pre>
-  <span class="kw">INPUT:</span>   token <span class="nm">1820</span> (<span class="st">"cat"</span>) → embedding_table[<span class="nm">1820</span>] → [<span class="nm">0.12</span>, <span class="nm">-0.34</span>, ...]
-                                       │
-                          ╔═══════════════════════════╗
-                          ║  <span class="fn">48 transformer blocks...</span>  ║
-                          ╚═══════════════════════════╝
-                                       │
-  <span class="kw">OUTPUT:</span>  hidden_state → hidden_state @ embedding_table<span class="ty">.T</span> → logits [<span class="nm">152,064</span>]
-                                       │
-             highest score: token <span class="nm">318</span> → <span class="st">"is"</span>
-
-  <span class="cm">Same table, used forwards and backwards.</span>
-  <span class="cm">Saves memory. Forces input and output to share the same meaning-space.</span>
-</pre>
-</div>
-
-<div class="power">
-<div class="power-label">By the Numbers</div>
-<p>Qwen-3.5 27B: <strong>152,064 tokens &times; 5,120 dimensions = 778 million parameters</strong> (~1.5 GB at FP16). That's ~5% of the model &mdash; small, but it's every word the model can read or write. The remaining 95% is the transformer blocks that <em>process</em> these vectors.</p>
-</div>
-
-<p>The text is now numbers. Each token has been looked up in the embedding table, producing a sequence of 5,120-dimensional vectors. Position information will be added via RoPE (we'll see exactly how in Chapter 3). The input is ready. Now: what does the model <em>do</em> with these vectors?</p>
-
-</section>
-
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 2: THE SIMPLEST ENGINE                                 -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch2">
-<h2>// 02 &mdash; The Simplest Engine</h2>
-
-<p class="drop-cap">Before we optimize anything, we need to understand what we're optimizing. So let's start at the beginning &mdash; literally. February 2019. OpenAI releases GPT-2: 124 million parameters, 12 transformer layers, 768-dimensional hidden states, 12 attention heads. The world freaks out. OpenAI calls it "too dangerous to release." Today it's a toy, smaller than the model running your phone's autocomplete. But it contains every architectural idea we'll need. If you understand GPT-2's forward pass, you understand Qwen-3.5 27B's. The difference is just scale.</p>
-
-<p>GPT-2 124M is small enough to hold in your head. Twelve layers. Each layer: attention (12 heads, 64 dims each) then a feed-forward network (768 &rarr; 3072 &rarr; 768). A vocabulary of 50,257 tokens. Total: 124 million floats. At FP32, that's 497 MB &mdash; fits in your laptop's RAM with room to spare. Let's write the entire forward pass.</p>
 
 <h3>The Complete Forward Pass</h3>
 
 <div class="tabbed">
-<input type="radio" name="fwd" id="fwd-t1" class="t1" checked>
-<input type="radio" name="fwd" id="fwd-t2" class="t2">
+<input type="radio" name="pipeline" id="pipeline-t1" class="t1" checked>
+<input type="radio" name="pipeline" id="pipeline-t2" class="t2">
+<input type="radio" name="pipeline" id="pipeline-t3" class="t3">
 
 <div class="tab-bar">
-<label for="fwd-t1">How It Works</label>
-<label for="fwd-t2">Full Code (60 lines)</label>
+<label for="pipeline-t1">The Map</label>
+<label for="pipeline-t2">Watch It Run</label>
+<label for="pipeline-t3">Stage by Stage</label>
 </div>
 
-<!-- ── TAB 1: visual explanation ── -->
 <div class="tab-panel p1">
-<div style="padding: 1.4rem;">
-
-<p style="margin-bottom:1.2rem;">The entire model is a pipeline. Text goes in the bottom, probability distribution comes out the top. Every LLM you've ever used &mdash; Claude, GPT-4, DeepSeek, Qwen &mdash; does exactly this, with minor variations in the building blocks.</p>
-
-<div class="diagram" style="margin:0 0 1.2rem; border: none; background: none; padding:0;">
+<div class="diagram" style="border:none; margin:0; border-radius:0;">
+<span class="diagram-label">The Complete Forward Pass</span>
 <pre><code>
   <span class="st">"The capital of France"</span>
       &darr;
@@ -1058,15 +727,280 @@ x = embedding_table[token_ids]   <span class="cm"># shape: [seq_len, 768]</span>
   Highest score: token 318 = <span class="nm">" is"</span>
 </code></pre>
 </div>
+</div>
 
-<p style="margin-bottom:0.5rem;">Seven matrix multiplications per block. Twelve blocks. Plus embedding + final projection. That's <strong>86 big matmuls</strong> to produce <em>one</em> probability distribution. For GPT-2 that's ~250 million FLOPs. For Qwen-3.5 27B: 44 <em>billion</em>. Same recipe, 176&times; the bill.</p>
-
-<p style="color:var(--text-dim); font-size: 0.9rem; margin:0;">Switch to the <strong>Full Code</strong> tab to see every line &mdash; the whole model in 60 lines of NumPy.</p>
+<div class="tab-panel p3">
+<div style="padding: 1.2rem 1.4rem; font-size:16px; line-height:1.6;">
+<table style="margin:0; font-size:inherit;">
+<tr><th style="width:120px; font-size:11px;">Stage</th><th style="font-size:11px;">What it does</th></tr>
+<tr><td style="vertical-align:top; font-size:inherit;"><span class="fn">&starf; EMBED</span></td><td style="font-size:inherit;">Token ID &rarr; vector lookup. Each integer maps to a row in a table of 50,257&times;768 (GPT-2) or 152,064&times;5,120 (Qwen). This same table reappears at the end &mdash; the model asks which embedding is closest to its output.</td></tr>
+<tr><td style="vertical-align:top; font-size:inherit;"><span class="kw">&starf; NORM</span></td><td style="font-size:inherit;">Stabilise numbers before each operation. RMSNorm (modern) or LayerNorm (GPT-2). Three passes over the vector &mdash; trivial cost.</td></tr>
+<tr><td style="vertical-align:top; font-size:inherit;"><span class="ty">&starf; ATTENTION</span></td><td style="font-size:inherit;">"Who matters to me?" Each token broadcasts a query, every previous token advertises a key. High dot-product = relevance. The output is a weighted blend of value vectors &mdash; the token absorbs information from its context.</td></tr>
+<tr><td style="vertical-align:top; font-size:inherit;"><span class="fn">&starf; FFN</span></td><td style="font-size:inherit;">Expand &rarr; activate &rarr; compress. The vector inflates to 4&times; width (17,408 dims in Qwen), a gating function decides which features survive, then it shrinks back. This is where "thinking" happens &mdash; pattern matching, fact recall, learned associations.</td></tr>
+<tr><td style="vertical-align:top; font-size:inherit;"><span class="fn">&starf; PROJECT</span></td><td style="font-size:inherit;">Multiply by the embedding table transposed &rarr; one score per vocabulary token. The model is asking: "which word's embedding vector is closest to my output?"</td></tr>
+<tr><td style="vertical-align:top; font-size:inherit;"><span class="st">&starf; SAMPLE</span></td><td style="font-size:inherit;">50,257 scores (or 152,064 for Qwen). Apply temperature, top-p, top-k. Draw one token. That's the output.</td></tr>
+</table>
+<p style="margin-top:1rem; margin-bottom:0;">Seven matrix multiplications per block. Twelve blocks (GPT-2) or 64 (Qwen). That's <strong>86 big matmuls</strong> for GPT-2, <strong>450</strong> for Qwen &mdash; to produce <em>one</em> token. For GPT-2: ~250M FLOPs. For Qwen-3.5 27B: 44 <em>billion</em>. Same recipe, 176&times; the bill.</p>
 </div>
 </div>
 
-<!-- ── TAB 2: full code ── -->
 <div class="tab-panel p2">
+<div style="padding: 0.8rem 1.4rem 0;">
+<svg id="viz-pipeline-anim" viewBox="0 0 780 520" style="width:100%; height:auto; display:block;"></svg>
+<div id="viz-pipeline-explain" style="min-height:3.6rem; padding:0.8rem 0; font-size:0.92rem; line-height:1.6;"></div>
+<div class="viz-controls" style="padding-bottom:0.6rem;">
+<button id="viz-pipeline-play">Play</button>
+<button id="viz-pipeline-step">Step</button>
+<button id="viz-pipeline-reset" class="secondary">Reset</button>
+</div>
+</div>
+</div>
+</div>
+
+<script>
+(function() {
+    const svg = d3.select('#viz-pipeline-anim');
+    const W = 780, H = 520;
+    const explainEl = document.getElementById('viz-pipeline-explain');
+
+    const stages = [
+        {
+            id: 'embed', label: 'EMBED', color: '#4488ff', y: 0,
+            shape: '"The capital of France"  →  [4 token IDs]  →  [4 × 768] vectors',
+            explain: '<strong style="color:#4488ff">EMBED</strong> — Each token ID indexes into a table of 50,257 rows. Out comes a vector of 768 numbers. The word "The" becomes <code>[0.12, -0.34, 0.56, …]</code>. No math — just a lookup. This same table reappears at the very end.'
+        },
+        {
+            id: 'norm1', label: 'NORM', color: '#ffdd00', y: 1,
+            shape: '[4 × 768]  →  scale each vector to unit RMS  →  [4 × 768]',
+            explain: '<strong style="color:#ffdd00">NORM</strong> — Divide every dimension by the root-mean-square of the vector, then multiply by a learned scale. Keeps numbers from drifting to huge or tiny values between layers. Cost: trivial — three passes over 768 numbers.'
+        },
+        {
+            id: 'attn', label: 'ATTENTION', color: '#ff00aa', y: 2,
+            shape: '[4 × 768]  →  Q·Kᵀ → softmax → ·V  →  [4 × 768]',
+            explain: '<strong style="color:#ff00aa">ATTENTION</strong> — Each token broadcasts a query: "what am I looking for?" Every other token advertises a key: "here\'s what I contain." Dot-product scores find the matches. The output is a weighted blend of value vectors — the token absorbs context from the tokens that matter most.'
+        },
+        {
+            id: 'res1', label: '+ RESIDUAL', color: '#00ff88', y: 2.6,
+            shape: 'attention output + original input  →  [4 × 768]',
+            explain: '<strong style="color:#00ff88">+ RESIDUAL</strong> — Add the original input back. This skip connection is critical: it means the attention layer only needs to learn <em>what to add</em>, not reconstruct the entire representation. Gradients flow straight through during training. Without it, deep networks can\'t train.'
+        },
+        {
+            id: 'norm2', label: 'NORM', color: '#ffdd00', y: 3.2,
+            shape: '[4 × 768]  →  scale to unit RMS again  →  [4 × 768]',
+            explain: '<strong style="color:#ffdd00">NORM</strong> — Attention just mixed information across tokens, which can push some dimensions to extreme values. This second normalisation — with its own learned scale weights, independent from the first — resets the magnitudes so the FFN sees a clean, well-behaved input. Every block has two norms: one before attention, one before FFN.'
+        },
+        {
+            id: 'ffn', label: 'FFN', color: '#ff8800', y: 4.2,
+            shape: '[768] → gate[3072] ⊙ up[3072] → [768]  (per token, independently)',
+            explain: '<strong style="color:#ff8800">FFN</strong> — The vector expands to 4× width (3,072 dims for GPT-2, 17,408 for Qwen). Two parallel paths: a <em>gate</em> decides which features matter, an <em>up</em> projection computes candidate values. Multiply them — selective routing. Compress back to 768. This is where the model "thinks": pattern matching, fact recall, learned associations. <strong>78% of per-block compute.</strong>'
+        },
+        {
+            id: 'res2', label: '+ RESIDUAL', color: '#00ff88', y: 4.8,
+            shape: 'FFN output + pre-FFN input  →  [4 × 768]',
+            explain: '<strong style="color:#00ff88">+ RESIDUAL</strong> — Add the pre-FFN input back. Same principle: the FFN only learns the delta. This block is done — <strong>repeat ×12</strong> (GPT-2) or <strong>×64</strong> (Qwen).'
+        },
+        {
+            id: 'final_norm', label: 'FINAL NORM', color: '#ffdd00', y: 6,
+            shape: '[4 × 768]  →  one last stabilisation  →  [4 × 768]',
+            explain: '<strong style="color:#ffdd00">FINAL NORM</strong> — One last normalisation after all blocks. The vectors have passed through 12 (or 64) layers of transformations. Stabilise before the final projection.'
+        },
+        {
+            id: 'project', label: 'PROJECT', color: '#4488ff', y: 7,
+            shape: '[768] × embed_table.T [768 × 50257]  →  [50,257] logits',
+            explain: '<strong style="color:#4488ff">PROJECT</strong> — Multiply the last token\'s vector by the embedding table <em>transposed</em>. This produces a dot-product score against every word in the vocabulary. High score = "this vector is close to that word\'s embedding." The same table from EMBED, used backwards — <strong>tied weights</strong>.'
+        },
+        {
+            id: 'sample', label: 'SAMPLE', color: '#00ff88', y: 8,
+            shape: '[50,257 logits]  →  temperature → top-p → softmax → draw  →  " is"',
+            explain: '<strong style="color:#00ff88">SAMPLE</strong> — The model\'s final decision: pick one word from the entire vocabulary. The 50,257 logits are a ranked ballot — every word the model knows has a score. Temperature controls conviction: low = always pick the favourite, high = give underdogs a chance. Top-p and top-k prune the long tail of nonsense. Softmax converts to probabilities. One random draw: <strong style="color:#00ff88">" is"</strong>. Append it, and run the whole pipeline again. Seven matmuls per block × 12 blocks = <strong>86 matmuls</strong> — for one word.'
+        },
+    ];
+
+    const boxW = 160, boxH = 28;
+    const startX = 60;
+    const yScale = 48;
+    const topPad = 20;
+
+    let currentStage = -1;
+    let animTimer = null;
+
+    // Which stages are "inside the block" (shown with block bracket)
+    const blockStart = 1; // norm1
+    const blockEnd = 6;   // res2
+
+    function draw() {
+        svg.selectAll('*').remove();
+
+        // Arrow marker
+        svg.append('defs').append('marker')
+            .attr('id', 'pipeArrow').attr('viewBox', '0 0 10 10')
+            .attr('refX', 5).attr('refY', 5)
+            .attr('markerWidth', 5).attr('markerHeight', 5)
+            .attr('orient', 'auto-start-reverse')
+            .append('path').attr('d', 'M 0 0 L 10 5 L 0 10 z').attr('fill', '#6a6a7e');
+
+        // Block bracket
+        const blockY1 = topPad + stages[blockStart].y * yScale - 8;
+        const blockY2 = topPad + stages[blockEnd].y * yScale + boxH + 8;
+        const bracketX = startX + boxW + 30;
+
+        svg.append('rect')
+            .attr('x', startX - 16).attr('y', blockY1)
+            .attr('width', boxW + 52).attr('height', blockY2 - blockY1)
+            .attr('fill', 'none')
+            .attr('stroke', currentStage >= blockStart && currentStage <= blockEnd ? '#6a6a7e' : '#2a2a3a')
+            .attr('stroke-width', 1).attr('stroke-dasharray', '4,3')
+            .attr('rx', 6);
+
+        svg.append('text')
+            .attr('x', bracketX + 10).attr('y', (blockY1 + blockY2) / 2 + 4)
+            .text('×12 blocks')
+            .attr('fill', currentStage >= blockStart && currentStage <= blockEnd ? '#6a6a7e' : '#3a3a4e')
+            .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 10)
+            .attr('transform', `rotate(-90, ${bracketX + 10}, ${(blockY1 + blockY2) / 2 + 4})`);
+
+        // Input label
+        svg.append('text')
+            .attr('x', startX + boxW / 2).attr('y', topPad + stages[0].y * yScale - 10)
+            .text('"The capital of France"')
+            .attr('fill', currentStage >= 0 ? '#00ff88' : '#3a3a4e')
+            .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 11)
+            .attr('text-anchor', 'middle');
+
+        stages.forEach((s, i) => {
+            const y = topPad + s.y * yScale;
+            const active = i <= currentStage;
+            const current = i === currentStage;
+            const opacity = active ? 1 : 0.3;
+
+            // Connector arrow from previous stage
+            if (i > 0) {
+                const prevY = topPad + stages[i - 1].y * yScale + boxH;
+                const gap = y - prevY;
+                if (gap > 6) {
+                    svg.append('line')
+                        .attr('x1', startX + boxW / 2).attr('y1', prevY + 2)
+                        .attr('x2', startX + boxW / 2).attr('y2', y - 2)
+                        .attr('stroke', active ? '#6a6a7e' : '#2a2a3a')
+                        .attr('stroke-width', 1)
+                        .attr('marker-end', 'url(#pipeArrow)');
+                }
+            }
+
+            // Box
+            const isResidual = s.id.startsWith('res');
+
+            if (isResidual) {
+                // Residual: smaller, no box, just a label
+                svg.append('text')
+                    .attr('x', startX + boxW / 2).attr('y', y + 16)
+                    .text(s.label)
+                    .attr('fill', current ? s.color : active ? s.color + 'aa' : s.color + '33')
+                    .attr('font-family', 'JetBrains Mono, monospace')
+                    .attr('font-size', 11).attr('font-weight', current ? 'bold' : 'normal')
+                    .attr('text-anchor', 'middle');
+            } else {
+                svg.append('rect')
+                    .attr('x', startX).attr('y', y)
+                    .attr('width', boxW).attr('height', boxH)
+                    .attr('rx', 6)
+                    .attr('fill', current ? s.color + '30' : active ? s.color + '15' : s.color + '08')
+                    .attr('stroke', current ? s.color : active ? s.color + '77' : s.color + '22')
+                    .attr('stroke-width', current ? 2 : 1);
+
+                if (current) {
+                    svg.append('rect')
+                        .attr('x', startX - 2).attr('y', y - 2)
+                        .attr('width', boxW + 4).attr('height', boxH + 4)
+                        .attr('rx', 8).attr('fill', 'none')
+                        .attr('stroke', s.color).attr('stroke-width', 1)
+                        .attr('opacity', 0.3);
+                }
+
+                svg.append('text')
+                    .attr('x', startX + boxW / 2).attr('y', y + boxH / 2 + 1)
+                    .text(s.label)
+                    .attr('fill', current ? s.color : active ? s.color + 'cc' : s.color + '44')
+                    .attr('font-family', 'JetBrains Mono, monospace')
+                    .attr('font-size', 12).attr('font-weight', current ? 'bold' : 'normal')
+                    .attr('text-anchor', 'middle').attr('dominant-baseline', 'middle');
+            }
+
+            // Data shape on the right
+            if (current) {
+                const shapeY = isResidual ? y + 12 : y + boxH / 2 + 1;
+                const shapeX = isResidual ? startX + boxW / 2 + 70 : startX + boxW + 16;
+                svg.append('text')
+                    .attr('x', shapeX).attr('y', shapeY)
+                    .text(s.shape)
+                    .attr('fill', s.color).attr('opacity', 0.7)
+                    .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9.5)
+                    .attr('dominant-baseline', 'middle');
+            }
+
+            // Glowing data dot
+            if (current && !isResidual) {
+                svg.append('circle')
+                    .attr('cx', startX + 20).attr('cy', y + boxH / 2)
+                    .attr('r', 5).attr('fill', s.color).attr('opacity', 0.9);
+                svg.append('circle')
+                    .attr('cx', startX + 20).attr('cy', y + boxH / 2)
+                    .attr('r', 9).attr('fill', 'none')
+                    .attr('stroke', s.color).attr('stroke-width', 1).attr('opacity', 0.3);
+            }
+        });
+
+        // Explanation text
+        if (currentStage >= 0 && currentStage < stages.length) {
+            explainEl.innerHTML = stages[currentStage].explain;
+        } else if (currentStage >= stages.length) {
+            explainEl.innerHTML = '<strong style="color:#00ff88">Done.</strong> One token produced. Append it, shift the window, run the whole pipeline again. That\'s the autoregressive loop you just watched above.';
+        } else {
+            explainEl.innerHTML = '<span style="color:var(--text-dim)">Hit <strong>Play</strong> to watch data flow through the pipeline, or <strong>Step</strong> to advance one stage at a time.</span>';
+        }
+    }
+
+    draw();
+
+    function advance() {
+        currentStage++;
+        if (currentStage > stages.length) currentStage = stages.length;
+        draw();
+    }
+
+    d3.select('#viz-pipeline-play').on('click', function() {
+        if (animTimer) return;
+        currentStage = -1;
+        draw();
+        function tick() {
+            currentStage++;
+            if (currentStage > stages.length) { animTimer = null; draw(); return; }
+            draw();
+            animTimer = setTimeout(tick, currentStage < stages.length ? 2800 : 1500);
+        }
+        animTimer = setTimeout(tick, 400);
+    });
+
+    d3.select('#viz-pipeline-step').on('click', function() {
+        if (animTimer) { clearTimeout(animTimer); animTimer = null; }
+        advance();
+    });
+
+    d3.select('#viz-pipeline-reset').on('click', function() {
+        if (animTimer) { clearTimeout(animTimer); animTimer = null; }
+        currentStage = -1;
+        draw();
+    });
+})();
+</script>
+
+<div class="power">
+<div class="power-label">Tied Weights &mdash; By the Numbers</div>
+<p>Qwen-3.5 27B: <strong>152,064 tokens &times; 5,120 dimensions = 778 million parameters</strong> (~1.5 GB at FP16). That's ~5% of the model &mdash; small, but it's every word the model can read or write. Same table, used forwards and backwards. Saves memory. Forces input and output to share the same meaning-space.</p>
+</div>
+
+<details>
+<summary>Full Code (60 lines)</summary>
 <pre><code><span class="label">Python</span>
 <span class="kw">import</span> numpy <span class="kw">as</span> np
 
@@ -1132,219 +1066,275 @@ x = embedding_table[token_ids]   <span class="cm"># shape: [seq_len, 768]</span>
     logits = x @ model[<span class="st">'wte'</span>].T       <span class="cm"># tie weights: reuse embedding table</span>
     <span class="kw">return</span> logits                       <span class="cm"># [seq_len, 50257]</span>
 </code></pre>
+</details>
+
+<p>This code implements GPT-2 &mdash; 124M params, 12 layers, 768 dims. Qwen-3.5 27B is the same skeleton at 176&times; the scale: 48 layers, 5120 dims, 152K vocab. The variations (RMSNorm, SwiGLU, RoPE, GQA) are in Chapter 3.</p>
+
+<div class="power">
+<div class="power-label">The Whole Game</div>
+<p>You now know the complete machine. Sixty lines of code, seven matmuls per block, one token out per cycle. Everything else in this series &mdash; quantization, KV caching, FlashAttention, batching, tensor parallelism &mdash; is an answer to one question: how do you make <em>this loop</em> run fast enough to be useful? The pipeline never changes. Only the engineering around it does.</p>
 </div>
+
+<p>But we skipped the first step. The pipeline starts with token IDs &mdash; where do those come from? Chapter 2 opens the EMBED box: how raw text becomes the numbers that enter the machine.</p>
+
+</section>
+<!-- ═══════════════════════════════════════════════════════════════ -->
+
+<!-- CHAPTER 2: TEXT TO NUMBERS                                     -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch2">
+<h2>// 02 &mdash; Text to Numbers</h2>
+<div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--green);font-weight:bold">&#9654; EMBED</span> &rarr; <span style="color:var(--text-dim)">NORM</span> &rarr; <span style="color:var(--text-dim)">ATTN</span> &rarr; <span style="color:var(--text-dim)">FFN</span> &rarr; <span style="color:var(--text-dim)">PROJECT</span> &rarr; <span style="color:var(--text-dim)">SAMPLE</span> &nbsp; <span style="color:var(--green)">zooming into EMBED</span></div>
+<div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
+    Raw text &rarr; tokens &rarr; vectors. Two transformations before any math begins.<span class="blink">_</span>
 </div>
 
-<p>Every LLM does exactly this. RMSNorm instead of LayerNorm. SwiGLU instead of GELU. RoPE instead of learned positions. The skeleton is the same. The variations in Chapter 3.</p>
+<p class="drop-cap">The model can't read text. It operates on numbers &mdash; specifically, vectors of floating-point values. Getting from your typed sentence to those vectors requires two steps: <strong>tokenization</strong> (splitting text into pieces and assigning each piece an integer ID) and <strong>embedding</strong> (looking up each ID in a table to get a dense vector). This chapter traces both.</p>
 
-<div class="power zen">
-<div class="power-label">Hybrid Attention Note</div>
-<p>Qwen-3.5 introduces <strong>hybrid attention</strong>: ~75% of layers use Gated DeltaNet (a linear attention variant for efficient long-range processing), while ~25% use full GQA (standard softmax attention for precise retrieval). We'll focus on the GQA layers throughout this deep dive &mdash; they contain all the mechanisms that matter for understanding inference. The DeltaNet layers are a compute optimization that avoids the quadratic attention cost on most layers.</p>
-</div>
+<h3>Tokenization: What Makes a Token</h3>
 
-<h3>The Autoregressive Loop</h3>
+<p>A token is a piece of text &mdash; sometimes a word, sometimes part of a word, sometimes a single character. The model has a fixed vocabulary: a numbered list of every text fragment it can recognize. GPT-2 has 50,257 tokens. Qwen has 152,064. Every input, no matter how exotic, gets split into pieces from this list. The question is how you build the list.</p>
 
-<p>A language model generates text one token at a time. Run the forward pass, look at the last position's logits, sample a token, append it, repeat. Hit play to watch it happen.</p>
+<p>Characters give a tiny vocab but painfully long sequences. Whole words give short sequences but can't handle typos or new words. <strong>Byte Pair Encoding</strong> (BPE) finds the sweet spot: common words are single tokens, rare words decompose into recognizable subwords, and nothing is ever out-of-vocabulary.</p>
 
 <div class="tabbed">
-<input type="radio" name="gen" id="gen-t1" class="t1" checked>
-<input type="radio" name="gen" id="gen-t2" class="t2">
+<input type="radio" name="tok-trade" id="tok-trade-t1" class="t1" checked>
+<input type="radio" name="tok-trade" id="tok-trade-t2" class="t2">
 
 <div class="tab-bar">
-<label for="gen-t1">Watch It Generate</label>
-<label for="gen-t2">The Loop (code)</label>
+<label for="tok-trade-t1">Vocab Comparison</label>
+<label for="tok-trade-t2">Cost Per Token</label>
 </div>
 
-<!-- ── TAB 1: interactive D3 viz ── -->
 <div class="tab-panel p1">
-<div style="padding: 0.8rem 1.4rem 0;">
-<svg id="viz-ch2" viewBox="0 0 780 320" style="width:100%; height:auto; display:block;"></svg>
-<div class="viz-controls" style="padding-bottom:0.6rem;">
-<button id="viz-ch2-start">Generate</button>
-<button id="viz-ch2-reset" class="secondary">Reset</button>
-<span id="viz-ch2-status" style="color: var(--text-dim);"></span>
-</div>
-</div>
-</div>
-
-<!-- ── TAB 2: code ── -->
-<div class="tab-panel p2">
-<div style="padding: 1rem 1.4rem 0.6rem;">
-<p style="color:var(--text-dim); font-size:0.9rem; margin-bottom:0.8rem;">This is the entire generation loop. The visualization above is running this logic.</p>
-</div>
-<pre><code><span class="label">Python</span>
-<span class="kw">def</span> <span class="fn">generate</span>(prompt_tokens, model, max_tokens=<span class="nm">50</span>, temperature=<span class="nm">0.8</span>):
-    tokens = list(prompt_tokens)
-    <span class="kw">for</span> _ <span class="kw">in</span> range(max_tokens):
-        logits = gpt2_forward(tokens, model)  <span class="cm"># run ALL tokens through</span>
-        next_logits = logits[-<span class="nm">1</span>]               <span class="cm"># only last position matters</span>
-        probs = softmax(next_logits / temperature)
-        next_token = np.random.choice(len(probs), p=probs)
-        tokens.append(next_token)
-        <span class="kw">if</span> next_token == eos_token: <span class="kw">break</span>
-    <span class="kw">return</span> tokens
-
-<span class="cm"># "The capital of France" → " is Paris, a city known for..."</span>
+<pre><code><span class="label">Comparison</span>
+<span class="cm">Approach        Vocab       "unhappiness" →         "The capital of France is Paris"</span>
+<span class="cm">─────────────────────────────────────────────────────────────────────────────────────</span>
+<span class="ty">Characters</span>      <span class="nm">256</span>         u,n,h,a,p,p,i,n,e,s,s   <span class="nm">30 tokens</span>   <span class="cm">(long sequence)</span>
+<span class="st">BPE (GPT-2)</span>     <span class="nm">50,257</span>      un|happ|iness            <span class="nm">8 tokens</span>    <span class="cm">(sweet spot)</span>
+<span class="fn">BPE (Qwen)</span>      <span class="nm">152,064</span>     unhappiness              <span class="nm">6 tokens</span>    <span class="cm">(bigger vocab → shorter)</span>
+<span class="kw">Words</span>           <span class="nm">~500K</span>       unhappiness              <span class="nm">6 tokens</span>    <span class="cm">(but "ChatGPT" = ???)</span>
 </code></pre>
-<div style="padding: 0 1.4rem 1rem;">
-<p style="color:var(--orange); font-size:0.9rem; margin:0;">Notice the waste: at step 50 we rerun <strong>all 50 tokens</strong> through all 12 layers &mdash; even though tokens 1-49 haven't changed. That's 98% redundant work. The KV cache (Chapter 7) fixes this.</p>
+</div>
+
+<div class="tab-panel p2">
+<div class="diagram" style="border:none; margin:0; border-radius:0;">
+<span class="diagram-label">Why vocab size matters for speed</span>
+<pre><code>
+  Every token costs compute: <strong>~44 billion FLOPs</strong> in a 27B model.
+  Fewer tokens = proportionally less work.
+
+  <span class="cm">GPT-2 (50K vocab):</span>   ~4.5 chars/token  <span class="cm">→ more tokens, more compute</span>
+  <span class="cm">Qwen  (152K vocab):</span>  ~5.2 chars/token  <span class="cm">→ 15% fewer tokens, 15% faster</span>
+
+  <span class="pp">Vocabulary size &times; sequence length is the budget.</span>
+  <span class="pp">BPE lets you tune the tradeoff.</span>
+</code></pre>
 </div>
 </div>
 </div>
 
-<p>At each step: 12 layers &times; 7 matmuls = <strong>84 matrix multiplications</strong>, plus attention softmax, GELU, and norms. For GPT-2 that's ~250M FLOPs per token. For Qwen-3.5 27B it's 44 <em>billion</em>. Same architecture, 176&times; the cost.</p>
+<h3>How BPE Builds a Vocabulary</h3>
+
+<p>Start with individual characters. Scan the training corpus, find the most frequent adjacent pair, merge it into a new token. Repeat 50,000 times. What emerges: common words are single tokens, rare words decompose into recognizable subwords, and nothing is ever out-of-vocabulary &mdash; the base includes all 256 byte values.</p>
+
+<p>The results are not what you'd expect. Click through &mdash; each example reveals something about how the model actually sees your text.</p>
+
+<div class="viz-container" style="padding:0;">
+<div id="tok-gallery" style="padding:1.2rem 1.5rem 0.8rem;"></div>
+<div id="tok-gallery-tokens" style="display:flex; flex-wrap:wrap; gap:4px; padding:0 1.5rem 0.8rem; min-height:44px;"></div>
+<div id="tok-gallery-stats" style="font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--text-dim); padding:0 1.5rem 0.6rem;"></div>
+<div id="tok-gallery-insight" style="padding:0.8rem 1.5rem; border-top:1px solid var(--border); font-size:0.9rem;"></div>
+<div style="display:flex; gap:0.5rem; padding:0.8rem 1.5rem; border-top:1px solid var(--border); flex-wrap:wrap;">
+<button id="tok-prev" style="background:var(--border); color:var(--text); border:none; padding:0.4rem 1rem; font-family:'JetBrains Mono',monospace; font-size:11px; border-radius:4px; cursor:pointer; text-transform:uppercase; letter-spacing:0.05em;">&larr; Prev</button>
+<button id="tok-next" style="background:var(--green-dim); color:var(--bg); border:none; padding:0.4rem 1rem; font-family:'JetBrains Mono',monospace; font-size:11px; border-radius:4px; cursor:pointer; text-transform:uppercase; letter-spacing:0.05em;">Next &rarr;</button>
+<span id="tok-counter" style="font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim); margin-left:auto; align-self:center;"></span>
+</div>
+</div>
 
 <script>
 (function() {
-    const svg = d3.select('#viz-ch2');
-    const W = 780, H = 320;
-    const promptTokens = ['The', ' capital', ' of', ' France'];
-    const genTokens = [' is', ' Paris', ',', ' the', ' city', ' of', ' light', '.'];
-    let step = 0, animTimer = null;
+    const examples = [
+        {
+            text: ' the',
+            label: 'The invisible space',
+            insight: 'That leading space is <em>part of the token</em>. <span style="color:var(--cyan)">·the</span> (ID 262) and <span style="color:var(--cyan)">the</span> (ID 279) are completely different tokens. BPE merges are learned from text where spaces precede most words, so " the" appeared far more often than bare "the". The model literally sees a different number when a word starts a sentence vs. appears mid-sentence.',
+            tokens: [{t:'·the', id:262}]
+        },
+        {
+            text: 'The the',
+            label: 'Case sensitivity',
+            insight: '<span style="color:var(--green)">The</span> (ID 791) and <span style="color:var(--cyan)">·the</span> (ID 262) &mdash; same word, different case, different token, different ID. The model must <em>learn</em> that these mean the same thing. This is why LLMs sometimes behave differently with capitalisation. Each casing is a separate entry in the 50,257-row embedding table.',
+            tokens: [{t:'The', id:791}, {t:'·the', id:262}]
+        },
+        {
+            text: 'ChatGPT',
+            label: 'Invented words decompose',
+            insight: '"ChatGPT" didn\'t exist when GPT-2\'s vocabulary was built. BPE decomposes it into known pieces: <span style="color:var(--green)">Chat</span> + <span style="color:var(--cyan)">G</span> + <span style="color:var(--magenta)">PT</span>. Three tokens. The model understands it by composing the meanings of its parts. This is why BPE never fails &mdash; it falls back to smaller and smaller pieces, down to individual bytes if needed.',
+            tokens: [{t:'Chat', id:23252}, {t:'G', id:38}, {t:'PT', id:11571}]
+        },
+        {
+            text: 'def fibonacci(n):',
+            label: 'Code is expensive',
+            insight: 'Code tokenizes poorly. <span style="color:var(--green)">def</span> and <span style="color:var(--cyan)">·n</span> are single tokens, but <span style="color:var(--magenta)">fib</span><span style="color:var(--orange)">on</span><span style="color:var(--yellow)">acci</span> splits into 3 pieces because it\'s rare in training data. Parentheses and colons are each their own token. This 17-character line costs <strong>8 tokens</strong> &mdash; almost 2 chars/token vs. ~4.5 for English prose. Code-optimized models (CodeLlama, StarCoder) train BPE on code corpora to fix this.',
+            tokens: [{t:'def', id:4299}, {t:'·fib', id:15566}, {t:'on', id:261}, {t:'acci', id:32068}, {t:'(', id:7}, {t:'n', id:77}, {t:'):', id:2599}]
+        },
+        {
+            text: 'Hello hello HELLO',
+            label: 'Three words, three IDs',
+            insight: 'Same word, three casings, three completely different token IDs: <span style="color:var(--green)">Hello</span> (9906), <span style="color:var(--cyan)">·hello</span> (23748), and <span style="color:var(--magenta)">HELLO</span> (which splits into <span style="color:var(--magenta)">HE</span>+<span style="color:var(--orange)">LLO</span> because all-caps is rare). The model has to learn the relationship between these from training data alone. Larger vocabularies (Qwen\'s 152K) absorb more casing variants.',
+            tokens: [{t:'Hello', id:9906}, {t:'·hello', id:23748}, {t:'·HE', id:4204}, {t:'LLO', id:43734}]
+        },
+        {
+            text: '🔥',
+            label: 'Emoji: 1 glyph, 3+ tokens',
+            insight: 'A single fire emoji is 4 bytes in UTF-8. GPT-2\'s BPE sees bytes, not glyphs &mdash; so it produces <strong>3-4 tokens</strong> for one emoji. Each token consumed costs 44 billion FLOPs in a 27B model. Emoji-heavy text is absurdly expensive per visible character. Newer tokenizers (Qwen, Llama 3) handle this better by including common emoji as single tokens.',
+            tokens: [{t:'\\xf0\\x9f', id:8582}, {t:'\\x94', id:166}, {t:'\\xa5', id:97}]
+        },
+        {
+            text: ' the the the the',
+            label: 'Repetition is cheap',
+            insight: 'Common tokens repeat at constant cost: each <span style="color:var(--cyan)">·the</span> is 1 token regardless of how many times it appears. But the <em>attention</em> cost grows quadratically with sequence length during prefill. In decode (one token at a time), each token reads the entire KV cache. So repetition isn\'t free &mdash; it\'s cheap to tokenize but increasingly expensive to process.',
+            tokens: [{t:'·the', id:262}, {t:'·the', id:262}, {t:'·the', id:262}, {t:'·the', id:262}]
+        },
+        {
+            text: 'français café résumé',
+            label: 'Accents shatter tokens',
+            insight: 'English-trained BPE handles "francais" as ~2 tokens, but "fran<strong>ç</strong>ais" forces a split at the ç (a multi-byte character). Accented characters are rarer in training data, so they don\'t merge as aggressively. French text tokenizes 20-40% longer than English on GPT-2\'s tokenizer. Multilingual models (Qwen, Llama 3) train BPE on diverse corpora to fix this.',
+            tokens: [{t:'fran', id:19503}, {t:'ç', id:16172}, {t:'ais', id:15152}, {t:'·caf', id:36714}, {t:'é', id:2634}, {t:'·r', id:374}, {t:'és', id:50088}, {t:'um', id:4182}, {t:'é', id:2634}]
+        },
+    ];
 
-    function draw() {
-        svg.selectAll('*').remove();
-        const all = [...promptTokens, ...genTokens.slice(0, Math.max(0, step - 1))];
+    let current = 0;
 
-        // Phase label
-        const phaseG = svg.append('g');
-        let phaseText = step === 0 ? 'READY' : step === 1 ? 'PREFILL (all prompt tokens at once)' : `DECODE step ${step-1}/${genTokens.length}`;
-        let phaseColor = step === 0 ? '#6a6a7e' : step === 1 ? '#00ff88' : '#ff00aa';
-        phaseG.append('text').attr('x',20).attr('y',25).text(phaseText)
-            .attr('fill',phaseColor).attr('font-family','JetBrains Mono, monospace').attr('font-size',14);
+    const COLORS = [
+        'rgba(0,255,136,0.22)', 'rgba(0,221,255,0.22)', 'rgba(255,0,170,0.22)',
+        'rgba(255,136,0,0.22)', 'rgba(255,221,0,0.22)', 'rgba(68,136,255,0.22)',
+        'rgba(170,68,255,0.22)', 'rgba(255,51,68,0.22)'
+    ];
+    const BORDER_COLORS = [
+        'rgba(0,255,136,0.5)', 'rgba(0,221,255,0.5)', 'rgba(255,0,170,0.5)',
+        'rgba(255,136,0,0.5)', 'rgba(255,221,0,0.5)', 'rgba(68,136,255,0.5)',
+        'rgba(170,68,255,0.5)', 'rgba(255,51,68,0.5)'
+    ];
 
-        // Token boxes
-        let tx = 20;
-        const tokenG = svg.append('g').attr('transform','translate(0,40)');
-        all.forEach((t, i) => {
-            const isPrompt = i < promptTokens.length;
-            const isNew = !isPrompt && i === all.length - 1 && step > 1;
-            const color = isNew ? '#ff00aa' : isPrompt ? '#00ff88' : '#00ddff';
-            const bgColor = isNew ? 'rgba(255,0,170,0.15)' : isPrompt ? 'rgba(0,255,136,0.08)' : 'rgba(0,221,255,0.08)';
-            const tw = t.length * 8.5 + 12;
-            tokenG.append('rect').attr('x',tx).attr('y',0).attr('width',tw).attr('height',26)
-                .attr('fill',bgColor).attr('rx',3);
-            if(isNew) tokenG.append('rect').attr('x',tx).attr('y',0).attr('width',tw).attr('height',26)
-                .attr('stroke',color).attr('stroke-width',1.5).attr('fill','none').attr('rx',3);
-            tokenG.append('text').attr('x',tx+6).attr('y',17).text(t)
-                .attr('fill',color).attr('font-family','JetBrains Mono, monospace').attr('font-size',13);
-            tx += tw + 4;
+    function render() {
+        const ex = examples[current];
+        const gallery = document.getElementById('tok-gallery');
+        const tokensEl = document.getElementById('tok-gallery-tokens');
+        const statsEl = document.getElementById('tok-gallery-stats');
+        const insightEl = document.getElementById('tok-gallery-insight');
+        const counterEl = document.getElementById('tok-counter');
+
+        // Label + input text
+        gallery.innerHTML = '<div style="font-family:\'JetBrains Mono\',monospace; font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:var(--magenta); margin-bottom:0.5rem;">' + ex.label + '</div>' +
+            '<div style="font-family:\'JetBrains Mono\',monospace; font-size:1.1rem; color:var(--white); padding:0.5rem 0.7rem; background:var(--bg-code); border:1px solid var(--border); border-radius:4px; display:inline-block;">' + ex.text.replace(/·/g, '<span style="color:var(--text-dim)">·</span>') + '</div>';
+
+        // Tokens
+        tokensEl.innerHTML = '';
+        ex.tokens.forEach(function(tok, i) {
+            var ci = i % COLORS.length;
+            var el = document.createElement('span');
+            el.style.cssText = 'display:inline-flex; flex-direction:column; align-items:center; background:' + COLORS[ci] + '; border:1px solid ' + BORDER_COLORS[ci] + '; border-radius:4px; padding:0.3rem 0.5rem; font-family:\'JetBrains Mono\',monospace; font-size:13px; color:var(--text); min-width:28px; text-align:center;';
+            var textSpan = document.createElement('span');
+            textSpan.textContent = tok.t;
+            var idSpan = document.createElement('span');
+            idSpan.style.cssText = 'font-size:9px; color:var(--text-dim); margin-top:2px;';
+            idSpan.textContent = tok.id;
+            el.appendChild(textSpan);
+            el.appendChild(idSpan);
+            tokensEl.appendChild(el);
         });
 
-        // KV Cache blocks
-        const cacheG = svg.append('g').attr('transform','translate(0,90)');
-        cacheG.append('text').attr('x',20).attr('y',14).text('KV CACHE:')
-            .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',11);
-        const cacheLen = step === 0 ? 0 : step === 1 ? promptTokens.length : promptTokens.length + step - 1;
-        for (let i = 0; i < cacheLen; i++) {
-            const isNew = (step === 1) || (step > 1 && i === cacheLen - 1);
-            cacheG.append('rect').attr('x', 110 + i * 18).attr('y', 2).attr('width', 16).attr('height', 18)
-                .attr('fill', isNew ? 'rgba(0,255,136,0.5)' : 'rgba(0,255,136,0.15)')
-                .attr('stroke', 'rgba(0,255,136,0.3)').attr('rx', 2);
-        }
+        // Stats
+        statsEl.innerHTML = '<span style="color:var(--green)">' + ex.tokens.length + '</span> tokens · <span style="color:var(--cyan)">' + ex.text.length + '</span> characters · <span style="color:var(--yellow)">' + (ex.text.length / ex.tokens.length).toFixed(1) + '</span> chars/token';
 
-        // Forward pass animation (simplified layer diagram)
-        if (step >= 1) {
-            const fpG = svg.append('g').attr('transform','translate(20,135)');
-            fpG.append('text').attr('x',0).attr('y',14).text('FORWARD PASS:')
-                .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',11);
+        // Insight
+        insightEl.innerHTML = ex.insight;
 
-            const layers = ['embed','L1','L2','L3','...','L12','norm','logits'];
-            const layerW = 70;
-            layers.forEach((l, i) => {
-                const x = 110 + i * (layerW + 6);
-                const active = step > 0;
-                fpG.append('rect').attr('x', x).attr('y', 0).attr('width', layerW).attr('height', 24)
-                    .attr('fill', active ? 'rgba(0,221,255,0.12)' : 'rgba(106,106,126,0.06)')
-                    .attr('stroke', active ? '#00ddff44' : '#1e1e2e').attr('rx', 3);
-                fpG.append('text').attr('x', x + layerW/2).attr('y', 16).text(l)
-                    .attr('fill', active ? '#00ddff' : '#6a6a7e')
-                    .attr('font-family','JetBrains Mono, monospace').attr('font-size',10)
-                    .attr('text-anchor','middle');
-                if (i < layers.length - 1) {
-                    fpG.append('text').attr('x', x + layerW + 2).attr('y', 16).text('\u2192')
-                        .attr('fill','#6a6a7e').attr('font-size',11);
-                }
-            });
-        }
-
-        // Memory + timing stats
-        const statsG = svg.append('g').attr('transform','translate(20,195)');
-        const modelMB = 497;
-        const kvMB = cacheLen * 0.0075; // GPT-2: tiny KV cache
-        statsG.append('text').attr('x',0).attr('y',14)
-            .text(`Model: ${modelMB} MB | KV cache: ${kvMB.toFixed(2)} MB | Tokens processed: ${cacheLen}`)
-            .attr('fill','#ffdd00').attr('font-family','JetBrains Mono, monospace').attr('font-size',12);
-
-        if (step > 1) {
-            statsG.append('text').attr('x',0).attr('y',36)
-                .text(`\u26a0 We re-run ALL ${cacheLen} tokens through ALL 12 layers every step. This is wasteful!`)
-                .attr('fill','#ff8800').attr('font-family','JetBrains Mono, monospace').attr('font-size',11);
-        }
-
-        // Output text accumulation
-        if (step > 1) {
-            const outG = svg.append('g').attr('transform','translate(20,255)');
-            outG.append('text').attr('x',0).attr('y',14).text('OUTPUT:')
-                .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',11);
-            const outText = promptTokens.join('') + genTokens.slice(0, step - 1).join('');
-            outG.append('text').attr('x',80).attr('y',14).text(outText)
-                .attr('fill','#c8c8d4').attr('font-family','JetBrains Mono, monospace').attr('font-size',13);
-            // blinking cursor
-            const cursorX = 80 + outText.length * 7.8;
-            outG.append('rect').attr('x',cursorX).attr('y',2).attr('width',8).attr('height',16)
-                .attr('fill','#00ff88').attr('opacity',0.7)
-                .append('animate').attr('attributeName','opacity')
-                .attr('values','0.7;0;0.7').attr('dur','1s').attr('repeatCount','indefinite');
-        }
+        // Counter
+        counterEl.textContent = (current + 1) + ' / ' + examples.length;
     }
 
-    draw();
+    render();
 
-    d3.select('#viz-ch2-start').on('click', function() {
-        if (animTimer) return;
-        const totalSteps = genTokens.length + 1;
-        function tick() {
-            step++;
-            if (step > totalSteps) { animTimer = null; return; }
-            draw();
-            d3.select('#viz-ch2-status').text(
-                step === 1 ? 'Processing prompt (prefill)...' :
-                `Generated: "${genTokens.slice(0, step - 1).join('')}"`
-            );
-            animTimer = setTimeout(tick, step === 1 ? 600 : 350);
-        }
-        tick();
+    document.getElementById('tok-next').addEventListener('click', function() {
+        current = (current + 1) % examples.length;
+        render();
     });
-
-    d3.select('#viz-ch2-reset').on('click', function() {
-        if (animTimer) { clearTimeout(animTimer); animTimer = null; }
-        step = 0;
-        d3.select('#viz-ch2-status').text('');
-        draw();
+    document.getElementById('tok-prev').addEventListener('click', function() {
+        current = (current - 1 + examples.length) % examples.length;
+        render();
     });
 })();
 </script>
 
-<div class="power">
-<div class="power-label">The Anchor</div>
-<p>This 60-line forward pass IS a working inference engine. Everything in the remaining chapters is "how do we make <em>this</em> faster, bigger, and serve it to thousands of users." Quantization makes the weights smaller. KV caching avoids recomputation. FlashAttention does the attention in fast SRAM. Batching shares the weight reads. But the core loop &mdash; embed, attend, project, sample, repeat &mdash; never changes.</p>
+<h3>Embedding: From IDs to Vectors</h3>
+
+<p>Tokenization gave us integers. Now each integer needs to become something the network can process: a <strong>vector</strong>. The embedding table is a lookup &mdash; token ID in, vector of 768 numbers out (GPT-2) or 5,120 (Qwen). These numbers aren't arbitrary. Training pushes tokens that appear in similar contexts to nearby points in this high-dimensional space. "Cat" and "dog" end up close; "cat" and "uranium" don't.</p>
+
+<div class="tabbed">
+<input type="radio" name="tok-embed" id="tok-embed-t1" class="t1" checked>
+<input type="radio" name="tok-embed" id="tok-embed-t2" class="t2">
+
+<div class="tab-bar">
+<label for="tok-embed-t1">Intuition</label>
+<label for="tok-embed-t2">The Lookup (code)</label>
 </div>
 
-<p>GPT-2 was 124 million parameters. Today's frontier models are 27 billion (Qwen-3.5 27B), 671 billion (DeepSeek-V3, a Mixture-of-Experts model), or entirely undisclosed (Claude Opus 4.5). The dense architecture is the same. The scale is not. Qwen-3.5 27B: 64 layers, 5120-dimensional hidden state, 24 query heads, 4 KV heads (GQA), 17408-wide FFN. The weight file is 54 GB in FP16. That's too large for a single consumer GPU, but quantize it to 4-bit (~15 GB) and it fits on your RTX 3090 with room to spare. The question is: how do you make those numbers <em>fast</em>?</p>
+<div class="tab-panel p1">
+<pre><code><span class="label">Intuition</span>
+<span class="cm">The embedding table: one row per token, 768 columns.</span>
+
+Token <span class="nm">1820</span> (<span class="st">"cat"</span>)      → [<span class="nm">0.12</span>, <span class="nm">-0.34</span>, <span class="nm">0.56</span>, <span class="nm">0.78</span>, <span class="nm">-0.91</span>, ...]  <span class="cm">768 numbers</span>
+Token <span class="nm">3290</span> (<span class="st">"dog"</span>)      → [<span class="nm">0.14</span>, <span class="nm">-0.31</span>, <span class="nm">0.52</span>, <span class="nm">0.81</span>, <span class="nm">-0.88</span>, ...]  <span class="cm">similar!</span>
+Token <span class="nm">9017</span> (<span class="st">"uranium"</span>)  → [<span class="nm">-1.2</span>, <span class="nm">0.89</span>, <span class="nm">-0.03</span>, <span class="nm">0.11</span>, <span class="nm">0.67</span>, ...]  <span class="cm">very different</span>
+
+<span class="fn">"cat"</span> and <span class="fn">"dog"</span> are close because training saw them in similar contexts.
+<span class="fn">"cat"</span> and <span class="fn">"uranium"</span> are far because they never appear in the same patterns.
+
+<span class="cm">Think of it as GPS for meaning: just as (lat, lon) locates a city,</span>
+<span class="cm">768 numbers locate a concept in meaning-space.</span>
+</code></pre>
+</div>
+
+<div class="tab-panel p2">
+<pre><code><span class="label">Python</span>
+<span class="cm"># The entire embedding step:</span>
+x = embedding_table[token_ids]   <span class="cm"># shape: [seq_len, 768]</span>
+
+<span class="cm"># That's it. A table lookup. No math, no matrix multiply.</span>
+<span class="cm"># embedding_table.shape = [50257, 768]   for GPT-2</span>
+<span class="cm">#                       = [152064, 5120]  for Qwen-3.5 27B</span>
+</code></pre>
+</div>
+</div>
+
+<p>Each token is now a vector &mdash; 768 numbers for GPT-2, 5,120 for Qwen. The transformer blocks will process these vectors through the attention and FFN stages you saw in the pipeline. Chapter 3 traces one vector through one block, operation by operation.</p>
 
 </section>
+
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- CHAPTER 3: THE FORWARD PASS                                    -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <section id="ch3">
 <h2>// 03 &mdash; The Forward Pass</h2>
+<div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--text-dim)">EMBED</span> &rarr; <span style="color:var(--yellow);font-weight:bold">&#9654; NORM</span> &rarr; <span style="color:var(--magenta);font-weight:bold">ATTN</span> &rarr; <span style="color:var(--orange);font-weight:bold">FFN</span> &rarr; <span style="color:var(--text-dim)">PROJECT</span> &rarr; <span style="color:var(--text-dim)">SAMPLE</span> &nbsp; <span style="color:var(--magenta)">inside the block</span></div>
+<div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
+    RMSNorm, RoPE, GQA, SwiGLU &mdash; the operations inside one transformer block.<br>
+    Traced with real shapes: [5120] in, seven matmuls, [5120] out. Then repeat &times;64.<span class="blink">_</span>
+</div>
 
-<p class="drop-cap">In Chapter 2 we wrote the forward pass for GPT-2 in 60 lines. Now let's trace a single vector through one transformer block at instruction level &mdash; the way the hardware sees it. We'll use concrete numbers, not abstractions. One vector, one block, every operation.</p>
+<p class="drop-cap">In Chapter 1 we wrote the forward pass for GPT-2 in 60 lines. Now let's trace a single vector through one transformer block at instruction level &mdash; the way the hardware sees it. We'll use concrete numbers, not abstractions. One vector, one block, every operation.</p>
 
-<h3>Worked Example: One Token Through One Block</h3>
+<div class="power zen">
+<div class="power-label">Hybrid Attention Note</div>
+<p>Qwen-3.5 uses <strong>hybrid attention</strong>: ~75% of layers run Gated DeltaNet (linear attention for efficient long-range processing), ~25% run full GQA (softmax attention for precise retrieval). We trace the GQA layers here &mdash; they contain all the mechanisms that matter for understanding inference.</p>
+</div>
 
-<p>Our input is a vector <code>x</code> of shape [768] for GPT-2, or [5120] for Qwen-3.5 27B. Let's trace through with real (small) numbers to build intuition. Imagine <code>x = [0.5, -1.2, 0.8, 0.3, ...]</code> &mdash; a 768-dimensional vector representing the current token's hidden state.</p>
+<h3>One Block, Traced</h3>
+
+<p>One vector enters the top of a transformer block. Seven matrix multiplications and two skip connections later, one updated vector exits the bottom. That block repeats 48 times (GPT-2: 12). Here's the complete map &mdash; every weight matrix, every shape, every operation. The sections below trace each stage with real numbers.</p>
 
 <div class="diagram">
 <span class="diagram-label">One Transformer Block &mdash; Data Flow</span>
@@ -1387,15 +1377,17 @@ x = embedding_table[token_ids]   <span class="cm"># shape: [seq_len, 768]</span>
 
 <h4>Step 1: RMSNorm</h4>
 
-<p>Modern models use <strong>RMSNorm</strong> instead of LayerNorm (GPT-2 used LayerNorm). The difference: RMSNorm skips the mean-centering step and has no bias. It's simpler and empirically works just as well.</p>
+<p>Before any matrix multiply, the vector gets normalized. Without this, hidden-state magnitudes drift after each layer &mdash; some dimensions explode, others shrink &mdash; and downstream weights can't keep up. Normalization resets the scale so every layer sees inputs in a predictable range.</p>
 
 <div class="tabbed">
 <input type="radio" name="rms" id="rms-t1" class="t1" checked>
 <input type="radio" name="rms" id="rms-t2" class="t2">
+<input type="radio" name="rms" id="rms-t3" class="t3">
 
 <div class="tab-bar">
 <label for="rms-t1">Intuition</label>
-<label for="rms-t2">Math</label>
+<label for="rms-t2">LayerNorm vs RMSNorm</label>
+<label for="rms-t3">Math</label>
 </div>
 
 <!-- ── TAB 1: intuition ── -->
@@ -1426,15 +1418,55 @@ x = embedding_table[token_ids]   <span class="cm"># shape: [seq_len, 768]</span>
   <span class="pp">Divide every dimension by the same number (the RMS).</span>
   <span class="pp">Relative proportions stay intact. Absolute scale is reset.</span>
   <span class="pp">Then &gamma; (learned per-dimension) re-scales what matters.</span>
-
-  <span class="cm">vs LayerNorm:</span> RMSNorm skips mean-centering (no bias shift).
-  <span class="cm">Simpler, faster, works just as well &mdash; that&rsquo;s why every modern LLM uses it.</span>
 </code></pre>
 </div>
 </div>
 
-<!-- ── TAB 2: math ── -->
+<!-- ── TAB 2: LayerNorm vs RMSNorm ── -->
 <div class="tab-panel p2">
+<div class="diagram">
+<pre><code><span class="label">LayerNorm vs RMSNorm</span>
+
+  <span class="ty">LayerNorm</span> <span class="cm">(GPT-2 era)</span>
+  ─────────────────────────────────────────────────────────────
+
+  1. <span class="pp">Mean-center:</span>  &mu; = mean(x), subtract from every dim
+                    the vector&rsquo;s average becomes zero
+
+  2. <span class="pp">Scale:</span>        &sigma; = std(x), divide every dim by it
+                    now the vector has unit variance
+
+  3. <span class="pp">Re-scale:</span>     x &times; <span class="ty">&gamma;</span> + <span class="ty">&beta;</span>  <span class="cm">(learned per-dimension)</span>
+                    the network decides what to amplify &amp; shift
+
+
+  <span class="ty">RMSNorm</span> <span class="cm">(modern LLMs &mdash; LLaMA, Qwen, Mistral, &hellip;)</span>
+  ─────────────────────────────────────────────────────────────
+
+  1. <span class="pp">Square:</span>       x&sup2;  for every dimension
+
+  2. <span class="pp">Mean:</span>         average those squared values
+
+  3. <span class="pp">Root+divide:</span>  &radic;(mean(x&sup2;)) = the RMS, divide every dim by it
+
+  4. <span class="pp">Re-scale:</span>     x &times; <span class="ty">&gamma;</span>  <span class="cm">(no &beta; &mdash; no bias term)</span>
+
+  ─────────────────────────────────────────────────────────────
+
+  <span style="color:var(--green)">Why drop the mean-centering?</span>
+  Re-centering contributes almost nothing to training stability &mdash;
+  the <em>scale reset</em> is what matters. Removing it:
+
+    &bull; cuts norm parameters in half  <span class="cm">(no &beta; vectors)</span>
+    &bull; saves one pass over the vector per norm call
+    &bull; 64 blocks &times; 2 norms = 128 fewer reductions per token
+    &bull; simpler numerics &rarr; fewer edge cases in FP16/BF16
+</code></pre>
+</div>
+</div>
+
+<!-- ── TAB 3: math ── -->
+<div class="tab-panel p3">
 <pre><code><span class="label">Math</span>
 <span class="cm"># Input: x = [0.5, -1.2, 0.8, 0.3, ...] (768 values)</span>
 
@@ -1456,24 +1488,9 @@ x = embedding_table[token_ids]   <span class="cm"># shape: [seq_len, 768]</span>
 </div>
 </div>
 
-<h4>Step 2: QKV Projection</h4>
+<h4>Step 2: Attention &mdash; QKV Projection</h4>
 
-<p>This is where the real cost starts. We multiply our normalized vector by three large weight matrices to get queries, keys, and values:</p>
-
-<pre><code><span class="label">Math</span>
-<span class="cm"># For Qwen-3.5 27B with GQA (4 KV heads, 24 query heads, head_dim=256):</span>
-
-Q = x_norm @ W_q     <span class="cm"># [5120] × [5120, 6144] → [6144]  (24 heads × 256 dim)</span>
-K = x_norm @ W_k     <span class="cm"># [5120] × [5120, 1024] → [1024]  (4 heads × 256 dim)</span>
-V = x_norm @ W_v     <span class="cm"># [5120] × [5120, 1024] → [1024]  (4 heads × 256 dim)</span>
-
-<span class="cm"># FLOPs for Q projection alone:</span>
-<span class="cm">#   5120 × 6144 × 2 = 62,914,560 (63M FLOPs)</span>
-<span class="cm"># K and V: 5120 × 1024 × 2 × 2 = 20.9M FLOPs</span>
-<span class="cm"># Total QKV: ~84M FLOPs. Per block. Per token.</span>
-</code></pre>
-
-<p>Notice the asymmetry: Q is 6&times; larger than K or V because of GQA. There are 24 query heads but only 4 KV heads &mdash; each KV head is shared across 6 query heads. Also note that W_q is <em>not</em> square: the output (6144) is larger than the input (5120) because head_dim (256) &times; n_heads (24) &ne; d_model (5120).</p>
+<p>The attention mechanism &mdash; introduced in <em>Attention Is All You Need</em> (Vaswani et al., 2017) &mdash; starts here. We multiply our normalized vector by three weight matrices to produce queries, keys, and values:</p>
 
 <div class="tabbed">
 <input type="radio" name="qkv" id="qkv-t1" class="t1" checked>
@@ -1482,8 +1499,8 @@ V = x_norm @ W_v     <span class="cm"># [5120] × [5120, 1024] → [1024]  (4 he
 
 <div class="tab-bar">
 <label for="qkv-t1">Intuition</label>
-<label for="qkv-t2">GQA Visual</label>
-<label for="qkv-t3">Shapes</label>
+<label for="qkv-t2">Standard MHA</label>
+<label for="qkv-t3">GQA (common optimization)</label>
 </div>
 
 <!-- ── TAB 1: Q, K, V intuition ── -->
@@ -1523,11 +1540,73 @@ V = x_norm @ W_v     <span class="cm"># [5120] × [5120, 1024] → [1024]  (4 he
 </div>
 </div>
 
-<!-- ── TAB 2: GQA visual ── -->
+<!-- ── TAB 2: Standard Multi-Head Attention ── -->
 <div class="tab-panel p2">
 <div class="diagram">
-<span class="diagram-label">Grouped-Query Attention &mdash; 64 query heads, 8 KV heads</span>
+<span class="diagram-label">Standard Multi-Head Attention &mdash; equal Q, K, V projections</span>
 <pre><code>
+  <span class="cm">d_model = 5120, n_heads = 20, head_dim = 256</span>
+
+  Q = x_norm @ W_q     <span class="cm">[5120] &times; [5120, 5120] &rarr; [5120]  (20 heads &times; 256 dim)</span>
+  K = x_norm @ W_k     <span class="cm">[5120] &times; [5120, 5120] &rarr; [5120]  (20 heads &times; 256 dim)</span>
+  V = x_norm @ W_v     <span class="cm">[5120] &times; [5120, 5120] &rarr; [5120]  (20 heads &times; 256 dim)</span>
+
+  Three identical matmuls. Symmetric.
+  FLOPs: 5120 &times; 5120 &times; 2 &times; 3 = <strong>~157M per block per token</strong>.
+
+  ─────────────────────────────────────────────────────────────
+
+  <span class="cm">Dimension flow</span>
+
+  <span class="cm">Input:</span>   x_norm <span class="ty">[5120]</span>
+
+    x_norm <span class="ty">[5120]</span> &times; <span class="nm">W_q</span> <span class="ty">[5120 &times; 5120]</span> &rarr; Q <span class="ty">[5120]</span>
+    x_norm <span class="ty">[5120]</span> &times; <span class="nm">W_k</span> <span class="ty">[5120 &times; 5120]</span> &rarr; K <span class="ty">[5120]</span>
+    x_norm <span class="ty">[5120]</span> &times; <span class="nm">W_v</span> <span class="ty">[5120 &times; 5120]</span> &rarr; V <span class="ty">[5120]</span>
+
+  <span class="cm">Reshape into heads:</span>
+
+    Q <span class="ty">[5120]</span> &rarr; <span class="ty">[20 heads &times; 256 dim]</span>
+    K <span class="ty">[5120]</span> &rarr; <span class="ty">[20 heads &times; 256 dim]</span>
+    V <span class="ty">[5120]</span> &rarr; <span class="ty">[20 heads &times; 256 dim]</span>
+
+  <span class="cm">Attention (per head):</span>
+
+    scores = Q<sub>head</sub> <span class="ty">[1 &times; 256]</span> &middot; K<sub>cache</sub><sup>T</sup> <span class="ty">[256 &times; seq_len]</span> &rarr; <span class="ty">[1 &times; seq_len]</span>
+    weights = softmax(scores / &radic;256) &rarr; <span class="ty">[1 &times; seq_len]</span>
+    out = weights <span class="ty">[1 &times; seq_len]</span> &middot; V<sub>cache</sub> <span class="ty">[seq_len &times; 256]</span> &rarr; <span style="color:var(--magenta)">[1 &times; 256]</span>
+
+  <span class="cm">Concatenate all 20 heads, project back:</span>
+
+    concat <span style="color:var(--magenta)">[20 &times; 256]</span> = <span class="ty">[5120]</span> &times; <span class="nm">W_out</span> <span class="ty">[5120 &times; 5120]</span> &rarr; <span class="ty">[5120]</span>
+
+  <span class="pp">Every head has its own Q, K, and V &mdash; 20 independent attention patterns.</span>
+  <span class="pp">KV cache stores all 20 heads &times; 256 dims = 5120 values per token per layer.</span>
+</code></pre>
+</div>
+</div>
+
+<!-- ── TAB 3: GQA (common optimization) ── -->
+<div class="tab-panel p3">
+<div class="diagram">
+<span class="diagram-label">Grouped-Query Attention &mdash; Qwen 27B (24 Q heads, 4 KV heads)</span>
+<pre><code>
+  Most modern models use GQA instead of standard MHA. The idea:
+  keep many query heads, but share KV heads across groups.
+
+  ─────────────────────────────────────────────────────────
+
+  Qwen 27B: 24 Q heads, 4 KV heads, head_dim = 256
+
+  Q = x @ W_q     <span class="cm">[5120] &times; [5120, 6144] &rarr; [6144]  (24 &times; 256)</span>
+  K = x @ W_k     <span class="cm">[5120] &times; [5120, 1024] &rarr; [1024]  ( 4 &times; 256)</span>
+  V = x @ W_v     <span class="cm">[5120] &times; [5120, 1024] &rarr; [1024]  ( 4 &times; 256)</span>
+
+  Q is 6&times; larger than K or V &mdash; 6 query heads share each KV head.
+  Total QKV FLOPs: <strong>~84M</strong> (down from ~157M with standard MHA).
+
+  ─────────────────────────────────────────────────────────
+
   <span class="ty">Query heads (24)</span>                          <span class="nm">KV heads (4)</span>
 
   <span class="ty">Q0  Q1  Q2  Q3  Q4  Q5</span>   &rarr;&rarr;&rarr;  <span class="nm">KV0</span>    group 0
@@ -1536,6 +1615,7 @@ V = x_norm @ W_v     <span class="cm"># [5120] × [5120, 1024] → [1024]  (4 he
   <span class="ty">Q18 Q19 Q20 Q21 Q22 Q23</span> &rarr;&rarr;&rarr;  <span class="nm">KV3</span>    group 3
 
   Each group: <strong>6 query heads share 1 KV head</strong>
+
   ─────────────────────────────────────────────────────────
   <span class="cm">              Multi-Head      Grouped-Query      Multi-Query</span>
   <span class="cm">              Attention        Attention          Attention</span>
@@ -1548,41 +1628,9 @@ V = x_norm @ W_v     <span class="cm"># [5120] × [5120, 1024] → [1024]  (4 he
 </code></pre>
 </div>
 </div>
-
-<!-- ── TAB 3: Shapes ── -->
-<div class="tab-panel p3">
-<div class="diagram">
-<span class="diagram-label">Dimension flow through QKV projection</span>
-<pre><code>
-  <span class="cm">Input:   x_norm</span> <span class="ty">[5120]</span>
-
-  <span class="cm">Step 1: project into Q, K, V</span>
-
-    x_norm <span class="ty">[5120]</span> &times; <span class="nm">W_q</span> <span class="ty">[5120 &times; 6144]</span> &rarr; Q <span class="ty">[6144]</span>
-    x_norm <span class="ty">[5120]</span> &times; <span class="nm">W_k</span> <span class="ty">[5120 &times; 1024]</span> &rarr; K <span class="ty">[1024]</span>
-    x_norm <span class="ty">[5120]</span> &times; <span class="nm">W_v</span> <span class="ty">[5120 &times; 1024]</span> &rarr; V <span class="ty">[1024]</span>
-
-  <span class="cm">Step 2: reshape into heads</span>
-
-    Q <span class="ty">[6144]</span> &rarr; <span class="ty">[24 heads &times; 256 dim]</span>   <span class="cm">(24 query heads)</span>
-    K <span class="ty">[1024]</span> &rarr; <span class="ty">[4 heads &times; 256 dim]</span>    <span class="cm">(4 KV heads)</span>
-    V <span class="ty">[1024]</span> &rarr; <span class="ty">[4 heads &times; 256 dim]</span>    <span class="cm">(4 KV heads)</span>
-
-  <span class="cm">Step 3: attention (per head group)</span>
-
-    scores = Q<sub>head</sub> <span class="ty">[1 &times; 256]</span> &middot; K<sub>cache</sub><sup>T</sup> <span class="ty">[256 &times; seq_len]</span> &rarr; <span class="ty">[1 &times; seq_len]</span>
-    weights = softmax(scores / &radic;256) &rarr; <span class="ty">[1 &times; seq_len]</span>
-    out = weights <span class="ty">[1 &times; seq_len]</span> &middot; V<sub>cache</sub> <span class="ty">[seq_len &times; 256]</span> &rarr; <span style="color:var(--magenta)">[1 &times; 256]</span>
-
-  <span class="cm">Step 4: concatenate all 24 heads, project back</span>
-
-    concat <span style="color:var(--magenta)">[24 &times; 256]</span> = <span class="ty">[6144]</span> &times; <span class="nm">W_out</span> <span class="ty">[6144 &times; 5120]</span> &rarr; <span class="ty">[5120]</span>
-</code></pre>
-</div>
-</div>
 </div>
 
-<h4>Step 3: RoPE (Position Encoding)</h4>
+<h4>Step 3: Attention &mdash; RoPE</h4>
 
 <p>How does the model know that "Paris" is the fifth word, not the first? <strong>Rotary Position Embedding</strong> encodes position by rotating query and key vectors in pairs of dimensions. Each dimension pair rotates at a different frequency, creating a unique angular signature for each position.</p>
 
@@ -1681,7 +1729,7 @@ q[<span class="nm">2</span>*i+<span class="nm">1</span>] = q_orig[<span class="n
 </div>
 </div>
 
-<h4>Step 4: Attention Score Computation</h4>
+<h4>Step 4: Attention &mdash; Scores &amp; Output</h4>
 
 <p>Let's trace attention for a short sequence of 4 tokens. Reshape Q into [n_heads, 1, head_dim] and K cache into [n_heads, seq_len, head_dim]:</p>
 
@@ -1797,23 +1845,27 @@ Output = 0.231·V₀ + 0.234·V₁ + 0.329·V₂ + 0.206·V₃
 <input type="radio" name="swiglu-exp" id="swiglu-exp-t1" class="t1" checked>
 <input type="radio" name="swiglu-exp" id="swiglu-exp-t2" class="t2">
 <input type="radio" name="swiglu-exp" id="swiglu-exp-t3" class="t3">
+<input type="radio" name="swiglu-exp" id="swiglu-exp-t4" class="t4">
 
 <div class="tab-bar">
 <label for="swiglu-exp-t1">Intuition</label>
-<label for="swiglu-exp-t2">Code</label>
-<label for="swiglu-exp-t3">SiLU Deep Dive</label>
+<label for="swiglu-exp-t2">Math</label>
+<label for="swiglu-exp-t3">Code</label>
+<label for="swiglu-exp-t4">SiLU Deep Dive</label>
 </div>
 
 <!-- ── TAB 1: intuition ── -->
 <div class="tab-panel p1">
-<div style="padding: 1.4rem;">
-
-<p style="margin-bottom:1.2rem;"><strong>The problem SwiGLU solves.</strong> GPT-2's FFN was simple: expand the vector to 4&times; width, apply GELU activation, shrink back. Two matrices, one non-linearity. The activation decided which dimensions to keep &mdash; but it had to make that decision using only the <em>expanded</em> representation itself. There was no separate "should I use this?" signal.</p>
-
-<p style="margin-bottom:1.2rem;">SwiGLU splits the <strong>decision</strong> from the <strong>content</strong>. Two parallel projections from the same input:</p>
-
-<div class="diagram" style="margin:0 0 1.2rem; border: none; background: none; padding:0;">
+<div class="diagram">
+<span class="diagram-label">SwiGLU &mdash; the problem it solves</span>
 <pre><code>
+  GPT-2's FFN was simple: expand to 4&times; width, apply GELU, shrink back.
+  Two matrices, one non-linearity. The activation decided which dimensions
+  to keep &mdash; but using only the expanded representation itself.
+  No separate "should I use this?" signal.
+
+  SwiGLU splits the <strong>decision</strong> from the <strong>content</strong>:
+
   <span class="cm">Same input x feeds both paths:</span>
 
   <span style="color:var(--orange)">GATE path</span>   x &rarr; W_gate &rarr; SiLU &rarr; <strong>"should this feature activate?"</strong>
@@ -1827,20 +1879,72 @@ Output = 0.231·V₀ + 0.234·V₁ + 0.329·V₂ + 0.206·V₃
                                      gate decides, up provides
 
   <span style="color:var(--magenta)">DOWN</span>        result &rarr; W_down &rarr;       compress back to [5120]
+
+  ─────────────────────────────────────────────────────────────
+
+  Think of it like a mixing board. Each of the 17,408 channels has a
+  fader (the gate) and an audio signal (the up value). The model learned
+  which faders to push up for each kind of input.
+
+  A token about geography opens channels for location features and
+  closes channels for emotion features. A token about sentiment does
+  the opposite. Same weights, different routing per token.
+
+  The cost: <strong>three</strong> weight matrices instead of two. That's why the FFN
+  dominates compute &mdash; 535M FLOPs per block, ~78% of the budget.
+  But the quality gain is consistent, which is why every post-2022
+  model uses it.
 </code></pre>
 </div>
-
-<p style="margin-bottom:1rem;">The <strong>gate</strong> learns <em>which</em> features are relevant for this token. The <strong>up</strong> path computes <em>candidate values</em> for every feature. Multiplying them is selective routing: if the gate says "this feature doesn't matter here," it drives the output toward zero &mdash; regardless of what up computed.</p>
-
-<p style="margin-bottom:1rem;">Think of it like a mixing board. Each of the 17,408 channels has a fader (the gate) and an audio signal (the up value). The model learned which faders to push up for each kind of input. A token about geography might open channels for location features and close channels for emotion features. A token about sentiment does the opposite. Same weights, different routing per token.</p>
-
-<p style="margin-bottom:0.5rem;">The cost: <strong>three</strong> weight matrices instead of two. That's why the FFN dominates compute &mdash; 535M FLOPs per block, ~78% of the per-block budget. But the quality improvement is consistent and significant, which is why every post-2022 model uses it.</p>
-
-</div>
 </div>
 
-<!-- ── TAB 2: code ── -->
+<!-- ── TAB 2: math ── -->
 <div class="tab-panel p2">
+<div class="diagram">
+<span class="diagram-label">SwiGLU &mdash; formal definition</span>
+<pre><code>
+  The name: <span style="color:var(--orange)">Swi</span> from <strong>Swish</strong> (= SiLU) + <span style="color:var(--cyan)">GLU</span> from <strong>Gated Linear Unit</strong>
+
+  ─────────────────────────────────────────────────────────────
+
+  <span class="cm">GLU family (Dauphin et al., 2017):</span>
+
+    GLU(x, W, V)  = <span style="color:var(--orange)">&sigma;(xW)</span> &odot; <span style="color:var(--cyan)">xV</span>         <span class="cm">original: sigmoid gate</span>
+
+  <span class="cm">SwiGLU variant (Shazeer, 2020) replaces &sigma; with Swish/SiLU:</span>
+
+    <strong>SwiGLU(x, W<sub>gate</sub>, W<sub>up</sub>) = SiLU(x &middot; W<sub>gate</sub>) &odot; (x &middot; W<sub>up</sub>)</strong>
+
+  <span class="cm">Where SiLU (Sigmoid Linear Unit) = Swish with &beta;=1:</span>
+
+    SiLU(z) = z &middot; &sigma;(z) = z &middot; <span class="nm">1/(1 + e<sup>&minus;z</sup>)</span>
+
+  ─────────────────────────────────────────────────────────────
+
+  <span class="cm">Full FFN with SwiGLU (as used in Qwen, Llama, Mistral, etc.):</span>
+
+    FFN(x) = (<span style="color:var(--orange)">SiLU(x &middot; W<sub>gate</sub>)</span> &odot; <span style="color:var(--cyan)">x &middot; W<sub>up</sub></span>) &middot; <span style="color:var(--magenta)">W<sub>down</sub></span>
+
+  <span class="cm">Dimensions (Qwen 27B):  d<sub>model</sub> = 5120,  d<sub>ff</sub> = 17408</span>
+
+    W<sub>gate</sub> &isin; &reals;<sup>5120 &times; 17408</sup>    W<sub>up</sub> &isin; &reals;<sup>5120 &times; 17408</sup>    W<sub>down</sub> &isin; &reals;<sup>17408 &times; 5120</sup>
+
+  ─────────────────────────────────────────────────────────────
+
+  <span class="cm">Why 3 matrices instead of 2?</span>
+
+  <span class="cm">Classic FFN (GPT-2):</span>      FFN(x) = GELU(x &middot; W<sub>1</sub>) &middot; W<sub>2</sub>         <span class="cm">2 matmuls</span>
+  <span class="cm">SwiGLU FFN:</span>               FFN(x) = (SiLU(xW<sub>g</sub>) &odot; xW<sub>u</sub>) &middot; W<sub>d</sub>   <span class="cm">3 matmuls</span>
+
+  <span class="pp">Extra matmul = ~50% more FFN FLOPs, but the gating mechanism</span>
+  <span class="pp">gives the model fine-grained control over which features survive.</span>
+  <span class="pp">Consistent quality wins across all benchmarks &mdash; worth the cost.</span>
+</code></pre>
+</div>
+</div>
+
+<!-- ── TAB 3: code ── -->
+<div class="tab-panel p3">
 <pre><code><span class="label">SwiGLU (4 lines)</span>
 gate = x @ W_gate    <span class="cm"># [5120] &rarr; [17408]  "should this feature activate?"</span>
 up   = x @ W_up      <span class="cm"># [5120] &rarr; [17408]  "what value should it carry?"</span>
@@ -1856,14 +1960,13 @@ out  = h @ W_down     <span class="cm"># [17408] &rarr; [5120]  compress back</s
 </code></pre>
 </div>
 
-<!-- ── TAB 3: SiLU deep dive ── -->
-<div class="tab-panel p3">
-<div style="padding: 1.4rem;">
-
-<p style="margin-bottom:1rem;"><strong>SiLU</strong> (Sigmoid Linear Unit): <code>SiLU(x) = x &times; sigmoid(x)</code></p>
-
-<div class="diagram" style="margin:0 0 1rem; border: none; background: none; padding:0;">
+<!-- ── TAB 4: SiLU deep dive ── -->
+<div class="tab-panel p4">
+<div class="diagram">
+<span class="diagram-label">SiLU (Sigmoid Linear Unit) &mdash; the activation inside SwiGLU</span>
 <pre><code>
+  SiLU(x) = x &times; &sigma;(x) = x &times; 1/(1 + e<sup>&minus;x</sup>)
+
   <span class="cm">How SiLU behaves at different gate values:</span>
 
   gate = <span class="nm">-3.0</span>  &rarr;  sigmoid = 0.05  &rarr;  SiLU = <span style="color:var(--red)">-0.14</span>    <span style="color:var(--red)">nearly killed</span>
@@ -1876,11 +1979,14 @@ out  = h @ W_down     <span class="cm"># [17408] &rarr; [5120]  compress back</s
   <span class="pp">vs SiLU: smooth transition. Gradients flow even for negative inputs.</span>
   <span class="pp">This smoothness gives the model fine-grained control over</span>
   <span class="pp">"how open" each gate is &mdash; not just on/off.</span>
+
+  ─────────────────────────────────────────────────────────────
+
+  SiLU can output small negative values (minimum &asymp; -0.28 at x &asymp; -1.28).
+  The gate can slightly <em>invert</em> a feature, not just suppress it.
+  ReLU can't do this. GELU is similar but lacks the clean
+  multiplicative gating structure that makes SwiGLU work.
 </code></pre>
-</div>
-
-<p style="margin-bottom:0;">SiLU has a unique property: it can output small <em>negative</em> values (minimum around -0.28 at x &asymp; -1.28). This means the gate can slightly <em>invert</em> a feature, not just suppress it. ReLU can't do this. GELU is similar but lacks the clean multiplicative gating structure that makes SwiGLU work.</p>
-
 </div>
 </div>
 </div>
@@ -1897,7 +2003,7 @@ out  = h @ W_down     <span class="cm"># [17408] &rarr; [5120]  compress back</s
 <!-- ── TAB 1: D3 interactive viz ── -->
 <div class="tab-panel p1">
 <div style="padding: 0.8rem 1.4rem 0;">
-<svg id="viz-swiglu" viewBox="0 0 780 320" style="width:100%; height:auto; display:block;"></svg>
+<svg id="viz-swiglu" viewBox="0 0 780 360" style="width:100%; height:auto; display:block;"></svg>
 <div class="viz-controls" style="padding-bottom:0.6rem;">
 <button id="viz-swiglu-run">Run</button>
 <button id="viz-swiglu-reset" class="secondary">Reset</button>
@@ -1933,7 +2039,7 @@ out  = h @ W_down     <span class="cm"># [17408] &rarr; [5120]  compress back</s
 <script>
 (function() {
     const svg = d3.select('#viz-swiglu');
-    const W = 780, H = 320;
+    const W = 780, H = 360;
     const N = 8; // dimension rows
     const rowH = 30, rowGap = 5;
     const startY = 45, startX = 10;
@@ -2091,129 +2197,37 @@ out  = h @ W_down     <span class="cm"># [17408] &rarr; [5120]  compress back</s
 <p><strong>The gate learns <em>which</em> features matter. The up-projection computes <em>candidate values</em>.</strong> Multiplying them = selective routing. It's like an if-statement learned from data: <code>if gate[i] > 0: output[i] = up[i]</code>, but smooth and differentiable. One projection decides, the other provides &mdash; that's why SwiGLU needs three matrices instead of GPT-2's two, and why it works better: the model can learn to shut off irrelevant features instead of blending everything.</p>
 </div>
 
-<h3>Attention Visualized</h3>
+<h3>The Full Stack: 64 Blocks Deep</h3>
 
-<div class="viz-container">
-<svg id="viz-ch3" viewBox="0 0 780 380"></svg>
-<div class="viz-controls">
-<div>
-    <label>Mode</label>
-    <select id="viz-ch3-mode">
-        <option value="prefill">Prefill (full causal mask)</option>
-        <option value="decode">Decode (single query)</option>
-        <option value="flash">FlashAttention tiles</option>
-    </select>
-</div>
-<div>
-    <label>Sequence Length</label>
-    <input type="range" id="viz-ch3-seq" min="4" max="20" value="10">
-    <span class="val" id="viz-ch3-seq-val">10</span>
-</div>
-<div>
-    <label>Tile Size</label>
-    <input type="range" id="viz-ch3-tile" min="2" max="6" value="4">
-    <span class="val" id="viz-ch3-tile-val">4</span>
-</div>
-</div>
-</div>
+<p>We traced one block. The model runs 64 of them, in sequence, on every token. The same seven matrix multiplications, repeated with different learned weights. Here's what that stack looks like:</p>
 
-<script>
-(function() {
-    function drawAttn() {
-        const svg = d3.select('#viz-ch3');
-        svg.selectAll('*').remove();
-        const N = +document.getElementById('viz-ch3-seq').value;
-        const mode = document.getElementById('viz-ch3-mode').value;
-        const tileSize = +document.getElementById('viz-ch3-tile').value;
-        d3.select('#viz-ch3-seq-val').text(N);
-        d3.select('#viz-ch3-tile-val').text(tileSize);
+<div class="diagram">
+<span class="diagram-label">One Token Through 64 Blocks &mdash; Qwen 27B</span>
+<pre><code>
+  <span class="cm">Block</span>    <span class="cm">Operations</span>                                    <span class="cm">FLOPs</span>         <span class="cm">Cumulative</span>
+  <span class="cm">─────    ──────────                                    ─────         ──────────</span>
+  <span style="color:var(--green)">  1</span>      RMSNorm &rarr; QKV &rarr; RoPE &rarr; Attn &rarr; Proj &rarr; FFN    <span class="nm">682M</span>          682M
+  <span style="color:var(--green)">  2</span>      RMSNorm &rarr; QKV &rarr; RoPE &rarr; Attn &rarr; Proj &rarr; FFN    <span class="nm">682M</span>          1.4B
+  <span style="color:var(--green)">  3</span>      RMSNorm &rarr; QKV &rarr; RoPE &rarr; Attn &rarr; Proj &rarr; FFN    <span class="nm">682M</span>          2.0B
+  <span style="color:var(--text-dim)">  &vellip;      same weights shape, different learned values      &vellip;             &vellip;</span>
+  <span style="color:var(--cyan)"> 64</span>      RMSNorm &rarr; QKV &rarr; RoPE &rarr; Attn &rarr; Proj &rarr; FFN    <span class="nm">682M</span>          <span style="color:var(--yellow)">43.6B</span>
 
-        const cellSize = Math.min(Math.floor(260 / N), 26);
-        const gridW = N * cellSize;
-        const startX = 80, startY = 50;
+  <span class="cm">Then:</span>
+  <span style="color:var(--yellow)"> +1</span>      Final RMSNorm &rarr; logit projection (W_embed<sup>T</sup>)     <span class="nm">778M</span>          <span style="color:var(--yellow)">44.4B</span>
 
-        // Labels
-        svg.append('text').attr('x', startX + gridW/2).attr('y', startY - 20).text('Keys (K)')
-            .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',11).attr('text-anchor','middle');
-        svg.append('text').attr('x', startX - 25).attr('y', startY + gridW/2 + 4).text('Q')
-            .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',11).attr('text-anchor','middle')
-            .attr('transform', `rotate(-90, ${startX-25}, ${startY + gridW/2})`);
+  ─────────────────────────────────────────────────────────────────────
 
-        const colors = ['#00ff88','#00ddff','#ff00aa','#ff8800','#aa44ff','#ffdd00'];
+  <span class="cm">Per block:</span>   7 matmuls &times; 1 block  = 7 matmuls           <span class="nm">682M FLOPs</span>
+  <span class="cm">Per token:</span>   7 matmuls &times; 64 blocks = <strong>448 matmuls</strong>          <span style="color:var(--yellow)"><strong>~44B FLOPs</strong></span>
+  <span class="cm">100 tokens:</span> 448 &times; 100            = <strong>44,800 matmuls</strong>       <span style="color:var(--yellow)"><strong>~4.4T FLOPs</strong></span>
 
-        for (let i = 0; i < N; i++) {
-            for (let j = 0; j < N; j++) {
-                const x = startX + j * cellSize;
-                const y = startY + i * cellSize;
-                const causal = j <= i;
-
-                let fill;
-                if (mode === 'prefill') {
-                    fill = causal ? `rgba(0,255,136,${0.15 + Math.random()*0.45})` : 'rgba(106,106,126,0.05)';
-                } else if (mode === 'decode') {
-                    if (i === N-1 && causal) fill = `rgba(255,0,170,${0.2 + Math.random()*0.5})`;
-                    else if (causal) fill = 'rgba(0,255,136,0.06)';
-                    else fill = 'rgba(106,106,126,0.03)';
-                } else {
-                    if (causal) {
-                        const ti = Math.floor(i/tileSize), tj = Math.floor(j/tileSize);
-                        const ci = (ti * 7 + tj) % colors.length;
-                        fill = colors[ci] + '55';
-                    } else fill = 'rgba(106,106,126,0.03)';
-                }
-
-                svg.append('rect').attr('x',x).attr('y',y).attr('width',cellSize-1).attr('height',cellSize-1)
-                    .attr('fill',fill).attr('rx',1);
-
-                if (mode === 'flash' && causal) {
-                    if (i % tileSize === 0) svg.append('line').attr('x1',x).attr('y1',y).attr('x2',x+cellSize-1).attr('y2',y).attr('stroke','rgba(255,255,255,0.15)');
-                    if (j % tileSize === 0) svg.append('line').attr('x1',x).attr('y1',y).attr('x2',x).attr('y2',y+cellSize-1).attr('stroke','rgba(255,255,255,0.15)');
-                }
-            }
-        }
-
-        // Legend
-        const ly = startY + gridW + 30;
-        const legendText = {
-            prefill: `PREFILL: All ${N} query rows active. ${N*N} scores. Compute-bound, GPU-friendly.`,
-            decode: `DECODE: Only last row active (1 new token → ${N} cached keys). Memory-bound.`,
-            flash: `FLASH: ${tileSize}×${tileSize} tiles in SRAM. Online softmax across tiles. Never materializes N×N.`
-        };
-        const legendColor = { prefill: '#00ff88', decode: '#ff00aa', flash: '#00ddff' };
-        svg.append('text').attr('x', startX).attr('y', ly).text(legendText[mode])
-            .attr('fill', legendColor[mode]).attr('font-family','JetBrains Mono, monospace').attr('font-size',11);
-
-        // Side info: FLOP counts
-        const infoX = startX + gridW + 40;
-        const info = svg.append('g').attr('transform', `translate(${infoX}, ${startY})`);
-        info.append('text').attr('y',0).text('Per-block cost (27B):').attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',10);
-        const items = [
-            {label:'QKV proj', val:'84M FLOPs', color:'#00ddff'},
-            {label:'Attention', val:`${(N*256*2).toLocaleString()} FLOPs`, color:'#ff00aa'},
-            {label:'O proj', val:'63M FLOPs', color:'#00ddff'},
-            {label:'FFN (3 matmul)', val:'535M FLOPs', color:'#ff8800'},
-            {label:'Norms', val:'~30K FLOPs', color:'#6a6a7e'},
-        ];
-        items.forEach((it,i) => {
-            info.append('text').attr('y', 22 + i*18).text(`${it.label}: `).attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',10);
-            info.append('text').attr('x', 120).attr('y', 22 + i*18).text(it.val).attr('fill',it.color).attr('font-family','JetBrains Mono, monospace').attr('font-size',10);
-        });
-        info.append('text').attr('y', 22 + items.length * 18 + 10).text('× 64 blocks = 44B FLOPs/token').attr('fill','#ffdd00').attr('font-family','JetBrains Mono, monospace').attr('font-size',11).attr('font-weight','bold');
-    }
-
-    drawAttn();
-    d3.select('#viz-ch3-mode').on('change', drawAttn);
-    d3.select('#viz-ch3-seq').on('input', drawAttn);
-    d3.select('#viz-ch3-tile').on('input', drawAttn);
-})();
-</script>
-
-<div class="power">
-<div class="power-label">The Machine Understood</div>
-<p>We now know what the model <em>is</em>: 64 repetitions of norm &rarr; attention &rarr; norm &rarr; FFN, with residual connections. We know what each weight matrix does and its exact dimensions. Seven matrix multiplications per block. Sixty-four blocks. 44 billion FLOPs per token. For every single token the model generates, all of this runs. Every matrix. Every layer. Every time.</p>
+  <span class="pp">Every token you see streaming? All 64 blocks ran. All 448 matmuls fired.</span>
+  <span class="pp">The vector that entered block 1 as a raw embedding exits block 64</span>
+  <span class="pp">as a rich, context-aware representation. Same shape in, same shape out.</span>
+</code></pre>
 </div>
 
-<p>We can write the forward pass. We know the math. But the forward pass only produces a vector of raw scores &mdash; <strong>logits</strong>. How do you turn those into an actual word? That's the sampling pipeline, and it's the final step that completes the picture: weights &rarr; forward pass &rarr; logits &rarr; token. Let's close that loop.</p>
+<p>After 64 blocks, a final norm and one last matrix multiply project the vector back to vocabulary size &mdash; producing a raw score for every word the model knows. These scores are called <strong>logits</strong>. But logits aren't words. How does the model choose? That's the final piece.</p>
 
 </section>
 <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -2221,41 +2235,78 @@ out  = h @ W_down     <span class="cm"># [17408] &rarr; [5120]  compress back</s
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <section id="ch4">
 <h2>// 04 &mdash; Choosing Words</h2>
+<div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--text-dim)">EMBED</span> &rarr; <span style="color:var(--text-dim)">NORM</span> &rarr; <span style="color:var(--text-dim)">ATTN</span> &rarr; <span style="color:var(--text-dim)">FFN</span> &rarr; <span style="color:var(--cyan);font-weight:bold">PROJECT &rarr;</span> <span style="color:var(--green);font-weight:bold">&#9654; SAMPLE</span> &nbsp; <span style="color:var(--green)">the final step</span></div>
+<div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
+    The forward pass outputs 50,257 raw scores. Temperature sharpens or flattens them.<br>
+    Top-p prunes the tail. One random draw. This is where determinism ends and generation begins.<span class="blink">_</span>
+</div>
 
 <p class="drop-cap">The model's forward pass produces a vector of <strong>logits</strong> &mdash; one raw score for every token in the vocabulary (32,000 to 128,000 values). Converting this into a single chosen token is the sampling pipeline's job. Temperature, top-p, top-k, min-p, repetition penalty &mdash; each is a filter applied to the logit distribution before sampling, and their order matters.</p>
 
-<h3>The Pipeline</h3>
+<h3>The Sampling Pipeline</h3>
 
-<pre><code><span class="label">llama.cpp default order</span>
-<span class="nm">1.</span> <span class="kw">Repetition Penalty</span>  <span class="cm">— reduce recently-used tokens</span>
-<span class="nm">2.</span> <span class="fn">Top-K</span>              <span class="cm">— keep only K highest-scoring tokens</span>
-<span class="nm">3.</span> <span class="st">Top-P (nucleus)</span>    <span class="cm">— keep smallest set with cumulative prob ≥ p</span>
-<span class="nm">4.</span> <span class="pp">Min-P</span>              <span class="cm">— remove tokens below min_p × max_probability</span>
-<span class="nm">5.</span> <span class="kw">Temperature</span>        <span class="cm">— scale logits: logits /= T</span>
-<span class="nm">6.</span> <span class="fn">Softmax</span>            <span class="cm">— convert to probabilities</span>
-<span class="nm">7.</span> <span class="st">Random Sample</span>      <span class="cm">— draw one token from the distribution</span>
+<p>Seven steps, applied in order. Each one carves the distribution down before the final coin flip. The order matters &mdash; llama.cpp's default is shown here, but engines differ.</p>
+
+<div class="diagram">
+<span class="diagram-label">llama.cpp default sampling order</span>
+<pre><code>
+  <span class="cm">Raw logits from the model: 152,064 scores (one per vocab token)</span>
+  <span class="cm">Example top 8: [5.2, 3.8, 3.1, 2.4, 1.7, 0.9, -0.3, -1.1]</span>
+
+  ─────────────────────────────────────────────────────────────────
+
+  <span class="nm">1.</span> <span class="kw">Repetition Penalty</span>                              <span class="cm">penalize the past</span>
+
+     Tokens the model recently generated get their logits divided
+     by a penalty factor (typically 1.1). Already said "Paris"?
+     Its logit drops from 5.2 &rarr; 4.7. Prevents loops.
+     <span class="pp">Without this: "Paris Paris Paris Paris Paris..."</span>
+
+  <span class="nm">2.</span> <span class="fn">Top-K</span>          K=50                             <span class="cm">hard ceiling</span>
+
+     Sort by score, keep only the top K. Everything else &rarr; &minus;&infin;.
+     Brutal but fast. If K=50, tokens ranked 51+ are dead.
+     <span class="pp">Problem: K=50 is too many when the model is confident,</span>
+     <span class="pp">too few when it's uncertain. That's why we also need:</span>
+
+  <span class="nm">3.</span> <span class="st">Top-P (nucleus)</span>  p=0.95                       <span class="cm">adaptive cutoff</span>
+
+     Sort by probability. Walk down the list, accumulating.
+     Stop when cumulative probability hits p. Discard the rest.
+
+     <span class="cm">Confident:  [0.91, 0.04, 0.02, ...]  &rarr; keeps 1-2 tokens</span>
+     <span class="cm">Uncertain:  [0.15, 0.12, 0.10, ...]  &rarr; keeps 8-10 tokens</span>
+
+     <span class="pp">Adapts to the model's confidence. Top-K can't do this.</span>
+
+  <span class="nm">4.</span> <span class="pp">Min-P</span>          min_p=0.05                       <span class="cm">floor filter</span>
+
+     Any token with probability &lt; min_p &times; max_probability is cut.
+     If the top token has p=0.6, the floor is 0.03.
+     Anything below 3% is noise &mdash; kill it.
+     <span class="pp">Newer than top-p. Simpler. Many practitioners prefer it alone.</span>
+
+  <span class="nm">5.</span> <span class="kw">Temperature</span>    T=0.7                            <span class="cm">sharpen/flatten</span>
+
+     Divide all logits by T <em>before</em> softmax.
+     T&lt;1 &rarr; sharpen (confident picks). T&gt;1 &rarr; flatten (creative).
+     T=0 &rarr; always pick the top token (greedy).
+
+     <span class="cm">T=0.3:  [0.99, 0.01, 0.00, ...]  locks in</span>
+     <span class="cm">T=1.5:  [0.37, 0.22, 0.15, ...]  anything goes</span>
+
+  <span class="nm">6.</span> <span class="fn">Softmax</span>                                          <span class="cm">logits &rarr; probabilities</span>
+
+     e<sup>logit</sup> / &Sigma;e<sup>logits</sup>. Converts raw scores to a proper
+     probability distribution that sums to 1.
+
+  <span class="nm">7.</span> <span class="st">Random Sample</span>                                    <span class="cm">roll the dice</span>
+
+     Draw one token from the distribution. Done.
+     This is where determinism ends and generation begins.
+     <span class="pp">Same prompt, same model, different roll &rarr; different story.</span>
 </code></pre>
-
-<h3>Temperature: Worked Example</h3>
-
-<pre><code><span class="label">Same logits, different temperatures</span>
-<span class="cm"># Raw logits for top 5 tokens: [5.2, 3.8, 3.1, 2.4, 1.7]</span>
-
-<span class="st">T=0.3 (very focused):</span>
-  logits/T = [17.3, 12.7, 10.3, 8.0, 5.7]
-  softmax  = [<span class="nm">0.990</span>, 0.007, 0.001, 0.000, 0.000]
-  <span class="cm">→ Almost deterministic. Top token wins 99% of the time.</span>
-
-<span class="st">T=0.7 (balanced):</span>
-  logits/T = [7.4, 5.4, 4.4, 3.4, 2.4]
-  softmax  = [<span class="nm">0.730</span>, 0.167, 0.062, 0.023, 0.009]
-  <span class="cm">→ Top token likely, but alternatives have a chance.</span>
-
-<span class="st">T=1.5 (creative):</span>
-  logits/T = [3.5, 2.5, 2.1, 1.6, 1.1]
-  softmax  = [<span class="nm">0.371</span>, 0.217, 0.146, 0.088, 0.054]
-  <span class="cm">→ Much more spread. "Surprising" tokens appear often.</span>
-</code></pre>
+</div>
 
 <h3>Sampling Explorer: Watch the Words Change</h3>
 
@@ -2475,252 +2526,31 @@ out  = h @ W_down     <span class="cm"># [17408] &rarr; [5120]  compress back</s
 <span class="pp">Factual Q&amp;A:</span>      temperature=<span class="nm">0</span>. Always greedy for facts.
 </code></pre>
 
-<p>We now understand the complete pipeline: embed &rarr; N transformer blocks &rarr; logits &rarr; sample &rarr; token. The entire sequence of operations that turns a prompt into streaming text. But we've been abstract about the weights themselves &mdash; what <em>exactly</em> is in that file you download from Hugging Face?</p>
-
-</section>
-<div class="act-break">
-    <div class="act-number">Act II</div>
-    <div class="act-title">Why It's Hard</div>
-    <div class="act-subtitle">You understand the machine. Now let's find out why running it is the real challenge.</div>
+<div class="power">
+<div class="power-label">The Complete Machine</div>
+<p>We started with a question: what happens when you type something and words appear? Now we know. Raw text becomes tokens. Tokens become vectors. Vectors pass through 64 identical blocks &mdash; each one normalizing, attending, thinking, routing &mdash; until a single vector emerges. That vector projects back to vocabulary space. Temperature, top-p, and min-p shape the distribution. One random draw. One word. Append it, run everything again. That's the whole machine.</p>
 </div>
 
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 5: THE FILE                                            -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch5">
-<h2>// 05 &mdash; The Numbers in the File</h2>
-
-<p class="drop-cap">It starts with a download. You point your browser at Hugging Face, pick a model &mdash; say, Qwen-3.5 27B &mdash; and wait. What arrives is not a program. It is a file of numbers &mdash; twenty-seven billion of them, each a 16-bit floating-point value, arranged in matrices that were painstakingly tuned over months of training on thousands of GPUs. The file is 54 gigabytes. It contains no instructions, no logic, no if-statements. Just weights.</p>
-
-<h3>Walking Through the Bytes</h3>
-
-<p>Let's look at what's actually on disk. The two dominant formats organize the data differently, but both follow the same principle: a header describing the model's architecture, followed by raw tensor data.</p>
-
-<div class="tabbed">
-<input type="radio" name="gguf" id="gguf-t1" class="t1" checked>
-<input type="radio" name="gguf" id="gguf-t2" class="t2">
-
-<div class="tab-bar">
-<label for="gguf-t1">What It Means</label>
-<label for="gguf-t2">Raw Bytes</label>
-</div>
-
-<div class="tab-panel p1">
-<div class="diagram">
-<span class="diagram-label">GGUF file layout &mdash; annotated</span>
-<pre><code>
-<span class="st">┌─────────────────────────────────────────────────────────────┐</span>
-<span class="st">│</span>  <span style="color:var(--green);font-weight:bold">HEADER</span>  (24 bytes)                                         <span class="st">│</span>
-<span class="st">│</span>  ┌────────────┐ ┌─────────┐ ┌───────────┐ ┌──────────────┐ <span class="st">│</span>
-<span class="st">│</span>  │ <span class="st">"GGUF"</span>     │ │ <span class="nm">ver 3</span>   │ │ <span class="nm">419</span>       │ │ <span class="nm">26</span>           │ <span class="st">│</span>
-<span class="st">│</span>  │ magic      │ │ format  │ │ tensors   │ │ metadata kvs │ <span class="st">│</span>
-<span class="st">│</span>  └────────────┘ └─────────┘ └───────────┘ └──────────────┘ <span class="st">│</span>
-<span class="st">│</span>  <span class="cm">The engine reads these 24 bytes to know what it's</span>          <span class="st">│</span>
-<span class="st">│</span>  <span class="cm">dealing with &mdash; before touching any weights.</span>               <span class="st">│</span>
-<span class="st">├─────────────────────────────────────────────────────────────┤</span>
-<span class="st">│</span>  <span style="color:var(--cyan);font-weight:bold">METADATA</span>  (variable length)                                <span class="st">│</span>
-<span class="st">│</span>  <span class="cm">Key-value pairs that ARE the model's blueprint:</span>            <span class="st">│</span>
-<span class="st">│</span>                                                             <span class="st">│</span>
-<span class="st">│</span>  <span class="ty">"general.architecture"</span> = <span class="st">"qwen3"</span>                          <span class="st">│</span>
-<span class="st">│</span>     <span class="cm">→ which forward pass code to run</span>                       <span class="st">│</span>
-<span class="st">│</span>  <span class="ty">"qwen3.block_count"</span> = <span class="nm">64</span>                                   <span class="st">│</span>
-<span class="st">│</span>     <span class="cm">→ how many transformer blocks to allocate</span>              <span class="st">│</span>
-<span class="st">│</span>  <span class="ty">"qwen3.attention.head_count_kv"</span> = <span class="nm">4</span>                       <span class="st">│</span>
-<span class="st">│</span>     <span class="cm">→ GQA ratio &mdash; determines KV cache size</span>                <span class="st">│</span>
-<span class="st">│</span>  <span class="ty">"tokenizer.ggml.tokens"</span> = [...]                            <span class="st">│</span>
-<span class="st">│</span>     <span class="cm">→ the vocabulary, embedded in the file</span>                 <span class="st">│</span>
-<span class="st">│</span>                                                             <span class="st">│</span>
-<span class="st">│</span>  <strong>No sidecar files. One file = runnable model.</strong>              <span class="st">│</span>
-<span class="st">├──────────</span> <span class="pp">padding to 16-byte alignment</span> <span class="st">──────────────────────┤</span>
-<span class="st">│</span>  <span style="color:var(--magenta);font-weight:bold">TENSOR DATA</span>  (the weights &mdash; 99.9% of the file)            <span class="st">│</span>
-<span class="st">│</span>                                                             <span class="st">│</span>
-<span class="st">│</span>  blk.0.attn_q.weight  [5120 &times; 6144]  <span class="ty">Q4_K</span>                <span class="st">│</span>
-<span class="st">│</span>  blk.0.ffn_gate.weight [5120 &times; 17408] <span class="ty">Q6_K</span> <span class="cm">← sensitive</span>    <span class="st">│</span>
-<span class="st">│</span>  ...339 tensors, contiguous, aligned                        <span class="st">│</span>
-<span class="st">│</span>                                                             <span class="st">│</span>
-<span class="st">│</span>  <span class="cm">mmap maps this directly into GPU address space.</span>            <span class="st">│</span>
-<span class="st">│</span>  <strong>The weights ARE the file. No deserialization.</strong>             <span class="st">│</span>
-<span class="st">│</span>  <span class="cm">← this is why mmap works: data starts at a known</span>          <span class="st">│</span>
-<span class="st">│</span>  <span class="cm">  aligned offset</span>                                           <span class="st">│</span>
-<span class="st">└─────────────────────────────────────────────────────────────┘</span>
-</code></pre>
-</div>
-</div>
-
-<div class="tab-panel p2">
-<div class="diagram">
-<span class="diagram-label">GGUF file layout (llama.cpp) &mdash; byte by byte</span>
-<pre><code>
-  <span class="st">Offset 0x00:</span>  47 47 55 46          <span class="cm">← ASCII "GGUF" (magic bytes)</span>
-  <span class="st">Offset 0x04:</span>  03 00 00 00          <span class="cm">← Version 3 (uint32, little-endian)</span>
-  <span class="st">Offset 0x08:</span>  A3 01 00 00 00 00 00 00  <span class="cm">← n_tensors = 419 (uint64)</span>
-  <span class="st">Offset 0x10:</span>  1A 00 00 00 00 00 00 00  <span class="cm">← n_kv_pairs = 26 (uint64)</span>
-
-  <span class="cm">Then the metadata key-value pairs:</span>
-  <span class="ty">Key: "general.architecture"</span>     = <span class="st">"qwen3"</span>
-  <span class="ty">Key: "qwen3.block_count"</span>         = <span class="nm">64</span>
-  <span class="ty">Key: "qwen3.attention.head_count"</span> = <span class="nm">24</span>
-  <span class="ty">Key: "qwen3.attention.head_count_kv"</span> = <span class="nm">4</span>   <span class="cm">← GQA!</span>
-  <span class="ty">Key: "qwen3.embedding_length"</span>    = <span class="nm">5120</span>
-  <span class="ty">Key: "qwen3.feed_forward_length"</span> = <span class="nm">17408</span>
-  <span class="ty">Key: "qwen3.rope.freq_base"</span>      = <span class="nm">10000000.0</span>
-  <span class="ty">Key: "tokenizer.ggml.tokens"</span>     = [<span class="st">"&lt;unk&gt;"</span>, <span class="st">"&lt;s&gt;"</span>, ...]
-  <span class="cm">(everything the engine needs to run &mdash; self-contained)</span>
-
-  <span class="pp">───── padding to 16-byte alignment ─────</span>
-
-  <span class="st">Tensor data:</span>
-  blk.0.attn_q.weight   [5120 &times; 6144]  type=Q4_K  <span class="cm">← quantized</span>
-  blk.0.attn_k.weight   [5120 &times; 1024]  type=Q4_K
-  blk.0.attn_v.weight   [5120 &times; 1024]  type=Q4_K
-  blk.0.attn_output.weight [6144 &times; 5120]  type=Q4_K
-  blk.0.ffn_gate.weight [5120 &times; 17408] type=Q6_K  <span class="cm">← sensitive layer, higher bits</span>
-  ...
-  <span class="cm">(339 tensors, twenty-seven billion numbers)</span>
-</code></pre>
-</div>
-</div>
-</div>
-
-<div class="power zen">
-<div class="power-label">The Design Insight</div>
-<p><strong>Self-contained + aligned = instant load.</strong> GGUF embeds the tokenizer, architecture params, and weights in one file. The tensor data starts at a 16-byte-aligned offset. This means <code>mmap()</code> can map the file directly &mdash; the OS's virtual memory system becomes your model loader. A 15 GB model "loads" in under a second because nothing is read until computation touches a page.</p>
-</div>
-
-<p><strong>Safetensors</strong> (Hugging Face) is a multi-file format used by Python-based engines like vLLM. An 8-byte length prefix, then a JSON header describing tensor names/shapes/offsets, then raw tensor data. The tokenizer lives in separate files, and the weights are typically sharded across multiple files (<code>model-00001-of-00004.safetensors</code>) for parallel loading.</p>
-
-<h3>The Numbers Themselves</h3>
-
-<p>Let's be concrete about what 27 billion parameters looks like versus our toy GPT-2. The model is a stack of identical transformer blocks, each containing the same seven large weight matrices:</p>
-
-<table>
-<tr><th>Matrix</th><th>GPT-2 (124M)</th><th>Qwen-3.5 27B</th><th>Role</th></tr>
-<tr><td>W_q</td><td>768 &times; 768 (1.1 MB)</td><td>5120 &times; 6144 (60 MB)</td><td>Query projection</td></tr>
-<tr><td>W_k</td><td>768 &times; 768 (1.1 MB)</td><td>5120 &times; 1024 (10 MB)</td><td>Key projection (GQA)</td></tr>
-<tr><td>W_v</td><td>768 &times; 768 (1.1 MB)</td><td>5120 &times; 1024 (10 MB)</td><td>Value projection (GQA)</td></tr>
-<tr><td>W_o</td><td>768 &times; 768 (1.1 MB)</td><td>6144 &times; 5120 (60 MB)</td><td>Attention output</td></tr>
-<tr><td>W_gate</td><td>&mdash;</td><td>5120 &times; 17408 (170 MB)</td><td>FFN gate (SwiGLU)</td></tr>
-<tr><td>W_up</td><td>768 &times; 3072 (4.5 MB)</td><td>5120 &times; 17408 (170 MB)</td><td>FFN up projection</td></tr>
-<tr><td>W_down</td><td>3072 &times; 768 (4.5 MB)</td><td>17408 &times; 5120 (170 MB)</td><td>FFN down projection</td></tr>
-<tr><td><strong>Per block</strong></td><td><strong>~14 MB</strong></td><td><strong>~650 MB</strong></td><td></td></tr>
-<tr><td><strong>&times; N blocks</strong></td><td><strong>&times;12 = ~168 MB</strong></td><td><strong>&times;64 = ~41 GB</strong></td><td></td></tr>
-</table>
-
-<p>Plus the embedding table (~2.4 GB) and the LM head (~2.4 GB), you get roughly 46 GB of weight data. FP16 &times; 27 billion = 54 GB. The math checks out.</p>
-
-<h3>The Growth</h3>
-
-<div class="viz-container">
-<svg id="viz-ch5" viewBox="0 0 780 340"></svg>
-</div>
-
-<script>
-(function() {
-    const svg = d3.select('#viz-ch5');
-    const W = 780, H = 340;
-    const margin = {top: 40, right: 30, bottom: 60, left: 80};
-    const w = W - margin.left - margin.right;
-    const h = H - margin.top - margin.bottom;
-
-    const models = [
-        { name: 'GPT-2', params: 0.124, embed: 0.038, attn: 0.043, ffn: 0.036, other: 0.007, year: 2019 },
-        { name: 'Qwen-2.5 7B', params: 7, embed: 0.30, attn: 1.61, ffn: 4.83, other: 0.26, year: 2024 },
-        { name: 'Qwen-3.5 27B', params: 27, embed: 1.27, attn: 8.9, ffn: 16.0, other: 0.83, year: 2025 },
-        { name: 'Qwen-2.5 72B', params: 72, embed: 1.25, attn: 17.2, ffn: 51.0, other: 2.55, year: 2024 },
-        { name: 'DeepSeek-V3', params: 671, embed: 3.8, attn: 45.0, ffn: 600.0, other: 22.2, year: 2025 },
-    ];
-
-    const categories = ['embed', 'attn', 'ffn', 'other'];
-    const colors = { embed: '#ffdd00', attn: '#00ddff', ffn: '#ff00aa', other: '#6a6a7e' };
-    const labels = { embed: 'Embedding', attn: 'Attention', ffn: 'Feed-Forward', other: 'Norms/Other' };
-
-    const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
-
-    const x = d3.scaleBand().domain(models.map(m => m.name)).range([0, w]).padding(0.3);
-    const y = d3.scaleLinear().domain([0, 420]).range([h, 0]);
-
-    // Axes
-    g.append('g').attr('transform', `translate(0,${h})`)
-        .call(d3.axisBottom(x)).selectAll('text')
-        .attr('fill','#c8c8d4').attr('font-family','JetBrains Mono, monospace').attr('font-size',11);
-    g.append('g').call(d3.axisLeft(y).ticks(6).tickFormat(d => d + 'B'))
-        .selectAll('text').attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',10);
-
-    g.selectAll('.domain, .tick line').attr('stroke','#1e1e2e');
-
-    // Title
-    svg.append('text').attr('x', W/2).attr('y', 20).text('Parameter Count by Component')
-        .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',11)
-        .attr('text-anchor','middle').attr('text-transform','uppercase').attr('letter-spacing','0.1em');
-
-    // Stacked bars
-    const stack = d3.stack().keys(categories);
-    const series = stack(models);
-
-    series.forEach((s, si) => {
-        g.selectAll(`.bar-${si}`).data(s).enter().append('rect')
-            .attr('x', d => x(d.data.name))
-            .attr('y', d => y(d[1]))
-            .attr('height', d => y(d[0]) - y(d[1]))
-            .attr('width', x.bandwidth())
-            .attr('fill', colors[categories[si]])
-            .attr('opacity', 0.6)
-            .attr('rx', 2);
-    });
-
-    // Total labels
-    models.forEach(m => {
-        const total = m.embed + m.attn + m.ffn + m.other;
-        g.append('text')
-            .attr('x', x(m.name) + x.bandwidth()/2)
-            .attr('y', y(total) - 6)
-            .text(m.params >= 1 ? m.params + 'B' : (m.params * 1000) + 'M')
-            .attr('fill','#c8c8d4').attr('font-family','JetBrains Mono, monospace').attr('font-size',11)
-            .attr('text-anchor','middle');
-    });
-
-    // Legend
-    const leg = svg.append('g').attr('transform', `translate(${margin.left}, ${H - 15})`);
-    categories.forEach((c, i) => {
-        const lx = i * 160;
-        leg.append('rect').attr('x', lx).attr('y', -8).attr('width', 12).attr('height', 12)
-            .attr('fill', colors[c]).attr('opacity', 0.6).attr('rx', 2);
-        leg.append('text').attr('x', lx + 18).attr('y', 3).text(labels[c])
-            .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',10);
-    });
-})();
-</script>
-
-<p>The FFN dominates. In Qwen-3.5 27B, the feed-forward network is ~60% of all parameters. Attention is ~33%. Embeddings are ~5% (larger vocabulary). This is why the FFN is the primary target for quantization &mdash; it's where the bytes are.</p>
-
-<div class="power danger">
-<div class="power-label">The First Problem</div>
-<p>54 gigabytes at FP16. Your RTX 3090 has 24 GB of VRAM. <strong>It doesn't fit at full precision.</strong> But quantize to 4-bit (~15 GB) and it fits with room for a KV cache. Larger models like 72B still don't fit at all.</p>
-</div>
-
-<p>We have the weights, we know their shapes, we know they don't fit at full precision. But what happens when we actually <em>run</em> inference? The answer depends on <em>which phase</em> of inference you're in &mdash; and they're nothing alike.</p>
+<p>Now we know the machine. Part II asks the harder question: how do you make it <em>run?</em> 54 GB of weights that won't fit on your GPU. 44 billion operations per token. A KV cache that grows with every word. Quantization, FlashAttention, continuous batching &mdash; and the engines that put it all together: llama.cpp, vLLM, ExLlamaV2. The math doesn't change. The engineering changes everything.</p>
 
 </section>
 
 
-
-<!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- FOOTER                                                         -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<div style="text-align:center; padding:3rem 0 1rem; border-top:1px solid var(--border);">
+<div style="text-align:center; padding:3rem 0 1.5rem; border-top:1px solid var(--border);">
+    <div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-dim); margin-bottom:1rem;">End of Part I</div>
+    <div style="font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim); line-height:1.8; margin-bottom:1.5rem;">
+        <span style="color:var(--green)">Ch 1</span> The Pipeline &middot;
+        <span style="color:var(--green)">Ch 2</span> Text to Numbers &middot;
+        <span style="color:var(--green)">Ch 3</span> The Forward Pass &middot;
+        <span style="color:var(--green)">Ch 4</span> Choosing Words
+    </div>
     <a href="inference-engine-deep-dive-2.html" style="font-family:'JetBrains Mono',monospace; font-size:1rem; color:var(--green); text-decoration:none; text-shadow:0 0 10px rgba(0,255,136,0.2);">
-        Continue to Part II: Optimization &amp; Production &rarr;
+        Part II: Making It Fast &rarr;
     </a>
+    <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-dim); margin-top:0.6rem;">Quantization &middot; KV Cache &middot; FlashAttention &middot; Batching &middot; llama.cpp &middot; vLLM &middot; ExLlamaV2</div>
 </div>
-
-<section style="padding-top: 1.5rem; text-align: center;">
-    <p style="color: var(--text-dim); font-family: 'JetBrains Mono', monospace; font-size: 0.85rem;">
-        <span class="ticker">INFERENCE_ENGINE_DEEP_DIVE</span><br>
-        Part I &middot; 5 chapters &middot; 4 interactive visualizations<br>
-        From text to tokens to vectors to logits to words<br><br>
-        <span style="color: var(--text-dim);">The complete pipeline: embed &rarr; transform &rarr; sample &rarr; repeat.</span>
-    </p>
-</section>
 
 </div>
 </body>
