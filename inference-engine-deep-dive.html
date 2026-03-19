@@ -532,7 +532,7 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 <h2>// 01 &mdash; The Pipeline</h2>
 <div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--green)">EMBED</span> &rarr; <span style="color:var(--yellow)">NORM</span> &rarr; <span style="color:var(--magenta)">ATTN</span> &rarr; <span style="color:var(--orange)">FFN</span> &rarr; <span style="color:var(--cyan)">PROJECT</span> &rarr; <span style="color:var(--green)">SAMPLE</span> &nbsp; <span style="color:var(--green)">&larr; the whole map</span></div>
 <div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
-    Text in, probability distribution out. 86 matrix multiplies for GPT-2, 450 for Qwen.<br>
+    Text in, probability distribution out. 86 matrix multiplies for GPT-2, 448 for Qwen.<br>
     Same skeleton, different scale. This chapter is the map you'll reference for everything after.<span class="blink">_</span>
 </div>
 
@@ -994,10 +994,7 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 })();
 </script>
 
-<div class="power">
-<div class="power-label">Tied Weights &mdash; By the Numbers</div>
-<p>Qwen-3.5 27B: <strong>152,064 tokens &times; 5,120 dimensions = 778 million parameters</strong> (~1.5 GB at FP16). That's ~5% of the model &mdash; small, but it's every word the model can read or write. Same table, used forwards and backwards. Saves memory. Forces input and output to share the same meaning-space.</p>
-</div>
+<p>That diagram is the whole model. Here it is as working code &mdash; 60 lines of Python that implement GPT-2's forward pass. Every stage from the diagram maps to a function below.</p>
 
 <details>
 <summary>Full Code (60 lines)</summary>
@@ -1068,14 +1065,7 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 </code></pre>
 </details>
 
-<p>This code implements GPT-2 &mdash; 124M params, 12 layers, 768 dims. Qwen-3.5 27B is the same skeleton at 176&times; the scale: 64 layers, 5120 dims, 152K vocab. The variations (RMSNorm, SwiGLU, RoPE, GQA) are in Chapter 3.</p>
-
-<div class="power">
-<div class="power-label">The Whole Game</div>
-<p>You now know the complete machine. Sixty lines of code, seven matmuls per block, one token out per cycle. Everything else in this series &mdash; quantization, KV caching, FlashAttention, batching, tensor parallelism &mdash; is an answer to one question: how do you make <em>this loop</em> run fast enough to be useful? The pipeline never changes. Only the engineering around it does.</p>
-</div>
-
-<p>But we skipped the first step. The pipeline starts with token IDs &mdash; where do those come from? Chapter 2 opens the EMBED box: how raw text becomes the numbers that enter the machine.</p>
+<p>This is GPT-2 &mdash; 124M params, 12 layers, 768 dims. Qwen-3.5 27B is the same skeleton at 176&times; the scale: 64 layers, 5120 dims, 152K vocab. The variations (RMSNorm, SwiGLU, RoPE, GQA) are in Chapter 3. But we skipped the first step. The pipeline starts with token IDs &mdash; where do those come from?</p>
 
 </section>
 <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -1086,7 +1076,8 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 <h2>// 02 &mdash; Text to Numbers</h2>
 <div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--green);font-weight:bold">&#9654; EMBED</span> &rarr; <span style="color:var(--text-dim)">NORM</span> &rarr; <span style="color:var(--text-dim)">ATTN</span> &rarr; <span style="color:var(--text-dim)">FFN</span> &rarr; <span style="color:var(--text-dim)">PROJECT</span> &rarr; <span style="color:var(--text-dim)">SAMPLE</span> &nbsp; <span style="color:var(--green)">zooming into EMBED</span></div>
 <div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
-    Raw text &rarr; tokens &rarr; vectors. Two transformations before any math begins.<span class="blink">_</span>
+    "The" isn't a word to the model. It's token 791 &rarr; a vector of 5,120 learned numbers.<br>
+    How text becomes geometry. How geometry becomes meaning.<span class="blink">_</span>
 </div>
 
 <p class="drop-cap">The model can't read text. It needs numbers. But not just any numbers &mdash; it needs <em>meaningful</em> numbers, vectors where "cat" and "dog" land near each other and "cat" and "uranium" don't. Getting there takes two transformations: <strong>tokenization</strong> splits your text into pieces and assigns each an integer ID; <strong>embedding</strong> converts each ID into a dense vector that encodes meaning. Both steps are surprisingly consequential.</p>
@@ -1321,16 +1312,11 @@ x = embedding_table[token_ids]   <span class="cm"># shape: [seq_len, 768]</span>
 <h2>// 03 &mdash; The Forward Pass</h2>
 <div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--text-dim)">EMBED</span> &rarr; <span style="color:var(--yellow);font-weight:bold">&#9654; NORM</span> &rarr; <span style="color:var(--magenta);font-weight:bold">ATTN</span> &rarr; <span style="color:var(--orange);font-weight:bold">FFN</span> &rarr; <span style="color:var(--text-dim)">PROJECT</span> &rarr; <span style="color:var(--text-dim)">SAMPLE</span> &nbsp; <span style="color:var(--magenta)">inside the block</span></div>
 <div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
-    RMSNorm, RoPE, GQA, SwiGLU &mdash; the operations inside one transformer block.<br>
-    Traced with real shapes: [5120] in, seven matmuls, [5120] out. Then repeat &times;64.<span class="blink">_</span>
+    One vector enters a transformer block. Seven matrix multiplications later, it exits &mdash; changed.<br>
+    Same shape, different meaning. Then the next block does it again. Sixty-four times.<span class="blink">_</span>
 </div>
 
-<p class="drop-cap">In Chapter 1 we wrote the forward pass for GPT-2 in 60 lines. Now let's trace a single vector through one transformer block at instruction level &mdash; the way the hardware sees it. We'll use concrete numbers, not abstractions. One vector, one block, every operation.</p>
-
-<div class="power zen">
-<div class="power-label">Hybrid Attention Note</div>
-<p>Qwen-3.5 uses <strong>hybrid attention</strong>: ~75% of layers run Gated DeltaNet (linear attention for efficient long-range processing), ~25% run full GQA (softmax attention for precise retrieval). We trace the GQA layers here &mdash; they contain all the mechanisms that matter for understanding inference.</p>
-</div>
+<p class="drop-cap">Chapter 1 showed the skeleton. Now we open the block and trace what happens to a single vector &mdash; at instruction level, the way the hardware sees it. Concrete dimensions, real FLOP counts, every weight matrix named. RMSNorm stabilizes. Attention looks backwards. The FFN decides what to keep. Each operation is a matmul with a specific shape, and we'll trace every one.</p>
 
 <h3>One Block, Traced</h3>
 
@@ -2241,7 +2227,7 @@ out  = h @ W_down     <span class="cm"># [17408] &rarr; [5120]  compress back</s
     Top-p prunes the tail. One random draw. This is where determinism ends and generation begins.<span class="blink">_</span>
 </div>
 
-<p class="drop-cap">The forward pass ends with 152,064 raw scores &mdash; <strong>logits</strong> &mdash; one for every token in the vocabulary. Converting that into a single chosen word is the sampling pipeline's job: a chain of filters that carve the distribution down before one final coin flip. Their order matters, and engines disagree on the right sequence. Here's llama.cpp's default.</p>
+<p class="drop-cap">Those raw scores are called <strong>logits</strong>. They're not probabilities yet &mdash; they're unbounded numbers, some positive, some negative, with no guarantee of summing to anything. The sampling pipeline transforms them: penalize repetition, prune the tail, control the temperature, normalize to probabilities, and finally roll the dice. Each filter shapes the output in a different way, and their order matters &mdash; engines disagree on the right sequence. Here's llama.cpp's default.</p>
 
 <div class="diagram">
 <span class="diagram-label">llama.cpp default sampling order</span>
