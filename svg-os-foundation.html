@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Programmable SVG OS — A Visual Runtime for Structured Graphics</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+    --white: #e8e8f0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  /* === SCANLINE OVERLAY === */
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.03) 2px,
+      rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  /* === NAV === */
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 2rem;
+    display: flex;
+    gap: 1.2rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.2s, text-shadow 0.2s;
+    padding: 0.3rem 0;
+  }
+  nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+  nav a.active { color: var(--green); text-shadow: 0 0 12px rgba(0,255,136,0.4); }
+  nav .nav-title {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 1rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.3);
+  }
+
+  /* === LAYOUT === */
+  .content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+  }
+
+  /* === HERO === */
+  .hero {
+    text-align: center;
+    padding: 4rem 0 5rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4rem;
+    position: relative;
+  }
+  .hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3.2rem;
+    font-weight: 600;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+  }
+  .hero .subtitle {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 550px;
+    margin: 0 auto;
+  }
+  .hero .blink {
+    display: inline-block;
+    animation: blink 1s step-end infinite;
+    color: var(--green);
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* === SECTIONS === */
+  section {
+    margin-bottom: 5rem;
+    padding-top: 1rem;
+  }
+  h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: var(--green);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: 0.02em;
+  }
+  h3 {
+    font-size: 1.25rem;
+    color: var(--cyan);
+    margin: 2.5rem 0 1rem;
+    font-weight: 600;
+  }
+  h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 2rem 0 0.8rem;
+  }
+  p { margin-bottom: 1rem; }
+
+  /* === DROP CAP === */
+  .drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4rem;
+    line-height: 0.8;
+    padding: 0.1em 0.15em 0 0;
+    color: var(--green);
+    font-weight: 600;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+  }
+
+  /* === CODE === */
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    padding: 0.12em 0.4em;
+    border-radius: 3px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem 1.4rem;
+    overflow-x: auto;
+    margin: 1.2rem 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px;
+    line-height: 1.55;
+    position: relative;
+  }
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+  }
+  .cm { color: var(--text-dim); }
+  .kw { color: var(--magenta); }
+  .ty { color: var(--cyan); }
+  .st { color: var(--green); }
+  .nm { color: var(--yellow); }
+  .fn { color: var(--blue); }
+  .pp { color: var(--orange); }
+  .label {
+    position: absolute;
+    top: 0.3rem; right: 0.7rem;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    opacity: 0.5;
+  }
+
+  /* === DIAGRAM === */
+  .diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+  }
+  .diagram pre {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text);
+  }
+  .diagram pre code { color: var(--text); }
+  .diagram-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--green-dim);
+    margin-bottom: 0.8rem;
+    display: block;
+  }
+
+  /* === SVG DIAGRAM === */
+  .svg-diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+    text-align: center;
+  }
+  .svg-diagram svg { max-width: 100%; height: auto; }
+  .svg-diagram text {
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* === POWER BOX (insight) === */
+  .power {
+    background: var(--bg-card);
+    border-left: 3px solid var(--green);
+    padding: 1.2rem 1.4rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .power-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.3rem;
+  }
+  .power p { margin-bottom: 0; font-size: 0.95rem; }
+  .power.danger { border-left-color: var(--red); }
+  .power.danger .power-label { color: var(--red); }
+  .power.hack { border-left-color: var(--magenta); }
+  .power.hack .power-label { color: var(--magenta); }
+  .power.wild { border-left-color: var(--orange); }
+  .power.wild .power-label { color: var(--orange); }
+  .power.zen { border-left-color: var(--cyan); }
+  .power.zen .power-label { color: var(--cyan); }
+
+  /* === MEMORY VIS === */
+  .mem-row {
+    display: flex;
+    gap: 1px;
+    margin: 0.4rem 0;
+    flex-wrap: wrap;
+  }
+  .mc {
+    width: 30px; height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 600;
+    border-radius: 2px;
+  }
+  .mc.g { background: var(--green); color: var(--bg); }
+  .mc.c { background: var(--cyan); color: var(--bg); }
+  .mc.m { background: var(--magenta); color: var(--bg); }
+  .mc.o { background: var(--orange); color: var(--bg); }
+  .mc.r { background: var(--red); color: var(--bg); }
+  .mc.y { background: var(--yellow); color: var(--bg); }
+  .mc.b { background: var(--blue); color: var(--bg); }
+  .mc.d { background: var(--text-dim); color: var(--bg); opacity: 0.3; }
+  .mc.e { background: transparent; border: 1px dashed var(--border); color: var(--text-dim); }
+  .mc.w { background: var(--white); color: var(--bg); }
+  .mc.p { background: var(--purple); color: #fff; }
+
+  /* === TABLE === */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.88rem;
+  }
+  th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    text-align: left;
+    padding: 0.5rem 0.7rem;
+    border-bottom: 2px solid var(--border);
+  }
+  td {
+    padding: 0.45rem 0.7rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:hover { background: rgba(0,255,136,0.02); }
+
+  /* === EXPANDABLE === */
+  details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1rem 0;
+    overflow: hidden;
+  }
+  details summary {
+    padding: 0.7rem 1.1rem;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--green);
+    user-select: none;
+    transition: background 0.2s;
+  }
+  details summary:hover { background: rgba(0,255,136,0.04); }
+  details[open] summary { border-bottom: 1px solid var(--border); }
+  details .det { padding: 1.1rem; }
+  details pre { margin: 0.8rem 0; }
+
+  /* === COMPARISON === */
+  .vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .vs-col {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.1rem;
+  }
+  .vs-col h4 { margin-top: 0; }
+
+  /* === GLITCH TEXT === */
+  .glitch {
+    position: relative;
+    display: inline-block;
+  }
+  .glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+  .glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 2s infinite linear alternate-reverse;
+    clip-path: inset(0 0 65% 0);
+  }
+  .glitch::after {
+    color: var(--magenta);
+    animation: glitch-2 3s infinite linear alternate-reverse;
+    clip-path: inset(65% 0 0 0);
+  }
+  @keyframes glitch-1 {
+    0%, 95% { transform: translateX(0); }
+    96% { transform: translateX(-2px); }
+    97% { transform: translateX(2px); }
+    98% { transform: translateX(-1px); }
+    100% { transform: translateX(0); }
+  }
+  @keyframes glitch-2 {
+    0%, 93% { transform: translateX(0); }
+    94% { transform: translateX(2px); }
+    96% { transform: translateX(-2px); }
+    98% { transform: translateX(1px); }
+    100% { transform: translateX(0); }
+  }
+
+  /* === TICKER === */
+  .ticker {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--green);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    display: inline-block;
+    text-shadow: 0 0 6px rgba(0,255,136,0.3);
+  }
+
+  /* === LIST === */
+  ul, ol { margin: 0.5rem 0 1rem 1.5rem; }
+  li { margin-bottom: 0.3rem; }
+
+  /* === RESPONSIVE === */
+  @media (max-width: 700px) {
+    .vs { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2rem; }
+    .content { padding: 4rem 1rem 4rem; }
+    nav { font-size: 10px; gap: 0.8rem; padding: 0.4rem 1rem; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="nav-title">&gt;_ SVG OS</span>
+  <a href="#thesis">thesis</a>
+  <a href="#why-svg">why svg</a>
+  <a href="#os-metaphor">the os</a>
+  <a href="#doc-kernel">document</a>
+  <a href="#object-model">objects</a>
+  <a href="#layout">layout</a>
+  <a href="#data-binding">data</a>
+  <a href="#automation">automation</a>
+  <a href="#plugins">plugins</a>
+  <a href="#elixir">elixir</a>
+  <a href="#packages">packages</a>
+  <a href="#neumenon">neumenon</a>
+  <a href="#killer-apps">apps</a>
+  <a href="#3d-path">3d</a>
+  <a href="#ai">ai</a>
+  <a href="#inkscape">inkscape</a>
+  <a href="#positioning">position</a>
+  <a href="#roadmap">roadmap</a>
+</nav>
+
+<div class="content">
+
+<!-- ============================================================ -->
+<!--  HERO                                                         -->
+<!-- ============================================================ -->
+<div class="hero">
+  <h1><span class="glitch" data-text="PROGRAMMABLE SVG OS">PROGRAMMABLE SVG OS</span></h1>
+  <p class="subtitle">A local-first visual runtime for diagrams, graphics, apps, and data-bound scenes.<span class="blink">_</span></p>
+</div>
+
+<!-- ============================================================ -->
+<!--  §1 — PRODUCT THESIS                                          -->
+<!-- ============================================================ -->
+<section id="thesis">
+  <h2>§1 — The Thesis</h2>
+
+  <p class="drop-cap">Think of it as a runtime for visual objects. Not a drawing app. Not "Inkscape in a browser." Not "open-source Figma." Something else entirely. A system where SVG stops being a file format for illustrations and becomes a scene graph, a document model, a UI substrate, a geometry language, a layout engine, and a programmable canvas operating system.</p>
+
+  <p>The key shift is this. A normal design app says: <em>draw rectangle, change fill, export PNG</em>. The SVG OS says: <em>define a card component, bind its color to a score percentile, bind its text to player metadata, let it react to filters, let it render for print, web, animation, and 3D extrusion, let agents modify it, let users fork it like code</em>.</p>
+
+  <div class="vs">
+    <div class="vs-col">
+      <h4>Normal design app</h4>
+      <p>You draw shapes. You move pixels. You export flat files. The document is dumb. The tool does the thinking.</p>
+    </div>
+    <div class="vs-col">
+      <h4>Programmable SVG OS</h4>
+      <p>You create visual entities with behavior, state, rules, data bindings, timelines, automations, and exports. The document is alive.</p>
+    </div>
+  </div>
+
+  <div class="power">
+    <div class="power-label">One Sentence</div>
+    <p>A browser-native, local-first visual runtime where SVG objects are programmable, data-bound, extensible, and exportable across 2D, interactive web, and lightweight 3D.</p>
+  </div>
+
+  <p>Instead of treating vector documents as final artifacts — static, dumb, inert — we treat them as <strong>running programs</strong>. The canvas is not a viewport. It is a runtime. Every object on it has identity, state, lifecycle, event hooks, and relationships. You don't just look at the document. You <em>query</em> it, <em>bind</em> to it, <em>automate</em> it, and <em>publish</em> it.</p>
+</section>
+
+<!-- ============================================================ -->
+<!--  §2 — WHY SVG                                                 -->
+<!-- ============================================================ -->
+<section id="why-svg">
+  <h2>§2 — Why SVG Specifically</h2>
+
+  <p class="drop-cap">Because SVG is already secretly a very powerful base layer. It is vector-native, structured as a DOM tree, styleable with CSS, transformable, text-aware, resolution-independent, web-native, composable, and scriptable. It already has the bones of a visual operating system. Most apps just refuse to see it.</p>
+
+  <p>Most applications treat SVG as one of three things: an import/export format, a final artifact, or a dumb container. The hacker move — the real unlock — is to treat SVG as:</p>
+
+  <ul>
+    <li><strong>Source code</strong> — version it, diff it, branch it, review it</li>
+    <li><strong>Intermediate representation</strong> — transform it, compile it, optimize it</li>
+    <li><strong>Live runtime object model</strong> — query it, bind to it, react to it, automate it</li>
+  </ul>
+
+  <p>That changes everything.</p>
+
+  <h3>What SVG already gives you</h3>
+
+  <table>
+    <tr><th>Property</th><th>What it means for the OS</th></tr>
+    <tr><td>Vector-native</td><td>Resolution-independent at every scale. No pixels, no rasterization debt.</td></tr>
+    <tr><td>DOM / tree structure</td><td>Already a queryable, traversable scene graph. CSS selectors work on it.</td></tr>
+    <tr><td>CSS-styleable</td><td>Theme tokens, media queries, dark mode — all free from the platform.</td></tr>
+    <tr><td>Transformable</td><td>Affine transforms, nested coordinate systems, composable matrix math.</td></tr>
+    <tr><td>Text-aware</td><td>Real text nodes, not rasterized glyphs. Searchable, accessible, bindable.</td></tr>
+    <tr><td>Web-native</td><td>Renders in every browser. No plugin, no runtime, no install.</td></tr>
+    <tr><td>Composable</td><td>Groups, symbols, defs, use-references — built-in component primitives.</td></tr>
+    <tr><td>Scriptable</td><td>Full DOM API access. Event listeners, mutations, dynamic creation.</td></tr>
+  </table>
+
+  <div class="power hack">
+    <div class="power-label">The Hacker Insight</div>
+    <p>SVG is the only vector format that is simultaneously a document model, a rendering format, and a first-class DOM citizen. No other format gives you all three. That is why it is the right substrate for a visual operating system.</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!--  §3 — WHAT OS MEANS HERE                                      -->
+<!-- ============================================================ -->
+<section id="os-metaphor">
+  <h2>§3 — What "Operating System" Means Here</h2>
+
+  <p class="drop-cap">Not kernel, not drivers, not bootloader. Operating system in the softer, truer sense: a system that manages objects, state, processes, events, views, storage, permissions, extensions, transformations, and export targets. The machinery that makes everything else possible.</p>
+
+  <h3>Visual processes</h3>
+  <p>Things that run on objects, in passes:</p>
+  <ul>
+    <li><strong>Layout pass</strong> — resolve constraints, compute positions, distribute spacing</li>
+    <li><strong>Constraint pass</strong> — enforce pinning, aspect locks, anchor relationships</li>
+    <li><strong>Animation pass</strong> — interpolate keyframes, run tweens, update timelines</li>
+    <li><strong>Filter pass</strong> — apply SVG filters, effects chains, non-destructive transforms</li>
+    <li><strong>Export pass</strong> — flatten for PNG, serialize for PDF, optimize for web</li>
+    <li><strong>Data-binding pass</strong> — pull fresh values, update labels, recolor conditionally</li>
+    <li><strong>AI transform pass</strong> — let agents rewrite, generate, rebalance, retheme</li>
+  </ul>
+
+  <h3>Visual filesystem</h3>
+  <p>Not just folders of SVGs. A graph of reusable assets:</p>
+
+  <div class="diagram">
+    <span class="diagram-label">Asset Graph</span>
+    <pre><code>
+  symbols ──────┐
+  palettes ─────┤
+  components ───┤
+  templates ────┼──▶  Visual Filesystem  ──▶  Queryable
+  materials ────┤                              Versionable
+  behaviors ────┤                              Composable
+  filter chains ┤                              Publishable
+  variable sets ┘
+    </code></pre>
+  </div>
+
+  <h3>Visual IPC</h3>
+  <p>Objects talk to other objects. This label updates when this value changes. This badge recolors when the team changes. This chart rerenders when data changes. This layer responds to hover, click, or agent edits. The document is a living network of reactive relationships.</p>
+
+  <h3>Extension runtime</h3>
+  <p>Users install "apps" inside the SVG OS — not tiny utility scripts, but full products:</p>
+  <ul>
+    <li>Icon generator</li>
+    <li>Sports lineup generator</li>
+    <li>Packaging dieline builder</li>
+    <li>Isometric city builder</li>
+    <li>Motion graphics tool</li>
+    <li>Data card compositor</li>
+    <li>Vector-to-3D converter</li>
+  </ul>
+
+  <div class="power zen">
+    <div class="power-label">Why "OS" is the right metaphor</div>
+    <p>The OS manages documents, windows/views, processes, packages, permissions, events, storage, and interop. The SVG OS manages scenes, canvas views, layout/render passes, plugins, access control, reactive bindings, local-first storage, and multi-format export. The parallel is structural, not metaphorical.</p>
+  </div>
+
+  <div class="diagram">
+    <span class="diagram-label">OS Primitives Mapping</span>
+    <pre><code>
+  Traditional OS          SVG OS
+  ─────────────           ──────
+  Files / Docs     ──▶    Scenes / Projects / Boards
+  Windows          ──▶    Canvas / Code / Timeline / Data views
+  Processes        ──▶    Layout engine / Animation / Export workers
+  Packages         ──▶    Templates / Plugins / Materials / Behaviors
+  Permissions      ──▶    Who edits structure / content / themes / exports
+  Events           ──▶    Selection / Data update / Publish / Plugin install
+  Storage          ──▶    Local-first docs / Cloud sync / Asset registries
+  Interop          ──▶    SVG / PNG / PDF / HTML / JSON / 3D export
+    </code></pre>
+  </div>
+</section>
+
+</div>
+</body>
+</html>
