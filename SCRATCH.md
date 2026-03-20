@@ -17,10 +17,10 @@
 | Ch 14 - The Scheduler | DONE | pending | vLLM V1 two-phase loop, policies/preemption/tradeoff tabs |
 | Ch 15 - Prefix Caching | DONE | pending | vLLM APC, SGLang RadixAttention, economics tabs, llm-d cluster |
 | Ch 16 - Disaggregated P/D | DONE | pending | Architecture diagram, KV transfer math, DistServe/Splitwise/Dynamo |
-| Ch 17 - Parallelism | pending | — | |
-| Ch 18 - LoRA & Multi-Tenancy | pending | — | |
-| Ch 19 - Metrics That Matter | pending | — | |
-| Ch 20 - Modern Serving Stack | pending | — | |
+| Ch 17 - Parallelism | DONE | pending | TP/PP/DP/EP diagrams, GPU fit table, composition strategy |
+| Ch 18 - LoRA & Multi-Tenancy | DONE | pending | Multi-LoRA diagram, S-LoRA, vLLM/SGLang config tabs |
+| Ch 19 - Metrics That Matter | DONE | pending | Metrics taxonomy, 7 benchmark traps, goodput emphasis |
+| Ch 20 - Modern Serving Stack | DONE | pending | Full stack diagram, 6 archetypes, 8-era evolution arc |
 
 ## Research Notes
 

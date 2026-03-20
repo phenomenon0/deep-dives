@@ -688,10 +688,346 @@ details[open] summary { border-bottom: 1px solid var(--border); }
 
 
 <!-- Placeholder sections for remaining chapters -->
-<section id="ch17"><h2>// 17 &mdash; Parallelism Across GPUs</h2><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
-<section id="ch18"><h2>// 18 &mdash; LoRA and Multi-Tenancy</h2><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
-<section id="ch19"><h2>// 19 &mdash; Metrics That Matter</h2><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
-<section id="ch20"><h2>// 20 &mdash; The Modern Serving Stack</h2><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
+<section id="ch17">
+<h2>// 17 &mdash; Parallelism Across GPUs</h2>
+<div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--cyan)">TP</span> &middot; <span style="color:var(--magenta)">PP</span> &middot; <span style="color:var(--green)">DP</span> &middot; <span style="color:var(--orange)">EP</span></div>
+<div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
+    A bigger model does not just need more memory. It changes how the work is divided.<span class="blink">_</span>
+</div>
+
+<p class="drop-cap">Once one GPU is not enough, inference becomes distributed systems. The question is how to cut the model. Tensor parallelism splits matrices. Pipeline parallelism splits layers. Data parallelism duplicates replicas. Expert parallelism routes sparse experts. Each strategy has different communication patterns, different latency profiles, and different hardware requirements.</p>
+
+<div class="diagram">
+<span class="diagram-label">The four parallelism strategies</span>
+<pre><code>
+  <span class="ty">Tensor Parallelism (TP)</span> &mdash; split one matmul
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  Weight matrix split column-wise across GPUs.
+  Each GPU computes a slice of every layer.
+  Requires <strong>all-reduce</strong> after each matmul (2&times; per layer).
+  Needs NVLink (600&ndash;900 GB/s). PCIe is too slow.
+  <span class="pp">Best for: 2&ndash;8 GPUs on the same node.</span>
+
+  <span class="kw">Pipeline Parallelism (PP)</span> &mdash; split the layer stack
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  GPU 0: layers 0&ndash;15.  GPU 1: layers 16&ndash;31.  Etc.
+  Requests flow through the pipeline.
+  Bubble fraction: (p&minus;1)/(p+m&minus;1) where p=stages, m=microbatches.
+  Lower bandwidth requirement than TP.
+  <span class="pp">Best for: cross-node, when NVLink isn&rsquo;t available.</span>
+
+  <span class="st">Data Parallelism (DP)</span> &mdash; copy the whole model
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  Full model on each GPU. Each handles different requests.
+  No cross-GPU communication during inference.
+  Scales throughput linearly with GPU count.
+  <span class="pp">Best for: when model fits on one GPU and you want more QPS.</span>
+
+  <span class="pp">Expert Parallelism (EP)</span> &mdash; route sparse experts
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  For MoE models (DeepSeek-V3: 671B total, 37B active).
+  Different experts live on different GPUs.
+  All-to-all communication routes tokens to their experts.
+  <span class="pp">Best for: MoE inference where only ~10% of params activate.</span>
+</code></pre>
+</div>
+
+<h3>What Fits Where</h3>
+
+<table>
+<tr><th>Model</th><th>Quant</th><th>Size</th><th>1&times; 24GB</th><th>2&times; 24GB (TP2)</th><th>4&times; 24GB (TP4)</th><th>1&times; 80GB</th></tr>
+<tr><td>7B</td><td>FP16</td><td>14 GB</td><td><span style="color:var(--green)">&check;</span></td><td>&check;</td><td>&check;</td><td><span style="color:var(--green)">&check;</span></td></tr>
+<tr><td>27B</td><td>Q4</td><td>16 GB</td><td><span style="color:var(--yellow)">tight</span></td><td><span style="color:var(--green)">&check;</span></td><td>&check;</td><td><span style="color:var(--green)">&check;</span></td></tr>
+<tr><td>70B</td><td>FP16</td><td>140 GB</td><td><span style="color:var(--red)">&times;</span></td><td><span style="color:var(--red)">&times;</span></td><td><span style="color:var(--red)">&times;</span></td><td><span style="color:var(--yellow)">TP2</span></td></tr>
+<tr><td>70B</td><td>Q4</td><td>42 GB</td><td><span style="color:var(--red)">&times;</span></td><td><span style="color:var(--yellow)">tight</span></td><td><span style="color:var(--green)">&check;</span></td><td><span style="color:var(--green)">&check;</span></td></tr>
+<tr><td>DeepSeek-V3</td><td>FP8</td><td>~350 GB</td><td colspan="3" style="color:var(--red)">EP8 across 8&times; H100</td><td><span style="color:var(--red)">EP8</span></td></tr>
+</table>
+
+<div class="power zen">
+<div class="power-label">The Alphabet Soup</div>
+<p>TP, PP, DP, EP are not four independent choices. They compose. A 70B model on 8 H100s might use TP=4 within a node and PP=2 across nodes. A MoE model adds EP on top. vLLM, SGLang, and TensorRT-LLM all let you specify these as launch parameters. The trick is matching the parallelism to your hardware topology &mdash; NVLink for TP, InfiniBand for PP, replication for DP.</p>
+</div>
+</section>
+
+
+<section id="ch18">
+<h2>// 18 &mdash; LoRA and Multi-Tenancy</h2>
+<div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--green)">ONE BASE</span> &middot; <span style="color:var(--cyan)">MANY PERSONALITIES</span></div>
+<div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
+    You do not always serve one model. Sometimes you serve one trunk wearing many masks.<span class="blink">_</span>
+</div>
+
+<p class="drop-cap">Adapter serving changes the economics. Instead of loading many full models, you keep one base resident and swap deltas. A LoRA adapter for a 70B model is typically 100&ndash;500 MB &mdash; 0.1&ndash;0.4% of base model size. That sounds simple until batches mix tenants, prefixes diverge, and memory reuse gets messy.</p>
+
+<div class="diagram">
+<span class="diagram-label">Multi-LoRA serving &mdash; one base, many adapters</span>
+<pre><code>
+  <span style="color:var(--white)">Base model weights (frozen, resident in VRAM)</span>
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+   + <span style="color:var(--green)">Adapter A</span> (rank 16, ~200 MB)  &rarr; Legal assistant
+   + <span style="color:var(--cyan)">Adapter B</span> (rank 8, ~100 MB)   &rarr; Support bot
+   + <span style="color:var(--magenta)">Adapter C</span> (rank 32, ~400 MB)  &rarr; Finance copilot
+   + <span style="color:var(--yellow)">Adapter D</span> (rank 16, ~200 MB)  &rarr; Code reviewer
+
+  <span class="cm">In one batch:</span>
+  Request 1: base + <span style="color:var(--green)">A</span>     Request 2: base + <span style="color:var(--cyan)">B</span>
+  Request 3: base + <span style="color:var(--green)">A</span>     Request 4: base + <span style="color:var(--magenta)">C</span>
+
+  <span class="pp">Base computation is shared. Only adapter portions differ.</span>
+  <span class="pp">KV cache layout is the same for all adapters (same architecture).</span>
+  <span class="pp">Prefix caching works across adapters if prompts match.</span>
+</code></pre>
+</div>
+
+<div class="tabbed">
+<input type="radio" name="lora-tabs" id="lora-tabs-t1" class="t1" checked>
+<input type="radio" name="lora-tabs" id="lora-tabs-t2" class="t2">
+<div class="tab-bar">
+<label for="lora-tabs-t1">S-LoRA</label>
+<label for="lora-tabs-t2">In Practice</label>
+</div>
+<div class="tab-panel p1">
+<div class="diagram"><span class="diagram-label">S-LoRA &mdash; serving thousands of adapters</span>
+<pre><code>
+  <span class="ty">S-LoRA</span> (Sheng et al., 2023)
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  Problem: serving thousands of LoRA adapters naively
+  means loading/unloading adapter weights per request.
+
+  Solution: <strong>Unified Paging</strong>
+  &bull; Shared memory pool for adapter weights AND KV cache
+  &bull; Adapters paged in/out like KV cache blocks
+  &bull; Custom CUDA kernels for heterogeneous batches
+    (different requests use different adapter ranks)
+
+  Result: <span class="nm">4&times;</span> throughput over naive adapter serving.
+  Can serve thousands of adapters on a single GPU.
+  Adapters hot-swapped via LRU eviction.
+</code></pre></div></div>
+<div class="tab-panel p2">
+<div class="diagram"><span class="diagram-label">Multi-LoRA in vLLM and SGLang</span>
+<pre><code>
+  <span class="cm">vLLM configuration:</span>
+  --enable-lora
+  --max-loras 8             <span class="cm">&larr; max adapters resident simultaneously</span>
+  --max-lora-rank 64        <span class="cm">&larr; max adapter rank</span>
+  --lora-extra-vocab-size 0
+
+  <span class="cm">API usage:</span>
+  POST /v1/chat/completions
+  {
+    "model": "base-model",
+    <span style="color:var(--green)">"lora_name": "legal-assistant"</span>,
+    "messages": [...]
+  }
+
+  <span class="cm">SGLang: multi-LoRA batching built in.</span>
+  <span class="cm">Different requests in the same batch can use different adapters.</span>
+  <span class="cm">Base model forward pass is shared; adapter deltas applied per-request.</span>
+
+  <span class="pp">The shift: instead of N separate model deployments,</span>
+  <span class="pp">one deployment with N adapters. 100&times; less VRAM.</span>
+</code></pre></div></div>
+</div>
+
+<div class="power wild">
+<div class="power-label">The Enterprise Pattern</div>
+<p>A lot of real products are not &ldquo;serve one base model to everyone.&rdquo; They&rsquo;re &ldquo;one base model, fine-tuned for each customer.&rdquo; Multi-LoRA serving turns this from N model deployments into one deployment with N adapters. The infrastructure cost drops 10&ndash;100&times;. The latency stays the same. This is why adapter serving is becoming a first-class feature in every production engine.</p>
+</div>
+</section>
+
+
+<section id="ch19">
+<h2>// 19 &mdash; Metrics That Matter</h2>
+<div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--cyan)">TTFT</span> &middot; <span style="color:var(--magenta)">ITL</span> &middot; <span style="color:var(--green)">TPS</span> &middot; <span style="color:var(--yellow)">CACHE HIT</span> &middot; <span style="color:var(--orange)">$/TOKEN</span></div>
+<div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
+    A service can feel fast and still be bad. A service can benchmark well and still be expensive.<span class="blink">_</span>
+</div>
+
+<p class="drop-cap">If you do not measure the right things, inference lies to you. One number is never enough. Local &ldquo;tokens per second&rdquo; is not a service metric. A good TTFT once is not reliability. The metrics that matter depend on whether you&rsquo;re optimizing for a demo or a fleet.</p>
+
+<div class="diagram">
+<span class="diagram-label">The metrics taxonomy</span>
+<pre><code>
+  <span class="ty">Latency Metrics</span>
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  <span class="fn">TTFT</span>   Time to First Token         <span class="cm">User sees first word</span>
+         Good: &lt;500ms  Bad: &gt;2s       <span class="cm">Dominated by prefill</span>
+
+  <span class="fn">ITL</span>    Inter-Token Latency          <span class="cm">Streaming smoothness</span>
+         Good: &lt;30ms   Bad: &gt;100ms    <span class="cm">Dominated by decode</span>
+
+  <span class="fn">E2E</span>    End-to-End Latency           <span class="cm">Total time for full response</span>
+         = TTFT + (output_tokens &times; ITL)
+
+  <span class="ty">Throughput Metrics</span>
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  <span class="fn">TPS</span>    Tokens Per Second (system)   <span class="cm">Total output across all users</span>
+  <span class="fn">RPS</span>    Requests Per Second          <span class="cm">Completed requests per second</span>
+  <span class="fn">Goodput</span> Requests meeting SLO        <span class="cm">RPS that actually matters</span>
+
+  <span class="ty">Operational Metrics</span>
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  <span class="fn">Cache Hit Rate</span>     Prefix cache efficiency    Good: &gt;60%
+  <span class="fn">Preemption Rate</span>    How often requests evicted  Good: &lt;5%
+  <span class="fn">Queue Depth</span>        Requests waiting            Good: &lt;2&times; batch
+  <span class="fn">GPU Utilization</span>    Actual vs theoretical       <span class="cm">(misleading alone)</span>
+
+  <span class="ty">Economic Metrics</span>
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  <span class="fn">$/M tokens</span>         Cost per million tokens served
+  <span class="fn">$/request</span>          Amortized cost per user interaction
+</code></pre>
+</div>
+
+<div class="diagram">
+<span class="diagram-label">Seven benchmark traps</span>
+<pre><code>
+  <span style="color:var(--red)">1.</span> Local tok/s is not a service metric.
+     150 tok/s at batch=1 says nothing about 50 concurrent users.
+
+  <span style="color:var(--red)">2.</span> TTFT and ITL are separate concerns.
+     A system can have excellent TTFT and terrible ITL (or vice versa).
+
+  <span style="color:var(--red)">3.</span> Average latency hides tails.
+     P50=200ms, P99=5000ms is a bad service with a good average.
+
+  <span style="color:var(--red)">4.</span> GPU utilization is misleading.
+     90% GPU util during prefill, 1% during decode. &ldquo;High utilization&rdquo;
+     doesn&rsquo;t mean the service is fast.
+
+  <span style="color:var(--red)">5.</span> Concurrency changes every graph.
+     A system that benchmarks well at 1 user may collapse at 100.
+
+  <span style="color:var(--red)">6.</span> Prompt length distribution matters.
+     Benchmarks with uniform 128-token prompts miss the
+     heavy-tailed reality of production traffic.
+
+  <span style="color:var(--red)">7.</span> Throughput without SLO is meaningless.
+     You can always increase throughput by increasing batch size.
+     The question is: at what latency cost?
+</code></pre>
+</div>
+
+<div class="power">
+<div class="power-label">Measure What Users Feel</div>
+<p>Users feel TTFT (how long before the first word appears) and ITL (how smooth the stream is). They do not feel GPU utilization or system throughput. Build your dashboards around what users feel. Optimize for goodput (requests meeting SLO), not raw throughput. And always benchmark at production concurrency levels, not batch=1.</p>
+</div>
+</section>
+
+
+<section id="ch20">
+<h2>// 20 &mdash; The Modern Serving Stack</h2>
+<div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--cyan)">ROUTER</span> &rarr; <span style="color:var(--green)">CACHE</span> &rarr; <span style="color:var(--magenta)">SCHEDULER</span> &rarr; <span style="color:var(--orange)">ENGINE</span> &rarr; <span style="color:var(--yellow)">METRICS</span></div>
+<div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
+    By the end, the model is only one component in the system built around it.<span class="blink">_</span>
+</div>
+
+<p class="drop-cap">A modern serving stack is a pipeline of decisions: which request goes where, what work can be reused, what engine runs the model, how memory is managed, how latency is observed, and when to scale. The model &mdash; that 27 billion numbers you traced through 64 blocks in Part I &mdash; sits in the center. Everything else exists to feed it efficiently and measure whether it&rsquo;s working.</p>
+
+<div class="diagram">
+<span class="diagram-label">The full stack &mdash; request lifecycle</span>
+<pre><code>
+  <span style="color:var(--white)">Client</span>
+      &darr;
+  <span style="color:var(--cyan)">Gateway / Load Balancer</span>
+      &darr;  rate limiting, auth, routing
+  <span style="color:var(--green)">Prefix Cache Lookup</span>
+      &darr;  KV-aware routing: send to GPU that has the prefix
+  <span style="color:var(--magenta)">Scheduler</span>
+      &darr;  admit / preempt / chunk prefill / batch assembly
+  <span style="color:var(--orange)">Engine Runtime</span>
+      &darr;  PagedAttention, FlashAttention, continuous batching
+  <span style="color:var(--yellow)">GPU(s)</span>
+      &darr;  TP / PP / EP across devices
+  <span style="color:var(--blue)">Metrics &amp; Autoscaling</span>
+      &darr;  TTFT, ITL, cache hit, preemption rate, queue depth
+  <span style="color:var(--purple)">Policy Loop</span>
+      &uarr;  scale up/down, adjust token budgets, rebalance pools
+</code></pre>
+</div>
+
+<h3>Choose Your Architecture</h3>
+
+<div class="diagram">
+<span class="diagram-label">Six deployment archetypes</span>
+<pre><code>
+  <span class="ty">1. Local-First</span>
+     llama.cpp or ExLlamaV3 on consumer GPU/Mac.
+     Single user, no scheduling needed.
+     <span class="cm">For: developers, hobbyists, privacy-sensitive use.</span>
+
+  <span class="ty">2. Single-Node Production</span>
+     vLLM or SGLang on one multi-GPU server.
+     Continuous batching, prefix caching, OpenAI API.
+     <span class="cm">For: startups, internal tools, 10&ndash;100 concurrent users.</span>
+
+  <span class="ty">3. Multi-Node Scale-Out</span>
+     Dynamo orchestrating TRT-LLM/vLLM/SGLang across nodes.
+     Disaggregated P/D, KV-aware routing, dynamic scaling.
+     <span class="cm">For: API providers, 1000+ concurrent users.</span>
+
+  <span class="ty">4. Adapter-Heavy Enterprise</span>
+     Multi-LoRA on SGLang or vLLM.
+     One base model, N customer-specific adapters.
+     <span class="cm">For: SaaS products with per-customer fine-tuning.</span>
+
+  <span class="ty">5. Low-Latency Assistant</span>
+     Disaggregated P/D with aggressive prefix caching.
+     Optimized for TTFT &lt; 200ms, ITL &lt; 20ms.
+     <span class="cm">For: real-time chat, voice assistants, coding copilots.</span>
+
+  <span class="ty">6. High-Throughput Batch</span>
+     Maximize batch size, accept higher latency.
+     vLLM with max_num_seqs=256, gpu_memory_utilization=0.95.
+     <span class="cm">For: data pipelines, offline processing, evaluation.</span>
+</code></pre>
+</div>
+
+<h3>The Evolution</h3>
+
+<div class="diagram">
+<span class="diagram-label">Eight eras of inference engineering &mdash; the arc of the trilogy</span>
+<pre><code>
+  <span style="color:var(--text-dim)">Era 1</span> &mdash; <strong>Just make it run</strong>
+  Naive forward pass. No cache strategy. Single request.
+  <span class="cm">&rarr; Ch 5: Why Inference Is Slow</span>
+
+  <span style="color:var(--text-dim)">Era 2</span> &mdash; <strong>Make it fit</strong>
+  Weight quantization. CPU/GPU offload. GGUF pragmatism.
+  <span class="cm">&rarr; Ch 7: Quantization</span>
+
+  <span style="color:var(--text-dim)">Era 3</span> &mdash; <strong>Fix attention IO</strong>
+  FlashAttention shows the bottleneck is memory traffic.
+  <span class="cm">&rarr; Ch 8: FlashAttention</span>
+
+  <span style="color:var(--text-dim)">Era 4</span> &mdash; <strong>Fix the KV cache</strong>
+  PagedAttention, block allocators, dynamic cache management.
+  <span class="cm">&rarr; Ch 6: The KV Cache</span>
+
+  <span style="color:var(--text-dim)">Era 5</span> &mdash; <strong>Keep the machine full</strong>
+  Continuous batching, chunked prefill, prefix reuse.
+  <span class="cm">&rarr; Ch 9: Continuous Batching, Ch 15: Prefix Caching</span>
+
+  <span style="color:var(--text-dim)">Era 6</span> &mdash; <strong>Split the system by phase</strong>
+  Disaggregated prefill/decode, different parallel strategies.
+  <span class="cm">&rarr; Ch 10: Prefill vs Decode, Ch 16: Disaggregated P/D</span>
+
+  <span style="color:var(--text-dim)">Era 7</span> &mdash; <strong>Cheat the serial loop</strong>
+  Speculative decoding, Medusa, EAGLE, draft/verify families.
+  <span class="cm">&rarr; Ch 11: Speculative Decoding</span>
+
+  <span style="color:var(--text-dim)">Era 8</span> &mdash; <strong>Treat serving as scheduling</strong>
+  SLO-aware schedulers, KV-aware routing, fleet orchestration.
+  <span class="cm">&rarr; Ch 12: The Engines, Ch 14: The Scheduler, Ch 20: This chapter</span>
+</code></pre>
+</div>
+
+<div class="power">
+<div class="power-label">The Journey</div>
+<p>You started with a question: what happens when you type something and words appear? Part I answered it &mdash; embed, norm, attention, FFN, project, sample. Part II showed why that&rsquo;s hard to run fast &mdash; memory walls, cache growth, bandwidth limits &mdash; and the tricks that overcome them. Part III showed what happens when the model stops being a program and becomes a service. Inference began as a forward pass. At scale, it becomes city planning.</p>
+</div>
+</section>
 
 
 <!-- FOOTER -->
@@ -702,10 +1038,10 @@ details[open] summary { border-bottom: 1px solid var(--border); }
         <span style="color:var(--green)">Ch 14</span> Scheduler &middot;
         <span style="color:var(--green)">Ch 15</span> Prefix Cache &middot;
         <span style="color:var(--green)">Ch 16</span> Disaggregated &middot;
-        <span style="color:var(--text-dim)">Ch 17</span> Parallelism &middot;
-        <span style="color:var(--text-dim)">Ch 18</span> LoRA &middot;
-        <span style="color:var(--text-dim)">Ch 19</span> Metrics &middot;
-        <span style="color:var(--text-dim)">Ch 20</span> The Stack
+        <span style="color:var(--green)">Ch 17</span> Parallelism &middot;
+        <span style="color:var(--green)">Ch 18</span> LoRA &middot;
+        <span style="color:var(--green)">Ch 19</span> Metrics &middot;
+        <span style="color:var(--green)">Ch 20</span> The Stack
     </div>
     <div style="display:flex; justify-content:center; gap:2rem; flex-wrap:wrap;">
         <a href="inference-engine-deep-dive.html" style="font-family:'JetBrains Mono',monospace; font-size:1rem; color:var(--green); text-decoration:none;">&larr; Part I: The Machine</a>
