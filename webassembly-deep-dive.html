@@ -571,17 +571,14 @@
   <a href="#ch3">binary</a>
   <a href="#ch4">memory</a>
   <a href="#ch5">types</a>
-  <a href="#ch6">toolchain</a>
-  <a href="#ch7">handwriting</a>
-  <a href="#ch8">js bridge</a>
-  <a href="#ch9">browsers</a>
-  <a href="#ch10">simd</a>
-  <a href="#ch11">wasi</a>
-  <a href="#ch12">wild</a>
-  <a href="#ch13">inference</a>
-  <a href="#ch14">sandbox</a>
-  <a href="#ch15">edge</a>
-  <a href="#ch16">convergence</a>
+  <a href="#ch6">first module</a>
+  <a href="#ch7">control flow</a>
+  <a href="#ch8">tables</a>
+  <a href="#ch9">strings</a>
+  <a href="#ch10">compiler output</a>
+  <a href="#ch11">scanner</a>
+  <a href="#ch12">allocator</a>
+  <a href="#ch13">ship it</a>
 </nav>
 
 <div class="content">
@@ -1635,924 +1632,837 @@
 <p>This is not C&rsquo;s &ldquo;trust the programmer.&rdquo; This is &ldquo;trust nobody, verify everything.&rdquo; A Wasm module that passes validation will never produce an undefined result. The type system and deterministic semantics together mean every module either validates and runs correctly, or is rejected before a single instruction executes. There is no third state.</p>
 </div>
 
-<p>The type system is small on purpose. Four numeric types, a handful of reference types, deterministic semantics for every operation. This is what makes single-pass validation possible, what makes the sandbox provable, and what makes compilation to native code straightforward &mdash; every Wasm instruction maps cleanly to one or two native instructions. But nobody writes these instructions by hand. First you need a toolchain that turns your C, Rust, or Go into a <code>.wasm</code> binary. The tools that make that happen are wilder than you would expect.</p>
-
-</section>
-
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 6: THE TOOLCHAIN                                        -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch6">
-<h2>06 &mdash; the toolchain</h2>
-
-<p class="drop-cap">Wasm is a compilation target, and three toolchains dominate the landscape. Each makes a different trade-off between compatibility and minimalism, and the choice determines everything from your binary size to your deployment complexity. The differences start at the compiler and ripple all the way to the user&rsquo;s browser.</p>
-
-<h3>The Three Paths</h3>
-
-<p><strong>Emscripten</strong> compiles C and C++ to Wasm by routing through LLVM&rsquo;s <code>wasm32-unknown-emscripten</code> target. It ships a full POSIX compatibility layer &mdash; a virtual filesystem, pthreads emulation via Web Workers and SharedArrayBuffer, OpenGL-to-WebGL translation, even a partial <code>libc</code>. This is how 30-year-old codebases like AutoCAD and Google Earth run in the browser unmodified. The cost: the runtime shim can double your binary size. A minimal &ldquo;hello world&rdquo; compiles to roughly 15 KB of Wasm plus a JavaScript glue file; a full 3D engine can run into megabytes.</p>
-
-<p><strong>Rust + wasm-pack</strong> takes the opposite approach. Rust&rsquo;s <code>wasm32-unknown-unknown</code> target produces lean binaries with no runtime, no GC, and no POSIX shim. The <code>wasm-bindgen</code> tool generates type-safe FFI bindings between Rust and JavaScript automatically. A Rust &ldquo;hello world&rdquo; (just a function that adds two numbers) compiles to under 200 bytes of Wasm. Rust&rsquo;s ownership model means no garbage collector overhead, and its <code>#[no_std]</code> mode eliminates even the standard library if you don&rsquo;t need it.</p>
-
-<p><strong>Go</strong> compiles to Wasm too, but it ships its entire goroutine scheduler and garbage collector. A Go &ldquo;hello world&rdquo; is over 2 MB. TinyGo, a Go variant targeting embedded and Wasm, reduces this dramatically &mdash; often to 50&ndash;100 KB &mdash; but at the cost of incomplete standard library support.</p>
-
-<div class="lang-tabs">
-<input type="radio" name="tc" id="tc-c" class="tc" checked>
-<input type="radio" name="tc" id="tc-rs" class="trs">
-<input type="radio" name="tc" id="tc-wat" class="twat">
-<input type="radio" name="tc" id="tc-hex" class="thex">
-<div class="tab-bar">
-  <label for="tc-c">C</label>
-  <label for="tc-rs">Rust</label>
-  <label for="tc-wat">WAT</label>
-  <label for="tc-hex">Hex</label>
-</div>
-<div class="tab-content c">
-<pre><span class="label">C / Emscripten</span><code><span class="pp">#include</span> <span class="st">&lt;emscripten.h&gt;</span>
-
-<span class="ty">EMSCRIPTEN_KEEPALIVE</span>
-<span class="ty">int</span> <span class="fn">add</span>(<span class="ty">int</span> a, <span class="ty">int</span> b) {
-    <span class="kw">return</span> a + b;
-}
-
-<span class="cm">// Compile: emcc add.c -o add.wasm -O3 -s EXPORTED_FUNCTIONS='["_add"]'</span>
-<span class="cm">// Output: ~2 KB .wasm (minimal, -s STANDALONE_WASM=1)</span>
-<span class="cm">//         ~150 KB .wasm (with Emscripten runtime)</span></code></pre>
-</div>
-<div class="tab-content rs">
-<pre><span class="label">Rust / wasm-pack</span><code><span class="kw">use</span> wasm_bindgen::prelude::*;
-
-<span class="pp">#[wasm_bindgen]</span>
-<span class="kw">pub fn</span> <span class="fn">add</span>(a: <span class="ty">i32</span>, b: <span class="ty">i32</span>) -> <span class="ty">i32</span> {
-    a + b
-}
-
-<span class="cm">// Compile: wasm-pack build --target web</span>
-<span class="cm">// Output: ~200 bytes .wasm (just the function)</span>
-<span class="cm">//         + auto-generated JS bindings with TypeScript types</span></code></pre>
-</div>
-<div class="tab-content wat">
-<pre><span class="label">WAT (Text Format)</span><code>(<span class="kw">module</span>
-  (<span class="kw">func</span> <span class="fn">$add</span> (<span class="kw">param</span> <span class="ty">$a i32</span>) (<span class="kw">param</span> <span class="ty">$b i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
-    <span class="kw">local.get</span> $a
-    <span class="kw">local.get</span> $b
-    <span class="kw">i32.add</span>)
-  (<span class="kw">export</span> <span class="st">"add"</span> (<span class="kw">func</span> <span class="fn">$add</span>)))
-
-<span class="cm">;; Compile: wat2wasm add.wat -o add.wasm</span>
-<span class="cm">;; The text format maps 1:1 to the binary.</span>
-<span class="cm">;; WAT is not a "different language" &mdash; it's a human-readable</span>
-<span class="cm">;; rendering of the exact same bytes.</span></code></pre>
-</div>
-<div class="tab-content hex">
-<pre><span class="label">Binary Hex Dump</span><code><span class="st">00 61 73 6D</span> <span class="ty">01 00 00 00</span>  <span class="cm">;; magic + version</span>
-<span class="kw">01 07 01 60 02 7F 7F 01 7F</span>  <span class="cm">;; type section: (i32,i32)→i32</span>
-<span class="pp">03 02 01 00</span>              <span class="cm">;; func section: func 0 = type 0</span>
-<span class="fn">07 07 01 03 61 64 64 00 00</span>  <span class="cm">;; export section: "add" = func 0</span>
-<span class="nm">0A 09 01 07 00 20 00 20 01 6A 0B</span>  <span class="cm">;; code: get 0, get 1, add, end</span>
-
-<span class="cm">;; Total: 41 bytes. The function body is 5 bytes.</span>
-<span class="cm">;; This is the same binary from Chapter 3, produced</span>
-<span class="cm">;; by any of the toolchains above (after wasm-opt).</span></code></pre>
-</div>
-</div>
-
-<h3>The LLVM Backend</h3>
-
-<p>Behind both Emscripten and Rust sits LLVM&rsquo;s <code>wasm32</code> backend, which treats WebAssembly as just another instruction set architecture &mdash; like x86 or ARM. The same optimization passes that make native code fast (dead code elimination, loop unrolling, constant folding, inlining) run on the LLVM IR before the wasm32 code generator emits the final bytecode. The code generator maps LLVM&rsquo;s virtual registers to Wasm locals and the value stack, translates phi nodes to structured control flow, and produces a valid <code>.wasm</code> binary.</p>
-
-<p>Emscripten originally used a custom LLVM fork called &ldquo;fastcomp.&rdquo; In 2019, it switched to LLVM&rsquo;s upstream Wasm backend, which produced 6&ndash;15% smaller binaries and linked 7x faster. Fastcomp was fully removed in Emscripten 2.0.</p>
-
-<div class="diagram">
-<span class="diagram-label">Compilation pipeline</span>
-<pre><code>  <span class="ty">C / C++</span>         <span class="ty">Rust</span>            <span class="ty">Go</span>
-     │               │               │
-     ▼               ▼               ▼
-  <span class="fn">clang</span>           <span class="fn">rustc</span>          <span class="fn">gc</span> (Go compiler)
-     │               │               │
-     ▼               ▼               │
-  <span class="pp">LLVM IR</span> ◄────────┘               │
-     │                               │
-     ▼                               ▼
-  <span class="pp">wasm32 codegen</span>              <span class="pp">Go wasm backend</span>
-     │                               │
-     ▼                               ▼
-  <span class="st">.wasm binary</span> ◄──── <span class="fn">wasm-opt</span> ◄────┘
-                       │
-                  Binaryen post-
-                  optimization</code></pre>
-</div>
-
-<h3>wasm-opt: The Second Compiler</h3>
-
-<p>Binaryen&rsquo;s <code>wasm-opt</code> is a Wasm-to-Wasm optimizer that runs <em>after</em> your compiler. It performs passes that LLVM misses because LLVM does not understand Wasm-specific patterns: dead local elimination, block merging, stack expression folding, and code motion across block boundaries. Running <code>wasm-opt -O3</code> on a Rust-produced binary typically shaves off 10&ndash;20%. Emscripten runs it automatically; if you use any other toolchain, you should run it yourself.</p>
-
-<div class="power zen">
-<div class="power-label">The WAT Round-Trip</div>
-<p>WAT is not an intermediate language or an approximation. It is a character-for-character text rendering of the binary. <code>wat2wasm</code> converts text to binary; <code>wasm2wat</code> converts binary back to text. The round-trip is lossless. This means you can disassemble any <code>.wasm</code> file, read the instructions in human form, modify them in a text editor, and reassemble. The toolchain that produces Wasm and the format you read Wasm in are the same language at different zoom levels.</p>
-</div>
-
-<p>The toolchain gives you a <code>.wasm</code> binary. But the best way to understand what the tools produce &mdash; and the only way to beat them &mdash; is to write it yourself. In the next chapter, we open a text editor, type WAT by hand, and discover that the gap between human and machine is exactly one text format wide.</p>
+<p>The type system is small on purpose. Four numeric types, a handful of reference types, deterministic semantics for every operation. This is what makes single-pass validation possible, what makes the sandbox provable, and what makes compilation to native code straightforward &mdash; every Wasm instruction maps cleanly to one or two native instructions. Now it is time to stop reading about the machine and start writing for it.</p>
 
 </section>
 
 <div class="act-break">
 <div class="act-number">Part II</div>
-<div class="act-title">Making It Fast</div>
-<div class="act-subtitle">From handwritten bytecode to browser engines to production deployments</div>
+<div class="act-title">The Craft</div>
+<div class="act-subtitle">Writing WebAssembly by hand, one instruction at a time</div>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 7: HANDWRITING WASM                                     -->
+<!-- CHAPTER 6: YOUR FIRST MODULE                                    -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch6">
+<h2>06 &mdash; your first module by hand</h2>
+
+<p class="drop-cap">Open a text editor. Not a compiler. Not a build system. A text editor. You are going to write a WebAssembly module from scratch in WAT &mdash; the human-readable text format that maps one-to-one to the binary. Every parenthesis you type has a corresponding byte in the <code>.wasm</code> output. By the end of this chapter you will have a working module running in the browser, and you will have typed every instruction yourself.</p>
+
+<h3>The Skeleton</h3>
+
+<p>Every WAT file starts with <code>(module ...)</code>. Inside the module, you declare types, functions, memory, exports. Here is the smallest useful module &mdash; a function that doubles a number:</p>
+
+
+<pre><span class="label">WAT</span><code>(<span class="kw">module</span>
+  (<span class="kw">func</span> <span class="fn">$double</span> (<span class="kw">param</span> <span class="ty">$x i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
+    <span class="kw">local.get</span> $x
+    <span class="kw">i32.const</span> <span class="nm">2</span>
+    <span class="kw">i32.mul</span>)
+  (<span class="kw">export</span> <span class="st">"double"</span> (<span class="kw">func</span> <span class="fn">$double</span>))
+)</code></pre>
+
+<p>Save this as <code>double.wat</code>. That is a complete, valid WebAssembly module. The <code>func</code> declaration defines a function named <code>$double</code> that takes one <code>i32</code> parameter and returns one <code>i32</code>. The body pushes the parameter, pushes the constant 2, and multiplies. The <code>export</code> line makes the function visible to the host under the name <code>"double"</code>.</p>
+
+<h3>Assemble and Run</h3>
+
+<p>Convert the text to binary with <code>wat2wasm</code> (from the WABT toolkit), then load it in a browser:</p>
+
+<pre><span class="label">Shell</span><code><span class="fn">wat2wasm</span> double.wat -o double.wasm</code></pre>
+
+<pre><span class="label">JavaScript</span><code><span class="kw">const</span> { instance } = <span class="kw">await</span> <span class="fn">WebAssembly.instantiateStreaming</span>(
+  <span class="fn">fetch</span>(<span class="st">'double.wasm'</span>)
+);
+<span class="fn">console.log</span>(instance.exports.<span class="fn">double</span>(<span class="nm">21</span>)); <span class="cm">// 42</span></code></pre>
+
+<p>That is the entire workflow: write WAT, assemble to <code>.wasm</code>, load in JavaScript, call the export. No Emscripten. No Rust. No build system. You wrote raw bytecode instructions in a text file and the browser compiled them to native machine code.</p>
+
+<h3>A Complete Module</h3>
+
+<p>The double function is trivial. Here is a module that shows off more of the WAT vocabulary &mdash; memory, globals, data segments, and multiple exports:</p>
+
+<pre><span class="label">WAT</span><code>(<span class="kw">module</span>
+  <span class="cm">;; Declare one page of linear memory (64 KB) and export it</span>
+  (<span class="kw">memory</span> (<span class="kw">export</span> <span class="st">"memory"</span>) <span class="nm">1</span>)
+
+  <span class="cm">;; Write a greeting into memory at offset 0</span>
+  (<span class="kw">data</span> (<span class="kw">i32.const</span> <span class="nm">0</span>) <span class="st">"Hello, Wasm!\00"</span>)
+
+  <span class="cm">;; A mutable global: counts how many times greet was called</span>
+  (<span class="kw">global</span> <span class="fn">$count</span> (<span class="kw">mut</span> <span class="ty">i32</span>) (<span class="kw">i32.const</span> <span class="nm">0</span>))
+
+  <span class="cm">;; Return the pointer and length of the greeting</span>
+  (<span class="kw">func</span> (<span class="kw">export</span> <span class="st">"greet_ptr"</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
+    <span class="kw">i32.const</span> <span class="nm">0</span>)           <span class="cm">;; pointer to "Hello, Wasm!"</span>
+
+  (<span class="kw">func</span> (<span class="kw">export</span> <span class="st">"greet_len"</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
+    <span class="kw">i32.const</span> <span class="nm">12</span>)          <span class="cm">;; length of "Hello, Wasm!"</span>
+
+  <span class="cm">;; Increment the call counter and return the new count</span>
+  (<span class="kw">func</span> (<span class="kw">export</span> <span class="st">"tick"</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
+    <span class="kw">global.get</span> $count
+    <span class="kw">i32.const</span> <span class="nm">1</span>
+    <span class="kw">i32.add</span>
+    <span class="kw">global.set</span> $count       <span class="cm">;; count++</span>
+    <span class="kw">global.get</span> $count)       <span class="cm">;; return new count</span>
+)</code></pre>
+
+<p>Notice the patterns. The <code>data</code> segment writes bytes into linear memory at instantiation &mdash; you provide an offset expression and a string literal, and the runtime copies the bytes before any function runs. The <code>global</code> is mutable (<code>mut i32</code>) so it persists across calls. The <code>export</code> can be inlined into the <code>func</code> declaration &mdash; no need for a separate export statement.</p>
+
+<h3>The Full Loop</h3>
+
+<pre><span class="label">JavaScript</span><code><span class="kw">const</span> { instance } = <span class="kw">await</span> <span class="fn">WebAssembly.instantiateStreaming</span>(<span class="fn">fetch</span>(<span class="st">'greet.wasm'</span>));
+<span class="kw">const</span> { memory, greet_ptr, greet_len, tick } = instance.exports;
+
+<span class="cm">// Read the greeting from Wasm memory</span>
+<span class="kw">const</span> bytes = <span class="kw">new</span> <span class="ty">Uint8Array</span>(memory.buffer, <span class="fn">greet_ptr</span>(), <span class="fn">greet_len</span>());
+<span class="kw">const</span> greeting = <span class="kw">new</span> <span class="ty">TextDecoder</span>().<span class="fn">decode</span>(bytes);
+<span class="fn">console.log</span>(greeting);   <span class="cm">// "Hello, Wasm!"</span>
+<span class="fn">console.log</span>(<span class="fn">tick</span>());     <span class="cm">// 1</span>
+<span class="fn">console.log</span>(<span class="fn">tick</span>());     <span class="cm">// 2</span></code></pre>
+
+<p>You have just written a module with memory, data initialization, mutable state, and multiple exports &mdash; in plain text. The string lives in linear memory at offset 0. JavaScript reads it by creating a <code>Uint8Array</code> view over the shared <code>memory.buffer</code> and decoding the bytes as UTF-8. This is how every string crosses the Wasm/JS boundary: bytes in memory, a pointer, and a length.</p>
+
+<div class="power zen">
+<div class="power-label">WAT Is Not an Abstraction</div>
+<p>WAT is not a &ldquo;high-level&rdquo; representation of Wasm. It is the binary in text form. <code>wat2wasm</code> converts text to bytes; <code>wasm2wat</code> converts bytes back to text. The round-trip is lossless. Every instruction you write in WAT produces exactly one opcode. There is no optimizer between you and the machine.</p>
+</div>
+
+<p>You can write a module and run it. But the real craft is in control flow &mdash; how you express loops, conditionals, and early exits in a machine that has no <code>goto</code>, no <code>for</code>, and no <code>while</code>. That is where the tricks live.</p>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 7: CONTROL FLOW TRICKS                                  -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <section id="ch7">
-<h2>07 &mdash; handwriting wasm</h2>
+<h2>07 &mdash; control flow tricks</h2>
 
-<p class="drop-cap">Writing WAT directly instead of compiling from C or Rust sounds like writing x86 assembly by choice &mdash; a niche hobby for masochists. But there is a practical reason people do it: LLVM does not always produce optimal Wasm. The compiler introduces unnecessary locals, emits redundant stack manipulation, and sometimes misses patterns that a human can spot in thirty seconds. For tight inner loops where every instruction counts, handwritten WAT wins.</p>
+<p class="drop-cap">Wasm has three control flow constructs: <code>block</code>, <code>loop</code>, and <code>if</code>. That is all. No <code>for</code>. No <code>while</code>. No <code>switch</code>. No <code>goto</code>. Every structured loop, every conditional branch, every multi-way dispatch must be built from these three primitives and the <code>br</code> family of branch instructions. This sounds limiting. It is actually a design constraint that produces clean, verifiable code &mdash; once you learn the patterns.</p>
 
-<h3>What the Compiler Produces</h3>
+<h3>Pattern 1: If / Else</h3>
 
-<p>Consider a simple function that sums an array of integers. Here is the C:</p>
+<p>The simplest. <code>if</code> pops an <code>i32</code> from the stack. Nonzero executes the <code>then</code> branch; zero executes the <code>else</code> branch. Both branches must leave the stack in the same state.</p>
 
-<pre><span class="label">C</span><code><span class="ty">int</span> <span class="fn">sum</span>(<span class="ty">int</span>* arr, <span class="ty">int</span> len) {
-    <span class="ty">int</span> total = <span class="nm">0</span>;
-    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i < len; i++)
-        total += arr[i];
-    <span class="kw">return</span> total;
-}</code></pre>
+<pre><span class="label">WAT</span><code><span class="cm">;; abs(x): return x >= 0 ? x : -x</span>
+(<span class="kw">func</span> <span class="fn">$abs</span> (<span class="kw">param</span> <span class="ty">$x i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
+  (<span class="kw">if</span> (<span class="kw">result</span> <span class="ty">i32</span>) (<span class="kw">i32.ge_s</span> (<span class="kw">local.get</span> $x) (<span class="kw">i32.const</span> <span class="nm">0</span>))
+    (<span class="kw">then</span> (<span class="kw">local.get</span> $x))
+    (<span class="kw">else</span> (<span class="kw">i32.sub</span> (<span class="kw">i32.const</span> <span class="nm">0</span>) (<span class="kw">local.get</span> $x)))
+  )
+)</code></pre>
 
-<p>Emscripten with <code>-O3</code> produces reasonable output, but it introduces extra locals and stack shuffling that a human would avoid. Here is a simplified view of what typical compiler output looks like versus what you can write by hand:</p>
+<p>The <code>(result i32)</code> on the <code>if</code> means both branches must push exactly one <code>i32</code>. This is how Wasm replaces the ternary operator &mdash; the <code>if</code> itself produces a value.</p>
 
-<div class="tabbed">
-<input type="radio" name="hw" id="hw-t1" class="t1" checked>
-<input type="radio" name="hw" id="hw-t2" class="t2">
-<div class="tab-bar">
-  <label for="hw-t1">Compiler Output</label>
-  <label for="hw-t2">Hand-Optimized</label>
+<h3>Pattern 2: While Loop</h3>
+
+<p>A <code>while</code> loop is a <code>block</code> containing a <code>loop</code>. The <code>block</code> provides the exit target (forward jump). The <code>loop</code> provides the continue target (backward jump). <code>br_if</code> to the block exits; <code>br</code> to the loop repeats:</p>
+
+<pre><span class="label">WAT</span><code><span class="cm">;; while (i &lt; n) { total += arr[i]; i++; }</span>
+(<span class="kw">block</span> <span class="fn">$break</span>
+  (<span class="kw">loop</span> <span class="fn">$continue</span>
+    <span class="cm">;; test: if i >= n, exit</span>
+    <span class="kw">local.get</span> $i
+    <span class="kw">local.get</span> $n
+    <span class="kw">i32.ge_s</span>
+    <span class="kw">br_if</span> <span class="fn">$break</span>           <span class="cm">;; ← forward jump OUT of block</span>
+
+    <span class="cm">;; body: total += arr[i]</span>
+    <span class="kw">local.get</span> $total
+    <span class="kw">local.get</span> $arr
+    <span class="kw">local.get</span> $i
+    <span class="kw">i32.const</span> <span class="nm">4</span>
+    <span class="kw">i32.mul</span>
+    <span class="kw">i32.add</span>
+    <span class="kw">i32.load</span>
+    <span class="kw">i32.add</span>
+    <span class="kw">local.set</span> $total
+
+    <span class="cm">;; i++</span>
+    <span class="kw">local.get</span> $i
+    <span class="kw">i32.const</span> <span class="nm">1</span>
+    <span class="kw">i32.add</span>
+    <span class="kw">local.set</span> $i
+
+    <span class="kw">br</span> <span class="fn">$continue</span>           <span class="cm">;; ← backward jump to TOP of loop</span>
+  )
+)</code></pre>
+
+<div class="power hack">
+<div class="power-label">The Block/Loop Trick</div>
+<p><code>br</code> to a <code>block</code> jumps <em>forward</em> (past the end). <code>br</code> to a <code>loop</code> jumps <em>backward</em> (to the top). Same instruction, opposite direction, depending on which construct it targets. This one rule is the key to every loop pattern in Wasm. The block is the exit door; the loop is the re-entry door.</p>
 </div>
-<div class="tab-panel p1">
-<pre><code><span class="cm">;; Typical LLVM output (simplified)</span>
-(<span class="kw">func</span> <span class="fn">$sum</span> (<span class="kw">param</span> <span class="ty">$arr i32</span>) (<span class="kw">param</span> <span class="ty">$len i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
-  (<span class="kw">local</span> <span class="ty">$i i32</span>) (<span class="kw">local</span> <span class="ty">$total i32</span>) (<span class="kw">local</span> <span class="ty">$tmp i32</span>)
-  <span class="kw">i32.const</span> <span class="nm">0</span>
-  <span class="kw">local.set</span> $total            <span class="cm">;; total = 0</span>
-  <span class="kw">i32.const</span> <span class="nm">0</span>
-  <span class="kw">local.set</span> $i                <span class="cm">;; i = 0</span>
-  <span class="kw">block</span> $exit
-    <span class="kw">loop</span> $loop
+
+<h3>Pattern 3: Do-While</h3>
+
+<p>Even simpler &mdash; just a <code>loop</code> with a conditional branch at the bottom:</p>
+
+<pre><span class="label">WAT</span><code><span class="cm">;; do { ... } while (i &lt; n)</span>
+(<span class="kw">loop</span> <span class="fn">$top</span>
+  <span class="cm">;; body here...</span>
+
+  <span class="kw">local.get</span> $i
+  <span class="kw">local.get</span> $n
+  <span class="kw">i32.lt_s</span>
+  <span class="kw">br_if</span> <span class="fn">$top</span>              <span class="cm">;; if i &lt; n, jump back to top</span>
+)</code></pre>
+
+<h3>Pattern 4: Early Return / Break</h3>
+
+<p>Nested blocks give you labeled break targets at any depth:</p>
+
+<pre><span class="label">WAT</span><code><span class="cm">;; find first even number in array, return it (or -1)</span>
+(<span class="kw">func</span> <span class="fn">$find_even</span> (<span class="kw">param</span> <span class="ty">$arr i32</span>) (<span class="kw">param</span> <span class="ty">$len i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
+  (<span class="kw">local</span> <span class="ty">$i i32</span>) (<span class="kw">local</span> <span class="ty">$val i32</span>)
+  (<span class="kw">block</span> <span class="fn">$done</span>
+    (<span class="kw">loop</span> <span class="fn">$next</span>
       <span class="kw">local.get</span> $i
       <span class="kw">local.get</span> $len
       <span class="kw">i32.ge_s</span>
-      <span class="kw">br_if</span> $exit              <span class="cm">;; if i >= len, break</span>
-      <span class="kw">local.get</span> $total
+      <span class="kw">br_if</span> <span class="fn">$done</span>
+
+      <span class="cm">;; val = arr[i]</span>
       <span class="kw">local.get</span> $arr
       <span class="kw">local.get</span> $i
       <span class="kw">i32.const</span> <span class="nm">4</span>
-      <span class="kw">i32.mul</span>                   <span class="cm">;; i * 4 (byte offset)</span>
-      <span class="kw">i32.add</span>                   <span class="cm">;; arr + i*4</span>
-      <span class="kw">i32.load</span>                  <span class="cm">;; load arr[i]</span>
+      <span class="kw">i32.mul</span>
       <span class="kw">i32.add</span>
-      <span class="kw">local.set</span> $total          <span class="cm">;; total += arr[i]</span>
+      <span class="kw">i32.load</span>
+      <span class="kw">local.set</span> $val
+
+      <span class="cm">;; if val is even, return it</span>
+      <span class="kw">local.get</span> $val
+      <span class="kw">i32.const</span> <span class="nm">2</span>
+      <span class="kw">i32.rem_u</span>
+      <span class="kw">i32.eqz</span>
+      (<span class="kw">if</span> (<span class="kw">then</span>
+        <span class="kw">local.get</span> $val
+        <span class="kw">return</span>))             <span class="cm">;; ← early return with value</span>
+
       <span class="kw">local.get</span> $i
       <span class="kw">i32.const</span> <span class="nm">1</span>
       <span class="kw">i32.add</span>
-      <span class="kw">local.set</span> $i              <span class="cm">;; i++</span>
-      <span class="kw">br</span> $loop
-    <span class="kw">end</span>
-  <span class="kw">end</span>
-  <span class="kw">local.get</span> $total)
+      <span class="kw">local.set</span> $i
+      <span class="kw">br</span> <span class="fn">$next</span>
+    )
+  )
+  <span class="kw">i32.const</span> -<span class="nm">1</span>)            <span class="cm">;; not found</span></code></pre>
 
-<span class="cm">;; 21 instructions, 3 locals (+ 2 params)</span></code></pre>
+<h3>Pattern 5: Switch via br_table</h3>
+
+<p>C&rsquo;s <code>switch</code> statement compiles to <code>br_table</code> &mdash; a jump table that branches based on an integer index:</p>
+
+<pre><span class="label">WAT</span><code><span class="cm">;; switch(op) { case 0: add; case 1: sub; case 2: mul; default: 0 }</span>
+(<span class="kw">block</span> <span class="fn">$default</span>
+  (<span class="kw">block</span> <span class="fn">$case2</span>
+    (<span class="kw">block</span> <span class="fn">$case1</span>
+      (<span class="kw">block</span> <span class="fn">$case0</span>
+        <span class="kw">local.get</span> $op
+        <span class="kw">br_table</span> <span class="fn">$case0 $case1 $case2 $default</span>)
+      <span class="cm">;; case 0: add</span>
+      <span class="kw">local.get</span> $a  <span class="kw">local.get</span> $b  <span class="kw">i32.add</span>
+      <span class="kw">return</span>)
+    <span class="cm">;; case 1: sub</span>
+    <span class="kw">local.get</span> $a  <span class="kw">local.get</span> $b  <span class="kw">i32.sub</span>
+    <span class="kw">return</span>)
+  <span class="cm">;; case 2: mul</span>
+  <span class="kw">local.get</span> $a  <span class="kw">local.get</span> $b  <span class="kw">i32.mul</span>
+  <span class="kw">return</span>)
+<span class="cm">;; default</span>
+<span class="kw">i32.const</span> <span class="nm">0</span>)</code></pre>
+
+<p><code>br_table</code> pops an <code>i32</code> index from the stack and jumps to the Nth label in the list. If the index is out of range, it jumps to the last label (the default). The nesting is inside-out &mdash; case 0 is the innermost block, the default is the outermost. This feels backward until you realize that <code>br</code> targets are counted by nesting depth: case 0 = depth 0, case 1 = depth 1, and so on.</p>
+
+<p>Five patterns. That is the complete vocabulary for all control flow in WebAssembly. Every <code>for</code>, <code>while</code>, <code>switch</code>, <code>break</code>, and <code>continue</code> you have ever written maps to some combination of <code>block</code>, <code>loop</code>, <code>if</code>, and <code>br</code>. The next chapter adds the other dimension of indirection: functions that call functions through tables.</p>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 8: FUNCTIONS AND TABLES                                 -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch8">
+<h2>08 &mdash; functions and tables</h2>
+
+<p class="drop-cap">In C, a function pointer is just an address. You can cast it, store it in an array, call it through a void pointer with the wrong arguments, and crash. In Wasm, there are no function pointers in memory. Functions live in a separate, type-checked table &mdash; and calling through that table validates the signature at runtime. This is how Wasm implements virtual dispatch, callbacks, and plugin systems without sacrificing the sandbox.</p>
+
+<h3>Direct Calls</h3>
+
+<p>A regular function call is straightforward. Push the arguments, call the function by index:</p>
+
+<pre><span class="label">WAT</span><code>(<span class="kw">func</span> <span class="fn">$square</span> (<span class="kw">param</span> <span class="ty">$x i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
+  <span class="kw">local.get</span> $x
+  <span class="kw">local.get</span> $x
+  <span class="kw">i32.mul</span>)
+
+(<span class="kw">func</span> <span class="fn">$sum_of_squares</span> (<span class="kw">param</span> <span class="ty">$a i32</span>) (<span class="kw">param</span> <span class="ty">$b i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
+  (<span class="kw">i32.add</span>
+    (<span class="kw">call</span> <span class="fn">$square</span> (<span class="kw">local.get</span> $a))
+    (<span class="kw">call</span> <span class="fn">$square</span> (<span class="kw">local.get</span> $b))))</code></pre>
+
+<h3>Indirect Calls and Tables</h3>
+
+<p>The interesting part is <code>call_indirect</code> &mdash; calling a function by index through a table. This is how C function pointers, C++ vtables, and Rust trait objects work in Wasm:</p>
+
+<pre><span class="label">WAT</span><code>(<span class="kw">module</span>
+  (<span class="kw">type</span> <span class="fn">$op</span> (<span class="kw">func</span> (<span class="kw">param</span> <span class="ty">i32 i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)))
+
+  (<span class="kw">func</span> <span class="fn">$add</span> (<span class="kw">type</span> <span class="fn">$op</span>) <span class="kw">local.get</span> <span class="nm">0</span> <span class="kw">local.get</span> <span class="nm">1</span> <span class="kw">i32.add</span>)
+  (<span class="kw">func</span> <span class="fn">$sub</span> (<span class="kw">type</span> <span class="fn">$op</span>) <span class="kw">local.get</span> <span class="nm">0</span> <span class="kw">local.get</span> <span class="nm">1</span> <span class="kw">i32.sub</span>)
+  (<span class="kw">func</span> <span class="fn">$mul</span> (<span class="kw">type</span> <span class="fn">$op</span>) <span class="kw">local.get</span> <span class="nm">0</span> <span class="kw">local.get</span> <span class="nm">1</span> <span class="kw">i32.mul</span>)
+
+  <span class="cm">;; Table: 3 function slots</span>
+  (<span class="kw">table</span> <span class="nm">3</span> <span class="ty">funcref</span>)
+  (<span class="kw">elem</span> (<span class="kw">i32.const</span> <span class="nm">0</span>) <span class="fn">$add $sub $mul</span>)
+
+  <span class="cm">;; Dispatch: call function at table[op_index](a, b)</span>
+  (<span class="kw">func</span> (<span class="kw">export</span> <span class="st">"calc"</span>) (<span class="kw">param</span> <span class="ty">$a i32</span>) (<span class="kw">param</span> <span class="ty">$b i32</span>) (<span class="kw">param</span> <span class="ty">$op i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
+    <span class="kw">local.get</span> $a
+    <span class="kw">local.get</span> $b
+    <span class="kw">local.get</span> $op
+    <span class="kw">call_indirect</span> (<span class="kw">type</span> <span class="fn">$op</span>))      <span class="cm">;; type-checked at runtime!</span>
+)</code></pre>
+
+<pre><span class="label">JavaScript</span><code><span class="kw">const</span> { instance } = <span class="kw">await</span> <span class="fn">WebAssembly.instantiateStreaming</span>(<span class="fn">fetch</span>(<span class="st">'calc.wasm'</span>));
+instance.exports.<span class="fn">calc</span>(<span class="nm">10</span>, <span class="nm">3</span>, <span class="nm">0</span>);  <span class="cm">// add(10, 3) = 13</span>
+instance.exports.<span class="fn">calc</span>(<span class="nm">10</span>, <span class="nm">3</span>, <span class="nm">1</span>);  <span class="cm">// sub(10, 3) = 7</span>
+instance.exports.<span class="fn">calc</span>(<span class="nm">10</span>, <span class="nm">3</span>, <span class="nm">2</span>);  <span class="cm">// mul(10, 3) = 30</span>
+instance.exports.<span class="fn">calc</span>(<span class="nm">10</span>, <span class="nm">3</span>, <span class="nm">9</span>);  <span class="cm">// TRAP! index 9 out of bounds</span></code></pre>
+
+<p><code>call_indirect</code> does two checks at runtime: is the index within the table bounds? Does the function at that index match the declared type signature? If either check fails, the module traps. This is the safety net that replaces C&rsquo;s unchecked function pointer &mdash; you get dynamic dispatch without the ability to call a function with the wrong argument types.</p>
+
+<div class="power danger">
+<div class="power-label">call_indirect Order Gotcha</div>
+<p>The table index must be the <em>last</em> value on the stack &mdash; on top of the function arguments. In the flat form: <code>local.get $a</code>, <code>local.get $b</code>, <code>local.get $op</code>, <code>call_indirect</code>. In S-expression form: <code>(call_indirect (type $op) (local.get $a) (local.get $b) (local.get $op))</code>. Swap the order and the table index becomes a function argument. This is the most common <code>call_indirect</code> bug.</p>
 </div>
-<div class="tab-panel p2">
-<pre><code><span class="cm">;; Hand-optimized: use pointer arithmetic, no multiply</span>
-(<span class="kw">func</span> <span class="fn">$sum</span> (<span class="kw">param</span> <span class="ty">$ptr i32</span>) (<span class="kw">param</span> <span class="ty">$len i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
-  (<span class="kw">local</span> <span class="ty">$total i32</span>) (<span class="kw">local</span> <span class="ty">$end i32</span>)
-  <span class="cm">;; compute end pointer: ptr + len * 4</span>
-  <span class="kw">local.get</span> $ptr
-  <span class="kw">local.get</span> $len
-  <span class="kw">i32.const</span> <span class="nm">2</span>
-  <span class="kw">i32.shl</span>                     <span class="cm">;; len << 2 = len * 4</span>
-  <span class="kw">i32.add</span>
-  <span class="kw">local.set</span> $end              <span class="cm">;; end = ptr + len*4</span>
-  <span class="kw">block</span> $exit
-    <span class="kw">loop</span> $loop
-      <span class="kw">local.get</span> $ptr
-      <span class="kw">local.get</span> $end
-      <span class="kw">i32.ge_u</span>
-      <span class="kw">br_if</span> $exit              <span class="cm">;; if ptr >= end, break</span>
-      <span class="kw">local.get</span> $total
-      <span class="kw">local.get</span> $ptr
-      <span class="kw">i32.load</span>                  <span class="cm">;; load *ptr</span>
-      <span class="kw">i32.add</span>
-      <span class="kw">local.set</span> $total          <span class="cm">;; total += *ptr</span>
-      <span class="kw">local.get</span> $ptr
-      <span class="kw">i32.const</span> <span class="nm">4</span>
-      <span class="kw">i32.add</span>
-      <span class="kw">local.set</span> $ptr            <span class="cm">;; ptr += 4</span>
-      <span class="kw">br</span> $loop
-    <span class="kw">end</span>
-  <span class="kw">end</span>
-  <span class="kw">local.get</span> $total)
 
-<span class="cm">;; 18 instructions, 2 locals (+ 2 params)</span>
-<span class="cm">;; Eliminated: i*4 multiply per iteration</span>
-<span class="cm">;; Replaced: index multiply with pointer increment</span></code></pre>
-</div>
-</div>
+<p>Direct calls, indirect calls, and tables cover all the ways code can invoke code in Wasm. But the most common thing code needs to work with is not other code &mdash; it is data. And the most painful data type in Wasm is the one that does not exist: the string.</p>
 
-<p>The hand-optimized version does three things differently. First, it replaces the per-iteration <code>i32.mul</code> with a pointer increment &mdash; advancing by 4 bytes each loop instead of recomputing <code>i * 4</code>. Second, it uses <code>i32.shl</code> (shift left by 2) instead of <code>i32.mul</code> for the initial end-pointer calculation. Third, it eliminates the separate loop counter <code>$i</code> entirely, using the pointer itself as the loop variable. Three fewer instructions per iteration in a hot loop.</p>
+</section>
 
-<h3>The S-Expression Syntax</h3>
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 9: STRINGS IN THE MACHINE                               -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch9">
+<h2>09 &mdash; strings in the machine</h2>
 
-<p>WAT supports two equivalent syntaxes. The <strong>flat form</strong> (used in the examples above) lists instructions sequentially, matching how the stack machine actually executes. The <strong>S-expression form</strong> nests operations inside parentheses, making the data flow explicit:</p>
+<p class="drop-cap">Wasm has no string type. No <code>char</code>. No <code>String</code>. No <code>&amp;str</code>. A &ldquo;string&rdquo; in WebAssembly is a sequence of bytes sitting in linear memory, addressed by an <code>i32</code> pointer, with a length that you track yourself. Every operation you take for granted in a high-level language &mdash; concatenation, comparison, searching, slicing &mdash; must be built from <code>i32.load8_u</code>, <code>i32.store8</code>, and loop patterns. This chapter builds those primitives by hand.</p>
+
+<h3>Two Conventions</h3>
+
+<p>There are two ways to know where a string ends:</p>
 
 <div class="vs">
 <div class="vs-col">
-<h4>Flat Form</h4>
-<pre><code><span class="kw">local.get</span> $a
-<span class="kw">local.get</span> $b
-<span class="kw">i32.add</span>
-<span class="kw">local.get</span> $c
-<span class="kw">i32.mul</span></code></pre>
+<h4>Null-Terminated (C style)</h4>
+<pre><code><span class="st">H e l l o \0</span>
+<span class="nm">48 65 6C 6C 6F 00</span></code></pre>
+<p style="font-size:0.85rem;color:var(--text-dim);">Length = scan until you hit 0x00. Simple but O(n) to find the length, and the string cannot contain null bytes.</p>
 </div>
 <div class="vs-col">
-<h4>S-Expression Form</h4>
-<pre><code>(<span class="kw">i32.mul</span>
-  (<span class="kw">i32.add</span>
-    (<span class="kw">local.get</span> $a)
-    (<span class="kw">local.get</span> $b))
-  (<span class="kw">local.get</span> $c))</code></pre>
+<h4>Length-Prefixed (Wasm/Rust style)</h4>
+<pre><code><span class="ty">ptr=100, len=5</span>
+<span class="st">H  e  l  l  o</span>
+<span class="nm">48 65 6C 6C 6F</span></code></pre>
+<p style="font-size:0.85rem;color:var(--text-dim);">Length is known upfront. O(1) length check. Can contain any byte, including 0x00. This is what Rust, Go, and most Wasm tooling use.</p>
 </div>
 </div>
 
-<p>Both produce identical bytecode. The S-expression form reads like a function call tree; the flat form reads like assembly. Most hand-writers use the flat form because it maps directly to what the engine sees. Both are valid input to <code>wat2wasm</code>.</p>
+<p>For our handwritten Wasm, we will use <strong>pointer + length</strong>. Two <code>i32</code> values: where the bytes start, and how many there are.</p>
+
+<h3>strlen: Measuring a Null-Terminated String</h3>
+
+<pre><span class="label">WAT</span><code><span class="cm">;; strlen(ptr) &rarr; length (scans for \0)</span>
+(<span class="kw">func</span> <span class="fn">$strlen</span> (<span class="kw">param</span> <span class="ty">$ptr i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
+  (<span class="kw">local</span> <span class="ty">$start i32</span>)
+  <span class="kw">local.get</span> $ptr
+  <span class="kw">local.set</span> $start
+  (<span class="kw">block</span> <span class="fn">$done</span>
+    (<span class="kw">loop</span> <span class="fn">$next</span>
+      <span class="kw">local.get</span> $ptr
+      <span class="kw">i32.load8_u</span>             <span class="cm">;; load one byte</span>
+      <span class="kw">i32.eqz</span>
+      <span class="kw">br_if</span> <span class="fn">$done</span>             <span class="cm">;; if byte == 0, done</span>
+      <span class="kw">local.get</span> $ptr
+      <span class="kw">i32.const</span> <span class="nm">1</span>
+      <span class="kw">i32.add</span>
+      <span class="kw">local.set</span> $ptr           <span class="cm">;; ptr++</span>
+      <span class="kw">br</span> <span class="fn">$next</span>))
+  <span class="kw">local.get</span> $ptr
+  <span class="kw">local.get</span> $start
+  <span class="kw">i32.sub</span>)                    <span class="cm">;; return ptr - start</span></code></pre>
+
+<p>One byte at a time: <code>i32.load8_u</code> reads a single unsigned byte from memory. The loop increments the pointer until it finds <code>0x00</code>. The length is the difference between the final pointer and the start.</p>
+
+<h3>memcpy: Copying Bytes</h3>
+
+<pre><span class="label">WAT</span><code><span class="cm">;; memcpy(dst, src, len) &mdash; copy len bytes from src to dst</span>
+(<span class="kw">func</span> <span class="fn">$memcpy</span> (<span class="kw">param</span> <span class="ty">$dst i32</span>) (<span class="kw">param</span> <span class="ty">$src i32</span>) (<span class="kw">param</span> <span class="ty">$len i32</span>)
+  (<span class="kw">local</span> <span class="ty">$i i32</span>)
+  (<span class="kw">block</span> <span class="fn">$done</span>
+    (<span class="kw">loop</span> <span class="fn">$next</span>
+      <span class="kw">local.get</span> $i
+      <span class="kw">local.get</span> $len
+      <span class="kw">i32.ge_u</span>
+      <span class="kw">br_if</span> <span class="fn">$done</span>
+
+      <span class="cm">;; dst[i] = src[i]</span>
+      <span class="kw">local.get</span> $dst
+      <span class="kw">local.get</span> $i
+      <span class="kw">i32.add</span>                  <span class="cm">;; dst + i</span>
+      <span class="kw">local.get</span> $src
+      <span class="kw">local.get</span> $i
+      <span class="kw">i32.add</span>                  <span class="cm">;; src + i</span>
+      <span class="kw">i32.load8_u</span>              <span class="cm">;; load byte from src</span>
+      <span class="kw">i32.store8</span>               <span class="cm">;; store byte to dst</span>
+
+      <span class="kw">local.get</span> $i
+      <span class="kw">i32.const</span> <span class="nm">1</span>
+      <span class="kw">i32.add</span>
+      <span class="kw">local.set</span> $i
+      <span class="kw">br</span> <span class="fn">$next</span>)))</code></pre>
+
+<h3>strcmp: Comparing Strings</h3>
+
+<pre><span class="label">WAT</span><code><span class="cm">;; strcmp(a_ptr, a_len, b_ptr, b_len) &rarr; 1 if equal, 0 if not</span>
+(<span class="kw">func</span> <span class="fn">$strcmp</span> (<span class="kw">param</span> <span class="ty">$a i32</span>) (<span class="kw">param</span> <span class="ty">$a_len i32</span>)
+              (<span class="kw">param</span> <span class="ty">$b i32</span>) (<span class="kw">param</span> <span class="ty">$b_len i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
+  (<span class="kw">local</span> <span class="ty">$i i32</span>)
+  <span class="cm">;; different lengths &rarr; not equal</span>
+  <span class="kw">local.get</span> $a_len
+  <span class="kw">local.get</span> $b_len
+  <span class="kw">i32.ne</span>
+  (<span class="kw">if</span> (<span class="kw">then</span> (<span class="kw">return</span> (<span class="kw">i32.const</span> <span class="nm">0</span>))))
+  <span class="cm">;; compare byte by byte</span>
+  (<span class="kw">block</span> <span class="fn">$done</span>
+    (<span class="kw">loop</span> <span class="fn">$next</span>
+      <span class="kw">local.get</span> $i
+      <span class="kw">local.get</span> $a_len
+      <span class="kw">i32.ge_u</span>
+      <span class="kw">br_if</span> <span class="fn">$done</span>
+      <span class="cm">;; if a[i] != b[i], return 0</span>
+      (<span class="kw">i32.ne</span>
+        (<span class="kw">i32.load8_u</span> (<span class="kw">i32.add</span> (<span class="kw">local.get</span> $a) (<span class="kw">local.get</span> $i)))
+        (<span class="kw">i32.load8_u</span> (<span class="kw">i32.add</span> (<span class="kw">local.get</span> $b) (<span class="kw">local.get</span> $i))))
+      (<span class="kw">if</span> (<span class="kw">then</span> (<span class="kw">return</span> (<span class="kw">i32.const</span> <span class="nm">0</span>))))
+      <span class="kw">local.get</span> $i
+      <span class="kw">i32.const</span> <span class="nm">1</span>
+      <span class="kw">i32.add</span>
+      <span class="kw">local.set</span> $i
+      <span class="kw">br</span> <span class="fn">$next</span>))
+  <span class="kw">i32.const</span> <span class="nm">1</span>)              <span class="cm">;; all bytes matched</span></code></pre>
+
+<h3>The JS Bridge for Strings</h3>
+
+<p>To pass a string from JavaScript into these functions, you write the bytes into linear memory and pass the pointer and length:</p>
+
+<pre><span class="label">JavaScript</span><code><span class="kw">function</span> <span class="fn">writeString</span>(instance, str, offset) {
+  <span class="kw">const</span> mem = <span class="kw">new</span> <span class="ty">Uint8Array</span>(instance.exports.memory.buffer);
+  <span class="kw">const</span> encoded = <span class="kw">new</span> <span class="ty">TextEncoder</span>().<span class="fn">encode</span>(str);
+  mem.<span class="fn">set</span>(encoded, offset);
+  <span class="kw">return</span> { ptr: offset, len: encoded.length };
+}
+
+<span class="kw">function</span> <span class="fn">readString</span>(instance, ptr, len) {
+  <span class="kw">const</span> mem = <span class="kw">new</span> <span class="ty">Uint8Array</span>(instance.exports.memory.buffer, ptr, len);
+  <span class="kw">return</span> <span class="kw">new</span> <span class="ty">TextDecoder</span>().<span class="fn">decode</span>(mem);
+}</code></pre>
+
+<p>These two functions &mdash; <code>writeString</code> and <code>readString</code> &mdash; are the entire bridge between JavaScript&rsquo;s string world and Wasm&rsquo;s byte world. <code>TextEncoder</code> converts a JavaScript string to UTF-8 bytes. <code>TextDecoder</code> converts bytes back. Everything in between is pointer arithmetic and byte manipulation.</p>
+
+<div class="power">
+<div class="power-label">The String Tax</div>
+<p>Every string that crosses the JS/Wasm boundary is copied. JavaScript strings are UTF-16 internally; Wasm works with raw bytes (usually UTF-8). The <code>TextEncoder</code>/<code>TextDecoder</code> calls do the conversion and the copy. For short strings this is negligible. For megabytes of text, batch your crossings &mdash; pass a pointer to the entire buffer, not individual strings.</p>
+</div>
+
+<p>We have <code>strlen</code>, <code>memcpy</code>, <code>strcmp</code>, and a JS bridge for reading and writing strings. These are the primitives. The next chapter shows what compilers do with them &mdash; and how to read the output to spot what they get wrong.</p>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 10: READING COMPILER OUTPUT                             -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch10">
+<h2>10 &mdash; reading compiler output</h2>
+
+<p class="drop-cap">You know how to write Wasm. Now learn to <em>read</em> what your compiler writes. The single most useful tool in the WebAssembly ecosystem is <code>wasm2wat</code> &mdash; the disassembler that converts any <code>.wasm</code> binary back into the text format you have been writing by hand. Every optimization insight, every bloat diagnosis, every &ldquo;why is this function slow?&rdquo; investigation starts with <code>wasm2wat</code>.</p>
 
 <h3>The Disassembly Loop</h3>
 
-<p>The practical workflow for optimization is not writing WAT from scratch. It is a loop:</p>
+<pre><span class="label">Shell</span><code><span class="cm"># 1. Compile your code</span>
+<span class="fn">emcc</span> -O3 hot_loop.c -o hot_loop.wasm
 
-<div class="diagram">
-<span class="diagram-label">The optimization cycle</span>
-<pre><code>  <span class="ty">1. Compile</span>         emcc -O3 hot_loop.c -o hot_loop.wasm
-  <span class="ty">2. Disassemble</span>     wasm2wat hot_loop.wasm -o hot_loop.wat
-  <span class="ty">3. Inspect</span>         Read the WAT. Find redundant locals, missed patterns.
-  <span class="ty">4. Edit</span>            Modify the .wat file by hand.
-  <span class="ty">5. Reassemble</span>      wat2wasm hot_loop.wat -o hot_loop_opt.wasm
-  <span class="ty">6. Benchmark</span>       Compare hot_loop.wasm vs hot_loop_opt.wasm
-  <span class="ty">7. Repeat</span>          Until diminishing returns.
+<span class="cm"># 2. Disassemble to readable WAT</span>
+<span class="fn">wasm2wat</span> hot_loop.wasm -f -o hot_loop.wat   <span class="cm"># -f folds expressions</span>
 
-  Tools: <span class="fn">wabt</span> (WebAssembly Binary Toolkit) provides wat2wasm, wasm2wat
-         <span class="fn">wasm-opt</span> (Binaryen) for automated Wasm→Wasm optimization</code></pre>
-</div>
+<span class="cm"># 3. Read the WAT. Spot the bloat.</span>
 
-<p>The key insight is that you are not competing with the compiler on the whole program. You are competing on <em>one function</em> &mdash; the innermost loop that runs a million times per frame. The compiler wins everywhere else. But in that one hot path, a human who understands the stack machine can sometimes shave 10&ndash;20% off the instruction count by eliminating the overhead that LLVM&rsquo;s register-to-stack lowering introduces.</p>
+<span class="cm"># 4. Run Binaryen's optimizer</span>
+<span class="fn">wasm-opt</span> -O3 hot_loop.wasm -o hot_loop_opt.wasm
+
+<span class="cm"># 5. Compare</span>
+<span class="fn">wasm2wat</span> hot_loop_opt.wasm -f -o hot_loop_opt.wat
+<span class="fn">diff</span> hot_loop.wat hot_loop_opt.wat</code></pre>
+
+<h3>What to Look For</h3>
+
+<p>When you open a disassembled <code>.wat</code> file, three patterns signal compiler waste:</p>
+
+<p><strong>Unnecessary locals.</strong> LLVM converts every SSA register to a Wasm local. A function with 5 variables might declare 12 locals &mdash; the extras are temporaries that could have stayed on the stack. Look for <code>(local $tmpN i32)</code> declarations that appear only in a <code>local.set</code> immediately followed by a <code>local.get</code>. Those are round-trips through a local that the stack could have handled directly.</p>
+
+<p><strong>Redundant local.set/get pairs.</strong> The pattern <code>local.set $x</code> → <code>local.get $x</code> (with nothing in between) means the compiler stored a value and immediately loaded it back. A human would leave the value on the stack. <code>wasm-opt</code>&rsquo;s SimplifyLocals pass catches many of these, but not all.</p>
+
+<p><strong>Multiply where shift works.</strong> <code>i32.mul (i32.const 4)</code> can always be replaced with <code>i32.shl (i32.const 2)</code>. Compilers usually catch this, but when the multiply is embedded in a complex address calculation, they sometimes miss it.</p>
+
+<h3>wasm-opt: The Second Compiler</h3>
+
+<p>Binaryen&rsquo;s <code>wasm-opt</code> is a Wasm-to-Wasm optimizer. It runs <em>after</em> your compiler and applies passes that LLVM does not understand because they are Wasm-specific: dead local elimination, block merging, stack expression folding, and local coalescing. Running <code>wasm-opt -O3</code> on a compiler-produced binary typically shaves off 10&ndash;20%.</p>
+
+<table>
+<tr><th>Pass</th><th>What it does</th></tr>
+<tr><td><code>CoalesceLocals</code></td><td>Reuses locals with non-overlapping lifetimes. Fewer locals = smaller binary.</td></tr>
+<tr><td><code>SimplifyLocals</code></td><td>Replaces local.set+local.get pairs with local.tee or stack expressions.</td></tr>
+<tr><td><code>Vacuum</code></td><td>Removes dead code, unreachable blocks, unused locals.</td></tr>
+<tr><td><code>RemoveUnusedBrs</code></td><td>Eliminates branches that fall through to the same place.</td></tr>
+<tr><td><code>MergeBlocks</code></td><td>Collapses nested blocks that serve no structural purpose.</td></tr>
+</table>
 
 <div class="power wild">
-<div class="power-label">When to Hand-Write</div>
-<p>Hand-writing WAT makes sense in exactly two situations: SIMD inner loops where you need specific instruction sequences that the autovectorizer misses, and performance-critical paths where profiling shows the compiler introduced measurable overhead. In every other case, trust the compiler and spend your time on the algorithm. The maintainability cost of handwritten bytecode is real &mdash; code that nobody else can read is code that nobody else can fix.</p>
+<div class="power-label">The Optimization Budget</div>
+<p>Don&rsquo;t hand-optimize everything. The compiler is right 95% of the time. The remaining 5% is in your hot loop &mdash; the inner loop that runs a million times per frame. Use <code>wasm2wat</code> to read that specific function. If the compiler introduced unnecessary locals or missed a stack folding opportunity, fix that one function. Leave the rest alone. Maintainability costs more than the microseconds you would save.</p>
 </div>
 
-<p>Whether you write Wasm by hand or let a compiler do it, the binary eventually needs to reach JavaScript. The bridge between the two worlds &mdash; how functions are imported and exported, how strings cross the boundary, and what it costs to cross &mdash; is where the next chapter picks up.</p>
-
-</section>
-
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 8: THE JAVASCRIPT BRIDGE                                -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch8">
-<h2>08 &mdash; the javascript bridge</h2>
-
-<p class="drop-cap">WebAssembly does not run alone. In the browser, it runs inside a JavaScript host that loads the module, provides imports, and calls exports. The bridge between the two is clean but constrained: you can pass numbers back and forth instantly, but you cannot pass a string, an object, or a closure. Everything that is not a number must be serialized into linear memory, passed as a pointer, and deserialized on the other side.</p>
-
-<h3>Loading a Module</h3>
-
-<p>The modern way to load Wasm is <code>WebAssembly.instantiateStreaming</code>, which compiles the module while it downloads &mdash; the streaming compilation from Chapter 3 in action:</p>
-
-<pre><span class="label">JavaScript</span><code><span class="kw">const</span> { instance } = <span class="kw">await</span> <span class="fn">WebAssembly.instantiateStreaming</span>(
-  <span class="fn">fetch</span>(<span class="st">'module.wasm'</span>),
-  {
-    env: {
-      <span class="fn">log</span>: (x) => <span class="fn">console.log</span>(<span class="st">'Wasm says:'</span>, x),  <span class="cm">// import: JS function Wasm can call</span>
-    }
-  }
-);
-
-<span class="kw">const</span> result = instance.exports.<span class="fn">add</span>(<span class="nm">3</span>, <span class="nm">7</span>);  <span class="cm">// export: Wasm function JS can call</span>
-<span class="fn">console.log</span>(result);  <span class="cm">// 10</span></code></pre>
-
-<p>The second argument is the <strong>import object</strong> &mdash; a JavaScript object whose shape must match the module&rsquo;s import declarations exactly. If the module declares <code>(import "env" "log" (func (param i32)))</code>, the import object must have <code>env.log</code> as a function that accepts one argument. Mismatches cause a <code>LinkError</code> at instantiation.</p>
-
-<h3>Passing Strings</h3>
-
-<p>This is where the bridge gets uncomfortable. Wasm has no string type. A &ldquo;string&rdquo; in Wasm is a sequence of bytes in linear memory, addressed by a pointer (i32 offset) and a length. To pass a string from JavaScript to Wasm, you must:</p>
-
-<pre><span class="label">JavaScript</span><code><span class="cm">// 1. Get access to Wasm's linear memory</span>
-<span class="kw">const</span> memory = instance.exports.memory;
-<span class="kw">const</span> buffer = <span class="kw">new</span> <span class="ty">Uint8Array</span>(memory.buffer);
-
-<span class="cm">// 2. Encode the string as UTF-8</span>
-<span class="kw">const</span> encoder = <span class="kw">new</span> <span class="ty">TextEncoder</span>();
-<span class="kw">const</span> encoded = encoder.<span class="fn">encode</span>(<span class="st">"hello, wasm"</span>);
-
-<span class="cm">// 3. Allocate space in Wasm memory (call a Wasm-side allocator)</span>
-<span class="kw">const</span> ptr = instance.exports.<span class="fn">alloc</span>(encoded.length);
-
-<span class="cm">// 4. Copy bytes into linear memory</span>
-buffer.<span class="fn">set</span>(encoded, ptr);
-
-<span class="cm">// 5. Call the Wasm function with pointer + length</span>
-instance.exports.<span class="fn">process_string</span>(ptr, encoded.length);
-
-<span class="cm">// 6. Free the allocation when done</span>
-instance.exports.<span class="fn">dealloc</span>(ptr, encoded.length);</code></pre>
-
-<p>Coming back is the same process in reverse: the Wasm function writes bytes into linear memory, returns a pointer and length, and JavaScript reads those bytes with <code>TextDecoder</code>. It is manual, verbose, and exactly how C programs pass strings to each other across process boundaries. Tools like <code>wasm-bindgen</code> (Rust) and Emscripten&rsquo;s <code>ccall</code>/<code>cwrap</code> automate this, but underneath, the bytes are always being copied into and out of the flat array.</p>
-
-<h3>The Import/Export Table</h3>
-
-<div class="diagram">
-<span class="diagram-label">How JS and Wasm connect</span>
-<pre><code>  <span class="ty">JavaScript Host</span>                        <span class="ty">Wasm Module</span>
-  ┌────────────────────┐                ┌────────────────────┐
-  │                    │  <span class="st">imports</span>        │                    │
-  │  env.log(x)  ──────│───────────────▶│  (import "env"     │
-  │  env.memory  ──────│───────────────▶│    "log" (func))   │
-  │                    │                │                    │
-  │                    │  <span class="fn">exports</span>        │                    │
-  │  instance          │◀───────────────│  (export "add"     │
-  │   .exports.add ◀───│───────────────│    (func $add))    │
-  │   .exports.memory ◀│───────────────│  (export "memory"  │
-  │                    │                │    (memory 0))     │
-  └────────────────────┘                └────────────────────┘
-
-  Numbers cross instantly: i32, i64, f32, f64
-  Everything else: serialize into linear memory, pass a pointer</code></pre>
-</div>
-
-<h3>The Cost of Crossing</h3>
-
-<p>A JavaScript-to-Wasm function call is fast &mdash; typically under 10 nanoseconds in V8 and SpiderMonkey, comparable to a native function call through a vtable. For bulk computation, the boundary cost is negligible: call once, process a million items, return the result.</p>
-
-<p>The problem is <em>frequency</em>. If your architecture requires a JS&harr;Wasm call for every pixel, every particle, or every DOM update, the overhead adds up. A million calls at 10 ns each is 10 milliseconds &mdash; a meaningful chunk of a 16 ms frame budget. The rule of thumb: keep hot loops entirely in Wasm, batch data in linear memory, and cross the bridge as infrequently as possible.</p>
-
-<div class="power zen">
-<div class="power-label">The Bridge Tax</div>
-<p>The JS&harr;Wasm boundary costs almost nothing per call. But &ldquo;almost nothing&rdquo; times a million is something. Design your API surface to minimize crossings: pass a pointer to an array, not individual elements. Return a struct offset, not individual fields. Think of the bridge like a network call &mdash; batch your requests.</p>
-</div>
-
-<p>We know how to write Wasm, how to connect it to JavaScript, and how to pass data across the boundary. But what happens after <code>instantiateStreaming</code> returns? The browser has a <code>.wasm</code> binary and needs to turn it into machine code that runs on a real CPU. The next chapter opens the hood on V8, SpiderMonkey, and the compilation pipelines that make Wasm fast.</p>
-
-</section>
-
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 9: HOW BROWSERS ACTUALLY RUN IT                         -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch9">
-<h2>09 &mdash; how browsers actually run it</h2>
-
-<p class="drop-cap">A <code>.wasm</code> binary is not executable. No CPU on earth understands Wasm opcodes natively &mdash; they must be compiled to real machine code first. The question is <em>when</em> and <em>how well</em>. Too slow and the user stares at a blank screen. Too aggressive and the compiler spends more time optimizing than the program spends running. Every major browser has converged on the same answer: compile twice.</p>
-
-<h3>V8: Liftoff and TurboFan</h3>
-
-<p>Chrome&rsquo;s V8 engine uses a two-tier compilation strategy. The first tier, <strong>Liftoff</strong>, is a baseline compiler that generates native code in a single forward pass over the Wasm bytecode. It maintains a virtual stack that maps each Wasm stack position to a CPU register or spill slot, and emits machine instructions as it reads each opcode. No intermediate representation. No optimization passes. The goal is speed: Liftoff compiles Wasm roughly 10x faster than the optimizing tier, getting code running within milliseconds of the module arriving.</p>
-
-<p>The second tier, <strong>TurboFan</strong>, is V8&rsquo;s optimizing compiler. It builds a graph-based intermediate representation (a &ldquo;sea of nodes&rdquo;), runs sophisticated optimization passes &mdash; instruction selection, register allocation, dead code elimination, loop-invariant code motion &mdash; and produces code that runs 2&ndash;4x faster than Liftoff output. TurboFan compiles in background threads while Liftoff code is already running. When an optimized version of a function is ready, V8 swaps it in transparently.</p>
-
-<div class="diagram">
-<span class="diagram-label">V8 Wasm compilation pipeline</span>
-<pre><code>  <span class="ty">.wasm bytes arrive</span>
-        │
-        ▼
-  ┌──────────┐     ┌─────────────────────────────────────────┐
-  │ <span class="st">Validate</span>  │     │ <span class="cm">Streaming: starts before download ends</span>  │
-  └────┬─────┘     └─────────────────────────────────────────┘
-       │
-       ├──────────────────────────┐
-       │                          │
-       ▼                          ▼
-  ┌──────────┐              ┌──────────┐
-  │ <span class="st">Liftoff</span>   │              │ <span class="fn">TurboFan</span>  │
-  │ baseline  │              │ optimizing│
-  │ <span class="nm">~10x</span>      │              │ <span class="nm">2-4x</span>      │
-  │ faster    │              │ better    │
-  │ compile   │              │ code      │
-  └────┬─────┘              └────┬─────┘
-       │ <span class="st">runs immediately</span>        │ <span class="fn">runs in background</span>
-       ▼                          │
-  ┌──────────┐                    │
-  │ Execute  │ ◀──── <span class="fn">hot swap</span> ────┘
-  │ baseline │    when TurboFan
-  │ code     │    finishes a function
-  └──────────┘</code></pre>
-</div>
-
-<p>The result: the user sees the first frame faster (Liftoff), and the steady-state performance is near-native (TurboFan). The two tiers cover each other&rsquo;s weaknesses &mdash; Liftoff is fast to compile but produces mediocre code; TurboFan produces excellent code but takes longer to compile.</p>
-
-<h3>SpiderMonkey: Baseline and Cranelift</h3>
-
-<p>Firefox&rsquo;s SpiderMonkey engine uses a similar two-tier approach. The baseline compiler (sometimes called Rabaldr) is a fast single-pass compiler comparable to Liftoff. The optimizing tier was historically Ion, but SpiderMonkey has been transitioning to <strong>Cranelift</strong> &mdash; the same compiler backend used by the Wasmtime runtime outside the browser.</p>
-
-<p>Cranelift uses an SSA-based intermediate representation and a novel optimization technique called <strong>e-graphs</strong> (equality saturation). Instead of applying optimization rules one at a time and hoping for the best order, e-graphs represent all equivalent forms of an expression simultaneously and extract the optimal version at the end. This produces better code than traditional pass-based optimizers for certain patterns, particularly constant folding and algebraic simplification.</p>
-
-<h3>Wasmtime and Server-Side Compilation</h3>
-
-<p>Outside the browser, runtimes like Wasmtime, Wasmer, and WasmEdge compile Wasm for server-side execution. Wasmtime uses Cranelift exclusively. Because server workloads tolerate higher startup latency than browsers, Wasmtime can afford to run Cranelift&rsquo;s full optimization pipeline upfront &mdash; no need for a baseline tier. The trade-off is different: startup time measured in tens of milliseconds is acceptable when the module will run for hours.</p>
-
-<p>Wasmer offers a choice: the Singlepass compiler (like Liftoff &mdash; fast baseline, decent code) or the LLVM backend (the same LLVM used by Emscripten, producing the highest-quality code at the cost of the slowest compilation). For short-lived serverless functions, Singlepass wins. For long-running compute, LLVM wins.</p>
-
-<div class="power">
-<div class="power-label">20x Faster Than JavaScript</div>
-<p>Figma measured that their Wasm module decoded and compiled more than 20x faster than the equivalent JavaScript could be parsed. This is not a runtime benchmark &mdash; it is a <em>startup</em> benchmark. JavaScript must be lexed into tokens, parsed into an AST, and then compiled. Wasm skips all of that: the binary format is pre-structured, pre-typed, and can be validated and compiled in a single linear pass. The format <em>is</em> the parse tree.</p>
-</div>
-
-<h3>Lazy and Eager Compilation</h3>
-
-<p>Not every function in a module needs to be compiled immediately. V8 uses a combination of <strong>eager</strong> and <strong>lazy</strong> compilation strategies. Small modules are compiled eagerly &mdash; every function gets Liftoff-compiled before execution starts. Large modules use lazy compilation: functions are compiled on their first call, amortizing the startup cost. The validation pass still runs eagerly on the entire module (safety first), but code generation can be deferred.</p>
-
-<p>Firefox&rsquo;s streaming compilation takes a different approach: it compiles functions in parallel as their bytes arrive over the network, spreading the work across multiple CPU cores. On a 4-core machine, four functions can be compiled simultaneously. This is why Firefox can compile Wasm at 30&ndash;60 MB/sec &mdash; the throughput scales with core count.</p>
-
-<p>All of this machinery exists to solve one problem: turn a portable bytecode into native instructions as fast as possible without sacrificing the quality of the generated code. But there is one area where the compilation pipeline matters more than anywhere else &mdash; SIMD. When you pack four integers into a single 128-bit register and operate on all four simultaneously, the quality of the compiler&rsquo;s instruction selection determines whether you get a 2x speedup or an 8x speedup.</p>
-
-</section>
-
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 10: SIMD — THE SPEED MULTIPLIER                         -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch10">
-<h2>10 &mdash; simd: the speed multiplier</h2>
-
-<p class="drop-cap">Wasm&rsquo;s core instruction set processes one value at a time. <code>i32.add</code> adds two integers. <code>f64.mul</code> multiplies two doubles. For most code, this is fine. But for image processing, audio DSP, physics simulations, and machine learning inference &mdash; workloads where you apply the same operation to thousands of values &mdash; doing them one by one leaves 75% of the CPU&rsquo;s computational width on the table.</p>
-
-<p>SIMD (Single Instruction, Multiple Data) changes the equation. The Wasm SIMD proposal adds a <code>v128</code> type &mdash; a 128-bit register that holds four <code>i32</code>s, four <code>f32</code>s, two <code>i64</code>s, or two <code>f64</code>s simultaneously. One instruction operates on all lanes at once:</p>
-
-<div class="diagram">
-<span class="diagram-label">SIMD: one instruction, four operations</span>
-<pre><code>  <span class="ty">Scalar (4 instructions)</span>              <span class="st">SIMD (1 instruction)</span>
-
-  i32.add  a₀ + b₀ = c₀               ┌────┬────┬────┬────┐
-  i32.add  a₁ + b₁ = c₁               │ a₀ │ a₁ │ a₂ │ a₃ │  v128
-  i32.add  a₂ + b₂ = c₂               ├────┼────┼────┼────┤
-  i32.add  a₃ + b₃ = c₃               │ b₀ │ b₁ │ b₂ │ b₃ │  v128
-                                       ├────┼────┼────┼────┤
-  4 cycles                             │ c₀ │ c₁ │ c₂ │ c₃ │  v128
-                                       └────┴────┴────┴────┘
-                                       <span class="st">i32x4.add</span> &mdash; 1 cycle</code></pre>
-</div>
-
-<p>The Wasm SIMD spec adds over 200 instructions covering integer and floating-point arithmetic, comparisons, shuffles, conversions, and lane extraction/insertion. On the hardware side, these map to SSE/AVX on x86 and NEON on ARM &mdash; the same vector units that native code uses.</p>
-
-<h3>Real-World Speedups</h3>
-
-<table>
-<tr><th>Workload</th><th>Without SIMD</th><th>With SIMD</th><th>Speedup</th></tr>
-<tr><td>MediaPipe hand tracking</td><td>14 fps</td><td>40 fps</td><td><span style="color:var(--green)">2.9x</span></td></tr>
-<tr><td>ffmpeg.wasm HEVC IDCT</td><td>baseline</td><td>SIMD-optimized</td><td><span style="color:var(--green)">8.7x</span></td></tr>
-<tr><td>Halide image processing</td><td>scalar</td><td>SIMD vectorized</td><td><span style="color:var(--green)">3&ndash;6x</span></td></tr>
-<tr><td>ONNX Runtime Wasm (MobileNet)</td><td>CPU scalar</td><td>CPU SIMD (2 threads)</td><td><span style="color:var(--green)">3.4x</span></td></tr>
-<tr><td>Audio resampling</td><td>scalar loop</td><td>f32x4 vectorized</td><td><span style="color:var(--green)">3.5x</span></td></tr>
-</table>
-
-<h3>Writing SIMD Code</h3>
-
-<p>You can write SIMD in three ways. <strong>Autovectorization</strong>: write a normal C loop and let LLVM figure out the SIMD &mdash; works for simple patterns but misses complex ones. <strong>Intrinsics</strong>: use <code>wasm_simd128.h</code> to call SIMD operations directly from C &mdash; full control, portable across Wasm targets. <strong>Hand-written WAT</strong>: write the SIMD instructions directly in WAT for maximum control.</p>
-
-<pre><span class="label">C with SIMD intrinsics</span><code><span class="pp">#include</span> <span class="st">&lt;wasm_simd128.h&gt;</span>
-
-<span class="kw">void</span> <span class="fn">vec_add</span>(<span class="ty">float</span>* a, <span class="ty">float</span>* b, <span class="ty">float</span>* out, <span class="ty">int</span> n) {
-  <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i < n; i += <span class="nm">4</span>) {
-    <span class="ty">v128_t</span> va = <span class="fn">wasm_v128_load</span>(&amp;a[i]);
-    <span class="ty">v128_t</span> vb = <span class="fn">wasm_v128_load</span>(&amp;b[i]);
-    <span class="ty">v128_t</span> vc = <span class="fn">wasm_f32x4_add</span>(va, vb);
-    <span class="fn">wasm_v128_store</span>(&amp;out[i], vc);
-  }
-}</code></pre>
-
-<p>Each iteration processes four floats at once. The <code>wasm_v128_load</code> loads 128 bits (4 floats) from memory into a <code>v128</code> register. <code>wasm_f32x4_add</code> adds all four lanes in parallel. <code>wasm_v128_store</code> writes the result back. A loop that would have taken N iterations now takes N/4.</p>
-
-<h3>Relaxed SIMD</h3>
-
-<p>Standard Wasm SIMD guarantees deterministic results across all hardware. <code>f32x4.add</code> produces exactly the same bits on x86 and ARM. But this determinism comes at a cost: some operations that hardware can do cheaply (fused multiply-add, reciprocal approximation) have no deterministic equivalent, because different architectures produce slightly different results.</p>
-
-<p><strong>Relaxed SIMD</strong>, finalized in 2024, adds a set of instructions that trade determinism for speed. <code>f32x4.relaxed_madd</code> performs a fused multiply-add that may or may not fuse depending on the hardware. <code>i8x16.relaxed_swizzle</code> uses hardware-native shuffle behavior, which differs between x86 (out-of-range lanes zero) and ARM (out-of-range lanes wrap). The results are implementation-defined but always correct within a reasonable range.</p>
-
-<p>This matters for ML inference, where fused multiply-add is a critical operation and the minor non-determinism is acceptable. It also matters for codecs, where hardware-specific shuffle patterns can avoid extra mask instructions.</p>
-
-<div class="power hack">
-<div class="power-label">SIMD Lane Diagram</div>
-<p>A <code>v128</code> is not a &ldquo;bigger number.&rdquo; It is four numbers traveling together. When you see <code>i32x4.add</code>, read it as: &ldquo;four independent i32 additions happening in the same cycle, in the same register.&rdquo; The &ldquo;x4&rdquo; is not a loop count &mdash; it is the hardware width. SIMD does not make individual operations faster; it makes the bus wider.</p>
-</div>
-
-<p>SIMD multiplies the throughput of data-parallel code. But Wasm&rsquo;s ambitions extend far beyond the browser&rsquo;s compute pipeline. The next chapter follows Wasm outside the browser entirely &mdash; into operating system interfaces, language-agnostic composition, and the idea that a single module should run anywhere, with exactly the capabilities you grant it.</p>
-
-</section>
-
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 11: WASI & THE COMPONENT MODEL                         -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch11">
-<h2>11 &mdash; wasi &amp; the component model</h2>
-
-<p class="drop-cap">In the browser, a Wasm module talks to the outside world through JavaScript imports. But what if there is no browser? What if the module is running on a server, in a CLI tool, or inside an embedded device? It needs a system interface &mdash; a way to read files, open sockets, get the current time. That interface is <strong>WASI</strong>: the WebAssembly System Interface.</p>
-
-<p>WASI is not POSIX. It does not start with &ldquo;everything is permitted&rdquo; and try to restrict from there. It starts with <em>nothing</em>. A WASI module has zero capabilities by default &mdash; no filesystem access, no network, no environment variables, no clock. The host explicitly grants capabilities at instantiation: &ldquo;you may read files under <code>/data</code>, you may open TCP connections to port 443, you may query the monotonic clock.&rdquo; The module receives <em>handles</em> to these resources, not raw file descriptors. This is <strong>capability-based security</strong> &mdash; the same model that Capsicum and CloudABI pioneered, now baked into a bytecode format.</p>
-
-<h3>WASI Versions</h3>
-
-<table>
-<tr><th>Version</th><th>Date</th><th>Key Features</th></tr>
-<tr><td><span style="color:var(--green)">WASI 0.2</span></td><td>Jan 2024 (stable)</td><td>CLI world, HTTP world, sockets, filesystem, clocks, random. Built on the Component Model.</td></tr>
-<tr><td><span style="color:var(--cyan)">WASI 0.3</span></td><td>2025 (development)</td><td>Native <code>async</code>/<code>await</code>. Non-blocking I/O without callback spaghetti.</td></tr>
-</table>
-
-<p>WASI 0.2 defined a set of <strong>worlds</strong> &mdash; named collections of imports and exports that describe what a module can do. The <code>wasi:cli/command</code> world is a command-line program that reads stdin, writes stdout, and accesses the filesystem. The <code>wasi:http/proxy</code> world is an HTTP handler that receives requests and produces responses. A module targets a world, and the runtime provides exactly those capabilities.</p>
-
-<h3>The Component Model</h3>
-
-<p>WASI 0.2 is built on something deeper: the <strong>Component Model</strong>, which solves a problem Wasm was never designed for &mdash; composing modules written in different languages.</p>
-
-<p>A core Wasm module speaks only in numbers. Its imports and exports are functions with numeric signatures. If a Rust module wants to pass a string to a Go module, someone has to agree on the memory layout, the encoding, the ownership rules. The Component Model introduces <strong>WIT</strong> (Wasm Interface Types) &mdash; a high-level interface description language that defines types like strings, lists, records, variants, and enums:</p>
-
-<pre><span class="label">WIT</span><code><span class="kw">package</span> <span class="ty">myapp:processor</span>;
-
-<span class="kw">interface</span> <span class="fn">transform</span> {
-  <span class="kw">record</span> <span class="ty">image</span> {
-    width: <span class="ty">u32</span>,
-    height: <span class="ty">u32</span>,
-    pixels: <span class="ty">list&lt;u8&gt;</span>,
-  }
-
-  <span class="fn">resize</span>: <span class="kw">func</span>(img: <span class="ty">image</span>, new-width: <span class="ty">u32</span>, new-height: <span class="ty">u32</span>) -> <span class="ty">image</span>;
-}
-
-<span class="kw">world</span> <span class="fn">image-processor</span> {
-  <span class="kw">export</span> <span class="fn">transform</span>;
-}</code></pre>
-
-<p>The <strong>Canonical ABI</strong> defines exactly how these high-level types are lowered to Wasm&rsquo;s core types (i32, i64, linear memory) and how they are lifted back. A component is a Wasm module wrapped with WIT metadata that describes its interface in terms the runtime understands. Two components can be <em>composed</em> &mdash; the output of one wired to the input of another &mdash; regardless of what language each was written in. A Rust image resizer can be composed with a Python ML classifier, with the Component Model handling the type translation at the boundary.</p>
-
-<h3>WasmGC</h3>
-
-<p>Languages with garbage collectors (Java, Kotlin, Dart, Go) have traditionally compiled to Wasm by shipping their entire GC implementation inside the linear memory &mdash; a GC running inside a sandbox, unaware of the host&rsquo;s GC. This is wasteful. <strong>WasmGC</strong> adds struct and array heap types managed by the host&rsquo;s garbage collector, letting these languages use the browser&rsquo;s GC directly.</p>
-
-<p>The impact is concrete: Google ported the Google Sheets calculation engine from JavaScript to WasmGC and measured a <strong>2x performance improvement</strong> on large spreadsheets. Kotlin/Wasm and Dart/Wasm both target WasmGC, producing smaller binaries and faster execution than the linear-memory-GC approach.</p>
-
-<div class="power purple">
-<div class="power-label">Solomon Hykes, Docker Founder</div>
-<p>&ldquo;If WASM+WASI existed in 2008, we wouldn&rsquo;t have needed to create Docker. That&rsquo;s how important it is. Webassembly on the server is the future of computing.&rdquo; The statement is provocative, but the kernel of truth is real: WASI provides isolation (like containers), portability (like Docker images), and capability-based security (better than most container runtimes) &mdash; all at the instruction set level, not the OS level.</p>
-</div>
-
-<p>WASI gives Wasm a system interface. The Component Model gives it composability. WasmGC gives it efficient support for managed languages. Together, they are turning WebAssembly from a browser plugin into a universal compute substrate. The next chapter shows where that substrate is already running in production.</p>
-
-</section>
-
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 12: WASM IN THE WILD                                    -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch12">
-<h2>12 &mdash; wasm in the wild</h2>
-
-<p class="drop-cap">Theory is one thing. Production at scale is another. WebAssembly is running in some of the most demanding software on the planet &mdash; from collaborative design tools serving millions of users to edge networks handling billions of requests. Here is what the deployments look like, what the numbers are, and what the trade-offs turned out to be.</p>
-
-<h3>Production Case Studies</h3>
-
-<table>
-<tr><th>Product</th><th>Use Case</th><th>Result</th></tr>
-<tr><td><strong>Figma</strong></td><td>C++ rendering engine compiled to Wasm</td><td>3x load time improvement over asm.js. Real-time collaborative design for millions of users.</td></tr>
-<tr><td><strong>Google Earth</strong></td><td>30-year C++ geospatial engine</td><td>Moved from PNaCl (Chrome-only) to Wasm (all browsers). Same codebase, universal reach.</td></tr>
-<tr><td><strong>AutoCAD</strong></td><td>CAD engine compiled via Emscripten</td><td>30+ years of C++ running in a browser tab. Demonstrated at Google I/O 2018.</td></tr>
-<tr><td><strong>Cloudflare Workers</strong></td><td>Edge compute (V8 isolates + Wasm)</td><td>Millions of req/sec across 300+ cities. Microsecond cold starts.</td></tr>
-<tr><td><strong>Fastly Compute</strong></td><td>Edge logic in Wasm (Wasmtime)</td><td>Dedicated Wasm runtime for edge functions. Sub-millisecond startup.</td></tr>
-<tr><td><strong>ffmpeg.wasm</strong></td><td>Video transcoding in the browser</td><td>~40 fps encode in browser vs ~500 fps native. Usable for short clips, not feature films.</td></tr>
-<tr><td><strong>Photoshop Web</strong></td><td>Core image processing in Wasm</td><td>Adobe ported performance-critical C++ to Wasm for the browser version.</td></tr>
-<tr><td><strong>1Password</strong></td><td>Cryptographic core in Wasm</td><td>Rust crypto compiled to Wasm for the browser extension. Same code as native apps.</td></tr>
-</table>
-
-<h3>The Security Model</h3>
-
-<p>Wasm&rsquo;s security story has multiple layers, and understanding how they stack is important:</p>
-
-<div class="diagram">
-<span class="diagram-label">Wasm defense in depth</span>
-<pre><code>  ┌─────────────────────────────────────────────────────┐
-  │ <span class="st">Memory Isolation</span>                                     │
-  │ Linear memory is a bounded array. No access outside. │
-  │ Buffer overflows stay in the sandbox.                │
-  ├─────────────────────────────────────────────────────┤
-  │ <span class="ty">Control Flow Integrity</span>                               │
-  │ Structured control flow. No goto. No ROP gadgets.   │
-  │ call_indirect type-checked at runtime.              │
-  ├─────────────────────────────────────────────────────┤
-  │ <span class="fn">Type Safety</span>                                         │
-  │ Every instruction type-checked before execution.    │
-  │ Stack types proven correct in a single pass.        │
-  ├─────────────────────────────────────────────────────┤
-  │ <span class="pp">Capability Security</span> (WASI)                          │
-  │ No ambient authority. Explicit capability grants.   │
-  │ Default: zero access to host resources.             │
-  └─────────────────────────────────────────────────────┘</code></pre>
-</div>
-
-<h3>Wasm vs. Containers vs. Native</h3>
-
-<table>
-<tr><th>Property</th><th>Wasm Sandbox</th><th>Docker Container</th><th>Native Process</th></tr>
-<tr><td>Isolation model</td><td>Linear memory + types</td><td>Namespaces + cgroups</td><td>Virtual memory</td></tr>
-<tr><td>Cold start</td><td>~microseconds</td><td>~50 ms</td><td>~1 ms (fork)</td></tr>
-<tr><td>Memory overhead</td><td>~64 KB per instance</td><td>~10 MB per container</td><td>~4 MB (minimal)</td></tr>
-<tr><td>Filesystem default</td><td>None (WASI grants)</td><td>Full (restrict with seccomp)</td><td>Full</td></tr>
-<tr><td>Network default</td><td>None (WASI grants)</td><td>Full (restrict with firewall)</td><td>Full</td></tr>
-<tr><td>Cross-platform</td><td>Same binary everywhere</td><td>Same image, different kernel</td><td>Recompile per arch</td></tr>
-<tr><td>Maturity</td><td>Rapidly maturing</td><td>Battle-tested (10+ years)</td><td>50+ years</td></tr>
-</table>
-
-<p>Wasm is not a container replacement today. Containers offer a richer operational ecosystem &mdash; orchestration, networking, observability, the entire Kubernetes universe. But for workloads that need isolation without operational weight &mdash; plugin systems, edge functions, multi-tenant computation &mdash; Wasm&rsquo;s microsecond startup and kilobyte overhead are a different league.</p>
-
-<div class="power">
-<div class="power-label">The Fourth Language</div>
-<p>HTML structures content. CSS styles it. JavaScript makes it interactive. WebAssembly makes it <em>fast</em>. Since December 2019, Wasm has been a W3C Recommendation &mdash; an official web standard on equal footing with the other three. It runs in 97% of browsers, on every major operating system, and increasingly on edge networks and embedded devices. The fourth language of the web is also becoming the first language of the post-container cloud.</p>
-</div>
-
-<p>Twelve chapters in, we have the complete picture of what WebAssembly is, how it works, and where it runs. But the most interesting story is happening right now, at the intersection of Wasm and artificial intelligence. The next four chapters open Pandora&rsquo;s box: running LLMs in browser tabs, sandboxing AI-generated code, deploying inference at the edge, and the emerging thesis that Wasm is becoming the universal AI runtime.</p>
+<p>Five chapters of craft: writing modules, control flow patterns, function tables, string handling, and reading compiler output. You now know enough to write Wasm, read Wasm, and debug Wasm. Time to put it all together and build something real.</p>
 
 </section>
 
 <div class="act-break">
 <div class="act-number">Part III</div>
-<div class="act-title">Pandora&rsquo;s Box: Wasm Meets AI</div>
-<div class="act-subtitle">From inference in browser tabs to the universal AI runtime</div>
+<div class="act-title">Build: A Template Engine</div>
+<div class="act-subtitle">Strings, memory, and the JS bridge &mdash; learned by building something you can ship</div>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 13: INFERENCE IN THE TAB                                -->
+<!-- CHAPTER 11: THE SCANNER                                         -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch11">
+<h2>11 &mdash; the scanner</h2>
+
+<p class="drop-cap">We are going to build a template engine in pure handwritten WAT. It takes a template like <code>"Hello, {{name}}! You have {{count}} messages."</code> and a set of key-value substitutions, and produces the rendered output. No Rust. No Emscripten. Just WAT, a text editor, and <code>wat2wasm</code>. The engine will run in the browser via the JavaScript bridge we built in Chapter 9.</p>
+
+<h3>The Plan</h3>
+
+<p>The template engine has three phases:</p>
+
+<div class="diagram">
+<span class="diagram-label">Template engine architecture</span>
+<pre><code>  <span class="ty">Input</span>: <span class="st">"Hello, {{name}}!"</span>  +  { name: <span class="st">"World"</span> }
+         │
+         ▼
+  <span class="fn">1. Scan</span> — walk the template byte by byte
+         find <span class="nm">{{</span> and <span class="nm">}}</span> delimiters
+         emit literal chunks and variable keys
+         │
+         ▼
+  <span class="fn">2. Substitute</span> — for each variable key,
+         look up the value in the data
+         copy the value bytes to the output buffer
+         │
+         ▼
+  <span class="fn">3. Output</span> — return pointer + length
+         to the rendered string in linear memory
+
+  <span class="ty">Output</span>: <span class="st">"Hello, World!"</span></code></pre>
+</div>
+
+<h3>Memory Layout</h3>
+
+<p>We need to lay out our linear memory carefully. The template, the variable data, and the output buffer all live in the same flat array:</p>
+
+<div class="diagram">
+<span class="diagram-label">Linear memory map</span>
+<pre><code>  Offset     Region            Size       Purpose
+  ───────    ───────           ────       ───────
+  0x0000     template input    4 KB       the template string
+  0x1000     variable keys     2 KB       packed key strings (ptr+len pairs)
+  0x1800     variable values   2 KB       packed value strings
+  0x2000     output buffer     8 KB       the rendered result
+  0x4000     bump pointer      &rarr;         allocation frontier
+
+  All offsets are fixed. Simple and predictable.</code></pre>
+</div>
+
+<h3>The Scanner Function</h3>
+
+<p>The scanner walks the template byte by byte. When it sees <code>{{</code> (two consecutive <code>0x7B</code> bytes), it switches from &ldquo;copy literal&rdquo; mode to &ldquo;read key&rdquo; mode. When it sees <code>}}</code> (two <code>0x7D</code> bytes), it looks up the key and copies the corresponding value to the output:</p>
+
+<pre><span class="label">WAT</span><code>(<span class="kw">module</span>
+  (<span class="kw">memory</span> (<span class="kw">export</span> <span class="st">"memory"</span>) <span class="nm">1</span>)  <span class="cm">;; 64 KB</span>
+
+  <span class="cm">;; Globals for output buffer tracking</span>
+  (<span class="kw">global</span> <span class="fn">$out_ptr</span> (<span class="kw">mut</span> <span class="ty">i32</span>) (<span class="kw">i32.const</span> <span class="nm">0x2000</span>))  <span class="cm">;; output write head</span>
+
+  <span class="cm">;; emit_byte: write one byte to the output buffer</span>
+  (<span class="kw">func</span> <span class="fn">$emit_byte</span> (<span class="kw">param</span> <span class="ty">$b i32</span>)
+    <span class="kw">global.get</span> $out_ptr
+    <span class="kw">local.get</span> $b
+    <span class="kw">i32.store8</span>
+    <span class="kw">global.get</span> $out_ptr
+    <span class="kw">i32.const</span> <span class="nm">1</span>
+    <span class="kw">i32.add</span>
+    <span class="kw">global.set</span> $out_ptr)
+
+  <span class="cm">;; emit_bytes: copy len bytes from src to output</span>
+  (<span class="kw">func</span> <span class="fn">$emit_bytes</span> (<span class="kw">param</span> <span class="ty">$src i32</span>) (<span class="kw">param</span> <span class="ty">$len i32</span>)
+    (<span class="kw">local</span> <span class="ty">$i i32</span>)
+    (<span class="kw">block</span> <span class="fn">$done</span>
+      (<span class="kw">loop</span> <span class="fn">$next</span>
+        <span class="kw">local.get</span> $i
+        <span class="kw">local.get</span> $len
+        <span class="kw">i32.ge_u</span>
+        <span class="kw">br_if</span> <span class="fn">$done</span>
+        (<span class="kw">call</span> <span class="fn">$emit_byte</span>
+          (<span class="kw">i32.load8_u</span> (<span class="kw">i32.add</span> (<span class="kw">local.get</span> $src) (<span class="kw">local.get</span> $i))))
+        <span class="kw">local.get</span> $i
+        <span class="kw">i32.const</span> <span class="nm">1</span>
+        <span class="kw">i32.add</span>
+        <span class="kw">local.set</span> $i
+        <span class="kw">br</span> <span class="fn">$next</span>)))
+
+  <span class="cm">;; render: scan template, substitute variables, return (ptr, len)</span>
+  (<span class="kw">func</span> (<span class="kw">export</span> <span class="st">"render"</span>) (<span class="kw">param</span> <span class="ty">$tpl_ptr i32</span>) (<span class="kw">param</span> <span class="ty">$tpl_len i32</span>)
+                           (<span class="kw">result</span> <span class="ty">i32 i32</span>)  <span class="cm">;; returns (ptr, len)</span>
+    (<span class="kw">local</span> <span class="ty">$i i32</span>) (<span class="kw">local</span> <span class="ty">$ch i32</span>) (<span class="kw">local</span> <span class="ty">$next_ch i32</span>)
+    (<span class="kw">local</span> <span class="ty">$key_start i32</span>)
+    <span class="cm">;; reset output pointer</span>
+    <span class="kw">i32.const</span> <span class="nm">0x2000</span>
+    <span class="kw">global.set</span> $out_ptr
+
+    (<span class="kw">block</span> <span class="fn">$end</span>
+      (<span class="kw">loop</span> <span class="fn">$scan</span>
+        <span class="cm">;; bounds check</span>
+        <span class="kw">local.get</span> $i
+        <span class="kw">local.get</span> $tpl_len
+        <span class="kw">i32.ge_u</span>
+        <span class="kw">br_if</span> <span class="fn">$end</span>
+
+        <span class="cm">;; read current byte</span>
+        <span class="kw">local.get</span> $tpl_ptr
+        <span class="kw">local.get</span> $i
+        <span class="kw">i32.add</span>
+        <span class="kw">i32.load8_u</span>
+        <span class="kw">local.set</span> $ch
+
+        <span class="cm">;; check for {{ (0x7B 0x7B)</span>
+        <span class="kw">local.get</span> $ch
+        <span class="kw">i32.const</span> <span class="nm">0x7B</span>  <span class="cm">;; '{'</span>
+        <span class="kw">i32.eq</span>
+        (<span class="kw">if</span> (<span class="kw">then</span>
+          <span class="cm">;; peek next byte</span>
+          <span class="kw">local.get</span> $tpl_ptr
+          <span class="kw">local.get</span> $i
+          <span class="kw">i32.add</span>
+          <span class="kw">i32.const</span> <span class="nm">1</span>
+          <span class="kw">i32.add</span>
+          <span class="kw">i32.load8_u</span>
+          <span class="kw">local.set</span> $next_ch
+          <span class="kw">local.get</span> $next_ch
+          <span class="kw">i32.const</span> <span class="nm">0x7B</span>
+          <span class="kw">i32.eq</span>
+          (<span class="kw">if</span> (<span class="kw">then</span>
+            <span class="cm">;; found {{ — skip past it, record key start</span>
+            <span class="kw">local.get</span> $i
+            <span class="kw">i32.const</span> <span class="nm">2</span>
+            <span class="kw">i32.add</span>
+            <span class="kw">local.set</span> $i
+            <span class="kw">local.get</span> $tpl_ptr
+            <span class="kw">local.get</span> $i
+            <span class="kw">i32.add</span>
+            <span class="kw">local.set</span> $key_start
+
+            <span class="cm">;; scan for }} (0x7D 0x7D)</span>
+            (<span class="kw">block</span> <span class="fn">$found_close</span>
+              (<span class="kw">loop</span> <span class="fn">$scan_key</span>
+                <span class="kw">local.get</span> $tpl_ptr
+                <span class="kw">local.get</span> $i
+                <span class="kw">i32.add</span>
+                <span class="kw">i32.load8_u</span>
+                <span class="kw">i32.const</span> <span class="nm">0x7D</span>  <span class="cm">;; '}'</span>
+                <span class="kw">i32.eq</span>
+                (<span class="kw">if</span> (<span class="kw">then</span>
+                  <span class="kw">local.get</span> $tpl_ptr
+                  <span class="kw">local.get</span> $i
+                  <span class="kw">i32.add</span>
+                  <span class="kw">i32.const</span> <span class="nm">1</span>
+                  <span class="kw">i32.add</span>
+                  <span class="kw">i32.load8_u</span>
+                  <span class="kw">i32.const</span> <span class="nm">0x7D</span>
+                  <span class="kw">i32.eq</span>
+                  <span class="kw">br_if</span> <span class="fn">$found_close</span>))
+                <span class="kw">local.get</span> $i
+                <span class="kw">i32.const</span> <span class="nm">1</span>
+                <span class="kw">i32.add</span>
+                <span class="kw">local.set</span> $i
+                <span class="kw">br</span> <span class="fn">$scan_key</span>))
+
+            <span class="cm">;; key is from $key_start to tpl_ptr+$i</span>
+            <span class="cm">;; call imported lookup function</span>
+            <span class="kw">local.get</span> $key_start
+            <span class="kw">local.get</span> $tpl_ptr
+            <span class="kw">local.get</span> $i
+            <span class="kw">i32.add</span>
+            <span class="kw">local.get</span> $key_start
+            <span class="kw">i32.sub</span>                <span class="cm">;; key length</span>
+            <span class="kw">call</span> <span class="fn">$lookup</span>           <span class="cm">;; → (value_ptr, value_len)</span>
+            <span class="kw">call</span> <span class="fn">$emit_bytes</span>
+
+            <span class="cm">;; skip past }}</span>
+            <span class="kw">local.get</span> $i
+            <span class="kw">i32.const</span> <span class="nm">2</span>
+            <span class="kw">i32.add</span>
+            <span class="kw">local.set</span> $i
+            <span class="kw">br</span> <span class="fn">$scan</span>
+          ))
+        ))
+
+        <span class="cm">;; regular byte — emit it</span>
+        (<span class="kw">call</span> <span class="fn">$emit_byte</span> (<span class="kw">local.get</span> $ch))
+        <span class="kw">local.get</span> $i
+        <span class="kw">i32.const</span> <span class="nm">1</span>
+        <span class="kw">i32.add</span>
+        <span class="kw">local.set</span> $i
+        <span class="kw">br</span> <span class="fn">$scan</span>))
+
+    <span class="cm">;; return (output_ptr, output_len)</span>
+    <span class="kw">i32.const</span> <span class="nm">0x2000</span>
+    <span class="kw">global.get</span> $out_ptr
+    <span class="kw">i32.const</span> <span class="nm">0x2000</span>
+    <span class="kw">i32.sub</span>)
+
+  <span class="cm">;; lookup: imported from JS — finds a variable value by key</span>
+  (<span class="kw">import</span> <span class="st">"env"</span> <span class="st">"lookup"</span>
+    (<span class="kw">func</span> <span class="fn">$lookup</span> (<span class="kw">param</span> <span class="ty">i32 i32</span>) (<span class="kw">result</span> <span class="ty">i32 i32</span>)))
+)</code></pre>
+
+<p>The scanner is the heart of the engine. It reads one byte at a time. Literal bytes go straight to the output via <code>$emit_byte</code>. When it finds <code>{{</code>, it scans ahead for <code>}}</code>, extracts the key, calls the imported <code>$lookup</code> function (provided by JavaScript), and emits the returned value bytes. The entire thing is a state machine built from <code>block</code>, <code>loop</code>, and <code>br_if</code> &mdash; the same patterns from Chapter 7.</p>
+
+<p>Notice the <code>$lookup</code> import. The Wasm module does not store the variable data &mdash; it asks JavaScript to find the value for a given key. This keeps the memory layout simple and lets JavaScript handle the hash map. The module does what it is good at: scanning bytes fast.</p>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 12: THE ALLOCATOR                                       -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch12">
+<h2>12 &mdash; wiring it up</h2>
+
+<p class="drop-cap">The scanner is pure Wasm. The variable lookup is pure JavaScript. Now we connect them. The JavaScript side has three jobs: write the template into Wasm memory, provide the <code>lookup</code> import function, and read the rendered output back. Here is the complete host code:</p>
+
+<pre><span class="label">JavaScript</span><code><span class="kw">const</span> encoder = <span class="kw">new</span> <span class="ty">TextEncoder</span>();
+<span class="kw">const</span> decoder = <span class="kw">new</span> <span class="ty">TextDecoder</span>();
+
+<span class="cm">// The template and variables</span>
+<span class="kw">const</span> template = <span class="st">"Hello, {{name}}! You have {{count}} new messages."</span>;
+<span class="kw">const</span> vars = { name: <span class="st">"Alice"</span>, count: <span class="st">"3"</span> };
+
+<span class="cm">// Import object: provide the lookup function</span>
+<span class="kw">const</span> importObj = {
+  env: {
+    <span class="fn">lookup</span>(key_ptr, key_len) {
+      <span class="cm">// Read the key from Wasm memory</span>
+      <span class="kw">const</span> mem = <span class="kw">new</span> <span class="ty">Uint8Array</span>(instance.exports.memory.buffer);
+      <span class="kw">const</span> key = decoder.<span class="fn">decode</span>(mem.<span class="fn">subarray</span>(key_ptr, key_ptr + key_len));
+
+      <span class="cm">// Look up the value</span>
+      <span class="kw">const</span> value = vars[key] || <span class="st">""</span>;
+      <span class="kw">const</span> encoded = encoder.<span class="fn">encode</span>(value);
+
+      <span class="cm">// Write the value into Wasm memory at a scratch area</span>
+      <span class="kw">const</span> val_ptr = <span class="nm">0x1800</span>;  <span class="cm">// variable values region</span>
+      mem.<span class="fn">set</span>(encoded, val_ptr);
+
+      <span class="cm">// Return (ptr, len) — multi-value return!</span>
+      <span class="kw">return</span> [val_ptr, encoded.length];
+    }
+  }
+};
+
+<span class="cm">// Load and run</span>
+<span class="kw">const</span> { instance } = <span class="kw">await</span> <span class="fn">WebAssembly.instantiateStreaming</span>(
+  <span class="fn">fetch</span>(<span class="st">'template.wasm'</span>), importObj
+);
+
+<span class="cm">// Write template into Wasm memory</span>
+<span class="kw">const</span> tpl_bytes = encoder.<span class="fn">encode</span>(template);
+<span class="kw">const</span> mem = <span class="kw">new</span> <span class="ty">Uint8Array</span>(instance.exports.memory.buffer);
+mem.<span class="fn">set</span>(tpl_bytes, <span class="nm">0</span>);  <span class="cm">// template region starts at 0</span>
+
+<span class="cm">// Call render</span>
+<span class="kw">const</span> [out_ptr, out_len] = instance.exports.<span class="fn">render</span>(<span class="nm">0</span>, tpl_bytes.length);
+
+<span class="cm">// Read the result</span>
+<span class="kw">const</span> result = decoder.<span class="fn">decode</span>(mem.<span class="fn">subarray</span>(out_ptr, out_ptr + out_len));
+<span class="fn">console.log</span>(result);
+<span class="cm">// → "Hello, Alice! You have 3 new messages."</span></code></pre>
+
+<p>That is the entire application. The Wasm module scans bytes. The JavaScript host resolves variables. The rendered string comes back as bytes in shared linear memory. Every concept from the last eleven chapters is in play: stack operations, control flow with <code>block</code>/<code>loop</code>/<code>br_if</code>, memory loads and stores, function imports/exports, and the <code>TextEncoder</code>/<code>TextDecoder</code> string bridge.</p>
+
+<h3>What We Built</h3>
+
+<table>
+<tr><th>Component</th><th>Where</th><th>Chapter</th></tr>
+<tr><td>Stack machine execution model</td><td>every instruction</td><td>Ch 02</td></tr>
+<tr><td>Linear memory for strings</td><td>template + output buffers</td><td>Ch 04, 09</td></tr>
+<tr><td>Block/loop/br_if scanner</td><td>the <code>render</code> function</td><td>Ch 07</td></tr>
+<tr><td>Imported function (<code>$lookup</code>)</td><td>JS provides variable resolution</td><td>Ch 08</td></tr>
+<tr><td>Byte-by-byte string handling</td><td><code>emit_byte</code>, <code>emit_bytes</code></td><td>Ch 09</td></tr>
+<tr><td>TextEncoder/TextDecoder bridge</td><td>JS reads/writes Wasm memory</td><td>Ch 09</td></tr>
+</table>
+
+<div class="power">
+<div class="power-label">Why This Matters</div>
+<p>This template engine is small &mdash; maybe 200 bytes of Wasm after assembly. But the <em>patterns</em> are the same ones Figma uses for its rendering engine, the same ones ffmpeg.wasm uses for video processing, the same ones Cloudflare uses for edge compute. The scale changes. The architecture does not: Wasm scans and transforms bytes in linear memory. JavaScript handles I/O and high-level data structures. The bridge is <code>TextEncoder</code>, a pointer, and a length.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 13: SHIP IT                                             -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <section id="ch13">
-<h2>13 &mdash; inference in the tab</h2>
+<h2>13 &mdash; ship it</h2>
 
-<p class="drop-cap">The model used to live on a server. You sent it a prompt over HTTPS and waited for tokens to trickle back. Now it can live in a browser tab &mdash; sandboxed, offline-capable, and entirely yours. The architecture that makes this possible is a collaboration between two runtimes you already know: Wasm handles the control flow, memory management, and tokenization. WebGPU handles the matrix multiplications. The browser is the operating system. Your GPU is the accelerator.</p>
+<p class="drop-cap">The template engine works. It runs in a browser tab. But WebAssembly does not stop at the browser. The same <code>.wasm</code> binary can run on a server, in a CLI tool, or at the edge &mdash; without changing a single byte. This chapter takes the module we built and deploys it three ways.</p>
 
-<h3>The Stack You Didn&rsquo;t Expect</h3>
+<h3>Way 1: The Browser</h3>
 
-<p>Browser-side LLM inference does not run on Wasm alone. Wasm SIMD on the CPU tops out at single-digit tokens per second for any model above a billion parameters &mdash; the memory bandwidth wall is the same one that limits CPU inference in native code. The breakthrough is <strong>WebGPU</strong>: the browser&rsquo;s modern GPU compute API, which lets Wasm modules dispatch matrix multiplication kernels to the GPU.</p>
+<p>You already did this. <code>instantiateStreaming</code>, an import object, and the result comes back as bytes in shared memory. The module is 200 bytes. It loads instantly. It runs in any browser that supports WebAssembly &mdash; which is 97% of browsers worldwide.</p>
 
-<div class="diagram">
-<span class="diagram-label">Split execution: Wasm + WebGPU</span>
-<pre><code>  ┌─────────────────────────────┐     ┌─────────────────────────────┐
-  │ <span class="st">Wasm Module</span>                   │     │ <span class="fn">WebGPU Pipeline</span>               │
-  │                               │     │                               │
-  │  Tokenizer        (CPU)      │     │  Attention kernels   (GPU)   │
-  │  KV cache mgmt    (CPU)      │ ──▶ │  MatMul kernels      (GPU)   │
-  │  Sampling logic    (CPU)      │ ◀── │  Softmax / RMSNorm   (GPU)   │
-  │  Memory alloc      (CPU)      │     │  WGSL shaders        (GPU)   │
-  │                               │     │                               │
-  └─────────────────────────────┘     └─────────────────────────────┘
-         <span class="ty">Orchestration</span>                       <span class="ty">Compute</span>
+<h3>Way 2: WASI on the Command Line</h3>
 
-  Data flows through ArrayBuffers between the two runtimes.</code></pre>
-</div>
+<p>The same module can run outside the browser using a WASI runtime like Wasmtime or Wasmer. WASI provides capability-based access to the filesystem, standard I/O, and the clock &mdash; but only what you explicitly grant. The module starts with zero permissions.</p>
 
-<h3>llama.cpp in a Tab</h3>
+<pre><span class="label">Shell</span><code><span class="cm"># Run the template engine via Wasmtime</span>
+<span class="fn">wasmtime</span> template.wasm --invoke render
 
-<p><strong>wllama</strong> compiles llama.cpp to Wasm via Emscripten, running inference entirely on the CPU with SIMD. It supports models up to ~4B parameters at Q4 quantization (fitting within the browser&rsquo;s memory limits). On CPU-only Wasm with SIMD, expect 2&ndash;5 tokens per second for a 1&ndash;3B model on modern hardware. Usable for local chat, but not fast enough for real-time generation.</p>
+<span class="cm"># Or via Wasmer</span>
+<span class="fn">wasmer</span> run template.wasm --invoke render</code></pre>
 
-<p><strong>whisper.cpp</strong> takes the same approach for speech-to-text. The tiny.en model (75 MB) runs in the browser, transcribing audio at 2&ndash;3x real-time speed on modern hardware with SIMD enabled &mdash; faster than you can speak. Firefox ships wllama in production for AI-powered link previews, using a 360 MB SmolLM2 model entirely on-device. No server, no API key, no data leaving the tab.</p>
+<p>For a CLI version, you would add WASI imports for reading stdin and writing stdout, replacing the JavaScript bridge with WASI&rsquo;s file descriptor API. The scanner logic stays identical. The byte-level code does not change &mdash; only the I/O boundary.</p>
 
-<h3>WebGPU: The GPU Escape Hatch</h3>
+<h3>Way 3: Edge Compute</h3>
 
-<p><strong>web-llm</strong> (MLC LLM) takes the faster path. Apache TVM compiles model-specific GPU kernels as WGSL (WebGPU Shading Language) shaders. The Wasm module orchestrates the inference pipeline &mdash; tokenization, KV cache management, sampling &mdash; while dispatching the heavy compute (attention, matmuls) to the GPU via WebGPU.</p>
+<p>Cloudflare Workers, Fastly Compute, and Fermyon Spin all run Wasm at the edge. Your template engine becomes an HTTP handler: receive a request with a template and variables as JSON, render the output in Wasm, return the result. Cold start: sub-millisecond. Memory overhead: kilobytes. The same 200-byte module that ran in your browser tab now runs in 300 cities.</p>
 
-<p>The results are striking:</p>
+<h3>Where Wasm Goes Next</h3>
 
-<table>
-<tr><th>Model</th><th>Quantization</th><th>WebGPU tok/s</th><th>Native tok/s</th><th>Ratio</th></tr>
-<tr><td>Llama-3.1-8B</td><td>Q4</td><td>~41</td><td>~58</td><td><span style="color:var(--green)">71%</span></td></tr>
-<tr><td>Phi-3.5-mini</td><td>Q4</td><td>~71</td><td>~89</td><td><span style="color:var(--green)">80%</span></td></tr>
-<tr><td>Gemma-2-2B</td><td>Q4</td><td>~85</td><td>~105</td><td><span style="color:var(--green)">81%</span></td></tr>
-</table>
+<p>The Component Model and WIT (Wasm Interface Types) are turning modules into composable building blocks. A Rust image resizer, a Python ML classifier, and your handwritten WAT template engine can be wired together without sharing memory or agreeing on a calling convention &mdash; WIT handles the type translation at the boundary.</p>
 
-<p style="font-size:0.82rem;color:var(--text-dim);">Numbers from the WebLLM paper and project benchmarks on M3 Max hardware. Performance varies by GPU and browser.</p>
-
-<p>70&ndash;80% of native speed in a browser tab, with no installation, no server, and full privacy. The remaining 20&ndash;30% gap is WebGPU API overhead &mdash; command buffer submission, shader compilation, the lack of direct GPU memory mapping. That gap is narrowing with each browser release.</p>
-
-<h3>What Fits in a Tab</h3>
-
-<p>The practical ceiling is set by browser memory limits and GPU VRAM:</p>
-
-<table>
-<tr><th>Model Size</th><th>Quantization</th><th>Download</th><th>Inference RAM</th><th>Browser Feasible?</th></tr>
-<tr><td>1&ndash;3B</td><td>Q4</td><td>0.5&ndash;1.5 GB</td><td>1&ndash;2 GB</td><td><span style="color:var(--green)">Yes (CPU or GPU)</span></td></tr>
-<tr><td>7&ndash;8B</td><td>Q4</td><td>3&ndash;4 GB</td><td>4&ndash;5 GB</td><td><span style="color:var(--cyan)">Yes (GPU, 8+ GB VRAM)</span></td></tr>
-<tr><td>13B</td><td>Q4</td><td>6&ndash;7 GB</td><td>8&ndash;9 GB</td><td><span style="color:var(--orange)">Marginal (high-end GPU)</span></td></tr>
-<tr><td>70B</td><td>Q4</td><td>35+ GB</td><td>40+ GB</td><td><span style="color:var(--red)">No</span></td></tr>
-</table>
-
-<div class="power zen">
-<div class="power-label">The 80% Line</div>
-<p>WebGPU inference reaches 70&ndash;80% of native speed for models that fit in GPU memory. The remaining gap is the browser&rsquo;s security overhead &mdash; every GPU command goes through a validation layer, every shader is compiled at runtime, there is no direct memory-mapped I/O. That 20% is the price of running AI without trusting a server. For many use cases &mdash; private document analysis, offline translation, accessibility tools &mdash; it is a price worth paying.</p>
-</div>
-
-<p>Running inference in the browser is one side of the AI coin. The other side is more provocative: LLMs <em>generate</em> code, and that code needs to run somewhere safe. Wasm provides the tightest production sandbox available &mdash; and it starts in microseconds.</p>
-
-</section>
-
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 14: THE SANDBOX                                         -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch14">
-<h2>14 &mdash; the sandbox</h2>
-
-<p class="drop-cap">An LLM writes a Python function to process your data. It looks correct. It probably is correct. But &ldquo;probably&rdquo; is not a security model. You need to execute code from an author you cannot fully trust, potentially billions of times a day. Docker takes 50 ms to cold-start. Firecracker takes 125 ms. A Wasm instance starts in <strong>40 microseconds</strong> &mdash; and its sandbox has zero capabilities by default. There is nothing to leak because there is nothing to start with.</p>
-
-<h3>The Trust Problem</h3>
-
-<p>AI-generated code creates a new category of untrusted execution. Traditional code review assumes a human author with intentions you can reason about. LLM-generated code has no intentions &mdash; it has statistical patterns shaped by a training set that may include malicious examples, subtle bugs, and security antipatterns. You cannot audit every function an LLM writes at the scale of modern AI agent systems. You need automated isolation.</p>
-
-<p>The Wasm sandbox provides exactly this. A module starts with zero capabilities: no filesystem, no network, no environment variables, no ability to read the host&rsquo;s memory. The host grants specific capabilities for the duration of the execution and revokes them on completion. The module runs in its own linear memory &mdash; a buffer overflow corrupts the module&rsquo;s own data, not the host&rsquo;s. This is not the Docker model (start with everything, try to restrict). This is the opposite: start with nothing, grant only what is needed.</p>
-
-<h3>The Pipeline</h3>
-
-<div class="diagram">
-<span class="diagram-label">LLM &rarr; compile &rarr; sandbox &rarr; execute &rarr; return</span>
-<pre><code>  <span class="nm">1.</span> User asks: <span class="st">"analyze this CSV and find outliers"</span>
-  <span class="nm">2.</span> LLM generates analysis code (Python/JS/Rust)
-  <span class="nm">3.</span> Code compiles to .wasm (via Extism PDK or direct compilation)
-  <span class="nm">4.</span> Host instantiates Wasm module with <span class="ty">limited capabilities</span>:
-     &bull; Memory limit: 64 MB
-     &bull; CPU time limit: 5 seconds
-     &bull; Data access: the CSV (read-only, passed via linear memory)
-     &bull; No filesystem, no network, no exec
-  <span class="nm">5.</span> Module executes, writes result to linear memory
-  <span class="nm">6.</span> Host reads result, tears down the instance
-     Total overhead: <span class="st">&lt; 1 ms</span></code></pre>
-</div>
-
-<h3>Extism: The Plugin Pattern</h3>
-
-<p><strong>Extism</strong> is a framework that makes this pattern practical. It provides a runtime-agnostic layer over Wasmtime and Wasmer with a Plugin Development Kit (PDK) for writing Wasm plugins in Rust, Go, JavaScript, Python, or C. The host API is minimal:</p>
-
-<pre><span class="label">Rust (Host)</span><code><span class="kw">let</span> plugin = <span class="ty">Plugin</span>::<span class="fn">new</span>(&amp;wasm_bytes, manifest, <span class="nm">true</span>)?;
-<span class="kw">let</span> result = plugin.<span class="fn">call</span>::&lt;<span class="ty">&amp;str</span>, <span class="ty">String</span>&gt;(<span class="st">"process"</span>, input_data)?;</code></pre>
-
-<p>One function call. The plugin instantiates in ~40 microseconds, executes within its sandbox, and returns data through Wasm&rsquo;s function exports. Compare this to Docker container creation (~50 ms) or Firecracker microVM boot (~125 ms). Wasm plugin instantiation is roughly <strong>1000x faster</strong>.</p>
-
-<h3>The Isolation Comparison</h3>
-
-<table>
-<tr><th>Property</th><th>Docker</th><th>Firecracker</th><th>Wasm (Wasmtime)</th></tr>
-<tr><td>Cold start</td><td>~50 ms</td><td>~125 ms</td><td><span style="color:var(--green)">~0.04 ms</span></td></tr>
-<tr><td>Memory overhead</td><td>~10 MB</td><td>~5 MB</td><td><span style="color:var(--green)">~64 KB</span></td></tr>
-<tr><td>Security boundary</td><td>Linux kernel</td><td>Hypervisor (KVM)</td><td>Wasm VM</td></tr>
-<tr><td>Default filesystem</td><td>Full</td><td>Full (in VM)</td><td><span style="color:var(--green)">None</span></td></tr>
-<tr><td>Default network</td><td>Full</td><td>NAT bridge</td><td><span style="color:var(--green)">None</span></td></tr>
-<tr><td>Security model</td><td>Deny-list</td><td>Deny-list</td><td><span style="color:var(--green)">Allow-list</span></td></tr>
-<tr><td>Best for AI code?</td><td>Familiar</td><td>Strongest isolation</td><td><span style="color:var(--green)">Fastest + safest default</span></td></tr>
-</table>
-
-<p>The honest caveat: Wasm&rsquo;s sandbox is newer and less battle-tested than container isolation. Researchers have found JIT compiler bugs and speculative execution vulnerabilities in Wasm engines. The smartest production setups run Wasm inside a container or microVM &mdash; belt and suspenders. But the default-deny security model is fundamentally the right architecture for executing untrusted AI-generated code.</p>
-
-<div class="power danger">
-<div class="power-label">The Inversion</div>
-<p>Docker starts with everything and tries to remove what is dangerous. Wasm starts with nothing and adds only what is needed. For LLM-generated code &mdash; which you cannot audit at scale &mdash; the Wasm model is fundamentally safer. Not because its sandbox is impenetrable, but because the default state is harmless. A container you forgot to restrict can read your filesystem. A Wasm module you forgot to configure can do nothing at all.</p>
-</div>
-
-<p>The sandbox solves the trust problem for individual code execution. But what happens when you need to serve AI inference to millions of users across hundreds of locations? The next chapter scales Wasm to the edge.</p>
-
-</section>
-
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 15: INFERENCE AT THE EDGE                               -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch15">
-<h2>15 &mdash; inference at the edge</h2>
-
-<p class="drop-cap">A Docker image for a Python inference service starts at 200 MB. Add PyTorch and you are past a gigabyte. That image needs a container runtime, an orchestrator, a registry, health checks, autoscaling rules. Now deploy it to 200 cities. The operational surface is enormous. A Wasm module for the same routing and orchestration logic: 1&ndash;5 MB. Cold start: sub-millisecond. No registry. No orchestrator. The operational surface collapses by an order of magnitude.</p>
-
-<h3>The Weight of a Container</h3>
-
-<p>The core insight is separation of concerns. Not everything in an AI serving pipeline needs a GPU. The orchestration layer &mdash; receiving requests, validating input, routing to models, formatting responses, applying rate limits &mdash; is pure CPU work that runs millions of times per second. This layer does not need PyTorch. It does not need CUDA. It needs to be fast, isolated, and cheap to scale.</p>
-
-<p>Wasm is ideal for this layer. Cloudflare Workers runs V8 isolates (which support Wasm) across 300+ cities. Each Worker handles HTTP routing, authentication, and response formatting in microseconds. When the Worker needs actual model inference, it calls Cloudflare&rsquo;s Workers AI service, which runs models on dedicated GPUs at the nearest datacenter. The Wasm layer absorbs the request volume; the GPU layer handles the compute.</p>
-
-<h3>Multi-Tenant Isolation</h3>
-
-<p>The killer feature for serving is density. On a single machine running inference orchestration for thousands of different tenants, each Wasm instance gets its own linear memory, its own capability set, its own resource limits &mdash; with ~64 KB of overhead per instance. Running 10,000 Wasm instances is feasible on a single server. Running 10,000 Docker containers is not.</p>
-
-<div class="diagram">
-<span class="diagram-label">The two-tier architecture</span>
-<pre><code>  <span class="ty">Tier 1: Wasm Orchestration</span>              <span class="ty">Tier 2: GPU Inference</span>
-  ┌──────────────────────────┐           ┌──────────────────────────┐
-  │  Request parsing          │           │  Model forward pass       │
-  │  Auth / rate limiting     │           │  Attention + MatMul       │
-  │  Prompt formatting        │    ──▶    │  KV cache management      │
-  │  Response streaming       │    ◀──    │  Token generation         │
-  │  Logging / metrics        │           │                            │
-  ├──────────────────────────┤           ├──────────────────────────┤
-  │  Cold start: <span class="st">microseconds</span> │           │  Cold start: <span class="pp">seconds</span>       │
-  │  Scale: <span class="st">independently</span>     │           │  Scale: <span class="pp">GPU-constrained</span>   │
-  │  Cost: <span class="st">minimal</span>            │           │  Cost: <span class="pp">expensive</span>          │
-  │  Instances: <span class="st">10,000+</span>       │           │  Instances: <span class="pp">per GPU</span>       │
-  └──────────────────────────┘           └──────────────────────────┘
-
-  The cheap part (Wasm) scales independently of the expensive part (GPU).
-  You pay for GPU only when tokens are actually being generated.</code></pre>
-</div>
-
-<h3>WASI-NN: Inference as a Capability</h3>
-
-<p><strong>WASI-NN</strong> is the emerging standard that lets Wasm modules declare &ldquo;I need neural network inference&rdquo; the same way WASI lets them declare &ldquo;I need filesystem access.&rdquo; The module calls <code>wasi_nn::load()</code> to load a model, <code>wasi_nn::init_execution_context()</code> to create a session, and <code>wasi_nn::compute()</code> to run inference. The module never touches the GPU directly. The host decides which hardware to use &mdash; ONNX Runtime, TensorFlow Lite, or a dedicated accelerator.</p>
-
-<p>This is the same capability pattern from Chapter 11: the module declares what it needs, the host provides it. The module does not know or care whether inference runs on a CPU, a GPU, or a dedicated AI chip. Same code, different hardware, same security model.</p>
-
-<div class="power wild">
-<div class="power-label">The Operational Collapse</div>
-<p>A Docker-based inference service needs: a Dockerfile, a registry, a container runtime, an orchestrator, a load balancer, health checks, autoscaling rules, a networking CNI, and a monitoring stack. A Wasm-based edge function needs: a <code>.wasm</code> binary and a deploy command. The operational surface shrinks by an order of magnitude. That is not a performance claim &mdash; it is an operations claim. And for teams serving AI at the edge, operations is the bottleneck, not compute.</p>
-</div>
-
-<p>Individual chapters have told individual stories: inference in the browser, sandboxing for safety, edge deployment for scale. The final chapter pulls the thread through all of them and names the pattern that connects them.</p>
-
-</section>
-
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 16: THE CONVERGENCE                                     -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch16">
-<h2>16 &mdash; the convergence</h2>
-
-<p class="drop-cap">ONNX Runtime compiles to Wasm. TensorFlow.js uses a Wasm SIMD backend. MediaPipe tracks 468 facial landmarks at 30 fps through a Wasm+GPU hybrid. web-llm runs 8-billion-parameter models in a browser tab at 70% of native speed. Every major ML framework has converged on the same architecture: compile the inference engine to Wasm for portability, then delegate compute-heavy kernels to whatever hardware the host provides.</p>
-
-<h3>The Pattern</h3>
-
-<p>Look at how four different frameworks solve the same problem:</p>
-
-<table>
-<tr><th>Framework</th><th>Wasm Role</th><th>GPU/Accelerator</th><th>Use Case</th></tr>
-<tr><td><strong>ONNX Runtime Web</strong></td><td>CPU inference (SIMD)</td><td>WebGPU / WebNN</td><td>Any ONNX model in browser</td></tr>
-<tr><td><strong>TensorFlow.js</strong></td><td>CPU backend (XNNPack)</td><td>WebGL / WebGPU</td><td>Pre-built models + custom</td></tr>
-<tr><td><strong>MediaPipe</strong></td><td>Pipeline orchestration</td><td>GPU delegation</td><td>Real-time vision/pose</td></tr>
-<tr><td><strong>web-llm (MLC)</strong></td><td>Tokenizer + KV cache</td><td>WebGPU (TVM kernels)</td><td>LLM chat in browser</td></tr>
-</table>
-
-<p>The same architecture repeats: Wasm handles the portable control flow. Hardware-specific acceleration handles the math. The module does not know what hardware it runs on. The host matches capabilities to available resources.</p>
-
-<h3>ONNX Runtime: Three Backends, One API</h3>
-
-<p>Microsoft&rsquo;s ONNX Runtime Web compiles to Wasm and supports three <em>execution providers</em> through the same API:</p>
-
-<div class="diagram">
-<span class="diagram-label">ONNX Runtime execution providers</span>
-<pre><code>                    ┌──────────────────┐
-                    │ <span class="ty">ONNX Model (.onnx)</span> │
-                    └────────┬─────────┘
-                             │
-                    ┌────────▼─────────┐
-                    │ <span class="st">ONNX Runtime Web</span>  │
-                    │   (Wasm module)   │
-                    └──┬──────┬──────┬──┘
-                       │      │      │
-              ┌────────▼┐ ┌──▼────┐ ┌▼────────┐
-              │ <span class="st">wasm</span>    │ │<span class="fn">webgpu</span>│ │ <span class="pp">webnn</span>   │
-              │ CPU+SIMD│ │ GPU   │ │ NPU/HW  │
-              └─────────┘ └──────┘ └─────────┘
-              <span class="cm">Portable</span>    <span class="cm">Fast</span>    <span class="cm">Hardware-</span>
-              <span class="cm">everywhere</span>  <span class="cm">on GPU</span>  <span class="cm">specific</span></code></pre>
-</div>
-
-<p>Same model file, same JavaScript API, three different hardware targets. The Wasm backend works everywhere. WebGPU is faster when a GPU is available. WebNN delegates to the browser&rsquo;s native ML accelerator &mdash; an NPU on modern laptops, dedicated AI silicon on phones. The application code does not change; the runtime selects the best available backend.</p>
-
-<h3>MediaPipe: Vision in Real Time</h3>
-
-<p>Google&rsquo;s MediaPipe is the most tangible demonstration of the Wasm+GPU pattern. Open a webpage, point your camera, and watch 468 dots track your face in real time. No install, no server, no permissions beyond camera access.</p>
-
-<p>The Wasm module (compiled from C++ via Emscripten) orchestrates the inference pipeline: camera capture, image preprocessing, model invocation, landmark post-processing. GPU delegation handles the actual CNN forward pass. On CPU-only Wasm, face tracking runs at 10&ndash;15 fps. With GPU delegation, 30&ndash;60+ fps. The SIMD speedup from Chapter 10 matters here &mdash; CPU-side pre/post-processing uses <code>i32x4</code> and <code>f32x4</code> operations to avoid becoming the bottleneck.</p>
-
-<h3>WebNN: The Hardware Abstraction</h3>
-
-<p>The <strong>Web Neural Network API</strong> is a W3C standard that gives browsers direct access to hardware ML accelerators. Currently in preview in Chrome and Edge, WebNN abstracts over NPUs, dedicated AI silicon, and GPU compute. For Wasm-orchestrated inference, WebNN is the missing piece: a module that says &ldquo;run this model&rdquo; and the host routes it to whatever accelerator is available &mdash; NPU on a laptop, GPU on a desktop, SIMD CPU on a phone, dedicated AI chip on an edge device.</p>
-
-<p>This is the same capability pattern as WASI-NN from Chapter 15, but in the browser. The module declares what it needs. The host provides it. The hardware is an implementation detail.</p>
-
-<h3>The Universal Runtime Thesis</h3>
-
-<p>Pull the thread through all four chapters:</p>
-
-<div class="diagram">
-<span class="diagram-label">The pattern repeats</span>
-<pre><code>  <span class="st">Ch 13</span>  Wasm + WebGPU runs LLMs in the browser at 70&ndash;80% native speed
-  <span class="fn">Ch 14</span>  Wasm sandboxes AI-generated code at 1000&times; the speed of containers
-  <span class="pp">Ch 15</span>  Wasm deploys AI orchestration to 200+ edge locations instantly
-  <span class="ty">Ch 16</span>  Every major ML framework compiles to Wasm as its portable baseline
-
-  The common factor: Wasm is the <span class="st">portable floor</span>.
-  The accelerator is the <span class="fn">performance ceiling</span>.
-  The floor composes with <span class="ty">any ceiling</span>.</code></pre>
-</div>
-
-<p>Wasm is not the fastest runtime for AI. It never will be. The matmul belongs to the GPU, the quantized attention kernel belongs to the NPU, the custom ASIC belongs to the datacenter. But Wasm is the only runtime that works <em>everywhere</em>, isolates <em>everything</em>, and composes with <em>any accelerator</em> the host provides.</p>
-
-<p>Write your inference pipeline once in Wasm. Run it in a browser, on an edge node, inside a serverless function, or in a plugin sandbox. The ceilings change. The floor stays.</p>
+<p>WasmGC lets garbage-collected languages (Kotlin, Dart, Java) run efficiently without shipping their own GC. WASI 0.3 adds native <code>async</code>/<code>await</code> for non-blocking I/O. And the AI ecosystem &mdash; ONNX Runtime, TensorFlow.js, MediaPipe, web-llm &mdash; has converged on Wasm as the portable floor with hardware accelerators (WebGPU, WebNN, CUDA) as the performance ceiling.</p>
 
 <div class="power">
 <div class="power-label">The Floor, Not the Ceiling</div>
-<p>Wasm is the floor of AI inference &mdash; the guaranteed-to-work, runs-anywhere, trusts-nothing baseline. WebGPU is the GPU ceiling. WebNN is the NPU ceiling. CUDA is the datacenter ceiling. The genius of the architecture is that the floor composes with any ceiling. A browser provides WebGPU. An edge node provides WASI-NN. A datacenter provides CUDA. The Wasm module does not know or care. It declares what it needs, and the host provides it. One binary. Every platform. Zero trust.</p>
+<p>WebAssembly is not the fastest runtime. It never will be. The matmul belongs to the GPU. The video decode belongs to the hardware codec. The regex belongs to a hand-tuned native library. But Wasm is the only runtime that works <em>everywhere</em>, isolates <em>everything</em>, and composes with <em>any accelerator</em> the host provides. Write it once in WAT. Assemble it with <code>wat2wasm</code>. Run it in a browser, on a server, at the edge, or inside a plugin sandbox. One binary. Every platform. Zero trust required.</p>
 </div>
 
 </section>
