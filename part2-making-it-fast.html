@@ -1531,8 +1531,357 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 <p>A server that waits for a perfect batch is idle too often. A server that merges work continuously turns chat traffic into a conveyor belt. Static batching optimizes for simplicity. Continuous batching optimizes for the GPU. In production, the GPU always wins.</p>
 </div>
 </section>
-<section id="ch10"><h2>// 10 &mdash; Prefill vs Decode</h2><div class="era-badge"><span class="era-num">Era 6</span> &mdash; Split prefill from decode</div><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
-<section id="ch11"><h2>// 11 &mdash; Speculative Decoding</h2><div class="era-badge"><span class="era-num">Era 7</span> &mdash; Predict ahead with speculation</div><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
+<section id="ch10">
+<h2>// 10 &mdash; Prefill vs Decode</h2>
+<div class="era-badge"><span class="era-num">Era 6</span> &mdash; Split prefill from decode</div>
+<div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--green)">ONE IS WIDE</span> &middot; <span style="color:var(--orange)">ONE IS SERIAL</span></div>
+<div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
+    A prompt enters all at once. A sentence leaves one token at a time.<span class="blink">_</span>
+</div>
+
+<p class="drop-cap">This is the most important split in inference. Prefill likes throughput. Decode likes low latency. They run the same model and want different worlds. You met this idea briefly at the end of Part I. Now it becomes the central design constraint.</p>
+
+<h3>Two Metrics, Two Bottlenecks</h3>
+
+<div class="diagram">
+<span class="diagram-label">TTFT vs ITL &mdash; the metrics that define user experience</span>
+<pre><code>
+  <span class="ty">TTFT</span> (Time to First Token)
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  How long before the user sees the first word.
+  Dominated by <strong>prefill</strong>: processing the entire prompt.
+  Bottleneck: <span style="color:var(--green)">compute</span> (dense matmuls over all input tokens).
+
+  7B model, 4K prompt, A100: TTFT &asymp; <span class="nm">~200 ms</span>
+
+  <span class="ty">ITL</span> (Inter-Token Latency)
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  How long between each subsequent word.
+  Dominated by <strong>decode</strong>: one token at a time.
+  Bottleneck: <span style="color:var(--orange)">memory bandwidth</span> (reading weights for 1 token).
+
+  7B model, batch=1, A100: ITL &asymp; <span class="nm">~7 ms</span>
+
+  <span class="pp">Optimizing one hurts the other.</span>
+  <span class="pp">Batch more decodes &rarr; long prefills block them &rarr; ITL spikes.</span>
+  <span class="pp">Prioritize low ITL &rarr; delay new prefills &rarr; TTFT grows.</span>
+</code></pre>
+</div>
+
+<h3>The Interference Problem</h3>
+
+<p>On a shared GPU, prefill and decode fight for the same resources. A 32K-token prefill takes hundreds of milliseconds of pure compute &mdash; and during that time, every in-flight decode request is frozen. Users waiting for streaming output see a stutter. This is <strong>prefill-decode interference</strong>, and it&rsquo;s why modern schedulers treat them as separate scheduling problems.</p>
+
+<div class="tabbed">
+<input type="radio" name="pd-tabs" id="pd-tabs-t1" class="t1" checked>
+<input type="radio" name="pd-tabs" id="pd-tabs-t2" class="t2">
+<input type="radio" name="pd-tabs" id="pd-tabs-t3" class="t3">
+<div class="tab-bar">
+<label for="pd-tabs-t1">Chunked Prefill</label>
+<label for="pd-tabs-t2">Disaggregated P/D</label>
+<label for="pd-tabs-t3">The Numbers</label>
+</div>
+<div class="tab-panel p1">
+<div class="diagram"><span class="diagram-label">Chunked prefill &mdash; break prompts to protect decode</span>
+<pre><code>
+  <span class="cm">Without chunking: 32K prompt blocks all decode for ~400ms</span>
+
+  <span class="cm">With chunking (Sarathi, 2023):</span>
+
+  Step 1: [<span style="color:var(--cyan)">decode &times; 8</span>] + [<span style="color:var(--orange)">prefill chunk 0&ndash;1023</span>]     &larr; 8 tokens + 1024 prefill
+  Step 2: [<span style="color:var(--cyan)">decode &times; 8</span>] + [<span style="color:var(--orange)">prefill chunk 1024&ndash;2047</span>]  &larr; ITL stays ~7ms
+  &vellip;
+  Step 32: [<span style="color:var(--cyan)">decode &times; 8</span>] + [<span style="color:var(--orange)">prefill chunk 31744&ndash;32767</span>]
+
+  <span class="pp">Decode-maximal batching: decodes always go first.</span>
+  <span class="pp">Prefill chunks fill the remaining compute budget.</span>
+  <span class="pp">Sarathi: up to 10&times; decode throughput, 1.33&times; end-to-end (LLaMA-13B).</span>
+</code></pre></div></div>
+<div class="tab-panel p2">
+<div class="diagram"><span class="diagram-label">Disaggregated prefill/decode &mdash; separate GPU pools</span>
+<pre><code>
+  <span class="cm">Instead of time-sharing one GPU, use two pools:</span>
+
+  <span style="color:var(--green)">Prefill Pool</span>                    <span style="color:var(--orange)">Decode Pool</span>
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;               &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  Compute-bound                   Memory-bandwidth-bound
+  Dense matmuls over prompt       Read weights for 1 token
+  High GPU utilization            Needs max bandwidth
+  Fewer GPUs, high throughput     More GPUs, low latency
+
+  <span class="cm">Flow:</span>
+  Client request &rarr; <span style="color:var(--green)">Prefill GPU</span> &rarr; <strong>transfer KV cache</strong> &rarr; <span style="color:var(--orange)">Decode GPU</span> &rarr; stream tokens
+
+  <span class="cm">KV transfer cost: 7B model, 4K context &asymp; 500 MB&ndash;1 GB</span>
+  <span class="cm">100 Gbps interconnect: 40&ndash;80 ms transfer time</span>
+
+  <span class="pp">DistServe (OSDI 2024): 7.4&times; more requests or 12.6&times; tighter SLO</span>
+  <span class="pp">Splitwise: 1.4&times; throughput at 20% lower cost</span>
+  <span class="pp">vLLM: experimental disaggregated prefill feature</span>
+</code></pre></div></div>
+<div class="tab-panel p3">
+<div class="diagram"><span class="diagram-label">Why the split matters &mdash; concrete numbers</span>
+<pre><code>
+  <span class="cm">7B FP16, A100 80GB:</span>
+
+  <span class="ty">Prefill (4K prompt):</span>
+    FLOPs: 4096 &times; 14B = <span class="nm">57 TFLOPS</span>
+    Time at 312 TF peak: <span class="nm">~180 ms</span>
+    GPU utilization: <span style="color:var(--green)">~90%</span> (compute-saturated)
+
+  <span class="ty">Decode (1 token):</span>
+    Bytes read: <span class="nm">14 GB</span> (full model)
+    Time at 2 TB/s: <span class="nm">~7 ms</span>
+    GPU utilization: <span style="color:var(--red)">~0.7%</span> (bandwidth-limited)
+
+  <span class="cm">Same model, same GPU, 130&times; utilization difference.</span>
+
+  <span class="cm">For 100-token response after 4K prompt:</span>
+    Prefill: 180 ms (once)     &larr; <span style="color:var(--green)">compute-bound</span>
+    Decode:  700 ms (100 &times; 7ms) &larr; <span style="color:var(--orange)">bandwidth-bound</span>
+    <span class="pp">~80% of wall time is in the bandwidth-limited decode phase.</span>
+</code></pre></div></div>
+</div>
+
+<div class="power purple">
+<div class="power-label">Two Species of Work</div>
+<p>Prefill and decode are not two stages of the same operation. They are two different <em>species</em> of work that happen to use the same model. One is embarrassingly parallel. The other is irreducibly serial. One wants more FLOPs. The other wants more bandwidth. Treating them identically wastes both. This realization &mdash; that the same model needs different hardware profiles depending on what it&rsquo;s doing &mdash; is what drives disaggregated serving, chunked prefill, and everything in Part III.</p>
+</div>
+</section>
+
+
+<section id="ch11">
+<h2>// 11 &mdash; Speculative Decoding</h2>
+<div class="era-badge"><span class="era-num">Era 7</span> &mdash; Predict ahead with speculation</div>
+<div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--cyan)">DRAFT FAST</span> &rarr; <span style="color:var(--green)">VERIFY ONCE</span></div>
+<div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
+    The model is slow because it speaks one token at a time.<br>
+    So give it a smaller model to guess ahead.<span class="blink">_</span>
+</div>
+
+<p class="drop-cap">The serial bottleneck is fundamental: token N depends on token N-1. You can&rsquo;t parallelize across output tokens. Each decode step reads the entire model from HBM for just one word. Speculative decoding is the most elegant cheat: a cheap draft model proposes several tokens; the expensive target model verifies them in parallel. When the guesses are good, time collapses.</p>
+
+<h3>The Algorithm</h3>
+
+<div class="viz-container">
+<svg id="viz-ch11-spec" viewBox="0 0 780 320"></svg>
+<div class="viz-controls">
+<button id="viz-ch11-play">Play</button>
+<button id="viz-ch11-reset" class="secondary">Reset</button>
+<span id="viz-ch11-status" style="color:var(--text-dim);"></span>
+</div>
+</div>
+
+<script>
+(function() {
+    const svg = d3.select('#viz-ch11-spec');
+    const W = 780, H = 320;
+    let step = -1, timer = null;
+
+    const draftTokens = ['The', ' capital', ' of', ' France', ' is'];
+    const targetAccept = [true, true, true, true, false]; // reject last
+    const corrected = ' was'; // target samples from residual
+    const bonus = ' Paris'; // bonus token
+
+    function draw() {
+        svg.selectAll('*').remove();
+        const phases = [
+            'Draft model proposes 5 tokens (fast, serial)',
+            'Target model scores ALL 5 in ONE forward pass (parallel)',
+            'Rejection sampling: accept/reject each position',
+            'Accept 4, reject 5th \u2192 sample from residual + bonus token',
+            'Result: 5 tokens from ~2 forward passes instead of 5'
+        ];
+
+        // Title
+        svg.append('text').attr('x',W/2).attr('y',20).text('Speculative Decoding \u2014 Draft \u2192 Verify \u2192 Accept')
+            .attr('fill','#00ddff').attr('font-family','JetBrains Mono').attr('font-size',12).attr('text-anchor','middle');
+
+        // Phase indicator
+        if (step >= 0 && step < phases.length) {
+            svg.append('text').attr('x',W/2).attr('y',42).text(`Step ${step+1}: ${phases[step]}`)
+                .attr('fill','#ffdd00').attr('font-family','JetBrains Mono').attr('font-size',11).attr('text-anchor','middle');
+        }
+
+        const tokY = 70, tokH = 40, tokGap = 8;
+        const startX = 80;
+
+        // Draft model row
+        svg.append('text').attr('x',15).attr('y',tokY+25).text('DRAFT').attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',10);
+        draftTokens.forEach((t, i) => {
+            const x = startX + i * 130;
+            const show = step >= 0;
+            const drafting = step === 0;
+            svg.append('rect').attr('x',x).attr('y',tokY).attr('width',120).attr('height',tokH)
+                .attr('fill', show ? '#00ddff15' : '#6a6a7e08').attr('stroke', drafting ? '#00ddff' : show ? '#00ddff44' : '#6a6a7e22').attr('rx',4);
+            svg.append('text').attr('x',x+60).attr('y',tokY+25).text(show ? t : '?')
+                .attr('fill', show ? '#00ddff' : '#6a6a7e44').attr('font-family','JetBrains Mono').attr('font-size',12).attr('text-anchor','middle');
+        });
+
+        // Target model row
+        const tgtY = tokY + tokH + 40;
+        svg.append('text').attr('x',15).attr('y',tgtY+25).text('TARGET').attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',10);
+        if (step >= 1) {
+            // Show all 5 being verified in parallel
+            draftTokens.forEach((t, i) => {
+                const x = startX + i * 130;
+                const verifying = step === 1;
+                svg.append('rect').attr('x',x).attr('y',tgtY).attr('width',120).attr('height',tokH)
+                    .attr('fill', verifying ? '#ff00aa22' : '#ff00aa11').attr('stroke', verifying ? '#ff00aa' : '#ff00aa44').attr('rx',4);
+                svg.append('text').attr('x',x+60).attr('y',tgtY+25).text(t)
+                    .attr('fill','#ff00aa').attr('font-family','JetBrains Mono').attr('font-size',12).attr('text-anchor','middle');
+            });
+            if (step === 1) {
+                svg.append('text').attr('x',startX + 5*130/2).attr('y',tgtY-8).text('\u2191 ONE forward pass for all 5')
+                    .attr('fill','#ff00aa88').attr('font-family','JetBrains Mono').attr('font-size',10).attr('text-anchor','middle');
+            }
+        }
+
+        // Acceptance row
+        const accY = tgtY + tokH + 40;
+        if (step >= 2) {
+            svg.append('text').attr('x',15).attr('y',accY+25).text('ACCEPT').attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',10);
+            draftTokens.forEach((t, i) => {
+                const x = startX + i * 130;
+                const accepted = targetAccept[i];
+                const showing = step >= 2;
+                const resolved = step >= 3;
+                if (showing) {
+                    svg.append('rect').attr('x',x).attr('y',accY).attr('width',120).attr('height',tokH)
+                        .attr('fill', accepted ? '#00ff8822' : '#ff334422')
+                        .attr('stroke', accepted ? '#00ff88' : '#ff3344').attr('rx',4);
+                    if (resolved) {
+                        const finalTok = accepted ? t : (i === 4 ? corrected : t);
+                        svg.append('text').attr('x',x+60).attr('y',accY+18).text(finalTok)
+                            .attr('fill', accepted ? '#00ff88' : '#ffdd00').attr('font-family','JetBrains Mono').attr('font-size',12).attr('text-anchor','middle');
+                        svg.append('text').attr('x',x+60).attr('y',accY+34)
+                            .text(accepted ? '\u2713' : '\u2717 resample')
+                            .attr('fill', accepted ? '#00ff8888' : '#ff334488').attr('font-family','JetBrains Mono').attr('font-size',9).attr('text-anchor','middle');
+                    } else {
+                        svg.append('text').attr('x',x+60).attr('y',accY+25).text('min(1, q/p)')
+                            .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',10).attr('text-anchor','middle');
+                    }
+                }
+            });
+        }
+
+        // Result summary
+        if (step >= 4) {
+            const resY = accY + tokH + 25;
+            svg.append('text').attr('x',W/2).attr('y',resY)
+                .text('4 accepted + 1 resampled = 5 tokens from ~2 forward passes (not 5)')
+                .attr('fill','#00ff88').attr('font-family','JetBrains Mono').attr('font-size',11).attr('text-anchor','middle').attr('font-weight','bold');
+            svg.append('text').attr('x',W/2).attr('y',resY+18)
+                .text('Output distribution is IDENTICAL to target-only generation. Zero quality loss.')
+                .attr('fill','#ffdd0088').attr('font-family','JetBrains Mono').attr('font-size',10).attr('text-anchor','middle');
+        }
+    }
+
+    draw();
+    d3.select('#viz-ch11-play').on('click', function() {
+        if (timer) return;
+        step = -1;
+        function tick() { step++; draw(); if (step > 4) { timer = null; return; } timer = setTimeout(tick, 1200); }
+        tick();
+    });
+    d3.select('#viz-ch11-reset').on('click', function() {
+        if (timer) { clearTimeout(timer); timer = null; }
+        step = -1; draw();
+    });
+})();
+</script>
+
+<div class="tabbed">
+<input type="radio" name="spec-tabs" id="spec-tabs-t1" class="t1" checked>
+<input type="radio" name="spec-tabs" id="spec-tabs-t2" class="t2">
+<input type="radio" name="spec-tabs" id="spec-tabs-t3" class="t3">
+<div class="tab-bar">
+<label for="spec-tabs-t1">Why It&rsquo;s Lossless</label>
+<label for="spec-tabs-t2">The Variants</label>
+<label for="spec-tabs-t3">When It Helps</label>
+</div>
+<div class="tab-panel p1">
+<div class="diagram"><span class="diagram-label">Rejection sampling guarantees exact target distribution</span>
+<pre><code>
+  <span class="cm">For each draft token x at position i:</span>
+
+  <span class="ty">Accept</span> with probability min(1, <span class="fn">q(x)</span> / <span class="kw">p(x)</span>)
+    <span class="fn">q(x)</span> = target model probability
+    <span class="kw">p(x)</span> = draft model probability
+
+  <span class="cm">If draft says 80% and target says 90%: accept with prob 1.0</span>
+  <span class="cm">If draft says 80% and target says 40%: accept with prob 0.5</span>
+
+  <span class="ty">If rejected:</span> sample from the <strong>residual distribution</strong>
+    residual(x) = max(0, q(x) &minus; p(x)) / Z
+
+  <span class="cm">This is the tokens the target wants but the draft underweights.</span>
+
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+
+  <span class="pp">P(output x) = P(accept x) + P(reject &amp; resample x) = q(x)</span>
+  <span class="pp">For ALL x. Mathematically exact. No quality degradation.</span>
+  <span class="pp">The output is indistinguishable from running the target alone.</span>
+</code></pre></div></div>
+<div class="tab-panel p2">
+<div class="diagram"><span class="diagram-label">Speculative decoding variants</span>
+<pre><code>
+  <span class="ty">Classic</span> (Leviathan 2022, Chen/DeepMind 2023)
+  Separate small draft model (e.g., 68M for 7B target).
+  2&ndash;3&times; speedup on T5-XXL, Chinchilla 70B.
+
+  <span class="ty">Medusa</span> (2024)
+  Add multiple prediction heads to the target model itself.
+  No separate draft model needed. Tree-based verification.
+  2.2&ndash;3.6&times; speedup. Requires fine-tuning heads per model.
+
+  <span class="ty">EAGLE</span> (2024)
+  Uses target model&rsquo;s hidden states as features for drafting.
+  Operates at feature level, not token level. Higher acceptance.
+  LLaMA2-Chat 70B: 2.7&ndash;3.5&times; latency, 2&times; throughput.
+
+  <span class="ty">Lookahead Decoding</span> (2024)
+  No draft model. Parallel Jacobi iteration on target itself.
+  Trades extra FLOPs for fewer steps. Up to 4&times; on code.
+
+  <span class="pp">All preserve exact target quality. The difference is how</span>
+  <span class="pp">they generate the draft: separate model, extra heads,</span>
+  <span class="pp">hidden-state prediction, or self-iteration.</span>
+</code></pre></div></div>
+<div class="tab-panel p3">
+<div class="diagram"><span class="diagram-label">When speculation helps and when it doesn&rsquo;t</span>
+<pre><code>
+  <span style="color:var(--green)">&check; HELPS MOST</span>
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  Batch size 1: GPU is 99% idle during decode &mdash; speculative
+  tokens are nearly free to verify in the same forward pass.
+
+  Code generation: high predictability.
+  Acceptance rate: <span class="nm">70&ndash;85%</span>. Speedup: <span class="nm">2&ndash;3&times;</span>.
+
+  Continuation tasks where the draft can predict well.
+
+  <span style="color:var(--red)">&times; HELPS LESS</span>
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  Large batches: GPU already compute-saturated.
+  No spare capacity for speculative tokens.
+
+  Creative / diverse text: low acceptance rate (~50%).
+  Overhead of rejected tokens eats into gains.
+
+  Very long outputs where KV cache is the bottleneck.
+
+  <span class="pp">Speculation is not magic. It&rsquo;s an arbitrage:</span>
+  <span class="pp">trade idle GPU cycles for multi-token verification.</span>
+  <span class="pp">When the GPU is already busy, there&rsquo;s nothing to trade.</span>
+</code></pre></div></div>
+</div>
+
+<div class="power hack">
+<div class="power-label">The Elegant Cheat</div>
+<p>Speculative decoding doesn&rsquo;t change the model. It doesn&rsquo;t approximate. It doesn&rsquo;t sacrifice quality. It exploits the single deepest asymmetry in LLM inference: verifying K tokens costs the same as generating 1 token, because the forward pass is the same shape. The draft model is a bet that most tokens are predictable. When that bet pays off &mdash; and for code, factual text, and structured output, it usually does &mdash; you get 2&ndash;3&times; speed for free.</p>
+</div>
+</section>
 <section id="ch12"><h2>// 12 &mdash; The Engines</h2><div class="era-badge"><span class="era-num">Era 8</span> &mdash; Treat serving as scheduling</div><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
 
 <!-- FOOTER -->
