@@ -1285,7 +1285,252 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 <p>FlashAttention changed what&rsquo;s possible. Before it, 16K context caused OOM on an A100. After it, 128K context is routine. The memory went from O(N&sup2;) to O(N), and speed improved 2&ndash;4&times; &mdash; all while computing the <strong>exact same attention</strong>. No approximation. No quality loss. Just fewer trips through the memory bus. It is the purest example of the principle from Chapter 5: optimize the trip the numbers take.</p>
 </div>
 </section>
-<section id="ch9"><h2>// 09 &mdash; Continuous Batching</h2><div class="era-badge"><span class="era-num">Era 5</span> &mdash; Keep the batch full</div><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
+<section id="ch9">
+<h2>// 09 &mdash; Continuous Batching</h2>
+<div class="era-badge"><span class="era-num">Era 5</span> &mdash; Keep the batch full</div>
+<div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--red)">STATIC BATCHING</span> &rarr; <span style="color:var(--green)">CONTINUOUS BATCHING</span></div>
+<div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
+    A perfect batch is a fantasy. Real traffic is ragged.<span class="blink">_</span>
+</div>
+
+<p class="drop-cap">Users do not arrive together. Prompts are not the same length. Outputs are not the same length. If you wait for neat rectangles, your GPU spends too much time bored. Static batching &mdash; the obvious approach &mdash; groups requests, runs them, and waits for every one to finish before starting the next group. Continuous batching, introduced by the Orca paper (Yu et al., OSDI 2022), schedules at the granularity of a single decode step. Every iteration, the scheduler can admit new requests, release finished ones, and keep the GPU full.</p>
+
+<h3>Why Static Batching Fails</h3>
+
+<div class="viz-container">
+<svg id="viz-ch9-batch" viewBox="0 0 780 380"></svg>
+<div class="viz-controls">
+<button id="viz-ch9-static">Show Static</button>
+<button id="viz-ch9-continuous">Show Continuous</button>
+<button id="viz-ch9-reset" class="secondary">Reset</button>
+<span id="viz-ch9-status" style="color:var(--text-dim);"></span>
+</div>
+</div>
+
+<script>
+(function() {
+    const svg = d3.select('#viz-ch9-batch');
+    const W = 780, H = 380;
+    const margin = {top: 40, right: 30, bottom: 40, left: 80};
+    const w = W - margin.left - margin.right, h = H - margin.top - margin.bottom;
+
+    const requests = [
+        {id:'A', len:20, color:'#00ff88'},
+        {id:'B', len:150, color:'#00ddff'},
+        {id:'C', len:300, color:'#ff00aa'},
+        {id:'D', len:50, color:'#ffdd00'},
+    ];
+    const waitingReqs = [
+        {id:'E', len:80, color:'#ff8800'},
+        {id:'F', len:200, color:'#aa44ff'},
+        {id:'G', len:120, color:'#4488ff'},
+        {id:'H', len:60, color:'#00ff88'},
+    ];
+
+    let mode = null; // 'static' or 'continuous'
+
+    function draw() {
+        svg.selectAll('*').remove();
+        const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+        if (!mode) {
+            svg.append('text').attr('x',W/2).attr('y',H/2).text('Click Static or Continuous to compare.')
+                .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',12).attr('text-anchor','middle');
+            return;
+        }
+
+        const maxStep = mode === 'static' ? 300 : 360;
+        const laneH = 50, laneGap = 8;
+        const xS = d3.scaleLinear().domain([0, maxStep]).range([0, w]);
+
+        // Title
+        svg.append('text').attr('x',W/2).attr('y',20)
+            .text(mode === 'static' ? 'Static Batching \u2014 43% GPU Utilization' : 'Continuous Batching \u2014 ~95% GPU Utilization')
+            .attr('fill', mode === 'static' ? '#ff3344' : '#00ff88')
+            .attr('font-family','JetBrains Mono').attr('font-size',12).attr('text-anchor','middle');
+
+        // X axis
+        g.append('g').attr('transform',`translate(0,${4*(laneH+laneGap)+10})`).call(d3.axisBottom(xS).ticks(10).tickFormat(d=>'t='+d))
+            .selectAll('text').attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',9);
+        g.selectAll('.domain, .tick line').attr('stroke','#2a2a3a');
+
+        if (mode === 'static') {
+            const maxLen = Math.max(...requests.map(r=>r.len));
+            requests.forEach((r, i) => {
+                const y = i * (laneH + laneGap);
+                // Lane label
+                g.append('text').attr('x',-8).attr('y', y+laneH/2+4).text('Req '+r.id)
+                    .attr('fill',r.color).attr('font-family','JetBrains Mono').attr('font-size',10).attr('text-anchor','end');
+                // Active bar
+                g.append('rect').attr('x',xS(0)).attr('y',y).attr('width',xS(r.len)).attr('height',laneH)
+                    .attr('fill',r.color).attr('opacity',0.5).attr('rx',3);
+                g.append('text').attr('x',xS(r.len/2)).attr('y',y+laneH/2+4).text(r.len+' tok')
+                    .attr('fill',r.color).attr('font-family','JetBrains Mono').attr('font-size',10).attr('text-anchor','middle');
+                // Wasted padding
+                if (r.len < maxLen) {
+                    g.append('rect').attr('x',xS(r.len)).attr('y',y).attr('width',xS(maxLen)-xS(r.len)).attr('height',laneH)
+                        .attr('fill','#ff3344').attr('opacity',0.12).attr('rx',3).attr('stroke','#ff334433').attr('stroke-dasharray','3,3');
+                    g.append('text').attr('x',xS((r.len+maxLen)/2)).attr('y',y+laneH/2+4).text('idle')
+                        .attr('fill','#ff334488').attr('font-family','JetBrains Mono').attr('font-size',9).attr('text-anchor','middle');
+                }
+            });
+            // Stats
+            const total = requests.reduce((s,r)=>s+r.len, 0);
+            const capacity = 300 * 4;
+            g.append('text').attr('x',0).attr('y',4*(laneH+laneGap)+38)
+                .text(`Useful work: ${total} tokens / ${capacity} capacity = ${(total/capacity*100).toFixed(0)}% utilization. ${capacity-total} tokens of GPU time wasted.`)
+                .attr('fill','#ff3344').attr('font-family','JetBrains Mono').attr('font-size',10);
+        } else {
+            // Continuous: requests finish early and are replaced
+            const allReqs = [...requests, ...waitingReqs];
+            const lanes = [{start:0, reqs:[]},{start:0, reqs:[]},{start:0, reqs:[]},{start:0, reqs:[]}];
+            let reqIdx = 0;
+            // Assign initial 4
+            for (let i = 0; i < 4; i++) {
+                lanes[i].reqs.push({...allReqs[reqIdx], startT:0});
+                reqIdx++;
+            }
+            // Fill in as they finish
+            for (let lane = 0; lane < 4; lane++) {
+                let t = lanes[lane].reqs[0].len;
+                while (t < maxStep && reqIdx < allReqs.length) {
+                    lanes[lane].reqs.push({...allReqs[reqIdx], startT:t});
+                    t += allReqs[reqIdx].len;
+                    reqIdx++;
+                }
+            }
+
+            lanes.forEach((lane, i) => {
+                const y = i * (laneH + laneGap);
+                g.append('text').attr('x',-8).attr('y',y+laneH/2+4).text('Slot '+i)
+                    .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',10).attr('text-anchor','end');
+                lane.reqs.forEach(r => {
+                    const x1 = xS(r.startT), x2 = xS(Math.min(r.startT + r.len, maxStep));
+                    g.append('rect').attr('x',x1).attr('y',y).attr('width',Math.max(2, x2-x1)).attr('height',laneH)
+                        .attr('fill',r.color).attr('opacity',0.5).attr('rx',3);
+                    if (x2 - x1 > 30) {
+                        g.append('text').attr('x',(x1+x2)/2).attr('y',y+laneH/2+4)
+                            .text(r.id+' ('+r.len+')').attr('fill',r.color)
+                            .attr('font-family','JetBrains Mono').attr('font-size',9).attr('text-anchor','middle');
+                    }
+                });
+            });
+            g.append('text').attr('x',0).attr('y',4*(laneH+laneGap)+38)
+                .text('Slots refill immediately when requests finish. No padding, no waiting. Batch stays full.')
+                .attr('fill','#00ff88').attr('font-family','JetBrains Mono').attr('font-size',10);
+        }
+    }
+
+    draw();
+    d3.select('#viz-ch9-static').on('click', ()=>{mode='static';draw();document.getElementById('viz-ch9-status').textContent='4 requests, longest=300 tokens. Shorter ones waste their slots.';});
+    d3.select('#viz-ch9-continuous').on('click', ()=>{mode='continuous';draw();document.getElementById('viz-ch9-status').textContent='Same requests, but finished slots immediately refill with new work.';});
+    d3.select('#viz-ch9-reset').on('click', ()=>{mode=null;draw();document.getElementById('viz-ch9-status').textContent='';});
+})();
+</script>
+
+<h3>How It Works</h3>
+
+<div class="diagram">
+<span class="diagram-label">The continuous batching loop &mdash; every decode step</span>
+<pre><code>
+  <span class="kw">every</span> decode step:
+      <span class="cm">1. Run one forward pass</span> &rarr; produce one token per active sequence
+
+      <span class="cm">2. Check completions:</span>
+         <span class="kw">for each</span> sequence <span class="kw">in</span> batch:
+             <span class="kw">if</span> token == EOS <span class="kw">or</span> len == max_len:
+                 <span class="fn">return result to client</span>
+                 <span style="color:var(--green)">free KV cache blocks</span>    <span class="cm">&larr; slot opens immediately</span>
+
+      <span class="cm">3. Admit new work:</span>
+         <span class="kw">while</span> free_slots > 0 <span class="kw">and</span> waiting_queue not empty:
+             req = waiting_queue.pop()
+             <span style="color:var(--cyan)">prefill(req)</span>              <span class="cm">&larr; or schedule chunked prefill</span>
+             add req to active batch
+
+      <span class="cm">4. Repeat</span>
+
+  <span class="pp">The batch composition changes every single iteration.</span>
+  <span class="pp">No request waits for another. The GPU never idles.</span>
+</code></pre>
+</div>
+
+<div class="tabbed">
+<input type="radio" name="batch-tabs" id="batch-tabs-t1" class="t1" checked>
+<input type="radio" name="batch-tabs" id="batch-tabs-t2" class="t2">
+<input type="radio" name="batch-tabs" id="batch-tabs-t3" class="t3">
+<div class="tab-bar">
+<label for="batch-tabs-t1">Chunked Prefill</label>
+<label for="batch-tabs-t2">Preemption</label>
+<label for="batch-tabs-t3">The Numbers</label>
+</div>
+<div class="tab-panel p1">
+<div class="diagram"><span class="diagram-label">Chunked prefill &mdash; mixing prompt processing with decode</span>
+<pre><code>
+  <span class="cm">Problem: A new request arrives with a 4,096-token prompt.</span>
+  <span class="cm">Prefilling it takes ~200ms, blocking all decode requests.</span>
+
+  <span class="cm">Solution: chunk the prefill.</span>
+
+  <span class="cm">Token budget per step: 512 tokens</span>
+  <span class="cm">Running decodes: 8 sequences (8 tokens)</span>
+  <span class="cm">Remaining budget: 504 tokens</span>
+
+  Step 1: [<span style="color:var(--cyan)">D D D D D D D D</span>][<span style="color:var(--orange)">P P P ... P</span>]  8 decode + 504 prefill chunk
+  Step 2: [<span style="color:var(--cyan)">D D D D D D D D</span>][<span style="color:var(--orange)">P P P ... P</span>]  8 decode + 504 more prefill
+  &vellip;
+  Step 9: [<span style="color:var(--cyan)">D D D D D D D D D</span>][<span style="color:var(--orange)">P ... P</span>]      9 decode (new req joined) + remaining
+
+  <span class="pp">Decode latency is never degraded by incoming prefills.</span>
+  <span class="pp">vLLM V1: decode requests always scheduled first.</span>
+  <span class="pp">Prefills fill the remaining token budget.</span>
+</code></pre></div></div>
+<div class="tab-panel p2">
+<div class="diagram"><span class="diagram-label">Preemption &mdash; when VRAM runs out</span>
+<pre><code>
+  <span class="cm">KV cache VRAM is finite. When the active batch fills it:</span>
+
+  <span class="ty">RECOMPUTE mode</span> (vLLM V1 default):
+    1. Evict lowest-priority request&rsquo;s KV blocks
+    2. Return blocks to free pool
+    3. Request goes back to waiting queue
+    4. When space frees, re-enter and <strong>recompute KV from scratch</strong>
+       (one forward pass over prompt + generated tokens so far)
+
+  <span class="ty">SWAP mode</span> (vLLM V0):
+    1. Copy KV blocks to CPU RAM via PCIe
+    2. When space frees, copy blocks back to GPU
+    <span style="color:var(--red)">Slower: PCIe bandwidth is 32 GB/s vs 2 TB/s HBM</span>
+
+  <span class="cm">Priority: FCFS. Preempt most recently arrived first.</span>
+  <span class="cm">This preserves fairness for requests that waited longer.</span>
+
+  <span class="pp">Preemption is painful but necessary.</span>
+  <span class="pp">Without it, one long request can OOM the entire server.</span>
+</code></pre></div></div>
+<div class="tab-panel p3">
+<div class="diagram"><span class="diagram-label">Throughput impact &mdash; OPT-13B on A100-40GB</span>
+<pre><code>
+  <span class="cm">System              Batching       Throughput    vs Static</span>
+  <span class="cm">&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;</span>
+  HuggingFace         Static         81 tok/s      1&times;
+  FasterTransformer   Static (opt)   324 tok/s     4&times;
+  TGI                 Continuous     648 tok/s     8&times;
+  vLLM (PagedAttn)    Continuous     <span class="nm">1,900 tok/s</span>   <span style="color:var(--green)">23&times;</span>
+
+  <span class="cm">Orca (GPT-3 175B): 36.9&times; throughput vs FasterTransformer</span>
+
+  <span class="pp">The improvement scales with output length variance.</span>
+  <span class="pp">Uniform lengths &rarr; minimal gain.</span>
+  <span class="pp">Real-world chat traffic (high variance) &rarr; 8&ndash;23&times;.</span>
+</code></pre></div></div>
+</div>
+
+<div class="power">
+<div class="power-label">The Scheduling Insight</div>
+<p>A server that waits for a perfect batch is idle too often. A server that merges work continuously turns chat traffic into a conveyor belt. Static batching optimizes for simplicity. Continuous batching optimizes for the GPU. In production, the GPU always wins.</p>
+</div>
+</section>
 <section id="ch10"><h2>// 10 &mdash; Prefill vs Decode</h2><div class="era-badge"><span class="era-num">Era 6</span> &mdash; Split prefill from decode</div><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
 <section id="ch11"><h2>// 11 &mdash; Speculative Decoding</h2><div class="era-badge"><span class="era-num">Era 7</span> &mdash; Predict ahead with speculation</div><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
 <section id="ch12"><h2>// 12 &mdash; The Engines</h2><div class="era-badge"><span class="era-num">Era 8</span> &mdash; Treat serving as scheduling</div><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>

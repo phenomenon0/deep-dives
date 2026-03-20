@@ -9,7 +9,7 @@
 | Ch 06 - The KV Cache | DONE | pending | KV growth D3 viz, GQA table, PagedAttention deep-dive, KV quantization |
 | Ch 07 - Quantization | DONE | pending | D3 quality cliff viz, bit format diagrams, GPTQ/AWQ/GGUF tabs, GPU fit table |
 | Ch 08 - FlashAttention | DONE | pending | D3 tiling animation, naive vs flash comparison, FA1 vs FA2 tabs, benchmark numbers |
-| Ch 09 - Continuous Batching | pending | — | |
+| Ch 09 - Continuous Batching | DONE | pending | D3 static vs continuous comparison, chunked prefill/preemption tabs, Orca/vLLM benchmarks |
 | Ch 10 - Prefill vs Decode | pending | — | |
 | Ch 11 - Speculative Decoding | pending | — | |
 | Ch 12 - The Engines | pending | — | |
