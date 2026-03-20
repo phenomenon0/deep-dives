@@ -707,6 +707,341 @@
 
 </section>
 
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 2: THE STACK MACHINE                                    -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch2">
+<h2>02 &mdash; the stack machine</h2>
+
+<p class="drop-cap">Every processor you have ever used thinks in registers. x86 has <code>eax</code>, <code>ebx</code>, <code>ecx</code> &mdash; named slots that instructions read from and write to. ARM has <code>r0</code> through <code>r15</code>. RISC-V has 32 of them. WebAssembly has zero. It uses a stack: every instruction pops its operands from the top, computes, and pushes the result back. There are no names. There are no destinations. Position <em>is</em> identity.</p>
+
+<p>This sounds primitive. It is also the reason WebAssembly can be validated in a single pass, compiled as fast as it downloads, and proven safe before a single instruction executes.</p>
+
+<h3>How It Thinks</h3>
+
+<p>Consider the expression <code>(3 + 7) * 2</code>. On a register machine, you would write something like <code>mov eax, 3; add eax, 7; imul eax, 2</code> &mdash; explicitly naming which register holds each intermediate value. On the Wasm stack machine, you simply push operands and let each operator consume what it needs:</p>
+
+<div class="diagram">
+<span class="diagram-label">Stack trace: (3 + 7) &times; 2</span>
+<pre><code>  <span class="kw">Instruction</span>        <span class="ty">Stack (top &rarr;)</span>      <span class="cm">Effect</span>
+  ───────────        ──────────────      ──────
+  i32.const 3        <span class="st">[ 3 ]</span>               push 3
+  i32.const 7        <span class="st">[ 3, 7 ]</span>            push 7
+  i32.add            <span class="st">[ 10 ]</span>              pop 3 and 7, push 10
+  i32.const 2        <span class="st">[ 10, 2 ]</span>           push 2
+  i32.mul            <span class="st">[ 20 ]</span>              pop 10 and 2, push 20</code></pre>
+</div>
+
+<p>Five instructions. No register names. No <code>mov</code> to shuttle values between slots. The <code>i32.add</code> instruction does not say &ldquo;add eax and ebx.&rdquo; It says &ldquo;pop two values, add them, push the result.&rdquo; The compiler that emits this code never has to solve a register allocation problem, and the engine that compiles it to native code can map stack positions to real registers however it likes.</p>
+
+<p>Step through it yourself:</p>
+
+<div class="viz-container">
+<svg id="viz-stack" viewBox="0 0 780 340" role="img">
+  <title>Interactive stack machine execution trace</title>
+</svg>
+<div class="viz-controls">
+  <button id="viz-stack-step">Step</button>
+  <button id="viz-stack-play">Play</button>
+  <button id="viz-stack-reset" class="secondary">Reset</button>
+  <span id="viz-stack-status" style="color:var(--text-dim);">Hit Step to execute one instruction at a time</span>
+</div>
+</div>
+
+<h3>Registers vs. Stack</h3>
+
+<p>The natural question: if real CPUs use registers, why does Wasm use a stack? Three reasons.</p>
+
+<p><strong>Compactness.</strong> A register instruction needs to encode source and destination registers in every opcode: <code>add eax, ebx</code> encodes three things (operation, source, destination). A stack instruction encodes one: <code>i32.add</code>. The operands are implicit &mdash; they are wherever the top of the stack is. This is why Wasm bytecode is denser than register-based bytecodes like LLVM IR or Dalvik &mdash; fewer bits per instruction, smaller binaries over the wire.</p>
+
+<p><strong>Validation.</strong> On a register machine, the validator has to track which registers hold which types at every point in the program &mdash; a data-flow analysis that can be expensive. On a stack machine, the validator maintains a single type stack. At <code>i32.add</code>, it pops two types: if both are <code>i32</code>, the result is <code>i32</code>. If not, the module is rejected. One pass, linear time, no fixed-point iteration.</p>
+
+<p><strong>No overhead in practice.</strong> The browser&rsquo;s compiler maps stack positions to real CPU registers during compilation anyway. V8&rsquo;s Liftoff compiler does this in a single pass &mdash; it maintains a virtual stack that records which register (or spill slot) holds each Wasm stack value. The stack encoding costs nothing at runtime; it only exists in the binary format.</p>
+
+<div class="vs">
+<div class="vs-col">
+<h4>x86 register machine</h4>
+<pre><code><span class="kw">mov</span>  <span class="ty">eax</span>, <span class="nm">3</span>       <span class="cm">; eax = 3</span>
+<span class="kw">mov</span>  <span class="ty">ebx</span>, <span class="nm">7</span>       <span class="cm">; ebx = 7</span>
+<span class="kw">add</span>  <span class="ty">eax</span>, <span class="ty">ebx</span>     <span class="cm">; eax = eax + ebx = 10</span>
+<span class="kw">mov</span>  <span class="ty">ecx</span>, <span class="nm">2</span>       <span class="cm">; ecx = 2</span>
+<span class="kw">imul</span> <span class="ty">eax</span>, <span class="ty">ecx</span>     <span class="cm">; eax = eax * ecx = 20</span></code></pre>
+<p style="font-size:0.82rem;color:var(--text-dim);">Every instruction names its operands. 5 instructions, 3 registers, each encoding source + destination.</p>
+</div>
+<div class="vs-col">
+<h4>Wasm stack machine</h4>
+<pre><code><span class="kw">i32.const</span> <span class="nm">3</span>      <span class="cm">;; push 3</span>
+<span class="kw">i32.const</span> <span class="nm">7</span>      <span class="cm">;; push 7</span>
+<span class="kw">i32.add</span>           <span class="cm">;; pop 2, push sum</span>
+<span class="kw">i32.const</span> <span class="nm">2</span>      <span class="cm">;; push 2</span>
+<span class="kw">i32.mul</span>           <span class="cm">;; pop 2, push product</span></code></pre>
+<p style="font-size:0.82rem;color:var(--text-dim);">No operand names. Position on the stack IS the identity. 5 instructions, 0 registers, each encoding only the operation.</p>
+</div>
+</div>
+
+<h3>Structured Control Flow</h3>
+
+<p>Native code can jump anywhere. A <code>goto</code> in C can target any label. A <code>jmp</code> in x86 can land on any address. This flexibility is what makes return-oriented programming (ROP) attacks possible &mdash; attackers chain together fragments of existing code by hijacking jump targets.</p>
+
+<p>Wasm cannot jump anywhere. It has no <code>goto</code>. Instead, control flow is <em>structured</em> &mdash; built from nested blocks that the validator can reason about statically:</p>
+
+<div class="tabbed">
+<input type="radio" name="cf" id="cf-t1" class="t1" checked>
+<input type="radio" name="cf" id="cf-t2" class="t2">
+<input type="radio" name="cf" id="cf-t3" class="t3">
+<div class="tab-bar">
+  <label for="cf-t1">The Primitives</label>
+  <label for="cf-t2">C Source</label>
+  <label for="cf-t3">WAT Output</label>
+</div>
+<div class="tab-panel p1">
+<div style="padding:1rem 1.4rem;">
+<p style="font-size:0.9rem;margin-bottom:0.8rem;">Wasm has exactly four control flow constructs. No <code>goto</code>. No arbitrary jumps.</p>
+<table>
+<tr><th>Construct</th><th>Behavior</th></tr>
+<tr><td><code>block...end</code></td><td>A labeled scope. <code>br</code> jumps <em>forward</em> to the end.</td></tr>
+<tr><td><code>loop...end</code></td><td>A labeled scope. <code>br</code> jumps <em>backward</em> to the top.</td></tr>
+<tr><td><code>if...else...end</code></td><td>Pops an i32. Nonzero &rarr; then branch, zero &rarr; else branch.</td></tr>
+<tr><td><code>br N</code> / <code>br_if N</code></td><td>Branch to the Nth enclosing block. Not an address &mdash; a nesting depth.</td></tr>
+</table>
+<p style="font-size:0.9rem;margin-top:0.8rem;">Every branch target is a structurally enclosing scope. The validator proves, before execution, that control never reaches an unexpected instruction.</p>
+</div>
+</div>
+<div class="tab-panel p2">
+<pre><span class="label">C</span><code><span class="ty">int</span> <span class="fn">find_first_even</span>(<span class="ty">int</span>* arr, <span class="ty">int</span> len) {
+  <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i < len; i++) {
+    <span class="kw">if</span> (arr[i] % <span class="nm">2</span> == <span class="nm">0</span>)
+      <span class="kw">return</span> arr[i];    <span class="cm">// early exit</span>
+  }
+  <span class="kw">return</span> -<span class="nm">1</span>;
+}</code></pre>
+</div>
+<div class="tab-panel p3">
+<pre><span class="label">WAT</span><code>(<span class="kw">func</span> $find_first_even (<span class="kw">param</span> <span class="ty">$arr i32</span>) (<span class="kw">param</span> <span class="ty">$len i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
+  (<span class="kw">local</span> <span class="ty">$i i32</span>)
+  (<span class="kw">block</span> <span class="fn">$exit</span>                   <span class="cm">;; br 1 jumps here &darr;</span>
+    (<span class="kw">loop</span> <span class="fn">$loop</span>                  <span class="cm">;; br 0 jumps here &uarr;</span>
+      <span class="kw">local.get</span> $i
+      <span class="kw">local.get</span> $len
+      <span class="kw">i32.ge_s</span>
+      <span class="kw">br_if</span> <span class="fn">$exit</span>              <span class="cm">;; i >= len? break</span>
+
+      <span class="kw">local.get</span> $arr
+      <span class="kw">local.get</span> $i
+      <span class="kw">i32.const</span> <span class="nm">4</span>
+      <span class="kw">i32.mul</span>
+      <span class="kw">i32.add</span>
+      <span class="kw">i32.load</span>                 <span class="cm">;; arr[i]</span>
+      <span class="kw">i32.const</span> <span class="nm">2</span>
+      <span class="kw">i32.rem_u</span>
+      <span class="kw">i32.eqz</span>
+      (<span class="kw">if</span> (<span class="kw">then</span>
+        <span class="cm">;; found even &mdash; return it</span>
+        <span class="kw">local.get</span> $arr
+        <span class="kw">local.get</span> $i
+        <span class="kw">i32.const</span> <span class="nm">4</span>
+        <span class="kw">i32.mul</span>
+        <span class="kw">i32.add</span>
+        <span class="kw">i32.load</span>
+        <span class="kw">return</span>
+      ))
+
+      <span class="kw">local.get</span> $i
+      <span class="kw">i32.const</span> <span class="nm">1</span>
+      <span class="kw">i32.add</span>
+      <span class="kw">local.set</span> $i
+      <span class="kw">br</span> <span class="fn">$loop</span>                 <span class="cm">;; continue</span>
+    )
+  )
+  <span class="kw">i32.const</span> -<span class="nm">1</span>                  <span class="cm">;; not found</span>
+)</code></pre>
+</div>
+</div>
+
+<p>The key insight: <code>br 1</code> does not mean &ldquo;jump to address 0x4A2.&rdquo; It means &ldquo;jump to the end of the 1st enclosing block.&rdquo; The target is a nesting depth, not an address. You cannot construct a branch that escapes its enclosing scope, which means you cannot construct an ROP gadget chain. The control flow graph is a tree of nested scopes, never a spaghetti of arbitrary jumps.</p>
+
+<div class="power zen">
+<div class="power-label">Why No Goto?</div>
+<p>Native code&rsquo;s arbitrary jumps enable ROP attacks &mdash; attackers chain together fragments of existing code by hijacking return addresses. Hardware mitigations like Intel CET and ARM BTI add 5&ndash;15% overhead to enforce control flow integrity. Wasm gets the same property for free. Structured control flow means the validator can prove, in a single linear pass, that every branch lands on a valid target. The security is baked into the instruction set, not bolted on afterward.</p>
+</div>
+
+<h3>The Validation Pass</h3>
+
+<p>Every Wasm module is validated before a single instruction executes. The validator walks through the bytecode once, maintaining a type stack &mdash; a parallel stack that tracks not values but their types. At each instruction, it checks: does this operator expect what is currently on top?</p>
+
+<div class="diagram">
+<span class="diagram-label">Type checking in one pass</span>
+<pre><code>  <span class="kw">Instruction</span>        <span class="ty">Type Stack</span>       <span class="cm">Check</span>
+  ───────────        ──────────       ─────
+  i32.const 3        <span class="st">[i32]</span>            push i32 &mdash; <span class="st">ok</span>
+  i32.const 7        <span class="st">[i32, i32]</span>       push i32 &mdash; <span class="st">ok</span>
+  i32.add            <span class="st">[i32]</span>            expect [i32, i32], got [i32, i32] &mdash; <span class="st">ok</span>
+  i32.const 2        <span class="st">[i32, i32]</span>       push i32 &mdash; <span class="st">ok</span>
+  i32.mul            <span class="st">[i32]</span>            expect [i32, i32], got [i32, i32] &mdash; <span class="st">ok</span>
+
+  <span class="cm">&mdash; but what if someone injects a bad instruction? &mdash;</span>
+
+  i32.const 3        <span class="st">[i32]</span>            push i32 &mdash; <span class="st">ok</span>
+  f64.const 2.0      <span class="st">[i32, f64]</span>       push f64 &mdash; <span class="st">ok</span>
+  i32.add            <span class="pp">[ERROR]</span>          expect [i32, i32], got [i32, <span class="pp">f64</span>] &mdash; <span class="pp">REJECT</span></code></pre>
+</div>
+
+<p>The module is rejected before it ever runs. Not at the first bad instruction &mdash; before <em>any</em> instruction. The entire module either passes validation or is discarded as malformed. This is a security property that native code does not have and JavaScript cannot provide. A Wasm module that passes validation will never execute an undefined operation, never access an illegal type, never misalign the stack. The type system <em>is</em> the sandbox.</p>
+
+<p>We know how the machine thinks &mdash; it pushes, pops, and branches through nested scopes. But what does the file that carries these instructions actually look like? The next chapter cracks open a <code>.wasm</code> binary byte by byte.</p>
+
+</section>
+
+<script>
+// ── Chapter 2: Stack Machine Visualization ──
+(function() {
+  const svg = d3.select('#viz-stack');
+  const W = 780, H = 340;
+
+  const instructions = [
+    { op: 'i32.const 3', hex: '41 03', effect: 'push 3', push: [{ val: 3, type: 'i32' }], pop: 0 },
+    { op: 'i32.const 7', hex: '41 07', effect: 'push 7', push: [{ val: 7, type: 'i32' }], pop: 0 },
+    { op: 'i32.add',     hex: '6A',    effect: 'pop 3 and 7, push 10', push: [{ val: 10, type: 'i32' }], pop: 2 },
+    { op: 'i32.const 2', hex: '41 02', effect: 'push 2', push: [{ val: 2, type: 'i32' }], pop: 0 },
+    { op: 'i32.mul',     hex: '6C',    effect: 'pop 10 and 2, push 20', push: [{ val: 20, type: 'i32' }], pop: 2 },
+  ];
+
+  const typeColors = { i32: '#00ff88', i64: '#00ddff', f32: '#ff8800', f64: '#ff00aa' };
+  let step = -1;
+  let stack = [];
+  let timer = null;
+
+  const explains = [
+    'Hit <b>Step</b> to execute one instruction, or <b>Play</b> to watch the computation.',
+    '<code>i32.const 3</code> \u2014 Push the integer 3 onto the stack.',
+    '<code>i32.const 7</code> \u2014 Push 7. Two operands now waiting.',
+    '<code>i32.add</code> \u2014 Pop two values, add, push the result. No register names \u2014 the stack IS the workspace.',
+    '<code>i32.const 2</code> \u2014 Push 2. The sum (10) is still there beneath it.',
+    '<code>i32.mul</code> \u2014 Pop 10 and 2, multiply, push 20. Five instructions, one result.',
+  ];
+
+  function draw() {
+    svg.selectAll('*').remove();
+
+    // ── Instruction list (left) ──
+    const instX = 30, instY = 30, instH = 42;
+    svg.append('text').attr('x', instX).attr('y', instY - 10)
+      .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
+      .attr('font-size', '10px').attr('text-transform', 'uppercase')
+      .attr('letter-spacing', '0.1em').text('Instructions');
+
+    instructions.forEach((inst, i) => {
+      const y = instY + i * instH;
+      const isCurrent = i === step;
+
+      if (isCurrent) {
+        svg.append('rect')
+          .attr('x', instX - 8).attr('y', y - 4)
+          .attr('width', 280).attr('height', instH - 6)
+          .attr('rx', 4).attr('fill', 'rgba(255,221,0,0.1)')
+          .attr('stroke', '#ffdd00').attr('stroke-width', 1).attr('stroke-opacity', 0.4);
+      }
+
+      const past = i < step;
+      svg.append('text').attr('x', instX).attr('y', y + 18)
+        .attr('fill', isCurrent ? '#ffdd00' : past ? '#6a6a7e' : '#c8c8d4')
+        .attr('font-family', 'JetBrains Mono, monospace')
+        .attr('font-size', '14px').attr('font-weight', isCurrent ? '600' : '400')
+        .text(inst.op);
+
+      svg.append('text').attr('x', instX + 200).attr('y', y + 18)
+        .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
+        .attr('font-size', '11px').attr('opacity', 0.6)
+        .text(inst.hex);
+    });
+
+    // ── Divider ──
+    svg.append('line').attr('x1', 340).attr('y1', 15).attr('x2', 340).attr('y2', H - 40)
+      .attr('stroke', '#1e1e2e').attr('stroke-dasharray', '4,4');
+
+    // ── Stack (right) ──
+    const stackX = 500, stackBase = H - 60, boxW = 140, boxH = 42;
+    svg.append('text').attr('x', stackX).attr('y', 20)
+      .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
+      .attr('font-size', '10px').attr('text-transform', 'uppercase')
+      .attr('letter-spacing', '0.1em').text('Value Stack');
+
+    if (stack.length === 0 && step >= 0) {
+      svg.append('text').attr('x', stackX + boxW / 2).attr('y', stackBase - 10)
+        .attr('text-anchor', 'middle').attr('fill', '#6a6a7e')
+        .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', '12px')
+        .text('(empty)');
+    }
+
+    stack.forEach((item, i) => {
+      const y = stackBase - (i + 1) * (boxH + 4);
+      const color = typeColors[item.type] || '#c8c8d4';
+      const isTop = i === stack.length - 1;
+
+      svg.append('rect')
+        .attr('x', stackX - boxW / 2 + 70).attr('y', y)
+        .attr('width', boxW).attr('height', boxH)
+        .attr('rx', 4)
+        .attr('fill', color + '22')
+        .attr('stroke', color).attr('stroke-width', isTop ? 2 : 1)
+        .attr('stroke-opacity', isTop ? 1 : 0.5);
+
+      svg.append('text')
+        .attr('x', stackX + 70).attr('y', y + boxH / 2 + 5)
+        .attr('text-anchor', 'middle').attr('fill', color)
+        .attr('font-family', 'JetBrains Mono, monospace')
+        .attr('font-size', '18px').attr('font-weight', '600')
+        .text(item.val);
+
+      svg.append('text')
+        .attr('x', stackX + boxW / 2 + 65).attr('y', y + boxH - 6)
+        .attr('text-anchor', 'end').attr('fill', color)
+        .attr('font-family', 'JetBrains Mono, monospace')
+        .attr('font-size', '9px').attr('opacity', 0.6)
+        .text(item.type);
+    });
+
+    // ── Stack baseline ──
+    svg.append('line')
+      .attr('x1', stackX - boxW / 2 + 50).attr('y1', stackBase + 4)
+      .attr('x2', stackX + boxW / 2 + 90).attr('y2', stackBase + 4)
+      .attr('stroke', '#1e1e2e').attr('stroke-width', 1);
+  }
+
+  function advance() {
+    if (step >= instructions.length - 1) {
+      clearInterval(timer); timer = null;
+      return;
+    }
+    step++;
+    const inst = instructions[step];
+    for (let i = 0; i < inst.pop; i++) stack.pop();
+    inst.push.forEach(v => stack.push({ val: v.val, type: v.type }));
+    draw();
+    d3.select('#viz-stack-status').html(explains[step + 1] || '');
+  }
+
+  function reset() {
+    clearInterval(timer); timer = null;
+    step = -1;
+    stack = [];
+    draw();
+    d3.select('#viz-stack-status').html(explains[0]);
+  }
+
+  d3.select('#viz-stack-step').on('click', () => { clearInterval(timer); timer = null; advance(); });
+  d3.select('#viz-stack-play').on('click', () => {
+    if (timer) return;
+    if (step >= instructions.length - 1) reset();
+    timer = setInterval(advance, 800);
+  });
+  d3.select('#viz-stack-reset').on('click', reset);
+
+  draw();
+  d3.select('#viz-stack-status').html(explains[0]);
+})();
+</script>
+
 </div><!-- .content -->
 </body>
 </html>
