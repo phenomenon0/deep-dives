@@ -963,7 +963,328 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 <p>Quantization serves two masters. <strong>&ldquo;Fit&rdquo;</strong> means: can the model load at all? A 70B at Q4 needs 42 GB &mdash; it fits on an A100 but not a 3090. <strong>&ldquo;Fast&rdquo;</strong> means: once loaded, how quickly does it generate? A 7B at Q4 on a 3090 is 3&times; faster than FP16 because it reads 3.5 GB instead of 14 GB per token. These are different problems with the same solution. Quantization is the first trick you reach for, and often the last one you need.</p>
 </div>
 </section>
-<section id="ch8"><h2>// 08 &mdash; FlashAttention</h2><div class="era-badge"><span class="era-num">Era 3</span> &mdash; Reduce attention IO</div><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
+<section id="ch8">
+<h2>// 08 &mdash; FlashAttention</h2>
+<div class="era-badge"><span class="era-num">Era 3</span> &mdash; Reduce attention IO</div>
+<div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--magenta)">SAME ATTENTION</span> &middot; <span style="color:var(--green)">FEWER TRIPS</span></div>
+<div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
+    The equations did not change. The path through memory did.<span class="blink">_</span>
+</div>
+
+<p class="drop-cap">Naive attention spends too much time writing and rereading things it could have kept closer. The score matrix &mdash; that N&times;N grid of how-much-does-this-token-attend-to-that-token &mdash; gets computed, written to HBM, read back for softmax, written again, and read one more time for the final multiply. FlashAttention&rsquo;s insight was simple and brutal: the expensive part was not the arithmetic. It was the traffic.</p>
+
+<h3>The Problem: Materializing N&times;N</h3>
+
+<div class="diagram">
+<span class="diagram-label">Standard attention &mdash; what gets written to HBM</span>
+<pre><code>
+  <span class="cm">Sequence length = 2048, head_dim = 128, 32 heads, FP16</span>
+
+  <span class="ty">Step 1:</span>  S = Q &middot; K<sup>T</sup>
+           Read Q, K from HBM
+           <strong>Write S to HBM:</strong> 2048 &times; 2048 &times; 2 bytes = <span class="nm">8 MB per head</span>
+           &times; 32 heads = <span style="color:var(--red)">256 MB</span>
+
+  <span class="ty">Step 2:</span>  P = softmax(S)
+           <strong>Read S from HBM</strong> (256 MB)
+           <strong>Write P to HBM</strong> (256 MB)
+
+  <span class="ty">Step 3:</span>  O = P &middot; V
+           <strong>Read P from HBM</strong> (256 MB), read V
+           Write output O
+
+  <span class="cm">Total HBM traffic: ~1 GB+ for one layer of attention</span>
+  <span class="cm">&times; 64 layers = tens of GB. Per token batch.</span>
+
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+
+  <span class="cm">Meanwhile, the A100&rsquo;s on-chip SRAM:</span>
+    192 KB per SM &times; 108 SMs = <span class="nm">~20 MB total</span>
+    The 256 MB score matrix is <span style="color:var(--red)">12&times; larger than all SRAM combined</span>.
+    It <em>cannot</em> stay on chip. It must be materialized in HBM.
+    <span class="pp">That materialization is the bottleneck.</span>
+</code></pre>
+</div>
+
+<h3>The Solution: Tiling and Online Softmax</h3>
+
+<p>FlashAttention never builds the full N&times;N matrix. Instead, it processes attention in small tiles that fit in SRAM, using an online softmax algorithm that computes the <em>exact</em> answer without ever seeing all scores at once.</p>
+
+<div class="viz-container">
+<svg id="viz-ch8-flash" viewBox="0 0 780 420"></svg>
+<div class="viz-controls">
+<button id="viz-ch8-play">Play</button>
+<button id="viz-ch8-step">Step</button>
+<button id="viz-ch8-reset" class="secondary">Reset</button>
+<span id="viz-ch8-status" style="color:var(--text-dim);"></span>
+</div>
+</div>
+
+<script>
+(function() {
+    const svg = d3.select('#viz-ch8-flash');
+    const W = 780, H = 420;
+    let step = -1, timer = null;
+    const Bq = 4, Bk = 4; // block counts
+    const N = 8; // total "tokens" for viz
+    const cellS = 32, gap = 2;
+
+    // Layout positions
+    const matX = 40, matY = 60;
+    const sramX = 420, sramY = 60;
+    const hbmCountX = 420, hbmCountY = 340;
+
+    function draw() {
+        svg.selectAll('*').remove();
+
+        // Title
+        svg.append('text').attr('x', W/2).attr('y', 20).text('FlashAttention Tiling \u2014 Never Materialize N\u00d7N')
+            .attr('fill','#ff00aa').attr('font-family','JetBrains Mono').attr('font-size',12).attr('text-anchor','middle');
+
+        // Labels
+        svg.append('text').attr('x', matX).attr('y', 45).text('Score Matrix (what naive builds in HBM)')
+            .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',10);
+        svg.append('text').attr('x', sramX).attr('y', 45).text('SRAM (what Flash keeps on-chip)')
+            .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',10);
+
+        // Q labels (rows) and K labels (cols)
+        for (let i = 0; i < N; i++) {
+            svg.append('text').attr('x', matX - 5).attr('y', matY + i * (cellS + gap) + cellS/2 + 4)
+                .text('Q' + i).attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',8).attr('text-anchor','end');
+            svg.append('text').attr('x', matX + i * (cellS + gap) + cellS/2).attr('y', matY - 5)
+                .text('K' + i).attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',8).attr('text-anchor','middle');
+        }
+
+        // Determine current tile
+        const totalTiles = Bq * Bk;
+        const currentTile = step >= 0 ? Math.min(step, totalTiles - 1) : -1;
+        const tileRow = currentTile >= 0 ? Math.floor(currentTile / Bk) : -1;
+        const tileCol = currentTile >= 0 ? currentTile % Bk : -1;
+        const bSize = N / Bq; // tokens per block
+
+        // Draw the NxN grid
+        for (let r = 0; r < N; r++) {
+            for (let c = 0; c < N; c++) {
+                const br = Math.floor(r / bSize), bc = Math.floor(c / bSize);
+                const tileIdx = br * Bk + bc;
+                let fill, opacity;
+
+                if (tileIdx < currentTile) {
+                    fill = '#00ff88'; opacity = 0.15; // processed
+                } else if (tileIdx === currentTile) {
+                    fill = '#ff00aa'; opacity = 0.5; // current
+                } else {
+                    fill = '#6a6a7e'; opacity = 0.05; // future
+                }
+
+                svg.append('rect')
+                    .attr('x', matX + c * (cellS + gap))
+                    .attr('y', matY + r * (cellS + gap))
+                    .attr('width', cellS).attr('height', cellS)
+                    .attr('fill', fill).attr('opacity', opacity).attr('rx', 2);
+
+                if (tileIdx === currentTile) {
+                    svg.append('rect')
+                        .attr('x', matX + c * (cellS + gap) - 1)
+                        .attr('y', matY + r * (cellS + gap) - 1)
+                        .attr('width', cellS + 2).attr('height', cellS + 2)
+                        .attr('fill', 'none').attr('stroke', '#ff00aa').attr('stroke-width', 1.5).attr('rx', 3);
+                }
+            }
+        }
+
+        // SRAM visualization: show the current tile
+        if (currentTile >= 0) {
+            const tR = tileRow * bSize, tC = tileCol * bSize;
+            // Current tile block
+            svg.append('text').attr('x', sramX).attr('y', sramY + 10).text(`Tile [${tileRow},${tileCol}]: Q${tR}-${tR+bSize-1} \u00d7 K${tC}-${tC+bSize-1}`)
+                .attr('fill','#ff00aa').attr('font-family','JetBrains Mono').attr('font-size',11).attr('font-weight','bold');
+
+            // Small tile in SRAM
+            for (let r = 0; r < bSize; r++) {
+                for (let c = 0; c < bSize; c++) {
+                    svg.append('rect')
+                        .attr('x', sramX + c * 50)
+                        .attr('y', sramY + 25 + r * 30)
+                        .attr('width', 46).attr('height', 26)
+                        .attr('fill', '#ff00aa22').attr('stroke', '#ff00aa44').attr('rx', 3);
+                    const score = (Math.sin((tR+r)*3 + (tC+c)*7) * 2).toFixed(1);
+                    svg.append('text')
+                        .attr('x', sramX + c * 50 + 23)
+                        .attr('y', sramY + 25 + r * 30 + 17)
+                        .text(score)
+                        .attr('fill','#ff00aa').attr('font-family','JetBrains Mono').attr('font-size',10).attr('text-anchor','middle');
+                }
+            }
+
+            // Online softmax state
+            const osY = sramY + 25 + bSize * 30 + 20;
+            svg.append('text').attr('x', sramX).attr('y', osY).text('Online softmax state:')
+                .attr('fill','#ffdd00').attr('font-family','JetBrains Mono').attr('font-size',10);
+            svg.append('text').attr('x', sramX).attr('y', osY + 18).text(`running_max = [${(tileCol * 0.7 + 1.2).toFixed(1)}, ${(tileCol * 0.5 + 0.8).toFixed(1)}]`)
+                .attr('fill','#ffdd0099').attr('font-family','JetBrains Mono').attr('font-size',10);
+            svg.append('text').attr('x', sramX).attr('y', osY + 36).text(`running_sum = [${(tileCol * 2.1 + 1.0).toFixed(1)}, ${(tileCol * 1.8 + 1.0).toFixed(1)}]`)
+                .attr('fill','#ffdd0099').attr('font-family','JetBrains Mono').attr('font-size',10);
+            svg.append('text').attr('x', sramX).attr('y', osY + 54).text(`output_accum = [...${bSize * (tileCol+1)} values...]`)
+                .attr('fill','#00ff8899').attr('font-family','JetBrains Mono').attr('font-size',10);
+
+            // Arrow from matrix to SRAM
+            svg.append('line')
+                .attr('x1', matX + N * (cellS+gap) + 10).attr('y1', matY + tileRow * bSize * (cellS+gap) + bSize*(cellS+gap)/2)
+                .attr('x2', sramX - 10).attr('y2', sramY + 50)
+                .attr('stroke','#ff00aa44').attr('stroke-width',1.5).attr('stroke-dasharray','4,3');
+        }
+
+        // HBM counter
+        const naiveHBM = step >= 0 ? N * N * 2 * 3 : 0; // 3 passes in naive
+        const flashHBM = step >= 0 ? (currentTile + 1) * bSize * 128 : 0; // approximate
+        svg.append('text').attr('x', hbmCountX).attr('y', hbmCountY).text('HBM Traffic Comparison')
+            .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',10);
+
+        const naiveW = Math.min(300, 300);
+        const flashW = step >= 0 ? Math.min(300, 300 * (currentTile + 1) / totalTiles * 0.3) : 0;
+
+        svg.append('rect').attr('x', hbmCountX).attr('y', hbmCountY + 10).attr('width', naiveW).attr('height', 16).attr('fill','#ff334444').attr('rx',2);
+        svg.append('text').attr('x', hbmCountX + naiveW + 8).attr('y', hbmCountY + 23).text('Naive: O(N\u00b2)').attr('fill','#ff3344').attr('font-family','JetBrains Mono').attr('font-size',9);
+
+        svg.append('rect').attr('x', hbmCountX).attr('y', hbmCountY + 32).attr('width', Math.max(8, flashW)).attr('height', 16).attr('fill','#00ff8866').attr('rx',2);
+        svg.append('text').attr('x', hbmCountX + Math.max(8, flashW) + 8).attr('y', hbmCountY + 45).text('Flash: O(N\u00b7d\u00b2/M)').attr('fill','#00ff88').attr('font-family','JetBrains Mono').attr('font-size',9);
+
+        // Status
+        const statusEl = document.getElementById('viz-ch8-status');
+        if (step < 0) statusEl.textContent = 'Hit Play to watch tiling in action.';
+        else if (step >= totalTiles) statusEl.textContent = `Done. ${totalTiles} tiles processed. Score matrix never materialized.`;
+        else statusEl.textContent = `Tile ${currentTile+1}/${totalTiles}: computing Q[${tileRow*bSize}:${(tileRow+1)*bSize}] \u00d7 K[${tileCol*bSize}:${(tileCol+1)*bSize}] in SRAM`;
+    }
+
+    draw();
+
+    d3.select('#viz-ch8-play').on('click', function() {
+        if (timer) return;
+        step = -1;
+        function tick() {
+            step++;
+            draw();
+            if (step > Bq * Bk) { timer = null; return; }
+            timer = setTimeout(tick, 600);
+        }
+        tick();
+    });
+    d3.select('#viz-ch8-step').on('click', function() {
+        if (timer) { clearTimeout(timer); timer = null; }
+        step++; if (step > Bq * Bk) step = Bq * Bk;
+        draw();
+    });
+    d3.select('#viz-ch8-reset').on('click', function() {
+        if (timer) { clearTimeout(timer); timer = null; }
+        step = -1; draw();
+    });
+})();
+</script>
+
+<div class="tabbed">
+<input type="radio" name="flash-tabs" id="flash-tabs-t1" class="t1" checked>
+<input type="radio" name="flash-tabs" id="flash-tabs-t2" class="t2">
+<input type="radio" name="flash-tabs" id="flash-tabs-t3" class="t3">
+<div class="tab-bar">
+<label for="flash-tabs-t1">The Algorithm</label>
+<label for="flash-tabs-t2">FA1 vs FA2</label>
+<label for="flash-tabs-t3">The Numbers</label>
+</div>
+<div class="tab-panel p1">
+<div class="diagram"><span class="diagram-label">FlashAttention &mdash; the core loop</span>
+<pre><code>
+  <span class="cm">Split Q into T<sub>r</sub> row blocks, K/V into T<sub>c</sub> column blocks.</span>
+  <span class="cm">Block sizes chosen so one tile fits in SRAM (~128&times;128).</span>
+
+  <span class="kw">for each</span> Q block <span class="ty">Q<sub>i</sub></span>:
+      Initialize: running_max = &minus;&infin;, running_sum = 0, output = 0
+
+      <span class="kw">for each</span> K/V block <span class="ty">K<sub>j</sub></span>, <span class="ty">V<sub>j</sub></span>:
+          <span class="fn">Load</span> K<sub>j</sub>, V<sub>j</sub> into SRAM                  <span class="cm">&larr; one HBM read</span>
+
+          <span class="cm"># Everything below happens on-chip, in SRAM:</span>
+          S<sub>ij</sub> = Q<sub>i</sub> &middot; K<sub>j</sub><sup>T</sup>                           <span class="cm">&larr; small tile, not N&times;N</span>
+          m_new = max(running_max, rowmax(S<sub>ij</sub>))
+          P<sub>ij</sub> = exp(S<sub>ij</sub> &minus; m_new)
+          l_new = exp(running_max &minus; m_new) &middot; running_sum + rowsum(P<sub>ij</sub>)
+
+          <span class="pp">output = rescale(output) + P<sub>ij</sub> &middot; V<sub>j</sub></span>
+
+          running_max = m_new
+          running_sum = l_new
+
+      output = output / running_sum      <span class="cm">&larr; final normalization</span>
+      <span class="fn">Write</span> output to HBM                    <span class="cm">&larr; one HBM write per Q block</span>
+
+  <span class="pp">The N&times;N score matrix never exists. Only B<sub>r</sub>&times;B<sub>c</sub> tiles in SRAM.</span>
+  <span class="pp">Online softmax corrects the running statistics as it goes.</span>
+  <span class="pp">The final answer is exact &mdash; no approximation.</span>
+</code></pre></div></div>
+<div class="tab-panel p2">
+<div class="diagram"><span class="diagram-label">FlashAttention-1 (2022) vs FlashAttention-2 (2023)</span>
+<pre><code>
+  <span class="ty">FA1</span> (Dao, 2022)
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  Loop order: outer over K/V blocks, inner over Q blocks
+  Warp strategy: <span style="color:var(--red)">Split-K</span> &mdash; 4 warps split K, must sync to reduce
+  Softmax: rescale output at every step
+  Forward: 25&ndash;40% of A100 peak
+
+  <span class="ty">FA2</span> (Dao, 2023)
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  Loop order: <span style="color:var(--green)">outer over Q blocks, inner over K/V</span>
+    &rarr; Q blocks are independent &rarr; parallelize across thread blocks
+    &rarr; better occupancy for long sequences
+
+  Warp strategy: <span style="color:var(--green)">Split-Q</span> &mdash; 4 warps split Q, <strong>no sync needed</strong>
+    &rarr; each warp writes its output slice directly
+
+  Softmax: defer normalization, store logsumexp = m + log(l)
+    &rarr; fewer non-matmul FLOPs (16&times; more expensive on A100)
+
+  Causal mask: <span style="color:var(--green)">skip entire tiles</span> where all columns &gt; all rows
+    &rarr; 1.7&ndash;1.8&times; speedup for causal attention
+
+  Forward: <span style="color:var(--green)">50&ndash;73%</span> of A100 peak. <span style="color:var(--green)">2&times; faster than FA1.</span>
+</code></pre></div></div>
+<div class="tab-panel p3">
+<div class="diagram"><span class="diagram-label">Benchmark results from the papers</span>
+<pre><code>
+  <span class="cm">A100 80GB SXM, forward pass, head_dim=128:</span>
+
+  <span class="cm">Seq Len    PyTorch    FA1      FA2       FA2 % peak</span>
+  <span class="cm">&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;</span>
+  2K         57 TF     78 TF    95 TF     <span class="nm">30%</span>
+  8K         83 TF     95 TF    96 TF     <span class="nm">31%</span>
+  16K        <span style="color:var(--red)">OOM</span>       95 TF    98 TF     <span class="nm">31%</span>
+
+  <span class="cm">Forward-only peak: up to <span class="nm">230 TFLOPS</span> = 73% of 312 TF theoretical</span>
+
+  <span class="cm">Memory complexity:</span>
+    Standard:  <span style="color:var(--red)">O(N&sup2;)</span>         16K &rarr; 512 MB per head per layer
+    Flash:     <span style="color:var(--green)">O(N)</span>          16K &rarr; same as 2K  (just Q,K,V,O)
+    Savings:   <span style="color:var(--green)">10&ndash;20&times; less memory</span>
+
+  <span class="cm">End-to-end training (GPT-2 medium):</span>
+    Without Flash:  21.0 days
+    With FA2:        6.9 days   <span style="color:var(--green)">(3.0&times; faster)</span>
+
+  <span class="cm">FlashDecoding (decode, long KV cache):</span>
+    32K context:  <span style="color:var(--green)">6&ndash;7&times;</span> faster than FA2 for single-token decode
+    64K context:  <span style="color:var(--green)">up to 8&times;</span> faster end-to-end
+
+  <span class="pp">FA2 does MORE total FLOPs than naive attention (recomputation).</span>
+  <span class="pp">But it&rsquo;s 2&ndash;4&times; faster because it moves far less data through HBM.</span>
+  <span class="pp">IO-awareness beats raw FLOP counting. Every time.</span>
+</code></pre></div></div>
+</div>
+
+<div class="power">
+<div class="power-label">Why This Matters for Inference</div>
+<p>FlashAttention changed what&rsquo;s possible. Before it, 16K context caused OOM on an A100. After it, 128K context is routine. The memory went from O(N&sup2;) to O(N), and speed improved 2&ndash;4&times; &mdash; all while computing the <strong>exact same attention</strong>. No approximation. No quality loss. Just fewer trips through the memory bus. It is the purest example of the principle from Chapter 5: optimize the trip the numbers take.</p>
+</div>
+</section>
 <section id="ch9"><h2>// 09 &mdash; Continuous Batching</h2><div class="era-badge"><span class="era-num">Era 5</span> &mdash; Keep the batch full</div><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
 <section id="ch10"><h2>// 10 &mdash; Prefill vs Decode</h2><div class="era-badge"><span class="era-num">Era 6</span> &mdash; Split prefill from decode</div><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
 <section id="ch11"><h2>// 11 &mdash; Speculative Decoding</h2><div class="era-badge"><span class="era-num">Era 7</span> &mdash; Predict ahead with speculation</div><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
