@@ -449,6 +449,7 @@
   <a href="#object-model">objects</a>
   <a href="#layout">layout</a>
   <a href="#data-binding">data</a>
+  <a href="#text-engine">text</a>
   <a href="#automation">automation</a>
   <a href="#plugins">plugins</a>
   <a href="#elixir">elixir</a>
@@ -456,6 +457,7 @@
   <a href="#neumenon">neumenon</a>
   <a href="#killer-apps">apps</a>
   <a href="#3d-path">3d</a>
+  <a href="#render-backends">renderers</a>
   <a href="#ai">ai</a>
   <a href="#inkscape">inkscape</a>
   <a href="#positioning">position</a>
@@ -759,6 +761,26 @@
     <div class="power-label">Key Insight</div>
     <p>Export to SVG is a <em>serialization target</em>, not your only truth. The internal model is richer than what SVG can express. That delta — the metadata, bindings, constraints, behaviors — is what makes it an OS and not a format.</p>
   </div>
+
+  <h3>Failure modes</h3>
+
+  <p>A runtime that only describes happy paths is a demo, not a product. The document kernel needs defined behavior for every failure state:</p>
+
+  <table>
+    <tr><th>Failure</th><th>Behavior</th></tr>
+    <tr><td>Node references a missing def (gradient, filter, symbol)</td><td>Render with fallback (transparent fill, no filter). Flag node as <code>error:missing-ref</code>. Surface in diagnostics panel.</td></tr>
+    <tr><td>Circular parent-child relationship</td><td>Reject the mutation. Return error to caller. Tree invariants are non-negotiable.</td></tr>
+    <tr><td>Duplicate UUIDs after paste/merge</td><td>Re-mint UUIDs on the incoming subtree. Always. No "hope it works" path.</td></tr>
+    <tr><td>Corrupt serialization on load</td><td>Parse what you can. Wrap unrecoverable subtrees in an error boundary node. Show diagnostic overlay. Never silently drop content.</td></tr>
+    <tr><td>Plugin mutates tree into invalid state</td><td>Validate after plugin transaction. Roll back if invariants broken. Log the violation for plugin debugging.</td></tr>
+  </table>
+
+  <p>Every node in the tree can carry an <code>errorState</code> flag. Error nodes render with a visible diagnostic overlay (dashed red border in the editor, invisible in export). This means errors are <em>visible</em> — not silent corruption you discover three hours later.</p>
+
+  <div class="power danger">
+    <div class="power-label">Non-Negotiable</div>
+    <p>A runtime that only describes happy paths is a demo, not a product. Define error semantics before you ship. Every data binding, every constraint, every plugin hook, every CRDT merge needs a failure mode. Graceful degradation is an architecture decision, not an afterthought.</p>
+  </div>
 </section>
 
 <!-- ============================================================ -->
@@ -972,13 +994,130 @@ card.<span class="fn">bind</span>({
   Form input   ──▶     emit change     ──▶    notify subs
     </code></pre>
   </div>
+
+  <h3>Binding failures</h3>
+
+  <p>Data sources fail. APIs go down, CSVs have bad rows, LLMs time out, WebSockets disconnect. The binding layer needs defined behavior for every failure — not just the happy path.</p>
+
+  <table>
+    <tr><th>Failure</th><th>Behavior</th></tr>
+    <tr><td>API returns 404 / 500</td><td>Hold last-known value. Show stale-data badge in editor. Retry with exponential backoff. After N failures, surface error to user.</td></tr>
+    <tr><td>Binding evaluates to <code>null</code> / <code>undefined</code></td><td>Use fallback value from schema default. If no default, render placeholder text. Never render "undefined" as visible text.</td></tr>
+    <tr><td>Type mismatch (string where number expected)</td><td>Attempt coercion. If coercion fails, flag the binding as <code>error:type</code> and use fallback.</td></tr>
+    <tr><td>LLM timeout / rate limit</td><td>Show placeholder or cached result. Queue for retry. Never block the render pipeline on an LLM call.</td></tr>
+    <tr><td>CSV parse error (bad row)</td><td>Skip the row. Log it. Continue processing remaining rows. Report skipped count in diagnostics.</td></tr>
+    <tr><td>WebSocket disconnect</td><td>Freeze at last state. Reconnect automatically. Replay missed deltas on reconnect if server supports it.</td></tr>
+  </table>
+
+  <pre><code><span class="label">BINDING WITH FALLBACKS</span>
+card.<span class="fn">bind</span>({
+  <span class="fn">source</span>: { <span class="fn">type</span>: <span class="st">'api'</span>, <span class="fn">url</span>: <span class="st">'https://stats.example.com/player/42'</span> },
+  <span class="fn">map</span>: (data) => ({
+    <span class="st">'.player-name'</span>: data.name,
+    <span class="st">'.rating'</span>: data.rating,
+  }),
+  <span class="fn">fallback</span>: {
+    <span class="st">'.player-name'</span>: <span class="st">'Player Name'</span>,
+    <span class="st">'.rating'</span>: <span class="st">'—'</span>,
+  },
+  <span class="fn">onError</span>: <span class="st">'hold-last'</span>,       <span class="cm">// 'hold-last' | 'use-fallback' | 'hide-node'</span>
+  <span class="fn">retryPolicy</span>: {
+    <span class="fn">maxRetries</span>: <span class="nm">3</span>,
+    <span class="fn">backoff</span>: <span class="st">'exponential'</span>,
+    <span class="fn">initialDelay</span>: <span class="nm">2000</span>,
+  },
+});
+</code></pre>
 </section>
 
 <!-- ============================================================ -->
-<!--  §8 — LAYER 5: AUTOMATION / RUNTIME LANGUAGE                   -->
+<!--  §8 — LAYER 5: TEXT LAYOUT ENGINE                               -->
+<!-- ============================================================ -->
+<section id="text-engine">
+  <h2>§8 — Layer 5: Text Layout Engine</h2>
+
+  <p class="drop-cap">Text is the iceberg. Every data-bound template has text. Every card, certificate, social post, dashboard label, and stadium graphic depends on text that wraps correctly, sizes predictably, and exports identically across SVG, Canvas, PDF, and PNG. Defer text entirely and your MVP breaks on its core use cases. The system needs an honest text strategy from day one.</p>
+
+  <p>SVG's native <code>&lt;text&gt;</code> element is deceptively simple. It handles single lines fine. But the moment you need paragraph wrapping, auto-sizing text boxes, overflow truncation, mixed fonts, or bidirectional scripts — you are on your own. SVG has no paragraph model. No line-breaking algorithm. No text-box concept. Every design tool that uses SVG has had to build this layer from scratch.</p>
+
+  <h3>What text actually requires</h3>
+
+  <table>
+    <tr><th>Capability</th><th>Difficulty</th><th>Why it matters</th></tr>
+    <tr><td>Line breaking</td><td>Medium</td><td>Every multi-line label. Every data-bound text block that might overflow.</td></tr>
+    <tr><td>Paragraph layout</td><td>Hard</td><td>Justified text, widow/orphan control, column flow. Print-quality output.</td></tr>
+    <tr><td>Font shaping (HarfBuzz)</td><td>Hard</td><td>Ligatures, kerning, Arabic/Devanagari/CJK. Without it, non-Latin text is broken.</td></tr>
+    <tr><td>Variable fonts</td><td>Medium</td><td>Weight, width, slant axes. One font file, infinite tuning. Modern type design depends on this.</td></tr>
+    <tr><td>Text-on-path</td><td>Medium</td><td>SVG supports it natively via <code>&lt;textPath&gt;</code>, but interaction/editing is complex.</td></tr>
+    <tr><td>Text wrapping in shapes</td><td>Very hard</td><td>Wrap text inside a circle, polygon, or arbitrary path. Requires geometry + text cooperation.</td></tr>
+    <tr><td>Bidirectional text</td><td>Hard</td><td>Hebrew, Arabic mixed with Latin. Unicode Bidi Algorithm (UBA) is non-trivial.</td></tr>
+    <tr><td>Font fallback chains</td><td>Medium</td><td>Missing glyphs must cascade to backup fonts. CJK coverage requires large fallback stacks.</td></tr>
+    <tr><td>Emoji sequences</td><td>Surprisingly hard</td><td>Family emoji = 7 code points, 1 glyph. ZWJ sequences, skin tone modifiers, flag pairs.</td></tr>
+  </table>
+
+  <h3>The pragmatic approach: two tiers</h3>
+
+  <p>Do not try to solve all of text on day one. But do not pretend it does not exist either. The strategy is two tiers, shipped in sequence.</p>
+
+  <div class="vs">
+    <div class="vs-col">
+      <h4>Tier 1 — MVP text (ship first)</h4>
+      <ul>
+        <li>Use the browser's native text layout via <code>foreignObject</code> or positioned HTML overlays for editable text</li>
+        <li>SVG <code>&lt;text&gt;</code> for simple labels and headings</li>
+        <li>Basic auto-size: shrink-to-fit, truncate with ellipsis</li>
+        <li>Font stack declarations per text node</li>
+        <li>Export renders text to positioned <code>&lt;tspan&gt;</code> elements or rasterizes via Canvas</li>
+      </ul>
+    </div>
+    <div class="vs-col">
+      <h4>Tier 2 — Full text engine (later)</h4>
+      <ul>
+        <li>HarfBuzz compiled to WASM for font shaping</li>
+        <li>Custom paragraph layout (Knuth-Plass line breaking)</li>
+        <li>Bidi algorithm for mixed-direction text</li>
+        <li>Text-in-shape wrapping via geometry intersection</li>
+        <li>Variable font axis control in the property inspector</li>
+        <li>Font subsetting for export (only ship used glyphs)</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Text as a constraint problem</h3>
+
+  <p>Text is not separate from the layout engine — it feeds into it. A text node with <code>autoSize: 'height'</code> needs the constraint solver to resize its container. A text node with <code>overflow: 'shrink'</code> needs font-size to become a solver variable. This coupling is why text cannot be a bolt-on afterthought.</p>
+
+  <pre><code><span class="label">TEXT CONSTRAINTS</span>
+<span class="kw">const</span> titleText = <span class="fn">defineTextNode</span>({
+  <span class="fn">content</span>: <span class="st">'{{ player.name }}'</span>,
+  <span class="fn">fontStack</span>: [<span class="st">'Inter'</span>, <span class="st">'system-ui'</span>, <span class="st">'sans-serif'</span>],
+  <span class="fn">fontSize</span>: { <span class="fn">base</span>: <span class="nm">24</span>, <span class="fn">min</span>: <span class="nm">14</span>, <span class="fn">max</span>: <span class="nm">36</span> },
+  <span class="fn">overflow</span>: <span class="st">'shrink'</span>,          <span class="cm">// reduce font size before truncating</span>
+  <span class="fn">truncation</span>: <span class="st">'ellipsis'</span>,     <span class="cm">// last resort</span>
+  <span class="fn">autoSize</span>: <span class="st">'width-fixed'</span>,    <span class="cm">// height grows, width locked to container</span>
+  <span class="fn">lineHeight</span>: <span class="nm">1.3</span>,
+  <span class="fn">maxLines</span>: <span class="nm">2</span>,               <span class="cm">// clamp to 2 lines max</span>
+});
+
+<span class="cm">// The constraint solver sees this as:</span>
+<span class="cm">//   IF text.measuredWidth > container.width</span>
+<span class="cm">//     THEN reduce fontSize until fit OR fontSize == min</span>
+<span class="cm">//     THEN truncate with ellipsis</span>
+<span class="cm">//   IF autoSize == 'width-fixed'</span>
+<span class="cm">//     THEN container.height = text.measuredHeight</span>
+</code></pre>
+
+  <div class="power danger">
+    <div class="power-label">The Iceberg Warning</div>
+    <p>Text looks simple on the surface. Underneath: Unicode normalization, ligatures, kerning tables, paragraph breaking algorithms (Knuth-Plass), vertical scripts, RTL reordering, emoji ZWJ sequences, and font subsetting for export. Every vector graphics tool that has shipped has learned this the hard way. Tier 1 buys you time. Tier 2 is where the real work lives. Budget for it.</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!--  §9 — LAYER 6: AUTOMATION / RUNTIME LANGUAGE                   -->
 <!-- ============================================================ -->
 <section id="automation">
-  <h2>§8 — Layer 5: Automation &amp; Runtime Language</h2>
+  <h2>§9 — Layer 6: Automation &amp; Runtime Language</h2>
 
   <p class="drop-cap">This is the "programmable" in "Programmable SVG OS." You need a scripting layer — a way for users and agents to express operations as code. Not just click-and-drag. Create 100 cards from CSV. Apply a theme pack across all scenes. Normalize spacing in a layout. Convert paths to extrusions. Run batch exports. Generate variants. Attach hover interactions. Animate layers. Publish scenes.</p>
 
@@ -1065,10 +1204,10 @@ card.<span class="fn">bind</span>({
 </section>
 
 <!-- ============================================================ -->
-<!--  §9 — LAYER 6: PLUGIN / APP SYSTEM                            -->
+<!--  §10 — LAYER 7: PLUGIN / APP SYSTEM                            -->
 <!-- ============================================================ -->
 <section id="plugins">
-  <h2>§9 — Layer 6: Plugin &amp; App System</h2>
+  <h2>§10 — Layer 7: Plugin &amp; App System</h2>
 
   <p class="drop-cap">This is where it becomes a platform. Plugins are not just tiny utility scripts. They are mini products — first-class applications that run inside the SVG OS, with their own object types, panels, export recipes, and data pipelines. The OS provides the substrate. The apps provide the domain knowledge.</p>
 
@@ -1177,10 +1316,10 @@ card.<span class="fn">bind</span>({
 </section>
 
 <!-- ============================================================ -->
-<!--  §10 — LAYER 7: ELIXIR ORCHESTRATION                          -->
+<!--  §11 — LAYER 8: ELIXIR ORCHESTRATION                          -->
 <!-- ============================================================ -->
 <section id="elixir">
-  <h2>§10 — Layer 7: Collaboration &amp; Orchestration</h2>
+  <h2>§11 — Layer 8: Collaboration &amp; Orchestration</h2>
 
   <p class="drop-cap">Elixir is not the drawing engine. It is the orchestration brain around it. The BEAM VM was built for exactly the kind of work a collaborative graphics platform needs: millions of lightweight concurrent processes, fault-tolerant supervision trees, real-time message passing, and distributed state. One GenServer per open document is not a hack — it is the natural architecture.</p>
 
@@ -1301,87 +1440,120 @@ card.<span class="fn">bind</span>({
 </section>
 
 <!-- ============================================================ -->
-<!--  §11 — PACKAGE DECOMPOSITION                                  -->
+<!--  §12 — PACKAGE DECOMPOSITION                                  -->
 <!-- ============================================================ -->
 <section id="packages">
-  <h2>§11 — Clean Package Decomposition</h2>
+  <h2>§12 — Clean Package Decomposition</h2>
 
-  <p class="drop-cap">Nine packages with clear boundaries. Each one has a single responsibility, a defined language, and a clean API surface. The packages are independent — you can use the geometry engine without the editor, the data binding without the collaboration layer. That modularity is what makes it a system and not a monolith.</p>
+  <p class="drop-cap">Thirteen packages with clear boundaries. Each one has a single responsibility, a defined language, and a clean API surface. The packages are independent — you can use the geometry engine without the editor, the data binding without the collaboration layer, the WebGPU renderer without the SVG backend. That modularity is what makes it a system and not a monolith.</p>
 
   <div class="svg-diagram">
-    <svg viewBox="0 0 700 520" xmlns="http://www.w3.org/2000/svg">
-      <rect width="700" height="520" fill="#12121a" rx="4"/>
+    <svg viewBox="0 0 700 640" xmlns="http://www.w3.org/2000/svg">
+      <rect width="700" height="640" fill="#12121a" rx="4"/>
 
-      <!-- Tier 4 (top): editor-shell, plugin-sdk -->
-      <rect x="150" y="30" width="160" height="42" rx="6" fill="none" stroke="#00ddff" stroke-width="1.5"/>
-      <text x="230" y="47" text-anchor="middle" fill="#00ddff" font-size="11">editor-shell</text>
-      <text x="230" y="62" text-anchor="middle" fill="#6a6a7e" font-size="9">TypeScript</text>
+      <!-- Tier 5 (top): editor-shell, plugin-sdk -->
+      <rect x="150" y="20" width="160" height="42" rx="6" fill="none" stroke="#00ddff" stroke-width="1.5"/>
+      <text x="230" y="37" text-anchor="middle" fill="#00ddff" font-size="11">editor-shell</text>
+      <text x="230" y="52" text-anchor="middle" fill="#6a6a7e" font-size="9">TypeScript</text>
 
-      <rect x="390" y="30" width="160" height="42" rx="6" fill="none" stroke="#00ddff" stroke-width="1.5"/>
-      <text x="470" y="47" text-anchor="middle" fill="#00ddff" font-size="11">plugin-sdk</text>
-      <text x="470" y="62" text-anchor="middle" fill="#6a6a7e" font-size="9">TypeScript</text>
+      <rect x="390" y="20" width="160" height="42" rx="6" fill="none" stroke="#00ddff" stroke-width="1.5"/>
+      <text x="470" y="37" text-anchor="middle" fill="#00ddff" font-size="11">plugin-sdk</text>
+      <text x="470" y="52" text-anchor="middle" fill="#6a6a7e" font-size="9">TypeScript</text>
+
+      <!-- Arrows from tier 5 to tier 4 -->
+      <line x1="230" y1="62" x2="110" y2="110" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="230" y1="62" x2="300" y2="110" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="230" y1="62" x2="490" y2="110" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="470" y1="62" x2="300" y2="110" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="470" y1="62" x2="110" y2="110" stroke="#1e1e2e" stroke-width="1"/>
+
+      <!-- Tier 4: render backends (3 parallel) + runtime-core + layout-core -->
+      <rect x="20" y="110" width="130" height="42" rx="6" fill="none" stroke="#00ddff" stroke-width="1.5"/>
+      <text x="85" y="127" text-anchor="middle" fill="#00ddff" font-size="10">render-svg</text>
+      <text x="85" y="142" text-anchor="middle" fill="#6a6a7e" font-size="9">TypeScript</text>
+
+      <rect x="160" y="110" width="130" height="42" rx="6" fill="none" stroke="#ff8800" stroke-width="1.5"/>
+      <text x="225" y="127" text-anchor="middle" fill="#ff8800" font-size="10">render-canvas</text>
+      <text x="225" y="142" text-anchor="middle" fill="#6a6a7e" font-size="9">TypeScript</text>
+
+      <rect x="300" y="110" width="130" height="42" rx="6" fill="none" stroke="#ff8800" stroke-width="1.5"/>
+      <text x="365" y="127" text-anchor="middle" fill="#ff8800" font-size="10">render-webgpu</text>
+      <text x="365" y="142" text-anchor="middle" fill="#6a6a7e" font-size="9">TS + WGSL</text>
+
+      <rect x="440" y="110" width="120" height="42" rx="6" fill="none" stroke="#00ddff" stroke-width="1.5"/>
+      <text x="500" y="127" text-anchor="middle" fill="#00ddff" font-size="10">runtime-core</text>
+      <text x="500" y="142" text-anchor="middle" fill="#6a6a7e" font-size="9">TypeScript</text>
+
+      <rect x="570" y="110" width="110" height="42" rx="6" fill="none" stroke="#00ddff" stroke-width="1.5"/>
+      <text x="625" y="127" text-anchor="middle" fill="#00ddff" font-size="10">layout-core</text>
+      <text x="625" y="142" text-anchor="middle" fill="#6a6a7e" font-size="9">TypeScript</text>
 
       <!-- Arrows from tier 4 to tier 3 -->
-      <line x1="230" y1="72" x2="150" y2="130" stroke="#1e1e2e" stroke-width="1"/>
-      <line x1="230" y1="72" x2="350" y2="130" stroke="#1e1e2e" stroke-width="1"/>
-      <line x1="230" y1="72" x2="550" y2="130" stroke="#1e1e2e" stroke-width="1"/>
-      <line x1="470" y1="72" x2="350" y2="130" stroke="#1e1e2e" stroke-width="1"/>
-      <line x1="470" y1="72" x2="150" y2="130" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="85" y1="152" x2="175" y2="210" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="225" y1="152" x2="175" y2="210" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="365" y1="152" x2="175" y2="210" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="365" y1="152" x2="475" y2="210" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="500" y1="152" x2="175" y2="210" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="500" y1="152" x2="325" y2="210" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="625" y1="152" x2="175" y2="210" stroke="#1e1e2e" stroke-width="1"/>
 
-      <!-- Tier 3: renderer-web, runtime-core, layout-core -->
-      <rect x="70" y="130" width="160" height="42" rx="6" fill="none" stroke="#00ddff" stroke-width="1.5"/>
-      <text x="150" y="147" text-anchor="middle" fill="#00ddff" font-size="11">renderer-web</text>
-      <text x="150" y="162" text-anchor="middle" fill="#6a6a7e" font-size="9">TypeScript</text>
+      <!-- Tier 3: svg-doc-core, effects-core, effects-webgpu, text-engine -->
+      <rect x="90" y="210" width="160" height="42" rx="6" fill="none" stroke="#00ddff" stroke-width="1.5"/>
+      <text x="170" y="227" text-anchor="middle" fill="#00ddff" font-size="11">svg-doc-core</text>
+      <text x="170" y="242" text-anchor="middle" fill="#6a6a7e" font-size="9">TypeScript</text>
 
-      <rect x="270" y="130" width="160" height="42" rx="6" fill="none" stroke="#00ddff" stroke-width="1.5"/>
-      <text x="350" y="147" text-anchor="middle" fill="#00ddff" font-size="11">runtime-core</text>
-      <text x="350" y="162" text-anchor="middle" fill="#6a6a7e" font-size="9">TypeScript</text>
+      <rect x="260" y="210" width="130" height="42" rx="6" fill="none" stroke="#00ddff" stroke-width="1.5"/>
+      <text x="325" y="227" text-anchor="middle" fill="#00ddff" font-size="11">effects-core</text>
+      <text x="325" y="242" text-anchor="middle" fill="#6a6a7e" font-size="9">TypeScript</text>
 
-      <rect x="470" y="130" width="160" height="42" rx="6" fill="none" stroke="#00ddff" stroke-width="1.5"/>
-      <text x="550" y="147" text-anchor="middle" fill="#00ddff" font-size="11">layout-core</text>
-      <text x="550" y="162" text-anchor="middle" fill="#6a6a7e" font-size="9">TypeScript</text>
+      <rect x="400" y="210" width="150" height="42" rx="6" fill="none" stroke="#ff8800" stroke-width="1.5"/>
+      <text x="475" y="227" text-anchor="middle" fill="#ff8800" font-size="11">effects-webgpu</text>
+      <text x="475" y="242" text-anchor="middle" fill="#6a6a7e" font-size="9">TS + WGSL</text>
+
+      <rect x="560" y="210" width="120" height="42" rx="6" fill="none" stroke="#ff00aa" stroke-width="1.5"/>
+      <text x="620" y="227" text-anchor="middle" fill="#ff00aa" font-size="11">text-engine</text>
+      <text x="620" y="242" text-anchor="middle" fill="#6a6a7e" font-size="9">TS + WASM</text>
 
       <!-- Arrows from tier 3 to tier 2 -->
-      <line x1="150" y1="172" x2="200" y2="230" stroke="#1e1e2e" stroke-width="1"/>
-      <line x1="150" y1="172" x2="500" y2="230" stroke="#1e1e2e" stroke-width="1"/>
-      <line x1="350" y1="172" x2="200" y2="230" stroke="#1e1e2e" stroke-width="1"/>
-      <line x1="350" y1="172" x2="350" y2="230" stroke="#1e1e2e" stroke-width="1"/>
-      <line x1="550" y1="172" x2="200" y2="230" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="170" y1="252" x2="300" y2="310" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="325" y1="252" x2="300" y2="310" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="475" y1="252" x2="300" y2="310" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="620" y1="252" x2="300" y2="310" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="620" y1="252" x2="475" y2="310" stroke="#1e1e2e" stroke-width="1"/>
 
-      <!-- Tier 2: svg-doc-core, effects-core -->
-      <rect x="120" y="230" width="160" height="42" rx="6" fill="none" stroke="#00ddff" stroke-width="1.5"/>
-      <text x="200" y="247" text-anchor="middle" fill="#00ddff" font-size="11">svg-doc-core</text>
-      <text x="200" y="262" text-anchor="middle" fill="#6a6a7e" font-size="9">TypeScript</text>
+      <!-- Tier 2: geom-core -->
+      <rect x="220" y="310" width="160" height="42" rx="6" fill="none" stroke="#ff00aa" stroke-width="1.5"/>
+      <text x="300" y="327" text-anchor="middle" fill="#ff00aa" font-size="11">geom-core</text>
+      <text x="300" y="342" text-anchor="middle" fill="#6a6a7e" font-size="9">C++/Rust → WASM</text>
 
-      <rect x="270" y="230" width="160" height="42" rx="6" fill="none" stroke="#00ddff" stroke-width="1.5"/>
-      <text x="350" y="247" text-anchor="middle" fill="#00ddff" font-size="11">effects-core</text>
-      <text x="350" y="262" text-anchor="middle" fill="#6a6a7e" font-size="9">TypeScript</text>
+      <rect x="420" y="310" width="160" height="42" rx="6" fill="none" stroke="#ff00aa" stroke-width="1.5"/>
+      <text x="500" y="327" text-anchor="middle" fill="#ff00aa" font-size="11">harfbuzz-wasm</text>
+      <text x="500" y="342" text-anchor="middle" fill="#6a6a7e" font-size="9">C++ → WASM</text>
 
-      <rect x="420" y="230" width="160" height="42" rx="6" fill="none" stroke="#ff00aa" stroke-width="1.5"/>
-      <text x="500" y="247" text-anchor="middle" fill="#ff00aa" font-size="11">geom-core</text>
-      <text x="500" y="262" text-anchor="middle" fill="#6a6a7e" font-size="9">C++/Rust → WASM</text>
-
-      <!-- Arrows from tier 2 to tier 1 -->
-      <line x1="200" y1="272" x2="350" y2="330" stroke="#1e1e2e" stroke-width="1"/>
-      <line x1="350" y1="272" x2="350" y2="330" stroke="#1e1e2e" stroke-width="1"/>
-      <line x1="500" y1="272" x2="350" y2="330" stroke="#1e1e2e" stroke-width="1"/>
+      <!-- Arrows to orchestrator -->
+      <line x1="300" y1="352" x2="350" y2="410" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="170" y1="252" x2="350" y2="410" stroke="#1e1e2e" stroke-width="1" stroke-dasharray="4"/>
 
       <!-- Tier 1 (bottom): orchestrator -->
-      <rect x="250" y="330" width="200" height="42" rx="6" fill="none" stroke="#aa44ff" stroke-width="1.5"/>
-      <text x="350" y="347" text-anchor="middle" fill="#aa44ff" font-size="11">orchestrator</text>
-      <text x="350" y="362" text-anchor="middle" fill="#6a6a7e" font-size="9">Elixir / Phoenix</text>
+      <rect x="250" y="410" width="200" height="42" rx="6" fill="none" stroke="#aa44ff" stroke-width="1.5"/>
+      <text x="350" y="427" text-anchor="middle" fill="#aa44ff" font-size="11">orchestrator</text>
+      <text x="350" y="442" text-anchor="middle" fill="#6a6a7e" font-size="9">Elixir / Phoenix</text>
 
       <!-- Legend -->
-      <rect x="80" y="410" width="540" height="80" rx="4" fill="#0a0a0f" stroke="#1e1e2e" stroke-width="1"/>
-      <text x="100" y="432" fill="#6a6a7e" font-size="10">TECHNOLOGY:</text>
-      <rect x="100" y="444" width="12" height="12" rx="2" fill="none" stroke="#00ddff" stroke-width="1"/>
-      <text x="118" y="454" fill="#6a6a7e" font-size="10">TypeScript (browser)</text>
-      <rect x="280" y="444" width="12" height="12" rx="2" fill="none" stroke="#ff00aa" stroke-width="1"/>
-      <text x="298" y="454" fill="#6a6a7e" font-size="10">C++/Rust → WASM (compiled)</text>
-      <rect x="100" y="464" width="12" height="12" rx="2" fill="none" stroke="#aa44ff" stroke-width="1"/>
-      <text x="118" y="474" fill="#6a6a7e" font-size="10">Elixir (server)</text>
-      <line x1="280" y1="470" x2="320" y2="470" stroke="#1e1e2e" stroke-width="1"/>
-      <text x="326" y="474" fill="#6a6a7e" font-size="10">Dependency arrow (top depends on bottom)</text>
+      <rect x="50" y="490" width="600" height="120" rx="4" fill="#0a0a0f" stroke="#1e1e2e" stroke-width="1"/>
+      <text x="70" y="512" fill="#6a6a7e" font-size="10">TECHNOLOGY:</text>
+      <rect x="70" y="524" width="12" height="12" rx="2" fill="none" stroke="#00ddff" stroke-width="1"/>
+      <text x="88" y="534" fill="#6a6a7e" font-size="10">TypeScript (browser)</text>
+      <rect x="280" y="524" width="12" height="12" rx="2" fill="none" stroke="#ff00aa" stroke-width="1"/>
+      <text x="298" y="534" fill="#6a6a7e" font-size="10">C++/Rust → WASM (compiled)</text>
+      <rect x="70" y="544" width="12" height="12" rx="2" fill="none" stroke="#ff8800" stroke-width="1"/>
+      <text x="88" y="554" fill="#6a6a7e" font-size="10">GPU-capable (WebGPU / WGSL shaders)</text>
+      <rect x="70" y="564" width="12" height="12" rx="2" fill="none" stroke="#aa44ff" stroke-width="1"/>
+      <text x="88" y="574" fill="#6a6a7e" font-size="10">Elixir (server)</text>
+      <line x1="280" y1="570" x2="320" y2="570" stroke="#1e1e2e" stroke-width="1"/>
+      <text x="326" y="574" fill="#6a6a7e" font-size="10">Dependency arrow (top depends on bottom)</text>
+      <line x1="280" y1="550" x2="320" y2="550" stroke="#1e1e2e" stroke-width="1" stroke-dasharray="4"/>
+      <text x="326" y="554" fill="#6a6a7e" font-size="10">Indirect / optional dependency</text>
     </svg>
   </div>
 
@@ -1415,9 +1587,29 @@ card.<span class="fn">bind</span>({
       <td>Variables, expressions, data source adapters (JSON/CSV/API/LLM), reactive binding engine, object property system, change propagation.</td>
     </tr>
     <tr>
-      <td><code>renderer-web</code></td>
+      <td><code>render-svg</code></td>
       <td>TypeScript</td>
-      <td>Browser rendering: native SVG DOM for editable scenes, Canvas 2D for heavy raster work, WebGL/WebGPU for performance-critical overlays. Hybrid strategy with dirty-rect tracking.</td>
+      <td>Default browser renderer. Native SVG DOM for editable, interactive, accessible scenes. Dirty-rect tracking. The lightest backend — use this unless you need more.</td>
+    </tr>
+    <tr>
+      <td><code>render-canvas</code></td>
+      <td>TypeScript</td>
+      <td>Canvas 2D backend. Faster compositing for raster-heavy scenes, image blending, headless export. No DOM overhead for non-interactive elements.</td>
+    </tr>
+    <tr>
+      <td><code>render-webgpu</code></td>
+      <td>TypeScript + WGSL</td>
+      <td>GPU rendering pipeline. Mesh generation from scene graph, shader materials, camera system. For stadium-scale playback, dense animation, real-time effects.</td>
+    </tr>
+    <tr>
+      <td><code>effects-webgpu</code></td>
+      <td>TypeScript + WGSL</td>
+      <td>GPU compute modules. Particle systems, procedural textures, physics simulations, blur/glow at scale. Runs as compute shaders, outputs textures composited by any render backend.</td>
+    </tr>
+    <tr>
+      <td><code>text-engine</code></td>
+      <td>TypeScript + WASM</td>
+      <td>Text layout: line breaking, paragraph layout, font shaping (HarfBuzz-WASM), variable fonts, bidi text, text-in-shape wrapping, font subsetting for export. Integrates with constraint solver.</td>
     </tr>
     <tr>
       <td><code>editor-shell</code></td>
@@ -1456,10 +1648,10 @@ card.<span class="fn">bind</span>({
 </section>
 
 <!-- ============================================================ -->
-<!--  §12 — NEUMENON FORMAT SYNERGIES                               -->
+<!--  §13 — NEUMENON FORMAT SYNERGIES                               -->
 <!-- ============================================================ -->
 <section id="neumenon">
-  <h2>§12 — Neumenon Format Synergies</h2>
+  <h2>§13 — Neumenon Format Synergies</h2>
 
   <p class="drop-cap">Three formats from the Neumenon ecosystem slot naturally into the SVG OS stack. Not because we need to force integration — but because the problems they solve are exactly the problems a visual runtime has. Binary scene graph serialization. Compact agent communication. Fast asset storage. Each format found its niche organically.</p>
 
@@ -1589,10 +1781,10 @@ console.<span class="fn">log</span>(pack.entries.length); <span class="cm">// �
 </section>
 
 <!-- ============================================================ -->
-<!--  §13 — THREE KILLER APPS                                      -->
+<!--  §14 — THREE KILLER APPS                                      -->
 <!-- ============================================================ -->
 <section id="killer-apps">
-  <h2>§13 — Three Killer Apps</h2>
+  <h2>§14 — Three Killer Apps</h2>
 
   <p class="drop-cap">The platform exists to run applications. These three are built first because they prove the substrate — each one exercises a different combination of layers, and together they demonstrate that this is not a toy. They are products, not demos.</p>
 
@@ -1641,10 +1833,10 @@ console.<span class="fn">log</span>(pack.entries.length); <span class="cm">// �
 </section>
 
 <!-- ============================================================ -->
-<!--  §14 — 3D EXTENSION PATH                                      -->
+<!--  §15 — 3D EXTENSION PATH                                      -->
 <!-- ============================================================ -->
 <section id="3d-path">
-  <h2>§14 — The 3D Extension Path</h2>
+  <h2>§15 — The 3D Extension Path</h2>
 
   <p class="drop-cap">The smartest 3D angle is not full mesh modeling. That is Blender's territory and you will lose. The smart angle is: SVG → scene graph → 2.5D / lightweight 3D. Take vector shapes and turn them into extrusions, depth layers, animated planes, billboards, and simple meshes. Add a camera, lights, materials, parallax, and transitions. Now you compete with motion graphics lite — and that is an enormous market.</p>
 
@@ -1695,10 +1887,149 @@ scene.<span class="fn">animate</span>(<span class="st">'explode'</span>, {
 </section>
 
 <!-- ============================================================ -->
-<!--  §15 — THE AI ANGLE                                            -->
+<!--  §16 — STADIUM-SCALE RENDERING & MULTI-BACKEND ARCHITECTURE     -->
+<!-- ============================================================ -->
+<section id="render-backends">
+  <h2>§16 — Stadium-Scale Rendering &amp; Multi-Backend Architecture</h2>
+
+  <p class="drop-cap">SVG is the right authoring model. It is not always the right runtime renderer. For stadium jumbotrons, broadcast walls, ribbon displays, dense particle animations, or GPU-driven effects, raw DOM/SVG rendering hits a wall. The architecture needs a render abstraction layer — so you author once in a structured visual model, then render differently depending on the target.</p>
+
+  <h3>Three-layer rendering architecture</h3>
+
+  <p>The system splits into three distinct layers. The top layer is your native document model — the SVG-like scene graph where all authoring happens. The middle layer decides <em>how</em> each element gets drawn. The bottom layer adapts the output to the delivery target.</p>
+
+  <div class="diagram">
+    <span class="diagram-label">Render Architecture</span>
+    <pre><code>
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  STRUCTURED SCENE LAYER                                        │
+  │  objects · groups · constraints · bindings · timelines          │
+  │  semantic components · SVG-native document model                │
+  └──────────────────────────┬──────────────────────────────────────┘
+                             │
+                   ┌─────────┼─────────┐
+                   ▼         ▼         ▼
+  ┌──────────┐ ┌──────────┐ ┌──────────────┐
+  │ SVG/DOM  │ │ Canvas   │ │   WebGPU     │
+  │ Backend  │ │ Backend  │ │   Backend    │
+  │          │ │          │ │              │
+  │ editable │ │ medium   │ │ heavy scenes │
+  │ light    │ │ raster   │ │ particles    │
+  │ scenes   │ │ scenes   │ │ shaders      │
+  │          │ │          │ │ real-time    │
+  └────┬─────┘ └────┬─────┘ └──────┬───────┘
+       │             │              │
+       └─────────────┼──────────────┘
+                     ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  OUTPUT / ADAPTATION LAYER                                     │
+  │  16:9 board · ultra-wide ribbon · square social · vertical     │
+  │  mobile · print/PDF · transparent video · image sequences      │
+  └─────────────────────────────────────────────────────────────────┘
+    </code></pre>
+  </div>
+
+  <h3>Render backend selection</h3>
+
+  <table>
+    <tr><th>Scene Profile</th><th>Backend</th><th>Rationale</th></tr>
+    <tr><td>Editable / light (&lt;500 nodes)</td><td>SVG DOM</td><td>Native browser rendering, CSS styling, DOM events, accessibility, inspectable</td></tr>
+    <tr><td>Medium / raster-heavy</td><td>Canvas 2D</td><td>Faster compositing, image blending, no DOM overhead for non-interactive elements</td></tr>
+    <tr><td>Heavy / real-time / particles</td><td>WebGPU</td><td>GPU compute, shader effects, massive parallelism, 60fps at scale</td></tr>
+    <tr><td>Print / export</td><td>Headless Canvas or PDF pipeline</td><td>Deterministic output, CMYK support (via ICC), font embedding, bleed marks</td></tr>
+    <tr><td>Control-room preview</td><td>Simplified SVG</td><td>Lightweight proxy rendering for monitoring many outputs simultaneously</td></tr>
+  </table>
+
+  <h3>Per-object render paths</h3>
+
+  <p>Objects in the scene graph are not locked to one renderer. Each node can declare a render hint — or the system can infer one from the node's complexity. A sponsor logo renders as crisp vector. A particle burst behind a player intro runs through the GPU. Both live in the same scene graph, authored the same way.</p>
+
+  <pre><code><span class="label">RENDER HINTS</span>
+<span class="kw">const</span> sponsorLogo = scene.<span class="fn">findById</span>(<span class="st">'sponsor-main'</span>);
+sponsorLogo.<span class="fn">renderHint</span> = <span class="st">'vector'</span>;      <span class="cm">// always native SVG path</span>
+
+<span class="kw">const</span> particleBurst = scene.<span class="fn">findById</span>(<span class="st">'intro-particles'</span>);
+particleBurst.<span class="fn">renderHint</span> = <span class="st">'gpu'</span>;       <span class="cm">// WebGPU compute + render</span>
+particleBurst.<span class="fn">gpuConfig</span> = {
+  <span class="fn">shader</span>: <span class="st">'effects/particle-burst.wgsl'</span>,
+  <span class="fn">particleCount</span>: <span class="nm">50000</span>,
+  <span class="fn">blendMode</span>: <span class="st">'additive'</span>,
+};
+
+<span class="kw">const</span> statOverlay = scene.<span class="fn">findById</span>(<span class="st">'live-stats'</span>);
+statOverlay.<span class="fn">renderHint</span> = <span class="st">'canvas'</span>;    <span class="cm">// Canvas 2D for fast text updates</span>
+
+<span class="kw">const</span> backgroundMesh = scene.<span class="fn">findById</span>(<span class="st">'stadium-bg'</span>);
+backgroundMesh.<span class="fn">renderHint</span> = <span class="st">'gpu'</span>;    <span class="cm">// GPU mesh with lighting shader</span>
+backgroundMesh.<span class="fn">gpuConfig</span> = {
+  <span class="fn">shader</span>: <span class="st">'materials/stadium-lights.wgsl'</span>,
+  <span class="fn">uniforms</span>: { <span class="fn">time</span>: <span class="st">'auto'</span>, <span class="fn">intensity</span>: <span class="nm">0.8</span> },
+};
+</code></pre>
+
+  <h3>Stadium-scale examples</h3>
+
+  <div class="vs">
+    <div class="vs-col">
+      <h4>Sponsor board graphics</h4>
+      <p>Mostly vector. Crisp logos, text, brand colors. Renders via SVG/DOM or Canvas. Resolution-independent. Data-bound to sponsorship rotation schedule.</p>
+    </div>
+    <div class="vs-col">
+      <h4>Player intro scene</h4>
+      <p>WebGPU particles, lighting shaders, animated meshes. Player photo composited over GPU-driven effects. Triggered by live data feed.</p>
+    </div>
+  </div>
+
+  <div class="vs">
+    <div class="vs-col">
+      <h4>Concourse menu boards</h4>
+      <p>Lightweight SVG/Canvas. Data-bound to inventory system. Auto-layout for price changes. Dozens of displays, low resource budget per screen.</p>
+    </div>
+    <div class="vs-col">
+      <h4>Stadium playback — final output</h4>
+      <p>Full GPU render path. Composites all layers at native resolution. 60fps on massive LED arrays. Fallback to Canvas if WebGPU unavailable.</p>
+    </div>
+  </div>
+
+  <h3>Parallel render libraries</h3>
+
+  <p>The multi-backend architecture decomposes cleanly into parallel packages:</p>
+
+  <ul>
+    <li><strong>render-svg</strong> — Default. Native SVG DOM rendering with dirty-rect tracking. Best for editable, interactive, accessible scenes.</li>
+    <li><strong>render-canvas</strong> — Canvas 2D backend. Faster compositing for raster-heavy scenes, image blending, headless export.</li>
+    <li><strong>render-webgpu</strong> — GPU rendering pipeline. Mesh generation, shader materials, camera system. For heavy real-time playback.</li>
+    <li><strong>effects-webgpu</strong> — GPU compute modules. Particle systems, procedural textures, physics simulations, blur/glow at scale.</li>
+    <li><strong>layout-gpu</strong> — Future. GPU-accelerated constraint solving and layout computation for very large scenes (10k+ nodes).</li>
+  </ul>
+
+  <p>These sit alongside existing packages. They do not replace the core scene graph — they consume it. Any scene authored in the structured model can be pointed at any renderer.</p>
+
+  <div class="power">
+    <div class="power-label">The Scaling Principle</div>
+    <p>SVG for structure, WebGPU for horsepower. Author once in a structured visual model, render differently depending on target. That is the abstraction that scales from a social media card to a stadium jumbotron.</p>
+  </div>
+
+  <h3>Competitive context</h3>
+
+  <table>
+    <tr><th>System</th><th>Strength</th><th>Gap SVG OS fills</th></tr>
+    <tr><td>Rive</td><td>Editor + runtime pipeline as one system</td><td>No structured data binding, no multi-format export, no open SVG authoring</td></tr>
+    <tr><td>Penpot</td><td>Standards-oriented, SVG-based, open source</td><td>No GPU rendering path, no stadium-scale output, no compute shaders</td></tr>
+    <tr><td>Custom WebGPU engines</td><td>Raw GPU performance, full shader control</td><td>No structured authoring model, no semantic objects, no data binding, no template system</td></tr>
+  </table>
+
+  <div class="power hack">
+    <div class="power-label">The Position</div>
+    <p>SVG OS sits where no one else does: structured authoring that Rive lacks, GPU rendering that Penpot lacks, and semantic data binding that raw WebGPU engines lack. It is not "pick two." It is all three, layered cleanly.</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!--  §17 — THE AI ANGLE                                            -->
 <!-- ============================================================ -->
 <section id="ai">
-  <h2>§15 — The AI Angle</h2>
+  <h2>§17 — The AI Angle</h2>
 
   <p class="drop-cap">This kind of system is extremely AI-friendly — and for a reason most people miss. It is not because you can "add AI features." It is because the document is <em>structured</em>. A structured visual AST is something an agent can actually reason about. It can inspect the object tree, understand component semantics, rewrite labels, generate variants, rebalance layouts, apply themes, create chart scenes, and convert text prompts into structured compositions.</p>
 
@@ -1744,10 +2075,10 @@ scene.<span class="fn">animate</span>(<span class="st">'explode'</span>, {
 </section>
 
 <!-- ============================================================ -->
-<!--  §16 — INKSCAPE EXTRACTION PLAN                                -->
+<!--  §18 — INKSCAPE EXTRACTION PLAN                                -->
 <!-- ============================================================ -->
 <section id="inkscape">
-  <h2>§16 — Inkscape Extraction Plan</h2>
+  <h2>§18 — Inkscape Extraction Plan</h2>
 
   <p class="drop-cap">Inkscape has three decades of accumulated knowledge about SVG geometry, document semantics, and vector operations. Some of it is invaluable. Some of it is desktop baggage that will sink you. The strategy is surgical: extract the mathematically hard, standards-hard layers. Throw away everything people actually touch. Rebuild the product as a browser-native runtime.</p>
 
@@ -1822,10 +2153,10 @@ scene.<span class="fn">animate</span>(<span class="st">'explode'</span>, {
 </section>
 
 <!-- ============================================================ -->
-<!--  §17 — COMPETITIVE POSITIONING                                 -->
+<!--  §19 — COMPETITIVE POSITIONING                                 -->
 <!-- ============================================================ -->
 <section id="positioning">
-  <h2>§17 — Competitive Positioning</h2>
+  <h2>§19 — Competitive Positioning</h2>
 
   <p class="drop-cap">Do not message this as "open-source Figma" or "Inkscape on the web." Those framings are traps — they invite feature-by-feature comparison against entrenched products and guarantee you lose on parity. Message it as what it is: a programmable graphics runtime. A design automation platform. A visual operating system for structured graphics. SVG as software.</p>
 
@@ -1878,10 +2209,10 @@ scene.<span class="fn">animate</span>(<span class="st">'explode'</span>, {
 </section>
 
 <!-- ============================================================ -->
-<!--  §18 — EXECUTION ROADMAP                                       -->
+<!--  §20 — EXECUTION ROADMAP                                       -->
 <!-- ============================================================ -->
 <section id="roadmap">
-  <h2>§18 — Execution Roadmap</h2>
+  <h2>§20 — Execution Roadmap</h2>
 
   <p class="drop-cap">Do not start with "free draw anything." That is the path to an Illustrator clone you cannot finish. Start with structured mode. The MVP is structured vector scenes plus templates plus data binding plus export pipeline. Not a full illustration suite. Not full pen-tool parity. Not full typography. Not full filter authoring. Win on repeatable output, AI compatibility, structured graphics, and business value. Then expand.</p>
 
@@ -1895,10 +2226,11 @@ scene.<span class="fn">animate</span>(<span class="st">'explode'</span>, {
   ────────────          ────────────           ────────────           ────────────
   geom-core WASM         effects-core           editor-shell           orchestrator
   svg-doc-core           layout-core            plugin-sdk             sync-service
-  renderer-web MVP       runtime-core           Killer App A           collaboration
-  basic canvas           data binding           (Visual Automation)    AI agents
-                         constraints            templates              marketplace
-                         theme system           export pipeline        multi-tenant
+  render-svg MVP         runtime-core           Killer App A           collaboration
+  text-engine T1         data binding           (Visual Automation)    AI agents
+  basic canvas           text-engine T2         templates              render-webgpu
+                         constraints            export pipeline        effects-webgpu
+                         theme system           render-canvas          marketplace
     </code></pre>
   </div>
 
@@ -1923,7 +2255,7 @@ scene.<span class="fn">animate</span>(<span class="st">'explode'</span>, {
     <div class="vs-col">
       <h4>Defer to Later</h4>
       <ul>
-        <li>Every text feature</li>
+        <li>Full text engine (Tier 2: HarfBuzz, bidi, Knuth-Plass)</li>
         <li>Every SVG filter</li>
         <li>Every node tool nuance</li>
         <li>Every import format</li>
