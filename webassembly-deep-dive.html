@@ -1639,6 +1639,128 @@
 
 </section>
 
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 6: THE TOOLCHAIN                                        -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch6">
+<h2>06 &mdash; the toolchain</h2>
+
+<p class="drop-cap">Wasm is a compilation target, and three toolchains dominate the landscape. Each makes a different trade-off between compatibility and minimalism, and the choice determines everything from your binary size to your deployment complexity. The differences start at the compiler and ripple all the way to the user&rsquo;s browser.</p>
+
+<h3>The Three Paths</h3>
+
+<p><strong>Emscripten</strong> compiles C and C++ to Wasm by routing through LLVM&rsquo;s <code>wasm32-unknown-emscripten</code> target. It ships a full POSIX compatibility layer &mdash; a virtual filesystem, pthreads emulation via Web Workers and SharedArrayBuffer, OpenGL-to-WebGL translation, even a partial <code>libc</code>. This is how 30-year-old codebases like AutoCAD and Google Earth run in the browser unmodified. The cost: the runtime shim can double your binary size. A minimal &ldquo;hello world&rdquo; compiles to roughly 15 KB of Wasm plus a JavaScript glue file; a full 3D engine can run into megabytes.</p>
+
+<p><strong>Rust + wasm-pack</strong> takes the opposite approach. Rust&rsquo;s <code>wasm32-unknown-unknown</code> target produces lean binaries with no runtime, no GC, and no POSIX shim. The <code>wasm-bindgen</code> tool generates type-safe FFI bindings between Rust and JavaScript automatically. A Rust &ldquo;hello world&rdquo; (just a function that adds two numbers) compiles to under 200 bytes of Wasm. Rust&rsquo;s ownership model means no garbage collector overhead, and its <code>#[no_std]</code> mode eliminates even the standard library if you don&rsquo;t need it.</p>
+
+<p><strong>Go</strong> compiles to Wasm too, but it ships its entire goroutine scheduler and garbage collector. A Go &ldquo;hello world&rdquo; is over 2 MB. TinyGo, a Go variant targeting embedded and Wasm, reduces this dramatically &mdash; often to 50&ndash;100 KB &mdash; but at the cost of incomplete standard library support.</p>
+
+<div class="lang-tabs">
+<input type="radio" name="tc" id="tc-c" class="tc" checked>
+<input type="radio" name="tc" id="tc-rs" class="trs">
+<input type="radio" name="tc" id="tc-wat" class="twat">
+<input type="radio" name="tc" id="tc-hex" class="thex">
+<div class="tab-bar">
+  <label for="tc-c">C</label>
+  <label for="tc-rs">Rust</label>
+  <label for="tc-wat">WAT</label>
+  <label for="tc-hex">Hex</label>
+</div>
+<div class="tab-content c">
+<pre><span class="label">C / Emscripten</span><code><span class="pp">#include</span> <span class="st">&lt;emscripten.h&gt;</span>
+
+<span class="ty">EMSCRIPTEN_KEEPALIVE</span>
+<span class="ty">int</span> <span class="fn">add</span>(<span class="ty">int</span> a, <span class="ty">int</span> b) {
+    <span class="kw">return</span> a + b;
+}
+
+<span class="cm">// Compile: emcc add.c -o add.wasm -O3 -s EXPORTED_FUNCTIONS='["_add"]'</span>
+<span class="cm">// Output: ~2 KB .wasm (minimal, -s STANDALONE_WASM=1)</span>
+<span class="cm">//         ~150 KB .wasm (with Emscripten runtime)</span></code></pre>
+</div>
+<div class="tab-content rs">
+<pre><span class="label">Rust / wasm-pack</span><code><span class="kw">use</span> wasm_bindgen::prelude::*;
+
+<span class="pp">#[wasm_bindgen]</span>
+<span class="kw">pub fn</span> <span class="fn">add</span>(a: <span class="ty">i32</span>, b: <span class="ty">i32</span>) -> <span class="ty">i32</span> {
+    a + b
+}
+
+<span class="cm">// Compile: wasm-pack build --target web</span>
+<span class="cm">// Output: ~200 bytes .wasm (just the function)</span>
+<span class="cm">//         + auto-generated JS bindings with TypeScript types</span></code></pre>
+</div>
+<div class="tab-content wat">
+<pre><span class="label">WAT (Text Format)</span><code>(<span class="kw">module</span>
+  (<span class="kw">func</span> <span class="fn">$add</span> (<span class="kw">param</span> <span class="ty">$a i32</span>) (<span class="kw">param</span> <span class="ty">$b i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
+    <span class="kw">local.get</span> $a
+    <span class="kw">local.get</span> $b
+    <span class="kw">i32.add</span>)
+  (<span class="kw">export</span> <span class="st">"add"</span> (<span class="kw">func</span> <span class="fn">$add</span>)))
+
+<span class="cm">;; Compile: wat2wasm add.wat -o add.wasm</span>
+<span class="cm">;; The text format maps 1:1 to the binary.</span>
+<span class="cm">;; WAT is not a "different language" &mdash; it's a human-readable</span>
+<span class="cm">;; rendering of the exact same bytes.</span></code></pre>
+</div>
+<div class="tab-content hex">
+<pre><span class="label">Binary Hex Dump</span><code><span class="st">00 61 73 6D</span> <span class="ty">01 00 00 00</span>  <span class="cm">;; magic + version</span>
+<span class="kw">01 07 01 60 02 7F 7F 01 7F</span>  <span class="cm">;; type section: (i32,i32)→i32</span>
+<span class="pp">03 02 01 00</span>              <span class="cm">;; func section: func 0 = type 0</span>
+<span class="fn">07 07 01 03 61 64 64 00 00</span>  <span class="cm">;; export section: "add" = func 0</span>
+<span class="nm">0A 09 01 07 00 20 00 20 01 6A 0B</span>  <span class="cm">;; code: get 0, get 1, add, end</span>
+
+<span class="cm">;; Total: 41 bytes. The function body is 5 bytes.</span>
+<span class="cm">;; This is the same binary from Chapter 3, produced</span>
+<span class="cm">;; by any of the toolchains above (after wasm-opt).</span></code></pre>
+</div>
+</div>
+
+<h3>The LLVM Backend</h3>
+
+<p>Behind both Emscripten and Rust sits LLVM&rsquo;s <code>wasm32</code> backend, which treats WebAssembly as just another instruction set architecture &mdash; like x86 or ARM. The same optimization passes that make native code fast (dead code elimination, loop unrolling, constant folding, inlining) run on the LLVM IR before the wasm32 code generator emits the final bytecode. The code generator maps LLVM&rsquo;s virtual registers to Wasm locals and the value stack, translates phi nodes to structured control flow, and produces a valid <code>.wasm</code> binary.</p>
+
+<p>Emscripten originally used a custom LLVM fork called &ldquo;fastcomp.&rdquo; In 2019, it switched to LLVM&rsquo;s upstream Wasm backend, which produced 6&ndash;15% smaller binaries and linked 7x faster. Fastcomp was fully removed in Emscripten 2.0.</p>
+
+<div class="diagram">
+<span class="diagram-label">Compilation pipeline</span>
+<pre><code>  <span class="ty">C / C++</span>         <span class="ty">Rust</span>            <span class="ty">Go</span>
+     │               │               │
+     ▼               ▼               ▼
+  <span class="fn">clang</span>           <span class="fn">rustc</span>          <span class="fn">gc</span> (Go compiler)
+     │               │               │
+     ▼               ▼               │
+  <span class="pp">LLVM IR</span> ◄────────┘               │
+     │                               │
+     ▼                               ▼
+  <span class="pp">wasm32 codegen</span>              <span class="pp">Go wasm backend</span>
+     │                               │
+     ▼                               ▼
+  <span class="st">.wasm binary</span> ◄──── <span class="fn">wasm-opt</span> ◄────┘
+                       │
+                  Binaryen post-
+                  optimization</code></pre>
+</div>
+
+<h3>wasm-opt: The Second Compiler</h3>
+
+<p>Binaryen&rsquo;s <code>wasm-opt</code> is a Wasm-to-Wasm optimizer that runs <em>after</em> your compiler. It performs passes that LLVM misses because LLVM does not understand Wasm-specific patterns: dead local elimination, block merging, stack expression folding, and code motion across block boundaries. Running <code>wasm-opt -O3</code> on a Rust-produced binary typically shaves off 10&ndash;20%. Emscripten runs it automatically; if you use any other toolchain, you should run it yourself.</p>
+
+<div class="power zen">
+<div class="power-label">The WAT Round-Trip</div>
+<p>WAT is not an intermediate language or an approximation. It is a character-for-character text rendering of the binary. <code>wat2wasm</code> converts text to binary; <code>wasm2wat</code> converts binary back to text. The round-trip is lossless. This means you can disassemble any <code>.wasm</code> file, read the instructions in human form, modify them in a text editor, and reassemble. The toolchain that produces Wasm and the format you read Wasm in are the same language at different zoom levels.</p>
+</div>
+
+<p>The toolchain gives you a <code>.wasm</code> binary. But the best way to understand what the tools produce &mdash; and the only way to beat them &mdash; is to write it yourself. In the next chapter, we open a text editor, type WAT by hand, and discover that the gap between human and machine is exactly one text format wide.</p>
+
+</section>
+
+<div class="act-break">
+<div class="act-number">Part II</div>
+<div class="act-title">Making It Fast</div>
+<div class="act-subtitle">From handwritten bytecode to browser engines to production deployments</div>
+</div>
+
 </div><!-- .content -->
 </body>
 </html>
