@@ -1063,22 +1063,22 @@ card.<span class="fn">bind</span>({
     <div class="vs-col">
       <h4>Tier 1 — MVP text (ship first)</h4>
       <ul>
-        <li>Use the browser's native text layout via <code>foreignObject</code> or positioned HTML overlays for editable text</li>
+        <li>Use the browser's native text layout via <code>foreignObject</code> or positioned HTML overlays for editable text. Caveat: <code>foreignObject</code> does not render when SVG is used as <code>&lt;img src&gt;</code> or CSS <code>background-image</code> (security restriction), and screen readers may not interpret its contents. Plan for a <code>&lt;switch&gt;</code> fallback path.</li>
         <li>SVG <code>&lt;text&gt;</code> for simple labels and headings</li>
         <li>Basic auto-size: shrink-to-fit, truncate with ellipsis</li>
         <li>Font stack declarations per text node</li>
-        <li>Export renders text to positioned <code>&lt;tspan&gt;</code> elements or rasterizes via Canvas</li>
+        <li>Export renders text to positioned <code>&lt;tspan&gt;</code> elements or rasterizes via Canvas (use <code>OffscreenCanvas</code> in a worker to avoid blocking the main thread — supported in all major browsers since 2023)</li>
       </ul>
     </div>
     <div class="vs-col">
       <h4>Tier 2 — Full text engine (later)</h4>
       <ul>
-        <li>HarfBuzz compiled to WASM for font shaping</li>
-        <li>Custom paragraph layout (Knuth-Plass line breaking)</li>
-        <li>Bidi algorithm for mixed-direction text</li>
-        <li>Text-in-shape wrapping via geometry intersection</li>
+        <li>HarfBuzz compiled to WASM via <code>harfbuzzjs</code> (v0.8.0, Emscripten, <code>-DHB_TINY</code> flag). The <code>hb-subset.wasm</code> is ~554 KB. Memory must be manually grown for large CJK fonts. Low-level API — wrap it.</li>
+        <li>Custom paragraph layout via Knuth-Plass line breaking — dynamic programming over all breakpoints to minimize total badness (spacing deviation, consecutive hyphenation, loose/tight adjacency). CSS <code>text-wrap: pretty</code> aims at this but no browser fully implements it yet.</li>
+        <li>Bidi algorithm (UAX #9) for mixed-direction text</li>
+        <li>Text-in-shape wrapping via geometry intersection with <code>geom-core</code></li>
         <li>Variable font axis control in the property inspector</li>
-        <li>Font subsetting for export (only ship used glyphs)</li>
+        <li>Font subsetting for export via <code>hb-subset.wasm</code> — only ship used glyphs, critical for CJK where full fonts exceed 10 MB</li>
       </ul>
     </div>
   </div>
@@ -1892,7 +1892,7 @@ scene.<span class="fn">animate</span>(<span class="st">'explode'</span>, {
 <section id="render-backends">
   <h2>§16 — Stadium-Scale Rendering &amp; Multi-Backend Architecture</h2>
 
-  <p class="drop-cap">SVG is the right authoring model. It is not always the right runtime renderer. For stadium jumbotrons, broadcast walls, ribbon displays, dense particle animations, or GPU-driven effects, raw DOM/SVG rendering hits a wall. The architecture needs a render abstraction layer — so you author once in a structured visual model, then render differently depending on the target.</p>
+  <p class="drop-cap">SVG is the right authoring model. It is not always the right runtime renderer. For stadium jumbotrons, broadcast walls, ribbon displays, dense particle animations, or GPU-driven effects, raw DOM/SVG rendering hits a wall. The architecture needs a render abstraction layer — so you author once in a structured visual model, then render differently depending on the target. The timing is right: WebGPU now ships in all major browsers — Chrome since 2023, Firefox 141+ (July 2025, Windows and macOS ARM64), Safari 26+ (June 2025, including visionOS). The GPU web is no longer experimental.</p>
 
   <h3>Three-layer rendering architecture</h3>
 
@@ -1939,6 +1939,11 @@ scene.<span class="fn">animate</span>(<span class="st">'explode'</span>, {
     <tr><td>Print / export</td><td>Headless Canvas or PDF pipeline</td><td>Deterministic output, CMYK support (via ICC), font embedding, bleed marks</td></tr>
     <tr><td>Control-room preview</td><td>Simplified SVG</td><td>Lightweight proxy rendering for monitoring many outputs simultaneously</td></tr>
   </table>
+
+  <div class="power zen">
+    <div class="power-label">Implementation Note</div>
+    <p>Chrome's WebGPU uses Dawn (C++), Firefox uses wgpu (Rust) — both map to D3D12/Metal/Vulkan underneath. For the Canvas 2D backend, use <code>OffscreenCanvas</code> with <code>transferControlToOffscreen()</code> to move rendering to a Web Worker. Once transferred, the worker has exclusive control — the main thread stays free for interaction. This is how you hit 60fps on data-heavy scenes without jank.</p>
+  </div>
 
   <h3>Per-object render paths</h3>
 
@@ -2014,9 +2019,9 @@ backgroundMesh.<span class="fn">gpuConfig</span> = {
 
   <table>
     <tr><th>System</th><th>Strength</th><th>Gap SVG OS fills</th></tr>
-    <tr><td>Rive</td><td>Editor + runtime pipeline as one system</td><td>No structured data binding, no multi-format export, no open SVG authoring</td></tr>
-    <tr><td>Penpot</td><td>Standards-oriented, SVG-based, open source</td><td>No GPU rendering path, no stadium-scale output, no compute shaders</td></tr>
-    <tr><td>Custom WebGPU engines</td><td>Raw GPU performance, full shader control</td><td>No structured authoring model, no semantic objects, no data binding, no template system</td></tr>
+    <tr><td>Rive</td><td>Proprietary <code>.riv</code> binary format. WASM runtime with Canvas2D and WebGL2 render paths. Custom GPU renderer (compute shaders + pixel local storage). State machines, mesh deformation, procedural animation. HarfBuzz for text internally.</td><td>No structured data binding. No multi-format export (output is always <code>.riv</code> → runtime). No open SVG authoring. No template/variant system.</td></tr>
+    <tr><td>Penpot</td><td>Open source (MPL 2.0). SVG is the native data model — every shape is an SVG node. New GPU-based tile renderer (2025) for performance. Export via headless Chromium. HTML/CSS/SVG inspect mode.</td><td>No GPU compute path for effects. No stadium-scale output. No data binding. No automation scripting. Tile renderer is for editing perf, not runtime delivery.</td></tr>
+    <tr><td>Custom WebGPU engines</td><td>Raw GPU performance, full shader control, custom pipelines mapped to D3D12/Metal/Vulkan</td><td>No structured authoring model, no semantic objects, no data binding, no template system, no multi-target export</td></tr>
   </table>
 
   <div class="power hack">
