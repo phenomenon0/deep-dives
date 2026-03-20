@@ -12,7 +12,7 @@
 | Ch 09 - Continuous Batching | DONE | pending | D3 static vs continuous comparison, chunked prefill/preemption tabs, Orca/vLLM benchmarks |
 | Ch 10 - Prefill vs Decode | DONE | pending | TTFT vs ITL diagram, chunked prefill/disaggregated P/D tabs, DistServe/Splitwise numbers |
 | Ch 11 - Speculative Decoding | DONE | pending | D3 draft/verify animation, rejection sampling math, variants tab, when-it-helps analysis |
-| Ch 12 - The Engines | pending | — | |
+| Ch 12 - The Engines | DONE | pending | D3 radar charts, decision matrix, feature table, 2026 landscape (Dynamo, ExV3, LMDeploy) |
 | Ch 13 - One User Becomes Many | pending | — | |
 | Ch 14 - The Scheduler | pending | — | |
 | Ch 15 - Prefix Caching | pending | — | |

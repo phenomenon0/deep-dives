@@ -1882,7 +1882,191 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 <p>Speculative decoding doesn&rsquo;t change the model. It doesn&rsquo;t approximate. It doesn&rsquo;t sacrifice quality. It exploits the single deepest asymmetry in LLM inference: verifying K tokens costs the same as generating 1 token, because the forward pass is the same shape. The draft model is a bet that most tokens are predictable. When that bet pays off &mdash; and for code, factual text, and structured output, it usually does &mdash; you get 2&ndash;3&times; speed for free.</p>
 </div>
 </section>
-<section id="ch12"><h2>// 12 &mdash; The Engines</h2><div class="era-badge"><span class="era-num">Era 8</span> &mdash; Treat serving as scheduling</div><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
+<section id="ch12">
+<h2>// 12 &mdash; The Engines</h2>
+<div class="era-badge"><span class="era-num">Era 8</span> &mdash; Treat serving as scheduling</div>
+<div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--green)">llama.cpp</span> &middot; <span style="color:var(--cyan)">ExLlamaV3</span> &middot; <span style="color:var(--magenta)">vLLM</span> &middot; <span style="color:var(--yellow)">SGLang</span> &middot; <span style="color:var(--orange)">TensorRT-LLM</span></div>
+<div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
+    The math is universal. The engine is a worldview.<span class="blink">_</span>
+</div>
+
+<p class="drop-cap">Every inference engine is a different answer to the same question: what do you optimize first &mdash; portability, simplicity, single-user speed, fleet throughput, scheduler control, or hardware specialization? By 2026, the field has separated into clear lanes. Each engine carries the architectural decisions of its creators, and those decisions echo through every deployment built on them.</p>
+
+<h3>The Landscape</h3>
+
+<div class="viz-container">
+<svg id="viz-ch12-engines" viewBox="0 0 780 400"></svg>
+</div>
+
+<script>
+(function() {
+    const svg = d3.select('#viz-ch12-engines');
+    const W = 780, H = 400;
+
+    const engines = [
+        {name:'llama.cpp', x:80, y:80, color:'#00ff88',
+         axes:[0.95, 0.3, 0.7, 0.2, 0.6, 0.9],
+         tag:'Portability King'},
+        {name:'ExLlamaV3', x:240, y:80, color:'#00ddff',
+         axes:[0.3, 0.9, 0.8, 0.3, 0.7, 0.4],
+         tag:'Consumer Specialist'},
+        {name:'vLLM', x:400, y:80, color:'#ff00aa',
+         axes:[0.4, 0.6, 0.7, 0.85, 0.8, 0.5],
+         tag:'Production Default'},
+        {name:'SGLang', x:560, y:80, color:'#ffdd00',
+         axes:[0.3, 0.7, 0.75, 0.9, 0.85, 0.4],
+         tag:'Prefix Reuse Engine'},
+        {name:'TRT-LLM', x:700, y:80, color:'#ff8800',
+         axes:[0.15, 0.8, 0.6, 0.9, 0.5, 0.2],
+         tag:'NVIDIA Performance'},
+    ];
+    const axisLabels = ['Portable','Local Speed','Quant Range','Fleet Throughput','Features','Easy Setup'];
+    const R = 55, cx = 70, cy = 45; // radar center within each card
+
+    engines.forEach((e, ei) => {
+        const cardX = 15 + ei * 152, cardY = 55, cardW = 145, cardH = 170;
+        // Card background
+        svg.append('rect').attr('x',cardX).attr('y',cardY).attr('width',cardW).attr('height',cardH)
+            .attr('fill','#12121a').attr('stroke',e.color+'44').attr('rx',6);
+        // Name
+        svg.append('text').attr('x',cardX+cardW/2).attr('y',cardY+18).text(e.name)
+            .attr('fill',e.color).attr('font-family','JetBrains Mono').attr('font-size',11).attr('text-anchor','middle').attr('font-weight','bold');
+        // Tag
+        svg.append('text').attr('x',cardX+cardW/2).attr('y',cardY+32).text(e.tag)
+            .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',8).attr('text-anchor','middle');
+
+        // Mini radar
+        const rcx = cardX + cardW/2, rcy = cardY + 105, rr = 45;
+        const n = e.axes.length;
+        // Radar grid
+        [0.33, 0.66, 1.0].forEach(s => {
+            const pts = [];
+            for (let i = 0; i < n; i++) {
+                const angle = (Math.PI * 2 * i / n) - Math.PI / 2;
+                pts.push([rcx + Math.cos(angle) * rr * s, rcy + Math.sin(angle) * rr * s]);
+            }
+            svg.append('polygon').attr('points', pts.map(p=>p.join(',')).join(' '))
+                .attr('fill','none').attr('stroke','#1e1e2e');
+        });
+        // Radar fill
+        const dataPts = [];
+        for (let i = 0; i < n; i++) {
+            const angle = (Math.PI * 2 * i / n) - Math.PI / 2;
+            dataPts.push([rcx + Math.cos(angle) * rr * e.axes[i], rcy + Math.sin(angle) * rr * e.axes[i]]);
+        }
+        svg.append('polygon').attr('points', dataPts.map(p=>p.join(',')).join(' '))
+            .attr('fill',e.color+'22').attr('stroke',e.color).attr('stroke-width',1.5);
+        dataPts.forEach(p => {
+            svg.append('circle').attr('cx',p[0]).attr('cy',p[1]).attr('r',3).attr('fill',e.color);
+        });
+    });
+
+    // Legend for axes
+    const legY = 240;
+    svg.append('text').attr('x',W/2).attr('y',legY).text('Radar Axes: Portable \u00b7 Local Speed \u00b7 Quant Range \u00b7 Fleet Throughput \u00b7 Features \u00b7 Easy Setup')
+        .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',9).attr('text-anchor','middle');
+
+    // Engine descriptions below
+    const descY = 265;
+    const descs = [
+        {name:'llama.cpp', color:'#00ff88', text:'CUDA, Metal, Vulkan, CPU. GGUF format. Runs anywhere, one binary. RPC clusters run 1T-param models. Best for local and edge.'},
+        {name:'ExLlamaV3', color:'#00ddff', text:'EXL3 format (QTIP-based, coherent to 1.6 bpw). 30+ architectures. Paged attention + continuous batching. Best consumer NVIDIA performance.'},
+        {name:'vLLM', color:'#ff00aa', text:'V1 engine (V0 removed). PagedAttention, prefix caching, chunked prefill, speculative decode. OpenAI API. The default production recommendation.'},
+        {name:'SGLang', color:'#ffdd00', text:'RadixAttention for prefix reuse. Multi-LoRA, structured output, P/D disaggregation. Trillions of tokens daily. 10-20% multi-turn advantage.'},
+        {name:'TRT-LLM + Dynamo', color:'#ff8800', text:'NVIDIA kernel layer + orchestration OS. FP8 native, in-flight batching. Dynamo wraps TRT-LLM/vLLM/SGLang. Highest raw H100/Blackwell perf.'},
+    ];
+    descs.forEach((d, i) => {
+        const y = descY + i * 26;
+        svg.append('circle').attr('cx',25).attr('cy',y-4).attr('r',4).attr('fill',d.color);
+        svg.append('text').attr('x',38).attr('y',y).text(d.name + ':')
+            .attr('fill',d.color).attr('font-family','JetBrains Mono').attr('font-size',9).attr('font-weight','bold');
+        svg.append('text').attr('x',38 + d.name.length * 7 + 10).attr('y',y).text(d.text)
+            .attr('fill','#c8c8d4').attr('font-family','Source Serif 4, Georgia').attr('font-size',12);
+    });
+})();
+</script>
+
+<h3>Choose Your Engine</h3>
+
+<div class="tabbed">
+<input type="radio" name="engine-tabs" id="engine-tabs-t1" class="t1" checked>
+<input type="radio" name="engine-tabs" id="engine-tabs-t2" class="t2">
+<input type="radio" name="engine-tabs" id="engine-tabs-t3" class="t3">
+<div class="tab-bar">
+<label for="engine-tabs-t1">Decision Matrix</label>
+<label for="engine-tabs-t2">The Details</label>
+<label for="engine-tabs-t3">What Died</label>
+</div>
+<div class="tab-panel p1">
+<div class="diagram"><span class="diagram-label">When to use what</span>
+<pre><code>
+  <span class="cm">Scenario</span>                                <span class="cm">Engine</span>
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  Local chat on a 3090                   <span style="color:var(--green)">llama.cpp</span> or <span style="color:var(--cyan)">ExLlamaV3</span>
+  Local on Mac with Metal                <span style="color:var(--green)">llama.cpp</span>
+  Local on AMD GPU                       <span style="color:var(--green)">llama.cpp</span> (Vulkan) or <span style="color:var(--magenta)">vLLM</span> (ROCm)
+  Edge / mobile / embedded               <span style="color:var(--green)">llama.cpp</span>
+  Production API, 10&ndash;100 users           <span style="color:var(--magenta)">vLLM</span>
+  Production API, heavy prefix sharing   <span style="color:var(--yellow)">SGLang</span>
+  Structured output / grammars           <span style="color:var(--yellow)">SGLang</span>
+  Multi-LoRA tenant serving              <span style="color:var(--yellow)">SGLang</span> or <span style="color:var(--magenta)">vLLM</span>
+  Max H100/Blackwell performance         <span style="color:var(--orange)">TensorRT-LLM</span> + Dynamo
+  Multi-GPU cluster, 1000+ users         <span style="color:var(--orange)">Dynamo</span> (wraps TRT-LLM/vLLM/SGLang)
+  Extreme quantization (&lt;3 bpw)          <span style="color:var(--cyan)">ExLlamaV3</span> (EXL3) or <span style="color:var(--green)">llama.cpp</span> (IQ)
+  Existing HuggingFace deployment        Migrate to <span style="color:var(--magenta)">vLLM</span> or <span style="color:var(--yellow)">SGLang</span>
+</code></pre></div></div>
+<div class="tab-panel p2">
+<div class="diagram"><span class="diagram-label">Engine feature comparison &mdash; March 2026</span>
+<pre><code>
+  <span class="cm">Feature              llama   ExLV3   vLLM    SGLang  TRT-LLM</span>
+  <span class="cm">&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;</span>
+  Continuous batch     <span style="color:var(--yellow)">basic</span>   <span style="color:var(--green)">&check;</span>      <span style="color:var(--green)">&check;</span>      <span style="color:var(--green)">&check;</span>      <span style="color:var(--green)">&check;</span>
+  PagedAttention       <span style="color:var(--red)">&times;</span>      <span style="color:var(--green)">&check;</span>      <span style="color:var(--green)">&check;</span>      <span style="color:var(--green)">&check;</span>      <span style="color:var(--green)">&check;</span>
+  Prefix caching       <span style="color:var(--red)">&times;</span>      <span style="color:var(--red)">&times;</span>      <span style="color:var(--green)">&check;</span>      <span style="color:var(--green)">&check;</span>      <span style="color:var(--green)">&check;</span>
+  Speculative decode   <span style="color:var(--green)">&check;</span>      <span style="color:var(--red)">&times;</span>      <span style="color:var(--green)">&check;</span>      <span style="color:var(--green)">&check;</span>      <span style="color:var(--green)">&check;</span>
+  Multi-GPU (TP/PP)    <span style="color:var(--yellow)">RPC</span>     <span style="color:var(--red)">&times;</span>      <span style="color:var(--green)">&check;</span>      <span style="color:var(--green)">&check;</span>      <span style="color:var(--green)">&check;</span>
+  FP8 native           <span style="color:var(--red)">&times;</span>      <span style="color:var(--red)">&times;</span>      <span style="color:var(--green)">&check;</span>      <span style="color:var(--green)">&check;</span>      <span style="color:var(--green)">&check;</span>
+  Multi-LoRA           <span style="color:var(--red)">&times;</span>      <span style="color:var(--red)">&times;</span>      <span style="color:var(--green)">&check;</span>      <span style="color:var(--green)">&check;</span>      <span style="color:var(--green)">&check;</span>
+  Structured output    <span style="color:var(--yellow)">GBNF</span>   <span style="color:var(--yellow)">basic</span>   <span style="color:var(--green)">&check;</span>      <span style="color:var(--green)">&check;</span>      <span style="color:var(--yellow)">basic</span>
+  Metal/Vulkan/CPU     <span style="color:var(--green)">&check;</span>      <span style="color:var(--red)">&times;</span>      <span style="color:var(--red)">&times;</span>      <span style="color:var(--red)">&times;</span>      <span style="color:var(--red)">&times;</span>
+  Disaggregated P/D    <span style="color:var(--red)">&times;</span>      <span style="color:var(--red)">&times;</span>      <span style="color:var(--yellow)">exp</span>     <span style="color:var(--green)">&check;</span>      <span style="color:var(--green)">&check;</span>
+  OpenAI API           <span style="color:var(--green)">&check;</span>      <span style="color:var(--green)">TabbyAPI</span> <span style="color:var(--green)">&check;</span>     <span style="color:var(--green)">&check;</span>      <span style="color:var(--green)">&check;</span>
+</code></pre></div></div>
+<div class="tab-panel p3">
+<div class="diagram"><span class="diagram-label">What changed since 2024</span>
+<pre><code>
+  <span style="color:var(--red)">TGI</span>: maintenance mode since Dec 11, 2025.
+  Hugging Face explicitly recommends vLLM or SGLang.
+  Still works for existing deployments. Not where new work should go.
+
+  <span style="color:var(--yellow)">vLLM V0</span>: code fully removed in v0.11.0 (Q3 2025).
+  V1 became default in v0.8.0 (Feb 2025).
+  The scheduler rewrite simplified everything.
+
+  <span style="color:var(--orange)">NVIDIA Dynamo</span>: open-sourced at GTC 2025, production March 2026.
+  An &ldquo;inference operating system&rdquo; that wraps TRT-LLM, vLLM, SGLang.
+  Disaggregated P/D, dynamic GPU scheduling, up to 30&times; on Blackwell.
+  TRT-LLM is now the kernel layer; Dynamo is the orchestration layer.
+
+  <span style="color:var(--cyan)">ExLlamaV3</span>: released alongside V2 by turboderp.
+  EXL3 format (QTIP-based) coherent down to 1.6 bpw.
+  30+ architectures including multimodal. Still no ROCm.
+
+  <span style="color:var(--blue)">LMDeploy</span>: the dark horse. Ties SGLang on H100 throughput
+  (~16,200 tok/s). InternLM&rsquo;s TurboMind engine.
+  MXFP4, FlashMLA, DeepGemm integration.
+
+  <span class="pp">The landscape split: local (llama.cpp, ExLlama) vs</span>
+  <span class="pp">production (vLLM, SGLang, TRT-LLM/Dynamo).</span>
+  <span class="pp">The middle ground — single-server TGI — emptied out.</span>
+</code></pre></div></div>
+</div>
+
+<div class="power zen">
+<div class="power-label">A Theory of Where Time Goes</div>
+<p>An inference engine is not just code that runs a model. It is a theory of where time goes. llama.cpp says: time goes to loading libraries and compiling kernels, so eliminate dependencies. ExLlama says: time goes to suboptimal quantization kernels, so hand-tune them. vLLM says: time goes to memory fragmentation, so page the cache. SGLang says: time goes to redundant prefix computation, so cache the tree. TensorRT-LLM says: time goes to kernel overhead, so fuse everything. Each one is right about its world. Choose the one that matches yours.</p>
+</div>
+</section>
 
 <!-- FOOTER -->
 <div style="text-align:center; padding:3rem 0 1.5rem; border-top:1px solid var(--border);">
@@ -1890,12 +2074,12 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
     <div style="font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim); line-height:1.8; margin-bottom:1.5rem;">
         <span style="color:var(--green)">Ch 5</span> Why It&rsquo;s Slow &middot;
         <span style="color:var(--green)">Ch 6</span> KV Cache &middot;
-        <span style="color:var(--text-dim)">Ch 7</span> Quantization &middot;
-        <span style="color:var(--text-dim)">Ch 8</span> FlashAttention &middot;
-        <span style="color:var(--text-dim)">Ch 9</span> Batching &middot;
-        <span style="color:var(--text-dim)">Ch 10</span> Prefill/Decode &middot;
-        <span style="color:var(--text-dim)">Ch 11</span> Speculation &middot;
-        <span style="color:var(--text-dim)">Ch 12</span> The Engines
+        <span style="color:var(--green)">Ch 7</span> Quantization &middot;
+        <span style="color:var(--green)">Ch 8</span> FlashAttention &middot;
+        <span style="color:var(--green)">Ch 9</span> Batching &middot;
+        <span style="color:var(--green)">Ch 10</span> Prefill/Decode &middot;
+        <span style="color:var(--green)">Ch 11</span> Speculation &middot;
+        <span style="color:var(--green)">Ch 12</span> The Engines
     </div>
     <div style="display:flex; justify-content:center; gap:2rem; flex-wrap:wrap;">
         <a href="inference-engine-deep-dive.html" style="font-family:'JetBrains Mono',monospace; font-size:1rem; color:var(--green); text-decoration:none;">&larr; Part I: The Machine</a>
