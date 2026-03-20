@@ -1217,6 +1217,287 @@
 
 </section>
 
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 4: LINEAR MEMORY                                        -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch4">
+<h2>04 &mdash; linear memory</h2>
+
+<p class="drop-cap">Wasm programs do not have a heap allocator, a virtual address space, or memory protection in the OS sense. They have a flat byte array. One contiguous block of bytes, starting at offset zero, addressable with 32-bit indices. Every pointer in a compiled C program &mdash; every <code>malloc</code> result, every stack variable, every string literal &mdash; is just an integer index into this array. The <code>i32.load</code> instruction reads four bytes at a given offset. <code>i32.store</code> writes them. That is the entire memory model.</p>
+
+<p>This simplicity is both the performance story and the security story. The engine does not need to emulate page tables or translation lookaside buffers. A load is an array access. And because the array has a known size, the engine can prove that every access is in bounds &mdash; in some cases without executing a single check instruction.</p>
+
+<h3>Pages and Growing</h3>
+
+<p>Linear memory is declared in units of <strong>pages</strong>, each exactly 65,536 bytes (64 KB). A module declares an initial size and optionally a maximum:</p>
+
+<pre><span class="label">WAT</span><code>(<span class="kw">memory</span> <span class="nm">1</span> <span class="nm">10</span>)  <span class="cm">;; initial: 1 page (64 KB), max: 10 pages (640 KB)</span></code></pre>
+
+<p>At runtime, a module can request more memory via <code>memory.grow</code>:</p>
+
+<pre><span class="label">WAT</span><code><span class="kw">i32.const</span> <span class="nm">3</span>        <span class="cm">;; request 3 additional pages</span>
+<span class="kw">memory.grow</span>         <span class="cm">;; returns old size in pages (or -1 on failure)</span></code></pre>
+
+<p>The new pages are zero-initialized. The existing data is untouched. The base address does not change &mdash; the array simply gets longer. If the request would exceed the declared maximum or the engine&rsquo;s resource limits, <code>memory.grow</code> returns <code>-1</code> and the memory stays unchanged.</p>
+
+<div class="viz-container">
+<svg id="viz-mem" viewBox="0 0 780 280" role="img">
+  <title>Interactive linear memory visualization</title>
+</svg>
+<div class="viz-controls">
+  <button id="viz-mem-grow">memory.grow(1)</button>
+  <button id="viz-mem-store">i32.store [0x10]</button>
+  <button id="viz-mem-load">i32.load [0x10]</button>
+  <button id="viz-mem-reset" class="secondary">Reset</button>
+  <span id="viz-mem-status" style="color:var(--text-dim);">Click memory.grow to add a 64 KB page</span>
+</div>
+</div>
+
+<h3>The Guard Page Trick</h3>
+
+<p>Every memory access in Wasm must be bounds-checked &mdash; an out-of-bounds load or store must trap, not silently read garbage. The naive approach is to insert a comparison before every access: <code>if (offset + size > memory.length) trap()</code>. That is a branch on every load and store, and it is expensive.</p>
+
+<p>Every major engine uses a better approach: <strong>virtual memory guard pages</strong>. The engine asks the operating system to reserve a large virtual address range &mdash; typically 4 GB for a 32-bit Wasm memory plus some extra. The actual linear memory occupies the first N pages (backed by physical memory). Everything beyond that is left <em>unmapped</em>:</p>
+
+<div class="diagram">
+<span class="diagram-label">Virtual memory layout</span>
+<pre><code>  0                         N pages                        4 GB
+  ├─────────────────────────┼────────────────────────────────┤
+  │ <span class="st">   real memory (RW)     </span> │ <span class="pp">   unmapped guard region       </span> │
+  │ <span class="st">   linear memory data   </span> │ <span class="pp">   any access = hardware trap  </span> │
+  ├─────────────────────────┼────────────────────────────────┤
+  ▲                         ▲                                ▲
+  base pointer              current size             max virtual reservation
+
+  Out-of-bounds access hits unmapped memory &rarr; CPU raises fault
+  Runtime catches the fault &rarr; Wasm trap
+  Cost in the common case: <span class="st">zero instructions</span></code></pre>
+</div>
+
+<p>An out-of-bounds access hits the unmapped region, the CPU raises a hardware fault (SIGSEGV on Linux, access violation on Windows), and the Wasm runtime&rsquo;s signal handler catches it and converts it to a Wasm trap. In the common case &mdash; the access is in bounds &mdash; there is no check at all. No branch, no comparison, no overhead. The hardware does bounds checking for free.</p>
+
+<p>V8, SpiderMonkey, and Wasmtime all use this technique. It is why Wasm memory access is as fast as native pointer dereferencing, despite being sandboxed.</p>
+
+<h3>Memory Layout</h3>
+
+<p>When Emscripten compiles a C program to Wasm, it lays out the linear memory like a simplified version of a native process:</p>
+
+<div class="diagram">
+<span class="diagram-label">Emscripten linear memory layout</span>
+<pre><code>  Offset 0                                               memory size
+  ├──────────┬───────────────┬──────────────┬─────────────────┤
+  │ <span class="ty"> null  </span>  │ <span class="st"> static data </span>  │ <span class="pp">  heap &rarr;    </span>  │  <span class="fn">  &larr; stack   </span>  │
+  │ <span class="ty"> guard </span>  │ <span class="st"> (globals,   </span>  │ <span class="pp">  (malloc,   </span>  │  <span class="fn">  (locals,   </span>  │
+  │ <span class="ty"> page  </span>  │ <span class="st">  strings)   </span>  │ <span class="pp">   grows up) </span>  │  <span class="fn">   grows down)</span>  │
+  ├──────────┴───────────────┴──────────────┴─────────────────┤
+
+  <span class="ty">&#9632;</span> Offset 0 is intentionally wasted (null pointer guard)
+  <span class="st">&#9632;</span> Static data: string literals, global variables
+  <span class="pp">&#9632;</span> Heap: malloc/free, grows upward via memory.grow
+  <span class="fn">&#9632;</span> Stack: function locals, grows downward from top</code></pre>
+</div>
+
+<p>Offset 0 is left as a null pointer guard &mdash; accessing address 0 is always a trap. Static data (strings, global constants) sits just above that. The heap grows upward via <code>memory.grow</code>. The <em>shadow stack</em> lives at the top of memory and grows downward &mdash; this is not the Wasm operand stack from Chapter 2, but the C-style call stack that holds local variables too large for Wasm locals.</p>
+
+<p>Every <code>int*</code> in the C source becomes an <code>i32</code> in the Wasm output. Dereferencing that pointer becomes <code>i32.load</code> with the pointer value as the offset. Pointer arithmetic becomes <code>i32.add</code>. The compiler has flattened the entire abstraction of pointers and addresses into indices into a flat array. There is nothing else.</p>
+
+<div class="power">
+<div class="power-label">Why 64 KB Pages?</div>
+<p>Wasm pages are exactly 65,536 bytes. This is not arbitrary. Windows&rsquo; <code>VirtualAlloc</code> allocates in 64 KB granularity. ARM architectures optionally support 64 KB pages. And x86 uses 4 KB pages, so 64 KB is always an exact multiple. The 64 KB page size is the lowest common denominator that lets every OS map Wasm memory without waste or misalignment &mdash; one <code>memory.grow</code> call maps cleanly to one or more OS-level page operations on every platform.</p>
+</div>
+
+<h3>The Security Boundary</h3>
+
+<p>A Wasm module cannot read or write outside its linear memory. Period. There is no system call to map new address ranges. There is no way to dereference a pointer into the browser&rsquo;s own memory. A buffer overflow in a Wasm module corrupts <em>the module&rsquo;s own data</em> &mdash; it cannot escape the sandbox.</p>
+
+<p>This is fundamentally different from native code, where a buffer overflow can overwrite return addresses on the stack (enabling ROP attacks), corrupt adjacent heap allocations, or read sensitive data from other processes. In Wasm, the call stack (return addresses) is separate from linear memory and completely inaccessible to the program. The shadow stack in linear memory holds copies of local variables, but the actual return flow is managed by the engine and cannot be touched.</p>
+
+<p>For 32-bit Wasm (the current standard), linear memory is capped at 4 GB &mdash; the maximum addressable by <code>i32</code> indices. The Memory64 proposal extends this to <code>i64</code> addressing for applications that need more. But the principle stays the same: one flat array, one boundary, no escape.</p>
+
+<p>We have the execution model (stack machine), the file format (binary sections), and the data store (linear memory). What remains is the type system that ties them together &mdash; four numeric types, a handful of reference types, and a set of rules that make every operation provably correct before it runs.</p>
+
+</section>
+
+<script>
+// ── Chapter 4: Linear Memory Visualization ──
+(function() {
+  const svg = d3.select('#viz-mem');
+  const W = 780, H = 280;
+  const pageW = 120, pageH = 160, pageGap = 6;
+  const baseX = 40, baseY = 30;
+  const maxPages = 5;
+
+  let pages = 1;
+  let stored = false;
+  let loadedVal = null;
+
+  function draw() {
+    svg.selectAll('*').remove();
+
+    // Title
+    svg.append('text').attr('x', baseX).attr('y', baseY - 8)
+      .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
+      .attr('font-size', '10px').attr('letter-spacing', '0.1em')
+      .text('LINEAR MEMORY');
+
+    // Memory size label
+    svg.append('text').attr('x', W - 30).attr('y', baseY - 8)
+      .attr('text-anchor', 'end').attr('fill', '#00ff88')
+      .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', '12px')
+      .text(pages + ' page' + (pages > 1 ? 's' : '') + ' = ' + (pages * 64) + ' KB');
+
+    // Draw pages
+    for (let i = 0; i < maxPages; i++) {
+      const x = baseX + i * (pageW + pageGap);
+      const y = baseY;
+      const active = i < pages;
+
+      // Page rect
+      svg.append('rect')
+        .attr('x', x).attr('y', y)
+        .attr('width', pageW).attr('height', pageH)
+        .attr('rx', 4)
+        .attr('fill', active ? '#00ff8815' : '#12121a')
+        .attr('stroke', active ? '#00ff88' : '#1e1e2e')
+        .attr('stroke-width', active ? 1.5 : 1)
+        .attr('stroke-dasharray', active ? 'none' : '4,4');
+
+      // Page label
+      svg.append('text')
+        .attr('x', x + pageW / 2).attr('y', y + 18)
+        .attr('text-anchor', 'middle')
+        .attr('fill', active ? '#00ff88' : '#6a6a7e')
+        .attr('font-family', 'JetBrains Mono, monospace')
+        .attr('font-size', '10px')
+        .text(active ? 'Page ' + i : 'unmapped');
+
+      // Offset range
+      if (active) {
+        svg.append('text')
+          .attr('x', x + pageW / 2).attr('y', y + 35)
+          .attr('text-anchor', 'middle')
+          .attr('fill', '#6a6a7e')
+          .attr('font-family', 'JetBrains Mono, monospace')
+          .attr('font-size', '9px')
+          .text('0x' + (i * 0x10000).toString(16).toUpperCase() + '..0x' + ((i + 1) * 0x10000 - 1).toString(16).toUpperCase());
+      }
+
+      // Show stored data in page 0
+      if (active && i === 0 && stored) {
+        const cellY = y + 55;
+        // Highlight bytes at offset 0x10
+        for (let b = 0; b < 4; b++) {
+          svg.append('rect')
+            .attr('x', x + 10 + b * 26).attr('y', cellY)
+            .attr('width', 24).attr('height', 18)
+            .attr('rx', 2)
+            .attr('fill', '#ff880033')
+            .attr('stroke', '#ff8800').attr('stroke-width', 1);
+          svg.append('text')
+            .attr('x', x + 10 + b * 26 + 12).attr('y', cellY + 13)
+            .attr('text-anchor', 'middle')
+            .attr('fill', '#ff8800')
+            .attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', '9px').attr('font-weight', '600')
+            .text(['2A', '00', '00', '00'][b]);
+        }
+        svg.append('text')
+          .attr('x', x + 10).attr('y', cellY + 35)
+          .attr('fill', '#ff8800')
+          .attr('font-family', 'JetBrains Mono, monospace')
+          .attr('font-size', '9px')
+          .text('offset 0x10: 42');
+      }
+
+      // Show loaded value
+      if (active && i === 0 && loadedVal !== null) {
+        svg.append('text')
+          .attr('x', x + pageW / 2).attr('y', y + pageH - 15)
+          .attr('text-anchor', 'middle')
+          .attr('fill', '#00ddff')
+          .attr('font-family', 'JetBrains Mono, monospace')
+          .attr('font-size', '12px').attr('font-weight', '600')
+          .text('loaded: ' + loadedVal);
+      }
+    }
+
+    // Guard region label
+    if (pages < maxPages) {
+      const guardX = baseX + pages * (pageW + pageGap);
+      svg.append('text')
+        .attr('x', guardX + (maxPages - pages) * (pageW + pageGap) / 2)
+        .attr('y', baseY + pageH / 2 + 4)
+        .attr('text-anchor', 'middle')
+        .attr('fill', '#ff334466')
+        .attr('font-family', 'JetBrains Mono, monospace')
+        .attr('font-size', '11px')
+        .text('guard region (unmapped)');
+    }
+
+    // Boundary arrow
+    const boundaryX = baseX + pages * (pageW + pageGap) - pageGap / 2;
+    svg.append('line')
+      .attr('x1', boundaryX).attr('y1', baseY - 3)
+      .attr('x2', boundaryX).attr('y2', baseY + pageH + 3)
+      .attr('stroke', '#ff3344').attr('stroke-width', 2)
+      .attr('stroke-dasharray', '4,3');
+    svg.append('text')
+      .attr('x', boundaryX).attr('y', baseY + pageH + 20)
+      .attr('text-anchor', 'middle')
+      .attr('fill', '#ff3344')
+      .attr('font-family', 'JetBrains Mono, monospace')
+      .attr('font-size', '9px')
+      .text('bounds limit');
+
+    // Bottom legend
+    svg.append('text')
+      .attr('x', baseX).attr('y', H - 20)
+      .attr('fill', '#6a6a7e')
+      .attr('font-family', 'JetBrains Mono, monospace')
+      .attr('font-size', '10px')
+      .text('1 page = 65,536 bytes = 0x10000');
+  }
+
+  d3.select('#viz-mem-grow').on('click', function() {
+    if (pages >= maxPages) {
+      d3.select('#viz-mem-status').html('<span style="color:#ff3344">memory.grow failed — returned -1 (max reached)</span>');
+      return;
+    }
+    const old = pages;
+    pages++;
+    draw();
+    d3.select('#viz-mem-status').html('memory.grow(1) returned ' + old + ' (old size). Now ' + pages + ' pages (' + (pages * 64) + ' KB)');
+  });
+
+  d3.select('#viz-mem-store').on('click', function() {
+    stored = true;
+    loadedVal = null;
+    draw();
+    d3.select('#viz-mem-status').html('i32.store offset=0x10 value=42 — wrote 4 bytes (little-endian: 2A 00 00 00)');
+  });
+
+  d3.select('#viz-mem-load').on('click', function() {
+    if (!stored) {
+      loadedVal = 0;
+      draw();
+      d3.select('#viz-mem-status').html('i32.load offset=0x10 — read 0 (memory is zero-initialized)');
+    } else {
+      loadedVal = 42;
+      draw();
+      d3.select('#viz-mem-status').html('i32.load offset=0x10 — read 42 from the stored location');
+    }
+  });
+
+  d3.select('#viz-mem-reset').on('click', function() {
+    pages = 1; stored = false; loadedVal = null;
+    draw();
+    d3.select('#viz-mem-status').html('Click memory.grow to add a 64 KB page');
+  });
+
+  draw();
+})();
+</script>
+
 </div><!-- .content -->
 </body>
 </html>
