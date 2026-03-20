@@ -1042,6 +1042,181 @@
 })();
 </script>
 
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 3: THE BINARY FORMAT                                    -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch3">
+<h2>03 &mdash; the binary format</h2>
+
+<p class="drop-cap">A <code>.wasm</code> file is not source code. It is not an archive. It is a sequence of typed sections laid out in a fixed order, each one answering a single question about the module it describes. The format was designed with one obsession: a browser should be able to start compiling the first function while the last function is still downloading. No backtracking, no symbol resolution phase, no second pass. The binary <em>is</em> the compilation input.</p>
+
+<p>Every <code>.wasm</code> file begins the same way &mdash; four magic bytes followed by a version number:</p>
+
+<div class="diagram">
+<span class="diagram-label">The first 8 bytes</span>
+<pre><code>  00 61 73 6D   01 00 00 00
+  ─┬──────────   ─┬──────────
+   │              │
+   <span class="st">\0asm</span>          <span class="ty">version 1</span>
+
+  The magic number spells "asm" in ASCII,
+  preceded by a null byte. Every valid
+  .wasm file starts with these 8 bytes.</code></pre>
+</div>
+
+<p>After the header, sections appear in numerical order. Each section starts with a one-byte ID, followed by its length in bytes (encoded as a LEB128 integer), then its payload. The engine reads the ID, reads the length, and either processes the section or skips it entirely &mdash; jumping ahead by exactly <em>length</em> bytes to the next section.</p>
+
+<h3>The Twelve Sections</h3>
+
+<p>A Wasm module can contain up to twelve standard section types, plus any number of custom sections. They must appear in this order:</p>
+
+<table>
+<tr><th>ID</th><th>Section</th><th>What it answers</th></tr>
+<tr><td><span style="color:var(--magenta)">1</span></td><td>Type</td><td>What function signatures exist? <code>(i32, i32) &rarr; i32</code></td></tr>
+<tr><td><span style="color:var(--cyan)">2</span></td><td>Import</td><td>What does the module need from the host?</td></tr>
+<tr><td><span style="color:var(--orange)">3</span></td><td>Function</td><td>Which function uses which type signature?</td></tr>
+<tr><td><span style="color:var(--text-dim)">4</span></td><td>Table</td><td>What indirect call tables exist?</td></tr>
+<tr><td><span style="color:var(--green)">5</span></td><td>Memory</td><td>How much linear memory? (initial size, max)</td></tr>
+<tr><td><span style="color:var(--text-dim)">6</span></td><td>Global</td><td>What mutable/immutable globals exist?</td></tr>
+<tr><td><span style="color:var(--yellow)">7</span></td><td>Export</td><td>What does the module expose to the host?</td></tr>
+<tr><td><span style="color:var(--text-dim)">8</span></td><td>Start</td><td>Which function runs automatically on load?</td></tr>
+<tr><td><span style="color:var(--text-dim)">9</span></td><td>Element</td><td>What goes into the indirect call tables?</td></tr>
+<tr><td><span style="color:var(--blue)">10</span></td><td>Code</td><td>The actual function bodies &mdash; the bytecode.</td></tr>
+<tr><td><span style="color:var(--purple)">11</span></td><td>Data</td><td>What goes into linear memory at startup?</td></tr>
+<tr><td><span style="color:var(--text-dim)">12</span></td><td>DataCount</td><td>How many data segments? (for validation)</td></tr>
+</table>
+
+<p>The ordering rule is strict: section 1 before 2, 2 before 3, and so on. Custom sections (ID 0) can appear anywhere between standard sections &mdash; they carry names, debug info, or metadata that engines may ignore. This fixed ordering is what makes streaming compilation possible. By the time the engine reaches the Code section, it already knows every type signature, every import, and every memory declaration. It has everything it needs to compile function bodies in parallel.</p>
+
+<h3>X-Ray of a Binary</h3>
+
+<p>Here is the complete byte-level anatomy of a <code>.wasm</code> module containing a single function &mdash; the <code>add(i32, i32) &rarr; i32</code> from Chapter 1. Forty-one bytes, zero waste:</p>
+
+<div class="tabbed">
+<input type="radio" name="bin" id="bin-t1" class="t1" checked>
+<input type="radio" name="bin" id="bin-t2" class="t2">
+<input type="radio" name="bin" id="bin-t3" class="t3">
+<div class="tab-bar">
+  <label for="bin-t1">Hex Dump</label>
+  <label for="bin-t2">Decoded</label>
+  <label for="bin-t3">WAT</label>
+</div>
+<div class="tab-panel p1">
+<div style="padding:1.2rem 1.4rem;">
+<p style="font-size:0.82rem;color:var(--text-dim);margin-bottom:0.8rem;">Each byte is colored by the section it belongs to. Hover annotations below.</p>
+<div class="mem-row"><div class="mc g">00</div><div class="mc g">61</div><div class="mc g">73</div><div class="mc g">6D</div><div class="mc c">01</div><div class="mc c">00</div><div class="mc c">00</div><div class="mc c">00</div></div>
+<div class="mem-row"><div class="mc m">01</div><div class="mc m">07</div><div class="mc m">01</div><div class="mc m">60</div><div class="mc m">02</div><div class="mc m">7F</div><div class="mc m">7F</div><div class="mc m">01</div><div class="mc m">7F</div></div>
+<div class="mem-row"><div class="mc o">03</div><div class="mc o">02</div><div class="mc o">01</div><div class="mc o">00</div></div>
+<div class="mem-row"><div class="mc y">07</div><div class="mc y">07</div><div class="mc y">01</div><div class="mc y">03</div><div class="mc y">61</div><div class="mc y">64</div><div class="mc y">64</div><div class="mc y">00</div><div class="mc y">00</div></div>
+<div class="mem-row"><div class="mc b">0A</div><div class="mc b">09</div><div class="mc b">01</div><div class="mc b">07</div><div class="mc b">00</div><div class="mc b">20</div><div class="mc b">00</div><div class="mc b">20</div><div class="mc b">01</div><div class="mc b">6A</div><div class="mc b">0B</div></div>
+<p style="font-size:0.82rem;color:var(--text-dim);margin-top:0.6rem;"><span style="color:var(--green)">&#9632;</span> magic &nbsp; <span style="color:var(--cyan)">&#9632;</span> version &nbsp; <span style="color:var(--magenta)">&#9632;</span> type section &nbsp; <span style="color:var(--orange)">&#9632;</span> function section &nbsp; <span style="color:var(--yellow)">&#9632;</span> export section &nbsp; <span style="color:var(--blue)">&#9632;</span> code section</p>
+</div>
+</div>
+<div class="tab-panel p2">
+<pre><code><span class="cm">── Header ──</span>
+<span class="st">00 61 73 6D</span>  magic: \0asm
+<span class="ty">01 00 00 00</span>  version: 1
+
+<span class="cm">── Type Section (id=1, 7 bytes) ──</span>
+<span class="kw">01</span>           section id: Type
+<span class="kw">07</span>           section length: 7 bytes
+<span class="nm">01</span>           1 type entry
+<span class="nm">60</span>           func type marker
+<span class="nm">02 7F 7F</span>     2 params, both i32 (0x7F)
+<span class="nm">01 7F</span>        1 result, i32
+
+<span class="cm">── Function Section (id=3, 2 bytes) ──</span>
+<span class="pp">03</span>           section id: Function
+<span class="pp">02</span>           section length: 2 bytes
+<span class="nm">01</span>           1 function
+<span class="nm">00</span>           uses type index 0
+
+<span class="cm">── Export Section (id=7, 7 bytes) ──</span>
+<span class="fn">07</span>           section id: Export
+<span class="fn">07</span>           section length: 7 bytes
+<span class="nm">01</span>           1 export
+<span class="nm">03 61 64 64</span>  name: "add" (3 bytes, UTF-8)
+<span class="nm">00</span>           export kind: function
+<span class="nm">00</span>           function index: 0
+
+<span class="cm">── Code Section (id=10, 9 bytes) ──</span>
+<span class="ty">0A</span>           section id: Code
+<span class="ty">09</span>           section length: 9 bytes
+<span class="nm">01</span>           1 function body
+<span class="nm">07</span>           body size: 7 bytes
+<span class="nm">00</span>           0 local declarations
+<span class="kw">20 00</span>        local.get 0
+<span class="kw">20 01</span>        local.get 1
+<span class="kw">6A</span>           i32.add
+<span class="kw">0B</span>           end</code></pre>
+</div>
+<div class="tab-panel p3">
+<pre><span class="label">WAT</span><code>(<span class="kw">module</span>
+  (<span class="kw">func</span> <span class="fn">$add</span> (<span class="kw">param</span> <span class="ty">$a i32</span>) (<span class="kw">param</span> <span class="ty">$b i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
+    <span class="kw">local.get</span> $a
+    <span class="kw">local.get</span> $b
+    <span class="kw">i32.add</span>
+  )
+  (<span class="kw">export</span> <span class="st">"add"</span> (<span class="kw">func</span> <span class="fn">$add</span>))
+)</code></pre>
+</div>
+</div>
+
+<p>The actual function body &mdash; the part that does the work &mdash; is five bytes: <code>20 00 20 01 6A</code>. Everything else is metadata that tells the engine what the function expects, what it returns, and what name to give it. The Type section defines the signature once; the Function section says &ldquo;function 0 uses type 0&rdquo;; the Export section maps the name <code>"add"</code> to function index 0. No redundancy, no ambiguity.</p>
+
+<h3>LEB128: The Variable-Length Trick</h3>
+
+<p>Every integer in a <code>.wasm</code> file &mdash; section lengths, type indices, local counts, branch depths &mdash; is encoded as <strong>LEB128</strong> (Little-Endian Base 128). The idea is simple: use 7 bits of each byte for data, and the high bit as a continuation flag. Small numbers use fewer bytes:</p>
+
+<div class="diagram">
+<span class="diagram-label">LEB128 encoding</span>
+<pre><code>  <span class="ty">Value</span>     <span class="ty">Binary</span>                    <span class="ty">LEB128 bytes</span>     <span class="ty">Fixed i32</span>
+  ─────     ──────                    ────────────     ─────────
+  3         00000<span class="st">011</span>                   <span class="st">03</span>               03 00 00 00
+  127       <span class="st">1111111</span>                   <span class="st">7F</span>               7F 00 00 00
+  128       1<span class="st">0000000</span>                  <span class="st">80 01</span>            80 00 00 00
+  624485    <span class="st">0100110</span> <span class="st">0001000</span> <span class="st">1100101</span>  <span class="st">E5 8E 26</span>         E5 87 09 00
+
+  The high bit of each byte: <span class="nm">1</span> = more bytes follow, <span class="nm">0</span> = this is the last byte.
+  Data bits are read 7 at a time, least significant group first.</code></pre>
+</div>
+
+<p>The number 3 costs one byte instead of four. The number 128 costs two bytes instead of four. In a format where most integers are small &mdash; type indices, local counts, branch depths are almost always under 128 &mdash; this adds up. LEB128 is the same encoding that DWARF debug info uses, and it is a significant part of why Wasm binaries are 10&ndash;20% smaller than equivalent native executables.</p>
+
+<h3>Streaming Compilation</h3>
+
+<p>The section-based format is not just organized &mdash; it is organized for <em>speed</em>. Because every section header declares its length upfront, the engine can make decisions before it has seen all the data:</p>
+
+<div class="diagram">
+<span class="diagram-label">Compilation overlaps with download</span>
+<pre><code>  <span class="ty">Network</span>       ─── bytes arriving ──────────────────────────────────▶
+                ┌────────┬──────┬──────────────────────────────────┐
+                │ header │ type │          code section             │
+                │ + meta │ func │  fn 0  │  fn 1  │  fn 2  │ ...  │
+                └────────┴──────┴────┬───┴────┬───┴────┬───┴──────┘
+                                     │        │        │
+  <span class="st">Compile</span>                             ▼        ▼        ▼
+  <span class="st">threads</span>                          ┌──────┐ ┌──────┐ ┌──────┐
+                                   │ fn 0 │ │ fn 1 │ │ fn 2 │
+                                   │ <span class="st">→x86</span> │ │ <span class="st">→x86</span> │ │ <span class="st">→x86</span> │
+                                   └──────┘ └──────┘ └──────┘
+
+  By the time fn 2 arrives, fn 0 is already compiled.
+  Firefox achieves <span class="nm">30&ndash;60 MB/sec</span> compile throughput on desktop &mdash;
+  faster than most network connections can deliver the bytes.</code></pre>
+</div>
+
+<p>Each function body in the Code section declares its own length, so multiple compilation threads can split the work without waiting for each other. Firefox 58 introduced this streaming compilation in January 2018, achieving 30&ndash;60 MB/sec on desktop and roughly 8 MB/sec on mobile. That means for most internet connections, compilation finishes before the download does &mdash; the module is ready to execute the instant the last byte arrives.</p>
+
+<div class="power zen">
+<div class="power-label">Compile faster than you download</div>
+<p>On a 20 Mbps connection, you download at ~2.5 MB/sec. Firefox compiles Wasm at 30&ndash;60 MB/sec. The compiler is literally waiting for the network. Compilation is no longer on the critical path &mdash; download speed is. This is why the binary format&rsquo;s compactness matters twice: smaller files download faster <em>and</em> compile faster.</p>
+</div>
+
+<p>The binary format turns out to be a masterclass in cooperative design &mdash; every decision (fixed section order, length-prefixed payloads, LEB128 integers, independent function bodies) serves the same goal: get from first byte to first instruction as fast as physics allows. But the binary only tells the engine <em>what code exists</em>. Where that code stores its data &mdash; every pointer, every string, every heap allocation &mdash; lives in a single flat byte array called linear memory. That is the next layer down.</p>
+
+</section>
+
 </div><!-- .content -->
 </body>
 </html>
