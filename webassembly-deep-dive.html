@@ -2146,6 +2146,142 @@ instance.exports.<span class="fn">dealloc</span>(ptr, encoded.length);</code></p
 
 </section>
 
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 11: WASI & THE COMPONENT MODEL                         -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch11">
+<h2>11 &mdash; wasi &amp; the component model</h2>
+
+<p class="drop-cap">In the browser, a Wasm module talks to the outside world through JavaScript imports. But what if there is no browser? What if the module is running on a server, in a CLI tool, or inside an embedded device? It needs a system interface &mdash; a way to read files, open sockets, get the current time. That interface is <strong>WASI</strong>: the WebAssembly System Interface.</p>
+
+<p>WASI is not POSIX. It does not start with &ldquo;everything is permitted&rdquo; and try to restrict from there. It starts with <em>nothing</em>. A WASI module has zero capabilities by default &mdash; no filesystem access, no network, no environment variables, no clock. The host explicitly grants capabilities at instantiation: &ldquo;you may read files under <code>/data</code>, you may open TCP connections to port 443, you may query the monotonic clock.&rdquo; The module receives <em>handles</em> to these resources, not raw file descriptors. This is <strong>capability-based security</strong> &mdash; the same model that Capsicum and CloudABI pioneered, now baked into a bytecode format.</p>
+
+<h3>WASI Versions</h3>
+
+<table>
+<tr><th>Version</th><th>Date</th><th>Key Features</th></tr>
+<tr><td><span style="color:var(--green)">WASI 0.2</span></td><td>Jan 2024 (stable)</td><td>CLI world, HTTP world, sockets, filesystem, clocks, random. Built on the Component Model.</td></tr>
+<tr><td><span style="color:var(--cyan)">WASI 0.3</span></td><td>2025 (development)</td><td>Native <code>async</code>/<code>await</code>. Non-blocking I/O without callback spaghetti.</td></tr>
+</table>
+
+<p>WASI 0.2 defined a set of <strong>worlds</strong> &mdash; named collections of imports and exports that describe what a module can do. The <code>wasi:cli/command</code> world is a command-line program that reads stdin, writes stdout, and accesses the filesystem. The <code>wasi:http/proxy</code> world is an HTTP handler that receives requests and produces responses. A module targets a world, and the runtime provides exactly those capabilities.</p>
+
+<h3>The Component Model</h3>
+
+<p>WASI 0.2 is built on something deeper: the <strong>Component Model</strong>, which solves a problem Wasm was never designed for &mdash; composing modules written in different languages.</p>
+
+<p>A core Wasm module speaks only in numbers. Its imports and exports are functions with numeric signatures. If a Rust module wants to pass a string to a Go module, someone has to agree on the memory layout, the encoding, the ownership rules. The Component Model introduces <strong>WIT</strong> (Wasm Interface Types) &mdash; a high-level interface description language that defines types like strings, lists, records, variants, and enums:</p>
+
+<pre><span class="label">WIT</span><code><span class="kw">package</span> <span class="ty">myapp:processor</span>;
+
+<span class="kw">interface</span> <span class="fn">transform</span> {
+  <span class="kw">record</span> <span class="ty">image</span> {
+    width: <span class="ty">u32</span>,
+    height: <span class="ty">u32</span>,
+    pixels: <span class="ty">list&lt;u8&gt;</span>,
+  }
+
+  <span class="fn">resize</span>: <span class="kw">func</span>(img: <span class="ty">image</span>, new-width: <span class="ty">u32</span>, new-height: <span class="ty">u32</span>) -> <span class="ty">image</span>;
+}
+
+<span class="kw">world</span> <span class="fn">image-processor</span> {
+  <span class="kw">export</span> <span class="fn">transform</span>;
+}</code></pre>
+
+<p>The <strong>Canonical ABI</strong> defines exactly how these high-level types are lowered to Wasm&rsquo;s core types (i32, i64, linear memory) and how they are lifted back. A component is a Wasm module wrapped with WIT metadata that describes its interface in terms the runtime understands. Two components can be <em>composed</em> &mdash; the output of one wired to the input of another &mdash; regardless of what language each was written in. A Rust image resizer can be composed with a Python ML classifier, with the Component Model handling the type translation at the boundary.</p>
+
+<h3>WasmGC</h3>
+
+<p>Languages with garbage collectors (Java, Kotlin, Dart, Go) have traditionally compiled to Wasm by shipping their entire GC implementation inside the linear memory &mdash; a GC running inside a sandbox, unaware of the host&rsquo;s GC. This is wasteful. <strong>WasmGC</strong> adds struct and array heap types managed by the host&rsquo;s garbage collector, letting these languages use the browser&rsquo;s GC directly.</p>
+
+<p>The impact is concrete: Google ported the Google Sheets calculation engine from JavaScript to WasmGC and measured a <strong>2x performance improvement</strong> on large spreadsheets. Kotlin/Wasm and Dart/Wasm both target WasmGC, producing smaller binaries and faster execution than the linear-memory-GC approach.</p>
+
+<div class="power purple">
+<div class="power-label">Solomon Hykes, Docker Founder</div>
+<p>&ldquo;If WASM+WASI existed in 2008, we wouldn&rsquo;t have needed to create Docker. That&rsquo;s how important it is. Webassembly on the server is the future of computing.&rdquo; The statement is provocative, but the kernel of truth is real: WASI provides isolation (like containers), portability (like Docker images), and capability-based security (better than most container runtimes) &mdash; all at the instruction set level, not the OS level.</p>
+</div>
+
+<p>WASI gives Wasm a system interface. The Component Model gives it composability. WasmGC gives it efficient support for managed languages. Together, they are turning WebAssembly from a browser plugin into a universal compute substrate. The next chapter shows where that substrate is already running in production.</p>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 12: WASM IN THE WILD                                    -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch12">
+<h2>12 &mdash; wasm in the wild</h2>
+
+<p class="drop-cap">Theory is one thing. Production at scale is another. WebAssembly is running in some of the most demanding software on the planet &mdash; from collaborative design tools serving millions of users to edge networks handling billions of requests. Here is what the deployments look like, what the numbers are, and what the trade-offs turned out to be.</p>
+
+<h3>Production Case Studies</h3>
+
+<table>
+<tr><th>Product</th><th>Use Case</th><th>Result</th></tr>
+<tr><td><strong>Figma</strong></td><td>C++ rendering engine compiled to Wasm</td><td>3x load time improvement over asm.js. Real-time collaborative design for millions of users.</td></tr>
+<tr><td><strong>Google Earth</strong></td><td>30-year C++ geospatial engine</td><td>Moved from PNaCl (Chrome-only) to Wasm (all browsers). Same codebase, universal reach.</td></tr>
+<tr><td><strong>AutoCAD</strong></td><td>CAD engine compiled via Emscripten</td><td>30+ years of C++ running in a browser tab. Demonstrated at Google I/O 2018.</td></tr>
+<tr><td><strong>Cloudflare Workers</strong></td><td>Edge compute (V8 isolates + Wasm)</td><td>Millions of req/sec across 300+ cities. Microsecond cold starts.</td></tr>
+<tr><td><strong>Fastly Compute</strong></td><td>Edge logic in Wasm (Wasmtime)</td><td>Dedicated Wasm runtime for edge functions. Sub-millisecond startup.</td></tr>
+<tr><td><strong>ffmpeg.wasm</strong></td><td>Video transcoding in the browser</td><td>~40 fps encode in browser vs ~500 fps native. Usable for short clips, not feature films.</td></tr>
+<tr><td><strong>Photoshop Web</strong></td><td>Core image processing in Wasm</td><td>Adobe ported performance-critical C++ to Wasm for the browser version.</td></tr>
+<tr><td><strong>1Password</strong></td><td>Cryptographic core in Wasm</td><td>Rust crypto compiled to Wasm for the browser extension. Same code as native apps.</td></tr>
+</table>
+
+<h3>The Security Model</h3>
+
+<p>Wasm&rsquo;s security story has multiple layers, and understanding how they stack is important:</p>
+
+<div class="diagram">
+<span class="diagram-label">Wasm defense in depth</span>
+<pre><code>  ┌─────────────────────────────────────────────────────┐
+  │ <span class="st">Memory Isolation</span>                                     │
+  │ Linear memory is a bounded array. No access outside. │
+  │ Buffer overflows stay in the sandbox.                │
+  ├─────────────────────────────────────────────────────┤
+  │ <span class="ty">Control Flow Integrity</span>                               │
+  │ Structured control flow. No goto. No ROP gadgets.   │
+  │ call_indirect type-checked at runtime.              │
+  ├─────────────────────────────────────────────────────┤
+  │ <span class="fn">Type Safety</span>                                         │
+  │ Every instruction type-checked before execution.    │
+  │ Stack types proven correct in a single pass.        │
+  ├─────────────────────────────────────────────────────┤
+  │ <span class="pp">Capability Security</span> (WASI)                          │
+  │ No ambient authority. Explicit capability grants.   │
+  │ Default: zero access to host resources.             │
+  └─────────────────────────────────────────────────────┘</code></pre>
+</div>
+
+<h3>Wasm vs. Containers vs. Native</h3>
+
+<table>
+<tr><th>Property</th><th>Wasm Sandbox</th><th>Docker Container</th><th>Native Process</th></tr>
+<tr><td>Isolation model</td><td>Linear memory + types</td><td>Namespaces + cgroups</td><td>Virtual memory</td></tr>
+<tr><td>Cold start</td><td>~microseconds</td><td>~50 ms</td><td>~1 ms (fork)</td></tr>
+<tr><td>Memory overhead</td><td>~64 KB per instance</td><td>~10 MB per container</td><td>~4 MB (minimal)</td></tr>
+<tr><td>Filesystem default</td><td>None (WASI grants)</td><td>Full (restrict with seccomp)</td><td>Full</td></tr>
+<tr><td>Network default</td><td>None (WASI grants)</td><td>Full (restrict with firewall)</td><td>Full</td></tr>
+<tr><td>Cross-platform</td><td>Same binary everywhere</td><td>Same image, different kernel</td><td>Recompile per arch</td></tr>
+<tr><td>Maturity</td><td>Rapidly maturing</td><td>Battle-tested (10+ years)</td><td>50+ years</td></tr>
+</table>
+
+<p>Wasm is not a container replacement today. Containers offer a richer operational ecosystem &mdash; orchestration, networking, observability, the entire Kubernetes universe. But for workloads that need isolation without operational weight &mdash; plugin systems, edge functions, multi-tenant computation &mdash; Wasm&rsquo;s microsecond startup and kilobyte overhead are a different league.</p>
+
+<div class="power">
+<div class="power-label">The Fourth Language</div>
+<p>HTML structures content. CSS styles it. JavaScript makes it interactive. WebAssembly makes it <em>fast</em>. Since December 2019, Wasm has been a W3C Recommendation &mdash; an official web standard on equal footing with the other three. It runs in 97% of browsers, on every major operating system, and increasingly on edge networks and embedded devices. The fourth language of the web is also becoming the first language of the post-container cloud.</p>
+</div>
+
+<p>Twelve chapters in, we have the complete picture of what WebAssembly is, how it works, and where it runs. But the most interesting story is happening right now, at the intersection of Wasm and artificial intelligence. The next four chapters open Pandora&rsquo;s box: running LLMs in browser tabs, sandboxing AI-generated code, deploying inference at the edge, and the emerging thesis that Wasm is becoming the universal AI runtime.</p>
+
+</section>
+
+<div class="act-break">
+<div class="act-number">Part III</div>
+<div class="act-title">Pandora&rsquo;s Box: Wasm Meets AI</div>
+<div class="act-subtitle">From inference in browser tabs to the universal AI runtime</div>
+</div>
+
 </div><!-- .content -->
 </body>
 </html>
