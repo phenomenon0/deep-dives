@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Inference Engines &mdash; Part II: Optimization &amp; Production</title>
+<title>Inference Engines &mdash; Part II: Making It Fast</title>
 <script src="https://d3js.org/d3.v7.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
@@ -282,6 +282,7 @@ pre code {
     margin: 1.5rem 0;
     border-radius: 0 6px 6px 0;
 }
+.power p { margin-bottom: 0; }
 .power.danger { border-left-color: var(--red); background: rgba(255,51,68,0.04); }
 .power.hack { border-left-color: var(--magenta); background: rgba(255,0,170,0.04); }
 .power.wild { border-left-color: var(--orange); background: rgba(255,136,0,0.04); }
@@ -345,40 +346,6 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
     grid-template-columns: 1fr 1fr;
     gap: 1rem;
     margin: 1.5rem 0;
-}
-
-.mem-row { display: flex; gap: 1px; margin: 0.5rem 0; flex-wrap: wrap; }
-.mc {
-    width: 30px; height: 22px;
-    display: flex; align-items: center; justify-content: center;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 9px;
-    border-radius: 2px;
-}
-.mc.g { background: rgba(0,255,136,0.25); color: var(--green); }
-.mc.c { background: rgba(0,221,255,0.25); color: var(--cyan); }
-.mc.m { background: rgba(255,0,170,0.25); color: var(--magenta); }
-.mc.o { background: rgba(255,136,0,0.25); color: var(--orange); }
-.mc.r { background: rgba(255,51,68,0.25); color: var(--red); }
-.mc.y { background: rgba(255,221,0,0.25); color: var(--yellow); }
-.mc.b { background: rgba(68,136,255,0.25); color: var(--blue); }
-.mc.d { background: rgba(106,106,126,0.15); color: var(--text-dim); }
-.mc.e { background: rgba(106,106,126,0.06); color: var(--text-dim); }
-.mc.w { background: rgba(232,232,240,0.15); color: var(--white); }
-.mc.p { background: rgba(170,68,255,0.25); color: var(--purple); }
-
-.perf-bar {
-    height: 18px;
-    border-radius: 3px;
-    display: inline-block;
-    vertical-align: middle;
-    margin-right: 0.5rem;
-}
-
-.ticker {
-    font-family: 'JetBrains Mono', monospace;
-    color: var(--green);
-    text-shadow: 0 0 8px rgba(0,255,136,0.3);
 }
 
 .viz-container {
@@ -460,13 +427,28 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 .tabbed .tab-panel > .diagram { margin: 0; border: none; border-radius: 0; }
 .tabbed .tab-panel > div, .tabbed .tab-panel > p { padding: 1rem 1.4rem; }
 
-/* Wire up to 3 tabs per group via unique name prefix */
 .tabbed input.t1:checked ~ .tab-bar label[for$="-t1"] { color: var(--green); border-bottom-color: var(--green); }
 .tabbed input.t2:checked ~ .tab-bar label[for$="-t2"] { color: var(--green); border-bottom-color: var(--green); }
 .tabbed input.t3:checked ~ .tab-bar label[for$="-t3"] { color: var(--green); border-bottom-color: var(--green); }
+.tabbed input.t4:checked ~ .tab-bar label[for$="-t4"] { color: var(--green); border-bottom-color: var(--green); }
 .tabbed input.t1:checked ~ .tab-panel.p1 { display: block; }
 .tabbed input.t2:checked ~ .tab-panel.p2 { display: block; }
 .tabbed input.t3:checked ~ .tab-panel.p3 { display: block; }
+.tabbed input.t4:checked ~ .tab-panel.p4 { display: block; }
+
+.era-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    padding: 0.3rem 0.8rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    display: inline-block;
+    margin-bottom: 0.8rem;
+}
+.era-badge .era-num { color: var(--orange); font-weight: 600; }
 
 .act-break {
     text-align: center;
@@ -484,8 +466,16 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
     .vs { grid-template-columns: 1fr; }
     nav { font-size: 9px; gap: 0.7rem; }
     body { font-size: 16px; }
-    pre { font-size: 11.5px; padding: 0.8rem; }
-    .mc { width: 22px; height: 18px; font-size: 7px; }
+    .content { padding: 3rem 0.8rem 4rem; }
+    pre { font-size: 10.5px; padding: 0.7rem; }
+    .diagram pre { font-size: 10.5px; }
+    .diagram { padding: 1rem; }
+    .tabbed .tab-bar { flex-wrap: wrap; gap: 0; }
+    .tabbed .tab-bar label { padding: 0.4rem 0.7rem; font-size: 9px; letter-spacing: 0.05em; }
+    .power { padding: 0.6rem 0.8rem; }
+    .viz-controls { flex-wrap: wrap; gap: 0.5rem; }
+    h2 { font-size: 1.3rem; }
+    h3 { font-size: 1.1rem; }
 }
 </style>
 </head>
@@ -494,24 +484,18 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 
 <nav>
     <span class="nav-title">&gt;_ INFERENCE II</span>
-    <a href="inference-engine-deep-dive.html" style="color:var(--orange)">&larr; Part 1</a>
+    <a href="inference-engine-deep-dive.html" style="color:var(--orange)">&larr; Part I</a>
     <span style="color:var(--border)">&middot;</span>
-    <a href="#ch5">the file</a>
-    <a href="#ch6">two phases</a>
-    <a href="#ch7">remembering</a>
-    <a href="#ch8">the wall</a>
-    <a href="#ch9">making it fit</a>
+    <a href="#ch5">why it's slow</a>
+    <a href="#ch6">KV cache</a>
+    <a href="#ch7">quantization</a>
+    <a href="#ch8">flash attention</a>
+    <a href="#ch9">batching</a>
+    <a href="#ch10">prefill/decode</a>
+    <a href="#ch11">speculation</a>
+    <a href="#ch12">the engines</a>
     <span style="color:var(--border)">&middot;</span>
-    <a href="#ch10">fast attention</a>
-    <a href="#ch11">many users</a>
-    <a href="#ch12">virtual memory</a>
-    <a href="#ch13">going wide</a>
-    <a href="#ch14">cheating time</a>
-    <span style="color:var(--border)">&middot;</span>
-    <a href="#ch15">serving stack</a>
-    <a href="#ch16">playbook</a>
-    <a href="#ch17">build one</a>
-    <a href="#ch18">timeline</a>
+    <a href="inference-engine-deep-dive-3.html" style="color:var(--orange)">Part III &rarr;</a>
 </nav>
 
 <div class="content">
@@ -519,2172 +503,503 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 <div class="hero">
     <h1><span class="glitch" data-text="INFERENCE ENGINES">INFERENCE ENGINES</span></h1>
     <div class="subtitle">
-        You've seen the pipeline. Now here's the 54 GB file that won't fit on your GPU &mdash;<br>
-        and the engineering that makes it fast, makes it fit, and serves thousands.<span class="blink">_</span>
+        The math stayed the same. The bottleneck moved.<br>
+        54 GB of weights. 24 GB of VRAM. A memory bus that can&rsquo;t keep up.<br>
+        This is the engineering of making the math fit the metal.<span class="blink">_</span>
     </div>
-    <div style="margin-top:1.2rem; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.1em;">Part II &mdash; Optimization &amp; Production</div>
+    <div style="margin-top:1.2rem; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.1em;">Part II &mdash; Making It Fast</div>
 </div>
 
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 5: THE FILE                                            -->
+<!-- CHAPTER 5: WHY INFERENCE IS SLOW                               -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <section id="ch5">
-<h2>// 05 &mdash; The Numbers in the File</h2>
+<h2>// 05 &mdash; Why Inference Is Slow</h2>
+<div class="era-badge"><span class="era-num">Era 1</span> &mdash; Just make it run</div>
+<div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--orange)">WEIGHTS</span> &rarr; <span style="color:var(--red)">HBM</span> &rarr; <span style="color:var(--yellow)">SRAM</span> &rarr; <span style="color:var(--green)">CORES</span> &nbsp; <span style="color:var(--orange)">the real pipeline</span></div>
+<div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
+    You thought the problem was compute. Usually it&rsquo;s movement.<br>
+    A 27B model is not a function. It&rsquo;s a file you keep dragging through memory.<span class="blink">_</span>
+</div>
 
-<p class="drop-cap">It starts with a download. You point your browser at Hugging Face, pick a model &mdash; say, Qwen-3.5 27B &mdash; and wait. What arrives is not a program. It is a file of numbers &mdash; twenty-seven billion of them, each a 16-bit floating-point value, arranged in matrices that were painstakingly tuned over months of training on thousands of GPUs. The file is 54 gigabytes. It contains no instructions, no logic, no if-statements. Just weights.</p>
+<p class="drop-cap">Part I traced a vector through 64 transformer blocks. You counted the FLOPs: 44 billion per token for Qwen 27B. That sounds like a compute problem. It isn&rsquo;t. Modern GPUs can compute hundreds of teraFLOPs per second. An RTX 3090 does 142 trillion 16-bit operations every second. At that rate, 44 billion FLOPs should take 0.3 milliseconds. One token every 0.3 ms would mean 3,000 tokens per second.</p>
 
-<h3>Walking Through the Bytes</h3>
+<p>You don&rsquo;t get 3,000 tokens per second. You get about 30. The model runs <strong>100&times; slower</strong> than the arithmetic alone would suggest. Something else is eating the time. That something is <strong>memory bandwidth</strong> &mdash; the speed at which data travels from GPU memory to the compute cores. The GPU is fast. The pipe feeding it is narrow.</p>
 
-<p>Let's look at what's actually on disk. The two dominant formats organize the data differently, but both follow the same principle: a header describing the model's architecture, followed by raw tensor data.</p>
+<h3>The Memory Wall</h3>
+
+<p>A GPU has two relevant resources: <strong>compute</strong> (how many operations per second) and <strong>bandwidth</strong> (how many bytes per second it can read from memory). These two numbers define a boundary called the <strong>roofline</strong>.</p>
+
+<table>
+<tr><th>GPU</th><th>FP16 Compute</th><th>Bandwidth</th><th>VRAM</th><th>Ridge Point</th></tr>
+<tr><td>RTX 3090</td><td><span class="nm">142</span> TFLOPS</td><td><span class="nm">936</span> GB/s</td><td>24 GB</td><td><span class="nm">~152</span> FLOPs/byte</td></tr>
+<tr><td>RTX 4090</td><td><span class="nm">165</span> TFLOPS</td><td><span class="nm">1,008</span> GB/s</td><td>24 GB</td><td><span class="nm">~164</span> FLOPs/byte</td></tr>
+<tr><td>A100 80GB</td><td><span class="nm">312</span> TFLOPS</td><td><span class="nm">2,039</span> GB/s</td><td>80 GB</td><td><span class="nm">~153</span> FLOPs/byte</td></tr>
+<tr><td>H100 SXM</td><td><span class="nm">989</span> TFLOPS</td><td><span class="nm">3,350</span> GB/s</td><td>80 GB</td><td><span class="nm">~295</span> FLOPs/byte</td></tr>
+</table>
+
+<p>The <strong>ridge point</strong> is where the bottleneck shifts. Below it, you&rsquo;re <em>memory-bound</em> &mdash; the GPU finishes its math before the next chunk of data arrives. Above it, you&rsquo;re <em>compute-bound</em> &mdash; the data arrives faster than the GPU can process it. The ridge point is simply peak compute divided by peak bandwidth: how many FLOPs you need per byte of data to keep the GPU fully busy.</p>
+
+<h3>Where Decode Lives</h3>
+
+<p>During decode, generating one token requires reading the entire model from memory. For a 7B FP16 model, that&rsquo;s 14 GB per token. The compute is approximately 2 FLOPs per parameter &mdash; 14 billion FLOPs. The arithmetic intensity is:</p>
+
+<div class="diagram">
+<span class="diagram-label">Arithmetic intensity &mdash; decode at batch size 1</span>
+<pre><code>
+  <span class="cm">Bytes read per token:</span>  7B params &times; 2 bytes = <span class="nm">14 GB</span>
+  <span class="cm">FLOPs per token:</span>       7B params &times; 2 FLOPs  = <span class="nm">14 GFLOPs</span>
+
+  <span class="pp">Arithmetic intensity = 14 GFLOPs / 14 GB = <strong>~1 FLOP per byte</strong></span>
+
+  <span class="cm">Ridge point of an A100:  ~153 FLOPs per byte</span>
+  <span class="cm">Decode intensity:          ~1 FLOP per byte</span>
+
+  <span style="color:var(--red)">Decode is 153&times; below the ridge point.</span>
+  <span style="color:var(--red)">The GPU&rsquo;s compute units are ~99.3% idle during decode.</span>
+
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+
+  <span class="cm">For any model at FP16, batch size 1:</span>
+  <span class="cm">  Arithmetic intensity &asymp; 1 FLOP/byte  &larr; independent of model size</span>
+  <span class="cm">  The ratio is always ~1 because FLOPs and bytes scale together.</span>
+</code></pre>
+</div>
+
+<p>This is the central insight: <strong>decode doesn&rsquo;t get faster with a faster GPU</strong>. The H100 has 3.2&times; the compute of the A100, but only 1.6&times; the bandwidth. For decode, you get roughly 1.6&times; the speed &mdash; the extra compute sits idle. The H100 is paradoxically <em>less utilized</em> during decode than the A100 because NVIDIA added compute faster than they added bandwidth.</p>
+
+<h3>Where Prefill Lives</h3>
+
+<p>Prefill is a different animal. Processing a 512-token prompt means batching all 512 tokens through every matrix multiplication simultaneously. The compute scales with sequence length, but the weight reads don&rsquo;t &mdash; you read the weights once and reuse them across all tokens. That changes the ratio:</p>
+
+<div class="diagram">
+<span class="diagram-label">Arithmetic intensity scales with sequence length during prefill</span>
+<pre><code>
+  <span class="cm">seq_len = 1:</span>     AI &asymp; <span class="nm">1</span> FLOP/byte    <span style="color:var(--red)">memory-bound</span>   (same as decode)
+  <span class="cm">seq_len = 32:</span>    AI &asymp; <span class="nm">32</span> FLOPs/byte  <span style="color:var(--red)">memory-bound</span>
+  <span class="cm">seq_len = 128:</span>   AI &asymp; <span class="nm">128</span> FLOPs/byte <span style="color:var(--yellow)">approaching ridge</span> on A100 (153)
+  <span class="cm">seq_len = 256:</span>   AI &asymp; <span class="nm">256</span> FLOPs/byte <span style="color:var(--green)">compute-bound</span> on A100
+  <span class="cm">seq_len = 512:</span>   AI &asymp; <span class="nm">512</span> FLOPs/byte <span style="color:var(--green)">deeply compute-bound</span>
+  <span class="cm">seq_len = 2048:</span>  AI &asymp; <span class="nm">2048</span> FLOPs/byte <span style="color:var(--green)">GPU fully saturated</span>
+
+  <span class="pp">The crossover (memory &rarr; compute) happens at the ridge point:</span>
+  <span class="cm">  RTX 3090:  seq_len &asymp; 152</span>
+  <span class="cm">  A100:      seq_len &asymp; 153</span>
+  <span class="cm">  H100:      seq_len &asymp; 295</span>  <span class="cm">&larr; needs longer prompts to saturate</span>
+</code></pre>
+</div>
+
+<p>This is why the H100 shows its true advantage during prefill &mdash; 3.2&times; faster than the A100 &mdash; but only modest gains during decode (~1.6&times;). Prefill is a compute race. Decode is a bandwidth race. Same model, same GPU, entirely different physics.</p>
+
+<h3>The Roofline</h3>
+
+<p>The roofline model makes this visual. The X-axis is arithmetic intensity (FLOPs per byte). The Y-axis is achievable performance (TFLOPS). Two lines form a roof: a sloped line (bandwidth ceiling) and a flat line (compute ceiling). Everything you run lands somewhere under the roof. Drag the sliders to see where different workloads land.</p>
+
+<div class="viz-container">
+<svg id="viz-ch5-roofline" viewBox="0 0 780 420"></svg>
+<div class="viz-controls">
+<div>
+    <label>GPU</label>
+    <select id="viz-ch5-gpu">
+        <option value="3090">RTX 3090</option>
+        <option value="4090">RTX 4090</option>
+        <option value="a100" selected>A100 80GB</option>
+        <option value="h100">H100 SXM</option>
+    </select>
+</div>
+<div>
+    <label>Model Size</label>
+    <select id="viz-ch5-model">
+        <option value="7">7B</option>
+        <option value="14">14B</option>
+        <option value="27" selected>27B</option>
+        <option value="72">72B</option>
+    </select>
+</div>
+<div>
+    <label>Batch Size (decode)</label>
+    <input type="range" id="viz-ch5-batch" min="1" max="128" value="1" style="width:120px;">
+    <span class="val" id="viz-ch5-batch-val">1</span>
+</div>
+<div>
+    <label>Prefill Length</label>
+    <input type="range" id="viz-ch5-prefill" min="1" max="4096" value="512" style="width:120px;">
+    <span class="val" id="viz-ch5-prefill-val">512</span>
+</div>
+</div>
+</div>
+
+<script>
+(function() {
+    const svg = d3.select('#viz-ch5-roofline');
+    const W = 780, H = 420;
+    const margin = {top: 40, right: 30, bottom: 55, left: 70};
+    const w = W - margin.left - margin.right;
+    const h = H - margin.top - margin.bottom;
+
+    const gpus = {
+        '3090': {name: 'RTX 3090', compute: 142, bw: 936, color: '#00ff88'},
+        '4090': {name: 'RTX 4090', compute: 165, bw: 1008, color: '#00ddff'},
+        'a100': {name: 'A100 80GB', compute: 312, bw: 2039, color: '#ff00aa'},
+        'h100': {name: 'H100 SXM', compute: 989, bw: 3350, color: '#ffdd00'}
+    };
+
+    function draw() {
+        svg.selectAll('*').remove();
+        const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+        const gpuKey = document.getElementById('viz-ch5-gpu').value;
+        const gpu = gpus[gpuKey];
+        const modelB = +document.getElementById('viz-ch5-model').value;
+        const batchSize = +document.getElementById('viz-ch5-batch').value;
+        const prefillLen = +document.getElementById('viz-ch5-prefill').value;
+
+        document.getElementById('viz-ch5-batch-val').textContent = batchSize;
+        document.getElementById('viz-ch5-prefill-val').textContent = prefillLen;
+
+        const ridgePoint = gpu.compute * 1000 / gpu.bw;
+
+        // Log scales
+        const xScale = d3.scaleLog().domain([0.25, 8192]).range([0, w]);
+        const yScale = d3.scaleLog().domain([0.1, 2000]).range([h, 0]);
+
+        // Grid lines
+        [0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096].forEach(v => {
+            if (v >= 0.25 && v <= 8192) {
+                g.append('line').attr('x1', xScale(v)).attr('y1', 0).attr('x2', xScale(v)).attr('y2', h)
+                    .attr('stroke', '#1e1e2e').attr('stroke-width', 0.5);
+            }
+        });
+        [0.1, 0.5, 1, 5, 10, 50, 100, 500, 1000].forEach(v => {
+            g.append('line').attr('x1', 0).attr('y1', yScale(v)).attr('x2', w).attr('y2', yScale(v))
+                .attr('stroke', '#1e1e2e').attr('stroke-width', 0.5);
+        });
+
+        // Axes
+        const xAxis = d3.axisBottom(xScale).tickValues([0.5, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096]).tickFormat(d3.format('~s'));
+        const yAxis = d3.axisLeft(yScale).tickValues([0.1, 0.5, 1, 5, 10, 50, 100, 500, 1000]).tickFormat(d3.format('~s'));
+        g.append('g').attr('transform', `translate(0,${h})`).call(xAxis)
+            .selectAll('text').attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',10);
+        g.append('g').call(yAxis)
+            .selectAll('text').attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',10);
+        g.selectAll('.domain, .tick line').attr('stroke','#2a2a3a');
+
+        // Axis labels
+        svg.append('text').attr('x', W/2).attr('y', H - 5)
+            .text('Arithmetic Intensity (FLOPs / byte)')
+            .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',10)
+            .attr('text-anchor','middle');
+        svg.append('text').attr('x', 14).attr('y', H/2)
+            .text('Performance (TFLOPS)')
+            .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',10)
+            .attr('text-anchor','middle').attr('transform', `rotate(-90, 14, ${H/2})`);
+
+        // Title
+        svg.append('text').attr('x', W/2).attr('y', 20)
+            .text(`Roofline Model \u2014 ${gpu.name}`)
+            .attr('fill', gpu.color).attr('font-family','JetBrains Mono, monospace').attr('font-size',12)
+            .attr('text-anchor','middle').attr('letter-spacing','0.05em');
+
+        // Roofline: bandwidth ceiling (sloped)
+        const bwLine = [];
+        for (let ai = 0.25; ai <= ridgePoint * 1.05; ai *= 1.1) {
+            const perf = gpu.bw * ai / 1000;
+            if (perf <= 2000 && ai <= 8192) bwLine.push([ai, perf]);
+        }
+        bwLine.push([ridgePoint, gpu.compute]);
+
+        const line = d3.line().x(d => xScale(d[0])).y(d => yScale(d[1]));
+        g.append('path').datum(bwLine).attr('d', line)
+            .attr('stroke', gpu.color).attr('stroke-width', 2.5).attr('fill', 'none').attr('opacity', 0.8);
+
+        // Compute ceiling (flat)
+        g.append('line')
+            .attr('x1', xScale(ridgePoint)).attr('y1', yScale(gpu.compute))
+            .attr('x2', xScale(8192)).attr('y2', yScale(gpu.compute))
+            .attr('stroke', gpu.color).attr('stroke-width', 2.5).attr('opacity', 0.8);
+
+        // Ridge point marker
+        g.append('circle')
+            .attr('cx', xScale(ridgePoint)).attr('cy', yScale(gpu.compute))
+            .attr('r', 5).attr('fill', gpu.color).attr('opacity', 0.9);
+        g.append('text')
+            .attr('x', xScale(ridgePoint)).attr('y', yScale(gpu.compute) - 12)
+            .text(`Ridge: ${ridgePoint.toFixed(0)} FLOPs/byte`)
+            .attr('fill', gpu.color).attr('font-family','JetBrains Mono, monospace').attr('font-size',9)
+            .attr('text-anchor','middle').attr('opacity', 0.8);
+
+        // Region labels
+        g.append('text').attr('x', xScale(1.5)).attr('y', 20)
+            .text('MEMORY-BOUND').attr('fill','#ff334466')
+            .attr('font-family','JetBrains Mono, monospace').attr('font-size',10)
+            .attr('letter-spacing','0.1em');
+        g.append('text').attr('x', xScale(ridgePoint * 4)).attr('y', 20)
+            .text('COMPUTE-BOUND').attr('fill','#00ff8866')
+            .attr('font-family','JetBrains Mono, monospace').attr('font-size',10)
+            .attr('letter-spacing','0.1em');
+
+        // Decode point
+        const decodeAI = Math.max(0.3, batchSize);
+        const decodePerf = Math.min(gpu.bw * decodeAI / 1000, gpu.compute);
+        const decodeUtil = (decodePerf / gpu.compute * 100);
+
+        if (decodeAI >= 0.25 && decodeAI <= 8192) {
+            g.append('circle')
+                .attr('cx', xScale(decodeAI)).attr('cy', yScale(Math.max(0.1, decodePerf)))
+                .attr('r', 8).attr('fill', '#ff3344').attr('opacity', 0.9);
+            g.append('circle')
+                .attr('cx', xScale(decodeAI)).attr('cy', yScale(Math.max(0.1, decodePerf)))
+                .attr('r', 14).attr('fill', 'none').attr('stroke', '#ff3344').attr('stroke-width', 1).attr('opacity', 0.3);
+
+            const dx = xScale(decodeAI) + 16;
+            const dy = yScale(Math.max(0.1, decodePerf));
+            g.append('text').attr('x', dx).attr('y', dy + 4)
+                .text(`DECODE batch=${batchSize}`)
+                .attr('fill','#ff3344').attr('font-family','JetBrains Mono, monospace').attr('font-size',10).attr('font-weight','bold');
+            g.append('text').attr('x', dx).attr('y', dy + 18)
+                .text(`${decodePerf.toFixed(1)} TFLOPS (${decodeUtil.toFixed(1)}% util)`)
+                .attr('fill','#ff334499').attr('font-family','JetBrains Mono, monospace').attr('font-size',9);
+        }
+
+        // Prefill point
+        const prefillAI = Math.max(0.3, prefillLen);
+        const prefillPerf = Math.min(gpu.bw * prefillAI / 1000, gpu.compute);
+        const prefillUtil = (prefillPerf / gpu.compute * 100);
+
+        if (prefillAI >= 0.25 && prefillAI <= 8192) {
+            g.append('circle')
+                .attr('cx', xScale(prefillAI)).attr('cy', yScale(Math.max(0.1, prefillPerf)))
+                .attr('r', 8).attr('fill', '#00ff88').attr('opacity', 0.9);
+            g.append('circle')
+                .attr('cx', xScale(prefillAI)).attr('cy', yScale(Math.max(0.1, prefillPerf)))
+                .attr('r', 14).attr('fill', 'none').attr('stroke', '#00ff88').attr('stroke-width', 1).attr('opacity', 0.3);
+
+            const isRight = prefillAI > 1000;
+            const px = isRight ? xScale(prefillAI) - 16 : xScale(prefillAI) + 16;
+            const anchor = isRight ? 'end' : 'start';
+            const py = yScale(Math.max(0.1, prefillPerf));
+            g.append('text').attr('x', px).attr('y', py + 4)
+                .text(`PREFILL len=${prefillLen}`)
+                .attr('fill','#00ff88').attr('font-family','JetBrains Mono, monospace').attr('font-size',10).attr('font-weight','bold')
+                .attr('text-anchor', anchor);
+            g.append('text').attr('x', px).attr('y', py + 18)
+                .text(`${prefillPerf.toFixed(1)} TFLOPS (${prefillUtil.toFixed(0)}% util)`)
+                .attr('fill','#00ff8899').attr('font-family','JetBrains Mono, monospace').attr('font-size',9)
+                .attr('text-anchor', anchor);
+        }
+
+        // Bottom stat line
+        const toksPerSec = gpu.bw / (modelB * 2) * batchSize;
+        const bwBottleneck = modelB * 2 / gpu.bw * 1000;
+        g.append('text').attr('x', 0).attr('y', h + 38)
+            .text(`${modelB}B FP16 decode: ${bwBottleneck.toFixed(1)} ms/tok \u2192 ~${toksPerSec.toFixed(0)} tok/s (batch=${batchSize}) \u2014 bandwidth-limited to ${gpu.bw} GB/s`)
+            .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',9);
+    }
+
+    draw();
+    ['viz-ch5-gpu', 'viz-ch5-model'].forEach(id => {
+        document.getElementById(id).addEventListener('change', draw);
+    });
+    ['viz-ch5-batch', 'viz-ch5-prefill'].forEach(id => {
+        document.getElementById(id).addEventListener('input', draw);
+    });
+})();
+</script>
+
+<div class="power danger">
+<div class="power-label">The Utilization Trap</div>
+<p>An RTX 3090 generating tokens from a 27B model at batch size 1 uses <strong>0.66%</strong> of its compute capability. The other 99.34% is idle, waiting for data. You paid for 142 TFLOPS. You&rsquo;re using 0.9 TFLOPS. The GPU isn&rsquo;t slow. The memory bus is narrow.</p>
+</div>
+
+<h3>One Decode Step, Dissected</h3>
+
+<p>Here is exactly what happens during a single decode step &mdash; one token generated from a 7B FP16 model on an A100:</p>
 
 <div class="tabbed">
-<input type="radio" name="gguf" id="gguf-t1" class="t1" checked>
-<input type="radio" name="gguf" id="gguf-t2" class="t2">
+<input type="radio" name="decode-step" id="decode-step-t1" class="t1" checked>
+<input type="radio" name="decode-step" id="decode-step-t2" class="t2">
+<input type="radio" name="decode-step" id="decode-step-t3" class="t3">
 
 <div class="tab-bar">
-<label for="gguf-t1">What It Means</label>
-<label for="gguf-t2">Raw Bytes</label>
+<label for="decode-step-t1">The Timeline</label>
+<label for="decode-step-t2">The Numbers</label>
+<label for="decode-step-t3">Why Batching Helps</label>
 </div>
 
 <div class="tab-panel p1">
 <div class="diagram">
-<span class="diagram-label">GGUF file layout &mdash; annotated</span>
+<span class="diagram-label">One token of decode &mdash; 7B FP16 on A100</span>
 <pre><code>
-<span class="st">┌─────────────────────────────────────────────────────────────┐</span>
-<span class="st">│</span>  <span style="color:var(--green);font-weight:bold">HEADER</span>  (24 bytes)                                         <span class="st">│</span>
-<span class="st">│</span>  ┌────────────┐ ┌─────────┐ ┌───────────┐ ┌──────────────┐ <span class="st">│</span>
-<span class="st">│</span>  │ <span class="st">"GGUF"</span>     │ │ <span class="nm">ver 3</span>   │ │ <span class="nm">419</span>       │ │ <span class="nm">26</span>           │ <span class="st">│</span>
-<span class="st">│</span>  │ magic      │ │ format  │ │ tensors   │ │ metadata kvs │ <span class="st">│</span>
-<span class="st">│</span>  └────────────┘ └─────────┘ └───────────┘ └──────────────┘ <span class="st">│</span>
-<span class="st">│</span>  <span class="cm">The engine reads these 24 bytes to know what it's</span>          <span class="st">│</span>
-<span class="st">│</span>  <span class="cm">dealing with &mdash; before touching any weights.</span>               <span class="st">│</span>
-<span class="st">├─────────────────────────────────────────────────────────────┤</span>
-<span class="st">│</span>  <span style="color:var(--cyan);font-weight:bold">METADATA</span>  (variable length)                                <span class="st">│</span>
-<span class="st">│</span>  <span class="cm">Key-value pairs that ARE the model's blueprint:</span>            <span class="st">│</span>
-<span class="st">│</span>                                                             <span class="st">│</span>
-<span class="st">│</span>  <span class="ty">"general.architecture"</span> = <span class="st">"qwen3"</span>                          <span class="st">│</span>
-<span class="st">│</span>     <span class="cm">→ which forward pass code to run</span>                       <span class="st">│</span>
-<span class="st">│</span>  <span class="ty">"qwen3.block_count"</span> = <span class="nm">64</span>                                   <span class="st">│</span>
-<span class="st">│</span>     <span class="cm">→ how many transformer blocks to allocate</span>              <span class="st">│</span>
-<span class="st">│</span>  <span class="ty">"qwen3.attention.head_count_kv"</span> = <span class="nm">4</span>                       <span class="st">│</span>
-<span class="st">│</span>     <span class="cm">→ GQA ratio &mdash; determines KV cache size</span>                <span class="st">│</span>
-<span class="st">│</span>  <span class="ty">"tokenizer.ggml.tokens"</span> = [...]                            <span class="st">│</span>
-<span class="st">│</span>     <span class="cm">→ the vocabulary, embedded in the file</span>                 <span class="st">│</span>
-<span class="st">│</span>                                                             <span class="st">│</span>
-<span class="st">│</span>  <strong>No sidecar files. One file = runnable model.</strong>              <span class="st">│</span>
-<span class="st">├──────────</span> <span class="pp">padding to 16-byte alignment</span> <span class="st">──────────────────────┤</span>
-<span class="st">│</span>  <span style="color:var(--magenta);font-weight:bold">TENSOR DATA</span>  (the weights &mdash; 99.9% of the file)            <span class="st">│</span>
-<span class="st">│</span>                                                             <span class="st">│</span>
-<span class="st">│</span>  blk.0.attn_q.weight  [5120 &times; 6144]  <span class="ty">Q4_K</span>                <span class="st">│</span>
-<span class="st">│</span>  blk.0.ffn_gate.weight [5120 &times; 17408] <span class="ty">Q6_K</span> <span class="cm">← sensitive</span>    <span class="st">│</span>
-<span class="st">│</span>  ...339 tensors, contiguous, aligned                        <span class="st">│</span>
-<span class="st">│</span>                                                             <span class="st">│</span>
-<span class="st">│</span>  <span class="cm">mmap maps this directly into GPU address space.</span>            <span class="st">│</span>
-<span class="st">│</span>  <strong>The weights ARE the file. No deserialization.</strong>             <span class="st">│</span>
-<span class="st">│</span>  <span class="cm">← this is why mmap works: data starts at a known</span>          <span class="st">│</span>
-<span class="st">│</span>  <span class="cm">  aligned offset</span>                                           <span class="st">│</span>
-<span class="st">└─────────────────────────────────────────────────────────────┘</span>
+  <span style="color:var(--red)">read weights</span>            14 GB streamed from HBM
+  <span style="color:var(--orange)">read KV cache</span>           grows with every token (more later)
+  <span style="color:var(--yellow)">run kernels</span>             matmuls, norms, activations
+  <span style="color:var(--cyan)">write new K, V</span>          append one row per layer
+  <span style="color:var(--magenta)">project logits</span>          multiply by embedding table
+  <span style="color:var(--green)">sample one token</span>        temperature, top-p, draw
+  <span class="cm">repeat</span>
+
+  <span class="cm">Time budget:</span>
+  <span style="color:var(--red)">Memory read:  14 GB / 2,039 GB/s  =  6.9 ms</span>     &larr; <strong>this dominates</strong>
+  <span style="color:var(--yellow)">Compute:      14 GFLOPs / 312 TF  =  0.045 ms</span>   &larr; 150&times; faster than read
+
+  <span class="pp">Token latency &asymp; 6.9 ms &rarr; ~145 tokens/sec theoretical max</span>
+  <span class="pp">(Real: ~100-120 tok/s due to KV cache reads, kernel overhead)</span>
 </code></pre>
 </div>
 </div>
 
 <div class="tab-panel p2">
 <div class="diagram">
-<span class="diagram-label">GGUF file layout (llama.cpp) &mdash; byte by byte</span>
+<span class="diagram-label">Concrete numbers for popular model sizes on A100 80GB</span>
 <pre><code>
-  <span class="st">Offset 0x00:</span>  47 47 55 46          <span class="cm">← ASCII "GGUF" (magic bytes)</span>
-  <span class="st">Offset 0x04:</span>  03 00 00 00          <span class="cm">← Version 3 (uint32, little-endian)</span>
-  <span class="st">Offset 0x08:</span>  A3 01 00 00 00 00 00 00  <span class="cm">← n_tensors = 419 (uint64)</span>
-  <span class="st">Offset 0x10:</span>  1A 00 00 00 00 00 00 00  <span class="cm">← n_kv_pairs = 26 (uint64)</span>
+  <span class="cm">Model       Weight Size   Read Time    Compute Time   Theoretical tok/s</span>
+  <span class="cm">&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;</span>
+  <span class="fn">7B  FP16</span>    14 GB         6.9 ms       0.045 ms       <span class="nm">~145</span>
+  <span class="fn">14B FP16</span>    28 GB         13.7 ms      0.090 ms       <span class="nm">~73</span>
+  <span class="fn">27B FP16</span>    54 GB         <span style="color:var(--red)">doesn&rsquo;t fit</span>   &mdash;              <span style="color:var(--red)">OOM</span>
+  <span class="fn">27B Q4</span>      ~16 GB        7.8 ms       0.090 ms       <span class="nm">~128</span>
+  <span class="fn">72B Q4</span>      ~42 GB        20.6 ms      0.230 ms       <span class="nm">~49</span>
 
-  <span class="cm">Then the metadata key-value pairs:</span>
-  <span class="ty">Key: "general.architecture"</span>     = <span class="st">"qwen3"</span>
-  <span class="ty">Key: "qwen3.block_count"</span>         = <span class="nm">64</span>
-  <span class="ty">Key: "qwen3.attention.head_count"</span> = <span class="nm">24</span>
-  <span class="ty">Key: "qwen3.attention.head_count_kv"</span> = <span class="nm">4</span>   <span class="cm">← GQA!</span>
-  <span class="ty">Key: "qwen3.embedding_length"</span>    = <span class="nm">5120</span>
-  <span class="ty">Key: "qwen3.feed_forward_length"</span> = <span class="nm">17408</span>
-  <span class="ty">Key: "qwen3.rope.freq_base"</span>      = <span class="nm">10000000.0</span>
-  <span class="ty">Key: "tokenizer.ggml.tokens"</span>     = [<span class="st">"&lt;unk&gt;"</span>, <span class="st">"&lt;s&gt;"</span>, ...]
-  <span class="cm">(everything the engine needs to run &mdash; self-contained)</span>
+  <span class="cm">&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;</span>
 
-  <span class="pp">───── padding to 16-byte alignment ─────</span>
+  <span class="pp">Pattern: tok/s &asymp; bandwidth / weight_size.</span>
+  <span class="pp">Compute time is always &lt;1% of total. Always.</span>
+</code></pre>
+</div>
+</div>
 
-  <span class="st">Tensor data:</span>
-  blk.0.attn_q.weight   [5120 &times; 6144]  type=Q4_K  <span class="cm">← quantized</span>
-  blk.0.attn_k.weight   [5120 &times; 1024]  type=Q4_K
-  blk.0.attn_v.weight   [5120 &times; 1024]  type=Q4_K
-  blk.0.attn_output.weight [6144 &times; 5120]  type=Q4_K
-  blk.0.ffn_gate.weight [5120 &times; 17408] type=Q6_K  <span class="cm">← sensitive layer, higher bits</span>
-  ...
-  <span class="cm">(339 tensors, twenty-seven billion numbers)</span>
+<div class="tab-panel p3">
+<div class="diagram">
+<span class="diagram-label">Batching amortizes weight reads across requests</span>
+<pre><code>
+  <span class="cm">Batch size 1:</span>
+  Read 14 GB of weights &rarr; compute 1 token &rarr; <span class="nm">1 FLOP/byte</span>
+
+  <span class="cm">Batch size 8:</span>
+  Read 14 GB of weights &rarr; compute 8 tokens &rarr; <span class="nm">8 FLOPs/byte</span>
+
+  <span class="cm">Batch size 64:</span>
+  Read 14 GB of weights &rarr; compute 64 tokens &rarr; <span class="nm">64 FLOPs/byte</span>
+
+  <span class="cm">Batch size 256:</span>
+  Read 14 GB of weights &rarr; compute 256 tokens &rarr; <span class="nm">256 FLOPs/byte</span>
+  <span style="color:var(--green)">&check; Past the A100 ridge point &mdash; now compute-bound!</span>
+
+  <span class="pp">This is why serving engines batch aggressively.</span>
+  <span class="pp">More users = better GPU utilization.</span>
+  <span class="pp">The single-user experience is memory-bound.</span>
+  <span class="pp">The fleet experience can be compute-bound.</span>
+
+  <span class="cm">But: each batch member needs its own KV cache.</span>
+  <span class="cm">VRAM fills fast. Batch size is limited by memory, not desire.</span>
+  <span class="cm">That tension is the central problem of Part III.</span>
 </code></pre>
 </div>
 </div>
 </div>
 
+<h3>The Landscape Ahead</h3>
+
+<p>Every chapter in Part II solves a specific problem that falls out of this analysis:</p>
+
+<div class="diagram">
+<span class="diagram-label">The optimization map &mdash; every chapter targets a bottleneck</span>
+<pre><code>
+  <span class="cm">Problem</span>                              <span class="cm">Solution</span>                    <span class="cm">Chapter</span>
+  <span class="cm">&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;</span>
+  KV cache eats VRAM                  Paging, compression          <span style="color:var(--cyan)">Ch 6</span>
+  Weights too large for one GPU       Quantization                 <span style="color:var(--cyan)">Ch 7</span>
+  Attention writes too much to HBM    FlashAttention               <span style="color:var(--cyan)">Ch 8</span>
+  GPU idle between requests           Continuous batching           <span style="color:var(--cyan)">Ch 9</span>
+  Prefill and decode fight for GPU    Phase separation              <span style="color:var(--cyan)">Ch 10</span>
+  Decode is serial (1 tok at a time)  Speculative decoding          <span style="color:var(--cyan)">Ch 11</span>
+  Which tradeoffs to pick?            The engines                   <span style="color:var(--cyan)">Ch 12</span>
+
+  <span class="pp">Every optimization is either:</span>
+  <span class="pp">  (a) reducing the bytes that must move</span>
+  <span class="pp">  (b) making the memory access pattern more efficient</span>
+  <span class="pp">  (c) keeping the GPU busy with more concurrent work</span>
+</code></pre>
+</div>
+
 <div class="power zen">
-<div class="power-label">The Design Insight</div>
-<p><strong>Self-contained + aligned = instant load.</strong> GGUF embeds the tokenizer, architecture params, and weights in one file. The tensor data starts at a 16-byte-aligned offset. This means <code>mmap()</code> can map the file directly &mdash; the OS's virtual memory system becomes your model loader. A 15 GB model "loads" in under a second because nothing is read until computation touches a page.</p>
+<div class="power-label">The Real Pipeline</div>
+<p>Part I showed you the math pipeline: embed &rarr; norm &rarr; attention &rarr; FFN &rarr; project &rarr; sample. The <em>real</em> pipeline, the one that determines speed, is: <strong>weights &rarr; HBM &rarr; SRAM &rarr; cores</strong>. Before you optimize the model, you optimize the trip the numbers take.</p>
 </div>
-
-<p><strong>Safetensors</strong> (Hugging Face) is a multi-file format used by Python-based engines like vLLM. An 8-byte length prefix, then a JSON header describing tensor names/shapes/offsets, then raw tensor data. The tokenizer lives in separate files, and the weights are typically sharded across multiple files (<code>model-00001-of-00004.safetensors</code>) for parallel loading.</p>
-
-<h3>The Numbers Themselves</h3>
-
-<p>Let's be concrete about what 27 billion parameters looks like versus our toy GPT-2. The model is a stack of identical transformer blocks, each containing the same seven large weight matrices:</p>
-
-<table>
-<tr><th>Matrix</th><th>GPT-2 (124M)</th><th>Qwen-3.5 27B</th><th>Role</th></tr>
-<tr><td>W_q</td><td>768 &times; 768 (1.1 MB)</td><td>5120 &times; 6144 (60 MB)</td><td>Query projection</td></tr>
-<tr><td>W_k</td><td>768 &times; 768 (1.1 MB)</td><td>5120 &times; 1024 (10 MB)</td><td>Key projection (GQA)</td></tr>
-<tr><td>W_v</td><td>768 &times; 768 (1.1 MB)</td><td>5120 &times; 1024 (10 MB)</td><td>Value projection (GQA)</td></tr>
-<tr><td>W_o</td><td>768 &times; 768 (1.1 MB)</td><td>6144 &times; 5120 (60 MB)</td><td>Attention output</td></tr>
-<tr><td>W_gate</td><td>&mdash;</td><td>5120 &times; 17408 (170 MB)</td><td>FFN gate (SwiGLU)</td></tr>
-<tr><td>W_up</td><td>768 &times; 3072 (4.5 MB)</td><td>5120 &times; 17408 (170 MB)</td><td>FFN up projection</td></tr>
-<tr><td>W_down</td><td>3072 &times; 768 (4.5 MB)</td><td>17408 &times; 5120 (170 MB)</td><td>FFN down projection</td></tr>
-<tr><td><strong>Per block</strong></td><td><strong>~14 MB</strong></td><td><strong>~650 MB</strong></td><td></td></tr>
-<tr><td><strong>&times; N blocks</strong></td><td><strong>&times;12 = ~168 MB</strong></td><td><strong>&times;64 = ~41 GB</strong></td><td></td></tr>
-</table>
-
-<p>Plus the embedding table (~2.4 GB) and the LM head (~2.4 GB), you get roughly 46 GB of weight data. FP16 &times; 27 billion = 54 GB. The math checks out.</p>
-
-<h3>The Growth</h3>
-
-<div class="viz-container">
-<svg id="viz-ch5" viewBox="0 0 780 340"></svg>
-</div>
-
-<script>
-(function() {
-    const svg = d3.select('#viz-ch5');
-    const W = 780, H = 340;
-    const margin = {top: 40, right: 30, bottom: 60, left: 80};
-    const w = W - margin.left - margin.right;
-    const h = H - margin.top - margin.bottom;
-
-    const models = [
-        { name: 'GPT-2', params: 0.124, embed: 0.038, attn: 0.043, ffn: 0.036, other: 0.007, year: 2019 },
-        { name: 'Qwen-2.5 7B', params: 7, embed: 0.30, attn: 1.61, ffn: 4.83, other: 0.26, year: 2024 },
-        { name: 'Qwen-3.5 27B', params: 27, embed: 1.27, attn: 8.9, ffn: 16.0, other: 0.83, year: 2025 },
-        { name: 'Qwen-2.5 72B', params: 72, embed: 1.25, attn: 17.2, ffn: 51.0, other: 2.55, year: 2024 },
-        { name: 'DeepSeek-V3', params: 671, embed: 3.8, attn: 45.0, ffn: 600.0, other: 22.2, year: 2025 },
-    ];
-
-    const categories = ['embed', 'attn', 'ffn', 'other'];
-    const colors = { embed: '#ffdd00', attn: '#00ddff', ffn: '#ff00aa', other: '#6a6a7e' };
-    const labels = { embed: 'Embedding', attn: 'Attention', ffn: 'Feed-Forward', other: 'Norms/Other' };
-
-    const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
-
-    const x = d3.scaleBand().domain(models.map(m => m.name)).range([0, w]).padding(0.3);
-    const y = d3.scaleLinear().domain([0, 420]).range([h, 0]);
-
-    // Axes
-    g.append('g').attr('transform', `translate(0,${h})`)
-        .call(d3.axisBottom(x)).selectAll('text')
-        .attr('fill','#c8c8d4').attr('font-family','JetBrains Mono, monospace').attr('font-size',11);
-    g.append('g').call(d3.axisLeft(y).ticks(6).tickFormat(d => d + 'B'))
-        .selectAll('text').attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',10);
-
-    g.selectAll('.domain, .tick line').attr('stroke','#1e1e2e');
-
-    // Title
-    svg.append('text').attr('x', W/2).attr('y', 20).text('Parameter Count by Component')
-        .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',11)
-        .attr('text-anchor','middle').attr('text-transform','uppercase').attr('letter-spacing','0.1em');
-
-    // Stacked bars
-    const stack = d3.stack().keys(categories);
-    const series = stack(models);
-
-    series.forEach((s, si) => {
-        g.selectAll(`.bar-${si}`).data(s).enter().append('rect')
-            .attr('x', d => x(d.data.name))
-            .attr('y', d => y(d[1]))
-            .attr('height', d => y(d[0]) - y(d[1]))
-            .attr('width', x.bandwidth())
-            .attr('fill', colors[categories[si]])
-            .attr('opacity', 0.6)
-            .attr('rx', 2);
-    });
-
-    // Total labels
-    models.forEach(m => {
-        const total = m.embed + m.attn + m.ffn + m.other;
-        g.append('text')
-            .attr('x', x(m.name) + x.bandwidth()/2)
-            .attr('y', y(total) - 6)
-            .text(m.params >= 1 ? m.params + 'B' : (m.params * 1000) + 'M')
-            .attr('fill','#c8c8d4').attr('font-family','JetBrains Mono, monospace').attr('font-size',11)
-            .attr('text-anchor','middle');
-    });
-
-    // Legend
-    const leg = svg.append('g').attr('transform', `translate(${margin.left}, ${H - 15})`);
-    categories.forEach((c, i) => {
-        const lx = i * 160;
-        leg.append('rect').attr('x', lx).attr('y', -8).attr('width', 12).attr('height', 12)
-            .attr('fill', colors[c]).attr('opacity', 0.6).attr('rx', 2);
-        leg.append('text').attr('x', lx + 18).attr('y', 3).text(labels[c])
-            .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',10);
-    });
-})();
-</script>
-
-<p>The FFN dominates. In Qwen-3.5 27B, the feed-forward network is ~60% of all parameters. Attention is ~33%. Embeddings are ~5% (larger vocabulary). This is why the FFN is the primary target for quantization &mdash; it's where the bytes are.</p>
-
-<div class="power danger">
-<div class="power-label">The First Problem</div>
-<p>54 gigabytes at FP16. Your RTX 3090 has 24 GB of VRAM. <strong>It doesn't fit at full precision.</strong> But quantize to 4-bit (~15 GB) and it fits with room for a KV cache. Larger models like 72B still don't fit at all.</p>
-</div>
-
-<p>We have the weights, we know their shapes, we know they don't fit at full precision. But what happens when we actually <em>run</em> inference? The answer depends on <em>which phase</em> of inference you're in &mdash; and they're nothing alike.</p>
 
 </section>
 
+
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 6: TWO PHASES                                          -->
+<!-- CHAPTER 6: THE KV CACHE (placeholder)                          -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <section id="ch6">
-<h2>// 06 &mdash; Two Phases</h2>
-
-<p class="drop-cap">When a user sends a prompt, the engine processes all prompt tokens at once &mdash; a batch matrix multiply, compute-bound, GPU-friendly. This is <strong>prefill</strong>. When the engine starts generating the response, it produces one token at a time &mdash; a vector-matrix multiply, memory-bound, bandwidth-limited. This is <strong>decode</strong>. Same model, same weights, same code &mdash; but the performance profile is so different they might as well be separate workloads.</p>
-
-<p>During prefill, the GPU is doing what it was built for: crunching thousands of tokens through massive matrix multiplications in parallel. The ALUs are busy, utilization is high, and the bottleneck is raw compute. This is why long prompts process surprisingly fast &mdash; the GPU chews through 3,000 tokens on a 3090 or 15,000 on an H100 in a single second. The user-facing metric is <strong>Time To First Token (TTFT)</strong>: how long until the response starts streaming.</p>
-
-<p>Decode is the opposite. One token at a time. Each token requires reading the <em>entire model</em> from memory, multiplying it against a single vector, and producing one output. The GPU's compute units are 95% idle, waiting for data. The bottleneck is memory bandwidth, not FLOPS. On a 3090, that's ~45 tokens per second for Qwen-3.5 27B Q4 &mdash; the user sees this as <strong>Inter-Token Latency (ITL)</strong>, roughly 22ms between each word appearing on screen.</p>
-
-<table>
-<tr><th>Metric</th><th>Prefill</th><th>Decode</th></tr>
-<tr><td>Tokens per step</td><td>N (hundreds to thousands)</td><td>1</td></tr>
-<tr><td>Bottleneck</td><td>Compute (FLOPS)</td><td>Memory bandwidth</td></tr>
-<tr><td>GPU utilization</td><td>60&ndash;90%</td><td>1&ndash;5%</td></tr>
-<tr><td>Throughput (H100, 27B Q4)</td><td>~15,000 tok/s</td><td>~160 tok/s</td></tr>
-<tr><td>Throughput (3090, 27B Q4)</td><td>~3,000 tok/s</td><td>~45 tok/s</td></tr>
-<tr><td>User-facing metric</td><td>Time To First Token (TTFT)</td><td>Inter-Token Latency (ITL)</td></tr>
-</table>
-
-<p>This 100&times; throughput gap is the reason serving systems are complex. A 10,000-token prompt takes the same GPU time as ~100 decode steps &mdash; so a single long prompt can block decode for all other users, causing latency spikes.</p>
-
-<h3>Chunked Prefill</h3>
-
-<p>Modern engines solve this with <strong>chunked prefill</strong>: split a long prompt into chunks (say, 1,024 tokens each) and interleave them with decode steps for other requests.</p>
-
-<div class="viz-container">
-<svg id="viz-ch6" viewBox="0 0 780 200"></svg>
-</div>
-
-<script>
-(function() {
-    const svg = d3.select('#viz-ch6');
-    const steps = 14;
-    const cellW = 50, cellH = 28, gap = 3;
-    const startX = 20, startY = 30;
-
-    svg.append('text').attr('x', startX).attr('y', 18).text('Chunked prefill interleaved with decode')
-        .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',10)
-        .attr('text-transform','uppercase').attr('letter-spacing','0.1em');
-
-    // Timeline header
-    for (let t = 0; t < steps; t++) {
-        svg.append('text').attr('x', startX + 90 + t * (cellW + gap) + cellW/2).attr('y', startY - 5)
-            .text('t' + (t+1)).attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace')
-            .attr('font-size',9).attr('text-anchor','middle');
-    }
-
-    const slots = [
-        // [type, color, label] for each time step
-        {label: 'Req A (prefill)', data: [{t:0,type:'PF',c:'#00ff88'},{t:1,type:'PF',c:'#00ff88'},{t:2,type:'PF',c:'#00ff88'},{t:3,type:'D',c:'#00aa55'},{t:4,type:'D',c:'#00aa55'},{t:5,type:'D',c:'#00aa55'},{t:6,type:'D',c:'#00aa55'},{t:7,type:'D',c:'#00aa55'}]},
-        {label: 'Req B (decode)', data: [{t:0,type:'D',c:'#00ddff'},{t:1,type:'D',c:'#00ddff'},{t:2,type:'D',c:'#00ddff'},{t:3,type:'D',c:'#00ddff'},{t:4,type:'D',c:'#00ddff'},{t:5,type:'D',c:'#00ddff'}]},
-        {label: 'Req C (prefill)', data: [{t:4,type:'PF',c:'#ff00aa'},{t:5,type:'PF',c:'#ff00aa'},{t:6,type:'D',c:'#aa0066'},{t:7,type:'D',c:'#aa0066'},{t:8,type:'D',c:'#aa0066'},{t:9,type:'D',c:'#aa0066'}]},
-        {label: 'Req D (decode)', data: [{t:7,type:'D',c:'#ff8800'},{t:8,type:'D',c:'#ff8800'},{t:9,type:'D',c:'#ff8800'},{t:10,type:'D',c:'#ff8800'},{t:11,type:'D',c:'#ff8800'},{t:12,type:'D',c:'#ff8800'},{t:13,type:'D',c:'#ff8800'}]},
-    ];
-
-    slots.forEach((slot, si) => {
-        const y = startY + si * (cellH + gap + 5);
-        svg.append('text').attr('x', startX).attr('y', y + cellH/2 + 4).text(slot.label)
-            .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',9);
-        slot.data.forEach(d => {
-            const x = startX + 90 + d.t * (cellW + gap);
-            svg.append('rect').attr('x', x).attr('y', y).attr('width', cellW).attr('height', cellH)
-                .attr('fill', d.c + '44').attr('stroke', d.c).attr('rx', 3);
-            svg.append('text').attr('x', x + cellW/2).attr('y', y + cellH/2 + 4).text(d.type)
-                .attr('fill', d.c).attr('font-family','JetBrains Mono, monospace').attr('font-size',9)
-                .attr('text-anchor','middle');
-        });
-    });
-
-    svg.append('text').attr('x', startX).attr('y', 185)
-        .text('PF = prefill chunk (compute-bound) | D = decode step (memory-bound) | GPU stays busy')
-        .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',10);
-})();
-</script>
-
-<div class="power zen">
-<div class="power-label">The Two-Phase Duality</div>
-<p>Optimizing prefill (TTFT) often hurts decode (ITL) and vice versa. The scheduler's job is to balance them. <strong>2025/2026 frontier</strong>: disaggregated serving separates prefill and decode onto different GPU pools, each optimized for its workload. Prefill GPUs run at high compute utilization; decode GPUs run at high memory bandwidth utilization.</p>
-</div>
-
-<p>The decode phase is where users wait &mdash; every millisecond of ITL is felt. The first optimization targets the most obvious waste: during decode, we're recomputing keys and values for tokens that haven't changed. The fix is a cache.</p>
-
+<h2>// 06 &mdash; The KV Cache</h2>
+<div class="era-badge"><span class="era-num">Era 4</span> &mdash; Fix the KV cache</div>
+<p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p>
 </section>
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 7: THE KV CACHE                                        -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
+
 <section id="ch7">
-<h2>// 07 &mdash; Remembering</h2>
-
-<p class="drop-cap">Look back at our GPT-2 generate loop from Chapter 2. At step 50, we run the entire sequence of 50 tokens through all 12 layers. But tokens 1-49 haven't changed! Their queries, keys, and values are identical to what we computed at step 49. We're doing 49/50 = 98% redundant work. The <strong>KV cache</strong> fixes this: save each token's keys and values after computing them, and never recompute.</p>
-
-<h3>Full Worked Example: 4 Tokens, 2 Layers, 2 Heads</h3>
-
-<pre><code><span class="label">Trace</span>
-<span class="cm"># Tiny model: 2 layers, 2 heads, head_dim=4</span>
-<span class="cm"># Generating: "The capital of France"</span>
-
-<span class="st">═══ Step 1: Process "The" (pos=0) ═══</span>
-  Layer 0: compute Q₀, K₀, V₀ from embedding of "The"
-    K₀ = [0.2, 0.5, -0.1, 0.3] (head 0)  [0.1, -0.2, 0.4, 0.6] (head 1)
-    V₀ = [0.7, 0.1, 0.3, -0.2] (head 0)  [0.4, 0.8, -0.1, 0.5] (head 1)
-    <span class="kw">→ STORE K₀, V₀ in cache[layer=0][pos=0]</span>
-    Attention: Q₀ attends to K₀ only (trivial — single token)
-  Layer 1: same process
-    <span class="kw">→ STORE K₀, V₀ in cache[layer=1][pos=0]</span>
-
-<span class="st">═══ Step 2: Process "capital" (pos=1) ═══</span>
-  Layer 0: compute Q₁, K₁, V₁
-    <span class="kw">→ STORE K₁, V₁ in cache[layer=0][pos=1]</span>
-    Attention: Q₁ attends to <span class="fn">[K₀, K₁]</span> from cache
-    scores = softmax([Q₁·K₀, Q₁·K₁] / √4) = [0.4, 0.6]
-    out = 0.4·V₀ + 0.6·V₁
-  Layer 1: same, using layer 1's cached K₀
-
-<span class="st">═══ Step 3: Process "of" (pos=2) ═══</span>
-  Layer 0: compute Q₂, K₂, V₂
-    <span class="kw">→ STORE K₂, V₂ in cache[layer=0][pos=2]</span>
-    Attention: Q₂ attends to <span class="fn">[K₀, K₁, K₂]</span> — cache growing!
-    scores = softmax([Q₂·K₀, Q₂·K₁, Q₂·K₂] / √4) = [0.2, 0.3, 0.5]
-    out = 0.2·V₀ + 0.3·V₁ + 0.5·V₂
-  <span class="cm">... and so on through layer 1</span>
-
-<span class="st">═══ Step 4: Process "France" (pos=3) ═══</span>
-  <span class="cm">Only compute Q₃, K₃, V₃ for the NEW token</span>
-  <span class="cm">Attend to [K₀, K₁, K₂, K₃] from cache — 4 entries</span>
-  <span class="cm">No need to re-run "The", "capital", "of" through the network!</span>
-
-<span class="pp">Without cache: 4+3+2+1 = 10 forward passes through each layer</span>
-<span class="st">With cache:    1+1+1+1 = 4 forward passes (save K,V each time)</span>
-<span class="cm">At step 1000: 1000 vs 500,500 — the cache is essential.</span>
-</code></pre>
-
-<h3>GQA: Shrinking the Cache by Design</h3>
-
-<p>Original transformers used one K head and one V head for every Q head. Qwen-3.5 27B has 24 query heads but only 4 KV heads &mdash; each KV head is shared across 6 query heads. This is <strong>Grouped-Query Attention (GQA)</strong>, designed specifically to reduce KV cache memory:</p>
-
-<div class="diagram">
-<span class="diagram-label">GQA: fewer KV heads, shared across query groups</span>
-<pre><code>
-  <span class="kw">MHA</span> (original):  Q₁ Q₂ Q₃ Q₄ Q₅ Q₆           <span class="cm">6 KV heads → big cache</span>
-                   K₁ K₂ K₃ K₄ K₅ K₆
-                   V₁ V₂ V₃ V₄ V₅ V₆
-
-  <span class="st">GQA</span> (Qwen-3.5 27B): Q₁ Q₂ Q₃ Q₄ Q₅ Q₆           <span class="cm">1 KV head → 6× less cache</span>
-                   K₁ K₁ K₁ K₁ K₁ K₁
-                   V₁ V₁ V₁ V₁ V₁ V₁
-</code></pre>
-</div>
-
-<p>Without GQA, Qwen-3.5 27B's cache would be 6&times; larger: 96 GB for 128K context. With GQA it's 16 GB. Still significant, but manageable.</p>
-
-<h3>Ring Buffer: llama.cpp's Cache Strategy</h3>
-
-<p>In llama.cpp, the KV cache is a fixed-size ring buffer. When it fills, the oldest entries are overwritten. A head pointer tracks the next write position. RoPE adjustments are applied to the K cache when entries shift, maintaining position correctness. This avoids dynamic allocation entirely &mdash; no fragmentation, no malloc overhead, predictable memory usage.</p>
-
-<pre><code><span class="label">Ring buffer KV cache</span>
-<span class="cm"># Fixed buffer for 2048 positions, currently at position 1500:</span>
-
-  ┌─────────────────────────────────────────────────┐
-  │ ... K₁₄₉₈ K₁₄₉₉ K₁₅₀₀ <span class="kw">│ FREE │ FREE │</span> K₀ K₁ ... │
-  │                         <span class="st">↑ head</span>                    │
-  └─────────────────────────────────────────────────┘
-  <span class="cm">When full: K₁₅₀₁ overwrites K₀, head advances</span>
-  <span class="cm">Attention mask ensures correct causal ordering</span>
-</code></pre>
-
-<h3>How the Engines Do It</h3>
-
-<p>The two dominant engines take opposite approaches to the KV cache. <strong>llama.cpp</strong> uses the ring buffer above: a fixed-size, pre-allocated slab with no dynamic allocation. Simple, zero fragmentation, predictable memory &mdash; ideal for single-user local inference. <strong>vLLM</strong> takes the opposite path: it treats KV cache memory like an operating system treats RAM, allocating small <em>pages</em> on demand via PagedAttention (Chapter 12). This eliminates the waste of pre-allocating for maximum sequence length, enabling hundreds of concurrent requests to share the same GPU memory efficiently. Ring buffer vs page table &mdash; the consumer engine vs the datacenter engine.</p>
-
-<h3>How the Cache Grows</h3>
-
-<pre><code><span class="label">Math</span>
-<span class="cm"># KV cache size per token, per layer (Qwen-3.5 27B with GQA):</span>
-bytes_per_token_per_layer = <span class="nm">2</span> * n_kv_heads * head_dim * dtype_bytes
-                          = <span class="nm">2</span> * <span class="nm">4</span> * <span class="nm">256</span> * <span class="nm">2</span>  <span class="cm">(K+V, 4 GQA heads, dim 256, FP16)</span>
-                          = <span class="nm">4,096</span> bytes
-
-<span class="cm"># × 64 layers:</span>
-bytes_per_token = <span class="nm">4,096</span> * <span class="nm">64</span> = <span class="st">262,144 bytes ≈ 0.25 MB per token</span>
-
-<span class="cm"># On YOUR RTX 3090 with 24 GB, running Qwen-3.5 27B Q4 (~15 GB model):</span>
-<span class="cm"># Available for KV: ~9 GB</span>
-  <span class="nm">4K</span> tokens:   <span class="st">1.0 GB</span>    <span class="cm">← plenty of room</span>
-  <span class="nm">32K</span> tokens:  <span class="st">8.0 GB</span>    <span class="cm">← almost fills remaining VRAM</span>
-  <span class="nm">128K</span> tokens: <span class="st">32 GB</span>     <span class="cm">← needs KV cache quantization or less model</span>
-
-<span class="cm"># Qwen-2.5 72B on H100 (80 GB, ~39 GB model, ~40 GB for KV):</span>
-  <span class="nm">128K</span> tokens: <span class="st">40 GB</span>     <span class="cm">← ONE user fills the GPU</span>
-</code></pre>
-
-<h3>KV Cache Growth Visualizer</h3>
-
-<div class="viz-container">
-<svg id="viz-ch7" viewBox="0 0 780 300"></svg>
-<div class="viz-controls">
-<div>
-    <label>Context Length</label>
-    <input type="range" id="viz-ch7-ctx" min="128" max="131072" value="4096" step="128" style="width:180px;">
-    <span class="val" id="viz-ch7-ctx-val">4,096</span>
-</div>
-<div>
-    <label>Model</label>
-    <select id="viz-ch7-model">
-        <option value="7,28,4,128">Qwen-2.5 7B (28L, 4KV, GQA)</option>
-        <option value="27,64,4,256" selected>Qwen-3.5 27B (64L, 4KV, GQA)</option>
-        <option value="72,80,8,128">Qwen-2.5 72B (80L, 8KV, GQA)</option>
-        <option value="671,61,8,128">DeepSeek-V3 671B MoE (61L, 8KV)</option>
-    </select>
-</div>
-<div>
-    <label>KV Dtype</label>
-    <select id="viz-ch7-dtype">
-        <option value="2" selected>FP16 (2 bytes)</option>
-        <option value="1">FP8 (1 byte)</option>
-    </select>
-</div>
-</div>
-</div>
-
-<script>
-(function() {
-    function drawKV() {
-        const svg = d3.select('#viz-ch7');
-        svg.selectAll('*').remove();
-
-        const ctxLen = +document.getElementById('viz-ch7-ctx').value;
-        d3.select('#viz-ch7-ctx-val').text(ctxLen.toLocaleString());
-        const [paramB, nLayers, nKVHeads, headDim] = document.getElementById('viz-ch7-model').value.split(',').map(Number);
-        const dtypeBytes = +document.getElementById('viz-ch7-dtype').value;
-
-        const kvPerToken = 2 * nKVHeads * headDim * dtypeBytes * nLayers;
-        const kvTotalGB = (kvPerToken * ctxLen) / 1e9;
-        const modelGB = paramB * 2; // FP16
-        const modelQ4GB = paramB * 0.5625; // Q4_K_M
-        const maxGB = Math.max(kvTotalGB + modelQ4GB, 80) * 1.3;
-
-        const margin = {top: 25, right: 20, bottom: 40, left: 20};
-        const w = 780 - margin.left - margin.right;
-        const barH = 30;
-        const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
-
-        const xScale = d3.scaleLinear().domain([0, maxGB]).range([0, w]);
-
-        // Model weights bar
-        g.append('text').attr('x', 0).attr('y', 14).text(`Model (Q4): ${modelQ4GB.toFixed(1)} GB`)
-            .attr('fill','#00ff88').attr('font-family','JetBrains Mono, monospace').attr('font-size',11);
-        g.append('rect').attr('x', 0).attr('y', 20).attr('width', xScale(modelQ4GB)).attr('height', barH)
-            .attr('fill','rgba(0,255,136,0.25)').attr('stroke','#00ff88').attr('rx',3);
-
-        // KV cache bar
-        g.append('text').attr('x', 0).attr('y', 74).text(`KV Cache (${ctxLen.toLocaleString()} tokens): ${kvTotalGB.toFixed(2)} GB`)
-            .attr('fill','#ff00aa').attr('font-family','JetBrains Mono, monospace').attr('font-size',11);
-        g.append('rect').attr('x', 0).attr('y', 80).attr('width', xScale(kvTotalGB)).attr('height', barH)
-            .attr('fill','rgba(255,0,170,0.25)').attr('stroke','#ff00aa').attr('rx',3);
-
-        // VRAM lines
-        [24, 80, 192].forEach(vram => {
-            const lx = xScale(vram);
-            if (lx > 0 && lx < w) {
-                g.append('line').attr('x1', lx).attr('y1', 15).attr('x2', lx).attr('y2', 125)
-                    .attr('stroke','#ff334466').attr('stroke-dasharray','4,4');
-                g.append('text').attr('x', lx).attr('y', 135).text(vram + ' GB')
-                    .attr('fill','#ff3344').attr('font-family','JetBrains Mono, monospace').attr('font-size',10).attr('text-anchor','middle');
-            }
-        });
-
-        // Stats
-        const kvPerTokKB = (kvPerToken / 1024).toFixed(2);
-        const totalGB = (modelQ4GB + kvTotalGB).toFixed(1);
-        const ratio = (kvTotalGB / modelQ4GB * 100).toFixed(1);
-        const fits3090 = (modelQ4GB + kvTotalGB) <= 24;
-        const fitsH100 = (modelQ4GB + kvTotalGB) <= 80;
-
-        g.append('text').attr('x', 0).attr('y', 170)
-            .text(`KV per token: ${kvPerTokKB} KB | Total: ${totalGB} GB | KV/model ratio: ${ratio}%`)
-            .attr('fill','#c8c8d4').attr('font-family','JetBrains Mono, monospace').attr('font-size',12);
-
-        g.append('text').attr('x', 0).attr('y', 195)
-            .text(`Fits 3090 (24GB): ${fits3090 ? 'YES' : 'NO'} | Fits H100 (80GB): ${fitsH100 ? 'YES' : 'NO'}`)
-            .attr('fill', fitsH100 ? '#00ff88' : '#ff3344').attr('font-family','JetBrains Mono, monospace').attr('font-size',12);
-
-        const maxReqs3090 = Math.max(0, Math.floor((24 - modelQ4GB) / (kvTotalGB || 0.001)));
-        const maxReqsH100 = Math.max(0, Math.floor((80 - modelQ4GB) / (kvTotalGB || 0.001)));
-        g.append('text').attr('x', 0).attr('y', 220)
-            .text(`Max concurrent (3090): ~${maxReqs3090} | Max concurrent (H100): ~${maxReqsH100}`)
-            .attr('fill','#ffdd00').attr('font-family','JetBrains Mono, monospace').attr('font-size',12);
-    }
-
-    drawKV();
-    document.getElementById('viz-ch7-ctx').addEventListener('input', drawKV);
-    document.getElementById('viz-ch7-model').addEventListener('change', drawKV);
-    document.getElementById('viz-ch7-dtype').addEventListener('change', drawKV);
-})();
-</script>
-
-<div class="power">
-<div class="power-label">The Cache Budget</div>
-<p>On your 3090 with Qwen-3.5 27B Q4 (~15 GB model): 9 GB for KV cache. At 4 KV heads (GQA) &times; 256 dim &times; 64 layers &times; 2 bytes &times; 2 (K+V) = ~256 KB per token. 9 GB / 256 KB = ~36K tokens of context. That's generous for one user. But serve 10 concurrent users at 4K context and you've used 10 GB &mdash; <strong>over your budget</strong>.</p>
-</div>
-
-<p>The KV cache solves redundant computation. But we're still reading the <em>entire model</em> from memory for every single token. How fast can we actually go? To answer that, we need to understand the fundamental constraint: the memory wall.</p>
-
+<h2>// 07 &mdash; Quantization</h2>
+<div class="era-badge"><span class="era-num">Era 2</span> &mdash; Make it fit</div>
+<p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p>
 </section>
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 8: THE WALL                                            -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
+
 <section id="ch8">
-<h2>// 08 &mdash; The Wall</h2>
-
-<p class="drop-cap">Start with your GPU: the RTX 3090. 24 GB of VRAM. 936 GB/s of memory bandwidth. 35.6 TFLOPS of FP16 compute. This is the GPU sitting in your machine right now. Let's figure out exactly how fast it can generate tokens &mdash; and why the answer is disappointing.</p>
-
-<h3>The Roofline Model, Step by Step</h3>
-
-<p>The <strong>roofline model</strong> tells you whether a computation is limited by memory bandwidth (you can't feed data to the ALUs fast enough) or by compute (you have data but not enough ALUs). The key metric is <strong>arithmetic intensity</strong>: FLOPs per byte of data moved.</p>
-
-<pre><code><span class="label">RTX 3090 Roofline</span>
-<span class="cm"># Step 1: What's the compute ceiling?</span>
-Peak FP16:  <span class="nm">35.6</span> TFLOPS = 35,600 GFLOPS
-
-<span class="cm"># Step 2: What's the bandwidth ceiling?</span>
-Bandwidth:  <span class="nm">936</span> GB/s
-
-<span class="cm"># Step 3: Where's the ridge point? (where the two ceilings meet)</span>
-Ridge = Peak FLOPS / Bandwidth = 35,600 / 936 = <span class="st">38 FLOPS/byte</span>
-
-<span class="cm"># If your arithmetic intensity < 38: you're memory-bound.</span>
-<span class="cm"># If your arithmetic intensity > 38: you're compute-bound.</span>
-</code></pre>
-
-<p>Now let's calculate the arithmetic intensity of Qwen-3.5 27B Q4 decode on our 3090:</p>
-
-<pre><code><span class="label">Qwen-3.5 27B Q4_K_M decode arithmetic</span>
-<span class="cm"># Model size after quantization:</span>
-27B params × 4.5 bits/param = <span class="nm">15.2 GB</span>
-
-<span class="cm"># FLOPs to generate one token (decode, batch=1):</span>
-<span class="cm"># Each weight is used once: one multiply-accumulate per weight</span>
-<span class="cm"># ≈ 2 × 27B = 54 GFLOPS</span>
-
-<span class="cm"># Bytes read: entire model = 15.2 GB</span>
-
-<span class="cm"># Arithmetic intensity:</span>
-AI = 54 GFLOPS / 15.2 GB = <span class="st">3.55 FLOPS/byte</span>
-
-<span class="cm"># Ridge point is 38. We're at 3.55. That's 9% of the ridge.</span>
-<span class="cm"># We are DEEP in memory-bound territory.</span>
-
-<span class="cm"># Maximum decode speed:</span>
-Time = 15.2 GB / 936 GB/s = <span class="st">16.2 ms/token → 62 tok/s</span>
-<span class="cm"># (theoretical peak — real: ~45 tok/s with overhead)</span>
-</code></pre>
-
-<p>The good news: Qwen-3.5 27B Q4 at 15.2 GB fits on a 3090 (24 GB) with ~9 GB for KV cache. But bigger models still need multi-GPU or offloading:</p>
-
-<pre><code><span class="label">Qwen-2.5 72B Q4_K_M decode on RTX 3090</span>
-<span class="cm"># Model size: 72B × 4.5 bits = 40.5 GB</span>
-<span class="cm"># Problem: 40.5 GB > 24 GB VRAM. Doesn't fit!</span>
-<span class="cm"># Must split: ~24 GB on GPU, ~16.5 GB on CPU (DDR4: ~50 GB/s)</span>
-
-<span class="cm"># GPU portion: 24 GB / 936 GB/s = 25.6 ms</span>
-<span class="cm"># CPU portion: 16.5 GB / 50 GB/s = 330 ms</span>
-<span class="cm"># Total: 355.6 ms/token → ~3 tok/s</span>
-<span class="cm"># The CPU portion is 12× slower. This is why partial offload is painful.</span>
-</code></pre>
-
-<h3>The Numbers for Real Hardware</h3>
-
-<table>
-<tr><th>GPU</th><th>VRAM</th><th>Bandwidth</th><th>FP16 TFLOPS</th><th>Ridge Point</th><th>27B Q4 tok/s</th><th>72B Q4 tok/s</th></tr>
-<tr><td><strong>RTX 3090</strong></td><td>24 GB</td><td>936 GB/s</td><td>35.6</td><td>38</td><td>~45 (fits!)</td><td>~3 (split)</td></tr>
-<tr><td>RTX 4090</td><td>24 GB</td><td>1.01 TB/s</td><td>82.6</td><td>82</td><td>~50 (fits!)</td><td>~3 (split)</td></tr>
-<tr><td>M4 Ultra</td><td>192 GB</td><td>~800 GB/s</td><td>~27</td><td>34</td><td>~40 (fits)</td><td>~20 (fits!)</td></tr>
-<tr><td>H100 SXM</td><td>80 GB</td><td>3.35 TB/s</td><td>990</td><td>296</td><td>~160</td><td>~85</td></tr>
-<tr><td>B200</td><td>192 GB</td><td>8.0 TB/s</td><td>2,250</td><td>281</td><td>~380</td><td>~200</td></tr>
-</table>
-
-<p>Notice: Qwen-3.5 27B Q4 (~15 GB) <strong>fits on your 3090</strong>. No split, no CPU bottleneck. The bigger question becomes: can you serve 72B+? That's where M4 Ultra's 192 GB unified memory shines &mdash; 72B Q4 fits with room to spare. Apple Silicon's lower compute:bandwidth ratio means less wasted silicon during bandwidth-bound decode.</p>
-
-<h3>Interactive Roofline</h3>
-
-<div class="viz-container">
-<svg id="viz-ch8" viewBox="0 0 780 400"></svg>
-<div class="viz-controls">
-<div>
-    <label>Model (B params)</label>
-    <input type="range" id="viz-ch8-params" min="1" max="405" value="7">
-    <span class="val" id="viz-ch8-params-val">7B</span>
-</div>
-<div>
-    <label>Bits per weight</label>
-    <input type="range" id="viz-ch8-bits" min="2" max="16" value="4">
-    <span class="val" id="viz-ch8-bits-val">4-bit</span>
-</div>
-<div>
-    <label>Batch size</label>
-    <input type="range" id="viz-ch8-batch" min="1" max="128" value="1">
-    <span class="val" id="viz-ch8-batch-val">1</span>
-</div>
-<div>
-    <label>GPU</label>
-    <select id="viz-ch8-gpu">
-        <option value="936,35600,24" selected>RTX 3090 (936 GB/s, 24 GB)</option>
-        <option value="1010,82600,24">RTX 4090 (1.01 TB/s, 24 GB)</option>
-        <option value="800,27000,192">M4 Ultra (~800 GB/s, 192 GB)</option>
-        <option value="3350,990000,80">H100 SXM (3.35 TB/s, 80 GB)</option>
-        <option value="8000,2250000,192">B200 (8 TB/s, 192 GB)</option>
-    </select>
-</div>
-</div>
-</div>
-
-<script>
-(function() {
-    function drawRoofline() {
-        const svg = d3.select('#viz-ch8');
-        svg.selectAll('*').remove();
-
-        const params = +document.getElementById('viz-ch8-params').value;
-        const bits = +document.getElementById('viz-ch8-bits').value;
-        const batch = +document.getElementById('viz-ch8-batch').value;
-        const gpuStr = document.getElementById('viz-ch8-gpu').value.split(',');
-        const bw = +gpuStr[0], peakGFLOPS = +gpuStr[1], vram = +gpuStr[2];
-
-        d3.select('#viz-ch8-params-val').text(params + 'B');
-        d3.select('#viz-ch8-bits-val').text(bits + '-bit');
-        d3.select('#viz-ch8-batch-val').text(batch);
-
-        const modelGB = (params * 1e9 * bits / 8) / 1e9;
-        const fitsVram = modelGB <= vram;
-        const ridge = peakGFLOPS / bw;
-        const ai = batch * 2; // approximate: 2 FLOPs per weight per batch element
-        const achievable = Math.min(peakGFLOPS, ai * bw);
-        const readTime = modelGB / (bw / 1000); // seconds
-        const toksPerSec = fitsVram ? batch / readTime : batch / (readTime * (modelGB / vram));
-        const utilPct = (achievable / peakGFLOPS * 100);
-
-        const margin = {top: 30, right: 160, bottom: 50, left: 70};
-        const w = 780 - margin.left - margin.right;
-        const h = 400 - margin.top - margin.bottom;
-        const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
-
-        // Log scales
-        const xScale = d3.scaleLog().domain([0.5, 1000]).range([0, w]);
-        const yScale = d3.scaleLog().domain([10, peakGFLOPS * 1.5]).range([h, 0]);
-
-        // Axes
-        g.append('g').attr('transform', `translate(0,${h})`).call(d3.axisBottom(xScale).ticks(5, '.0f'))
-            .selectAll('text').attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',10);
-        g.append('g').call(d3.axisLeft(yScale).ticks(5, '.0f'))
-            .selectAll('text').attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',10);
-        g.selectAll('.domain, .tick line').attr('stroke','#1e1e2e');
-
-        // Axis labels
-        svg.append('text').attr('x', margin.left + w/2).attr('y', 400 - 5).text('Arithmetic Intensity (FLOPS/byte)')
-            .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',10).attr('text-anchor','middle');
-
-        // Memory roof (slope)
-        const memX1 = 0.5, memY1 = memX1 * bw;
-        const memX2 = ridge, memY2 = ridge * bw;
-        g.append('line')
-            .attr('x1', xScale(memX1)).attr('y1', yScale(memY1))
-            .attr('x2', xScale(memX2)).attr('y2', yScale(memY2))
-            .attr('stroke','#ff8800').attr('stroke-width',2);
-
-        // Compute roof (horizontal)
-        g.append('line')
-            .attr('x1', xScale(memX2)).attr('y1', yScale(peakGFLOPS))
-            .attr('x2', xScale(1000)).attr('y2', yScale(peakGFLOPS))
-            .attr('stroke','#00ff88').attr('stroke-width',2);
-
-        // Ridge point
-        g.append('circle').attr('cx', xScale(ridge)).attr('cy', yScale(peakGFLOPS))
-            .attr('r', 5).attr('fill','#ffdd00');
-        g.append('text').attr('x', xScale(ridge) + 8).attr('y', yScale(peakGFLOPS) - 8)
-            .text(`Ridge: ${ridge.toFixed(0)} FLOPS/byte`).attr('fill','#ffdd00')
-            .attr('font-family','JetBrains Mono, monospace').attr('font-size',10);
-
-        // Our operating point
-        const opY = Math.min(peakGFLOPS, ai * bw);
-        if (ai >= 0.5 && ai <= 1000 && opY >= 10) {
-            g.append('circle').attr('cx', xScale(ai)).attr('cy', yScale(opY))
-                .attr('r', 7).attr('fill','#ff3344').attr('stroke','#ff3344').attr('stroke-width',2).attr('opacity',0.8);
-            g.append('text').attr('x', xScale(ai) + 12).attr('y', yScale(opY) + 4)
-                .text(`YOU: AI=${ai.toFixed(1)}`)
-                .attr('fill','#ff3344').attr('font-family','JetBrains Mono, monospace').attr('font-size',11).attr('font-weight','bold');
-        }
-
-        // Stats panel
-        const stats = svg.append('g').attr('transform', `translate(${780 - 150}, ${margin.top + 10})`);
-        const statItems = [
-            {label: 'Model size', val: modelGB.toFixed(1) + ' GB', color: '#c8c8d4'},
-            {label: 'Fits VRAM?', val: fitsVram ? 'YES' : 'NO', color: fitsVram ? '#00ff88' : '#ff3344'},
-            {label: 'Time/token', val: (1000/toksPerSec).toFixed(1) + ' ms', color: '#ffdd00'},
-            {label: 'Tok/s', val: toksPerSec.toFixed(0), color: '#00ddff'},
-            {label: 'GPU util', val: utilPct.toFixed(1) + '%', color: utilPct > 50 ? '#00ff88' : '#ff8800'},
-        ];
-        statItems.forEach((s, i) => {
-            stats.append('text').attr('y', i * 22).text(s.label)
-                .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',10);
-            stats.append('text').attr('x', 0).attr('y', i * 22 + 14).text(s.val)
-                .attr('fill', s.color).attr('font-family','JetBrains Mono, monospace').attr('font-size',13).attr('font-weight','bold');
-        });
-    }
-
-    drawRoofline();
-    ['viz-ch8-params','viz-ch8-bits','viz-ch8-batch'].forEach(id =>
-        document.getElementById(id).addEventListener('input', drawRoofline));
-    document.getElementById('viz-ch8-gpu').addEventListener('change', drawRoofline);
-})();
-</script>
-
-<div class="power danger">
-<div class="power-label">The Brutal Arithmetic</div>
-<p>Your RTX 3090 generating Qwen-3.5 27B Q4 at batch=1: arithmetic intensity is 2 FLOPS/byte. Ridge point is 38. You're using <strong>5% of the GPU's compute capacity</strong>. The other 95% is idle, waiting for data. Every token requires reading the entire model from VRAM. For a 500-token response, that's 500 &times; 15.2 GB = <strong>7.6 terabytes</strong> of data read. Just for the weights. Just for one user. This fact motivates <em>every</em> optimization in this deep dive.</p>
-</div>
-
-<p>The solution is clear: make the model smaller (fewer bytes to read = more tok/s). That's quantization. And it was obvious by 2020, but nobody cared until the models got big enough to actually hit the wall.</p>
-
+<h2>// 08 &mdash; FlashAttention</h2>
+<div class="era-badge"><span class="era-num">Era 3</span> &mdash; Reduce attention IO</div>
+<p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p>
 </section>
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 9: MAKING IT FIT                                       -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
+
 <section id="ch9">
-<h2>// 09 &mdash; Making It Fit</h2>
-
-<p class="drop-cap">The model is 54 GB in FP16 and the GPU is 24 GB. Something has to give. We could buy more GPUs &mdash; and we will, eventually &mdash; but first, there's a more elegant solution: store each weight in fewer bits. FP16 uses 16 bits per number. What if we used 4? That's ~15 GB for 27B. It fits on a 3090 with room for KV cache. The question is: do those 4-bit approximations still produce good language?</p>
-
-<p>The answer, astonishingly, is <em>yes</em>. And the history of how we discovered this is a story of increasingly clever tricks, compressed into just three years.</p>
-
-<h3>History: The Quantization Revolution</h3>
-
-<p><strong>2022, August</strong>: Tim Dettmers publishes <strong>LLM.int8()</strong> &mdash; the first paper showing you can quantize LLM weights to 8-bit with no quality loss, using mixed-precision decomposition for outlier features. This is the proof of concept.</p>
-
-<p><strong>2022, October</strong>: Elias Frantar publishes <strong>GPTQ</strong> &mdash; 3-4 bit quantization with error redistribution, one column at a time. The first practical method for running 175B models on consumer hardware.</p>
-
-<p><strong>2023, June</strong>: Ji Lin publishes <strong>AWQ</strong> (Activation-Aware Quantization) &mdash; protect the 1% of salient weights, quantize the rest. Simpler than GPTQ, better quality.</p>
-
-<p><strong>2023, March-onward</strong>: Georgi Gerganov and the llama.cpp community develop the K-quant family (Q4_K_M, Q5_K_M, etc.) &mdash; hand-tuned block quantization with superblocks and K-means optimization. The gold standard for local inference.</p>
-
-<h3>Q4_0: The Simplest Quantization</h3>
-
-<p>Take a block of 32 consecutive weights. Find the largest absolute value &mdash; that's your scale factor <code>d</code>. Divide every weight by <code>d</code>, round to the nearest integer in [-8, +7], and store the result in 4 bits. Two weights per byte. One FP16 scale per 32 weights.</p>
-
-<pre><code><span class="label">C</span>
-<span class="kw">typedef struct</span> {
-    <span class="ty">ggml_fp16_t</span> d;       <span class="cm">// scale factor (2 bytes)</span>
-    <span class="ty">uint8_t</span> qs[<span class="nm">16</span>];      <span class="cm">// 32 weights packed into 16 bytes</span>
-} <span class="ty">block_q4_0</span>;           <span class="cm">// 17 bytes for 32 weights = 4.5 bits/weight</span>
-
-<span class="cm">// Dequantize:</span>
-<span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i < <span class="nm">16</span>; i++) {
-    <span class="ty">int</span> lo = qs[i] & <span class="nm">0x0F</span>;        <span class="cm">// low nibble: 0..15</span>
-    <span class="ty">int</span> hi = qs[i] >> <span class="nm">4</span>;          <span class="cm">// high nibble: 0..15</span>
-    out[<span class="nm">2</span>*i]     = d * (lo - <span class="nm">8</span>);  <span class="cm">// center at zero: -8 to +7</span>
-    out[<span class="nm">2</span>*i + <span class="nm">1</span>] = d * (hi - <span class="nm">8</span>);
-}
-</code></pre>
-
-<h3>Q4_K_M: Worked Dequantization of 8 Values</h3>
-
-<p>Q4_K groups 256 weights into a <strong>superblock</strong> of 8 sub-blocks. Each sub-block gets its own 6-bit scale within the superblock's overall scale. Let's trace the dequantization of 8 values:</p>
-
-<pre><code><span class="label">Worked Example</span>
-<span class="cm"># Superblock: d = 0.0312 (FP16), dmin = -0.0156 (FP16)</span>
-<span class="cm"># Sub-block 3: scale_bits = 42 (6-bit), min_bits = 18 (6-bit)</span>
-<span class="cm"># 8 raw nibbles: [5, 11, 3, 8, 14, 2, 9, 6]</span>
-
-<span class="st">Step 1:</span> Decode sub-block scale and min
-  sub_scale = 42 * d   = 42 * 0.0312 = <span class="nm">1.3104</span>
-  sub_min   = 18 * dmin = 18 * (-0.0156) = <span class="nm">-0.2808</span>
-
-<span class="st">Step 2:</span> Dequantize each nibble
-  w₀ = sub_min + nibble₀ * sub_scale / 15
-     = -0.2808 + 5 * 1.3104 / 15 = -0.2808 + 0.4368 = <span class="nm">+0.1560</span>
-  w₁ = -0.2808 + 11 * 0.0874 = -0.2808 + 0.9611 = <span class="nm">+0.6803</span>
-  w₂ = -0.2808 + 3 * 0.0874  = -0.2808 + 0.2621 = <span class="nm">-0.0187</span>
-  ...
-
-<span class="cm"># The extra sub-block scale gives Q4_K much finer granularity</span>
-<span class="cm"># than Q4_0's single scale per 32 weights.</span>
-<span class="cm"># K-means further optimizes which quantization levels to use.</span>
-</code></pre>
-
-<h3>GPTQ: Quantizing with Error Redistribution</h3>
-
-<p>GPTQ quantizes one column of a weight matrix at a time, using a small calibration dataset (128 random 2048-token segments from C4) to measure how each decision affects the output:</p>
-
-<pre><code><span class="label">Algorithm (one row)</span>
-<span class="cm"># W: original weights [d_out, d_in]</span>
-<span class="cm"># H: Hessian (X^T X) — captures weight importance via activations</span>
-
-<span class="kw">for</span> col <span class="kw">in</span> range(d_in):
-    <span class="cm"># 1. Quantize this column</span>
-    w_q = quantize(W[:, col])
-
-    <span class="cm"># 2. Compute the error</span>
-    err = (W[:, col] - w_q) / H[col, col]
-
-    <span class="cm"># 3. Redistribute error to ALL remaining columns</span>
-    W[:, col+<span class="nm">1</span>:] -= err.outer(H[col, col+<span class="nm">1</span>:])
-
-<span class="cm"># Key insight: error doesn't accumulate — it gets PUSHED FORWARD</span>
-<span class="cm"># into columns that haven't been quantized yet.</span>
-<span class="cm"># A 175B model quantizes in ~4 GPU-hours.</span>
-</code></pre>
-
-<h3>AWQ: Protecting the 1%</h3>
-
-<p>AWQ observes that ~1% of weights are "salient" &mdash; they get multiplied by large activations. It identifies these by analyzing activation magnitudes, scales them up to increase their quantization resolution, and scales the activations down to compensate. Mathematically equivalent, but the important weights now occupy more of the quantization range.</p>
-
-<h3>Quantization Explorer</h3>
-
-<div class="viz-container">
-<svg id="viz-ch9" viewBox="0 0 780 340"></svg>
-<div class="viz-controls">
-<div>
-    <label>Original Weight</label>
-    <input type="range" id="viz-ch9-weight" min="-200" max="200" value="73" style="width:180px;">
-    <span class="val" id="viz-ch9-weight-val">0.73</span>
-</div>
-<div>
-    <label>Block Scale (d)</label>
-    <input type="range" id="viz-ch9-scale" min="10" max="200" value="100" style="width:140px;">
-    <span class="val" id="viz-ch9-scale-val">1.00</span>
-</div>
-</div>
-</div>
-
-<script>
-(function() {
-    function drawQuant() {
-        const svg = d3.select('#viz-ch9');
-        svg.selectAll('*').remove();
-
-        const weight = +document.getElementById('viz-ch9-weight').value / 100;
-        const scale = +document.getElementById('viz-ch9-scale').value / 100;
-        d3.select('#viz-ch9-weight-val').text(weight.toFixed(2));
-        d3.select('#viz-ch9-scale-val').text(scale.toFixed(2));
-
-        const levels = [
-            { bits: 8, name: 'Q8_0', n: 256, offset: -128 },
-            { bits: 4, name: 'Q4_0', n: 16, offset: -8 },
-            { bits: 3, name: 'Q3_K', n: 8, offset: -4 },
-            { bits: 2, name: 'Q2_K', n: 4, offset: -2 },
-        ];
-
-        const rowH = 70;
-        const startY = 30;
-        const barX = 130;
-        const barW = 500;
-
-        levels.forEach((bl, idx) => {
-            const y = startY + idx * rowH;
-            const q = Math.round(weight / scale);
-            const qClamped = Math.max(bl.offset, Math.min(bl.offset + bl.n - 1, q));
-            const dequant = qClamped * scale;
-            const error = Math.abs(weight - dequant);
-
-            const minVal = bl.offset * scale;
-            const maxVal = (bl.offset + bl.n - 1) * scale;
-            const range = maxVal - minVal || 1;
-
-            // Label
-            svg.append('text').attr('x', 20).attr('y', y + 20).text(bl.name)
-                .attr('fill','#00ff88').attr('font-family','JetBrains Mono, monospace').attr('font-size',13);
-            svg.append('text').attr('x', 20).attr('y', y + 38).text(bl.bits + '-bit')
-                .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',11);
-
-            // Number line
-            svg.append('line').attr('x1', barX).attr('y1', y + 25).attr('x2', barX + barW).attr('y2', y + 25)
-                .attr('stroke','rgba(106,106,126,0.3)');
-
-            // Quantization level ticks
-            const tickStep = bl.n <= 16 ? 1 : Math.ceil(bl.n / 32);
-            for (let i = 0; i < bl.n; i += tickStep) {
-                const val = (bl.offset + i) * scale;
-                const px = barX + ((val - minVal) / range) * barW;
-                svg.append('line').attr('x1', px).attr('y1', y + 18).attr('x2', px).attr('y2', y + 32)
-                    .attr('stroke','rgba(106,106,126,0.2)');
-            }
-
-            // Original weight
-            const origPx = barX + Math.max(0, Math.min(1, (weight - minVal) / range)) * barW;
-            svg.append('circle').attr('cx', origPx).attr('cy', y + 25).attr('r', 5).attr('fill','#ffdd00');
-
-            // Quantized
-            const quantPx = barX + Math.max(0, Math.min(1, (dequant - minVal) / range)) * barW;
-            svg.append('circle').attr('cx', quantPx).attr('cy', y + 25).attr('r', 5).attr('fill','#ff00aa');
-
-            // Error line
-            if (Math.abs(origPx - quantPx) > 2) {
-                svg.append('line').attr('x1', origPx).attr('y1', y + 25).attr('x2', quantPx).attr('y2', y + 25)
-                    .attr('stroke','#ff334488').attr('stroke-width',2).attr('stroke-dasharray','3,3');
-            }
-
-            // Values
-            svg.append('text').attr('x', barX + barW + 15).attr('y', y + 28)
-                .text(`q=${qClamped} → ${dequant.toFixed(3)}  err=${error.toFixed(4)}`)
-                .attr('fill','#c8c8d4').attr('font-family','JetBrains Mono, monospace').attr('font-size',10);
-        });
-
-        // Legend
-        const ly = startY + levels.length * rowH + 5;
-        svg.append('circle').attr('cx', 30).attr('cy', ly).attr('r', 5).attr('fill','#ffdd00');
-        svg.append('text').attr('x', 42).attr('y', ly + 4).text('Original weight')
-            .attr('fill','#c8c8d4').attr('font-family','JetBrains Mono, monospace').attr('font-size',11);
-        svg.append('circle').attr('cx', 200).attr('cy', ly).attr('r', 5).attr('fill','#ff00aa');
-        svg.append('text').attr('x', 212).attr('y', ly + 4).text('Quantized (nearest level)')
-            .attr('fill','#c8c8d4').attr('font-family','JetBrains Mono, monospace').attr('font-size',11);
-    }
-
-    drawQuant();
-    document.getElementById('viz-ch9-weight').addEventListener('input', drawQuant);
-    document.getElementById('viz-ch9-scale').addEventListener('input', drawQuant);
-})();
-</script>
-
-<h3>What Fits on Your 3090?</h3>
-
-<table>
-<tr><th>Model</th><th>FP16</th><th>Q8_0</th><th>Q5_K_M</th><th>Q4_K_M</th><th>Q3_K</th><th>Fits 3090?</th></tr>
-<tr><td>Qwen-2.5 7B</td><td>14 GB</td><td>7.2 GB</td><td>5.0 GB</td><td>4.1 GB</td><td>3.3 GB</td><td><span style="color:var(--green)">Q8 and below</span></td></tr>
-<tr><td>Qwen-3.5 27B</td><td>54 GB</td><td>27 GB</td><td>19 GB</td><td>15 GB</td><td>12 GB</td><td><span style="color:var(--green)">Q4 and below</span></td></tr>
-<tr><td>Qwen-2.5 72B</td><td>144 GB</td><td>72 GB</td><td>50 GB</td><td>40.5 GB</td><td>32 GB</td><td><span style="color:var(--red)">None fully</span></td></tr>
-<tr><td>DeepSeek-V3 671B (MoE)</td><td>~1.3 TB</td><td>~670 GB</td><td>~465 GB</td><td>~375 GB</td><td>~300 GB</td><td><span style="color:var(--red)">No (37B active/token)</span></td></tr>
-</table>
-
-<div class="power">
-<div class="power-label">The Quantization Ladder</div>
-<p><strong>Q8_0</strong>: indistinguishable from FP16. <strong>Q6_K</strong>: nearly indistinguishable. <strong>Q5_K_M</strong>: minor degradation on hard reasoning. <strong>Q4_K_M / AWQ-4bit</strong>: the sweet spot &mdash; ~97% quality, 4&times; compression. <strong>Q3_K</strong>: noticeable on small models. <strong>Q2_K</strong>: desperation. Rule of thumb: larger models tolerate more quantization because they have more redundancy.</p>
-</div>
-
-<h3>In Practice: How the Engines Quantize</h3>
-
-<p>This is where the two engines diverge most sharply. <strong>llama.cpp</strong> never dequantizes &mdash; 95% of execution time is <code>GGML_OP_MUL_MAT</code>, and when one operand is Q4_K and the other is FP32, GGML quantizes the activation to Q8 on the fly and computes a dot product directly between Q4 and Q8 using SIMD. The weights <em>never exist as floats</em>:</p>
-
-<pre><code><span class="label">C</span>
-<span class="cm">// Fused quantized dot product — no intermediate FP32</span>
-<span class="fn">ggml_quantize_q8_0</span>(input_fp32, input_q8, n);
-<span class="ty">float</span> result = <span class="fn">ggml_vec_dot_q4_K_q8_0</span>(n, weight_q4, input_q8);
-<span class="cm">// Uses AVX2 vpmaddubsw / ARM NEON vdotq_s32</span>
-</code></pre>
-
-<div class="diagram">
-<span class="diagram-label">llama.cpp architecture — quantization is the core trick</span>
-<pre><code>
-  <span class="st">User Application</span> (main / server / bindings)
-    &darr;
-  <span class="kw">llama.h</span> — Public API
-    llama_model_load()  llama_decode()  llama_sampling()
-    &darr;
-  <span class="fn">llama.cpp</span> — Model Implementation
-    GGUF parsing, graph building, KV cache (ring buffer)
-    &darr;
-  <span class="ty">GGML</span> — Tensor Library (lazy eval &rarr; computation DAG)
-    ggml_tensor, ggml_cgraph, ggml_backend_sched
-    &darr;
-  ┌──────┬──────┬──────┬──────┬──────┐
-  │ <span class="st">CPU</span>  │ <span class="kw">CUDA</span> │ <span class="fn">Metal</span>│<span class="pp">Vulkan</span>│ <span class="ty">SYCL</span> │
-  └──────┴──────┴──────┴──────┴──────┘
-</code></pre>
-</div>
-
-<p><strong>vLLM</strong> takes a different path: it uses AWQ or FP8 quantization via PyTorch kernels. Instead of fused integer dot products, it dequantizes in-kernel during the GEMM, leveraging Hopper's native FP8 tensor cores. Different philosophy &mdash; llama.cpp optimizes for CPUs and consumer GPUs with SIMD, vLLM optimizes for datacenter GPUs with tensor cores.</p>
-
-<p>Our 27B model is now ~15 GB at Q4_K_M &mdash; it fits on a 3090 with ~9 GB left for KV cache. Larger models like 72B (~40 GB Q4) still need H100s or multi-GPU. But we still have a performance problem: every token requires reading the entire model. And there's a hidden cost &mdash; the attention mechanism is recomputing <em>everything</em> from scratch at every step.</p>
-
+<h2>// 09 &mdash; Continuous Batching</h2>
+<div class="era-badge"><span class="era-num">Era 5</span> &mdash; Keep the batch full</div>
+<p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p>
 </section>
-<div class="act-break">
-    <div class="act-number">Act III</div>
-    <div class="act-title">Making It Fast</div>
-    <div class="act-subtitle">The wall is real. Here's how we break through it.</div>
-</div>
 
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 10: FAST ATTENTION                                      -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
 <section id="ch10">
-<h2>// 10 &mdash; Fast Attention</h2>
-
-<p class="drop-cap">2022. Tri Dao, a PhD student at Stanford, publishes a paper that changes everything. <strong>FlashAttention</strong> doesn't change the math &mdash; the output is bit-for-bit identical to standard attention. It changes <em>where</em> the math happens. By computing attention in small tiles that fit in the GPU's fast on-chip SRAM (20 MB, ~30 TB/s) instead of the slow HBM (80 GB, 3.35 TB/s), it avoids ever materializing the full N&times;N attention matrix.</p>
-
-<h3>Standard Attention: The Problem</h3>
-
-<pre><code><span class="label">Standard attention memory traffic</span>
-<span class="cm"># For 8K context, one head, FP16:</span>
-<span class="cm"># S = Q @ K^T  →  write [8192 × 8192] = 128 MB to HBM</span>
-<span class="cm"># P = softmax(S)  →  read 128 MB, write 128 MB</span>
-<span class="cm"># O = P @ V  →  read 128 MB</span>
-<span class="cm"># Total: 512 MB of HBM traffic for ONE head of ONE layer</span>
-<span class="cm"># × 24 heads × 64 layers = 786 GB of memory traffic (for 27B)</span>
-<span class="cm"># At 3.35 TB/s: 776 ms just for attention. Absurd.</span>
-
-<span class="cm"># For 32K context: matrix is 32K×32K = 2 GB per head.</span>
-<span class="cm"># With 24 heads: 48 GB just for the score matrix. Doesn't fit.</span>
-</code></pre>
-
-<h3>FlashAttention Tiling: Step by Step</h3>
-
-<p>The hard part is the softmax. Standard softmax needs <code>max(x)</code> across the entire row, but if you're processing tiles you don't see the whole row. The <strong>online softmax</strong> maintains running statistics that get corrected as new tiles arrive:</p>
-
-<pre><code><span class="label">FlashAttention (tile_size=4, seq_len=8, one head)</span>
-<span class="cm"># Q tiles: Q[0:4], Q[4:8]  (2 query tiles)</span>
-<span class="cm"># K,V tiles: K[0:4],V[0:4] and K[4:8],V[4:8]  (2 KV tiles)</span>
-
-<span class="st">═══ Processing Q[0:4] against all KV tiles ═══</span>
-
-<span class="kw">Tile 1:</span> Q[0:4] × K[0:4]^T in SRAM
-  S₁ = Q[0:4] @ K[0:4]^T / √d_head     <span class="cm"># [4×4] score matrix</span>
-  m₁ = rowmax(S₁)                        <span class="cm"># running max per row</span>
-  P₁ = exp(S₁ - m₁)                     <span class="cm"># numerator of softmax</span>
-  l₁ = rowsum(P₁)                        <span class="cm"># running sum</span>
-  O₁ = P₁ @ V[0:4]                      <span class="cm"># partial output</span>
-
-<span class="kw">Tile 2:</span> Q[0:4] × K[4:8]^T in SRAM
-  S₂ = Q[0:4] @ K[4:8]^T / √d_head
-  m₂ = rowmax(S₂)
-  <span class="st">m_new = max(m₁, m₂)</span>                    <span class="cm"># update global max</span>
-
-  <span class="cm"># Correction: rescale old accumulators to new max</span>
-  <span class="st">correction = exp(m₁ - m_new)</span>
-  l_new = correction * l₁ + rowsum(exp(S₂ - m_new))
-  O_new = correction * O₁ + exp(S₂ - m_new) @ V[4:8]
-
-<span class="st">Final:</span> O = O_new / l_new
-<span class="cm"># This is EXACT. Not an approximation. Bit-for-bit identical.</span>
-<span class="cm"># The S matrix never existed in HBM. Saved: 128 MB per head.</span>
-</code></pre>
-
-<h3>Attention Visualized</h3>
-
-<p>Switch between prefill, decode, and FlashAttention tiling to see how the attention matrix changes shape and access pattern:</p>
-
-<div class="viz-container">
-<svg id="viz-ch10-attn" viewBox="0 0 780 380"></svg>
-<div class="viz-controls">
-<div>
-    <label>Mode</label>
-    <select id="viz-ch10-mode">
-        <option value="prefill">Prefill (full causal mask)</option>
-        <option value="decode">Decode (single query)</option>
-        <option value="flash">FlashAttention tiles</option>
-    </select>
-</div>
-<div>
-    <label>Sequence Length</label>
-    <input type="range" id="viz-ch10-seq" min="4" max="20" value="10">
-    <span class="val" id="viz-ch10-seq-val">10</span>
-</div>
-<div>
-    <label>Tile Size</label>
-    <input type="range" id="viz-ch10-tile" min="2" max="6" value="4">
-    <span class="val" id="viz-ch10-tile-val">4</span>
-</div>
-</div>
-</div>
-
-<script>
-(function() {
-    function drawAttn() {
-        const svg = d3.select('#viz-ch10-attn');
-        svg.selectAll('*').remove();
-        const N = +document.getElementById('viz-ch10-seq').value;
-        const mode = document.getElementById('viz-ch10-mode').value;
-        const tileSize = +document.getElementById('viz-ch10-tile').value;
-        d3.select('#viz-ch10-seq-val').text(N);
-        d3.select('#viz-ch10-tile-val').text(tileSize);
-
-        const cellSize = Math.min(Math.floor(260 / N), 26);
-        const gridW = N * cellSize;
-        const startX = 80, startY = 50;
-
-        // Labels
-        svg.append('text').attr('x', startX + gridW/2).attr('y', startY - 20).text('Keys (K)')
-            .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',11).attr('text-anchor','middle');
-        svg.append('text').attr('x', startX - 25).attr('y', startY + gridW/2 + 4).text('Q')
-            .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',11).attr('text-anchor','middle')
-            .attr('transform', `rotate(-90, ${startX-25}, ${startY + gridW/2})`);
-
-        const colors = ['#00ff88','#00ddff','#ff00aa','#ff8800','#aa44ff','#ffdd00'];
-
-        for (let i = 0; i < N; i++) {
-            for (let j = 0; j < N; j++) {
-                const x = startX + j * cellSize;
-                const y = startY + i * cellSize;
-                const causal = j <= i;
-
-                let fill;
-                if (mode === 'prefill') {
-                    fill = causal ? `rgba(0,255,136,${0.15 + Math.random()*0.45})` : 'rgba(106,106,126,0.05)';
-                } else if (mode === 'decode') {
-                    if (i === N-1 && causal) fill = `rgba(255,0,170,${0.2 + Math.random()*0.5})`;
-                    else if (causal) fill = 'rgba(0,255,136,0.06)';
-                    else fill = 'rgba(106,106,126,0.03)';
-                } else {
-                    if (causal) {
-                        const ti = Math.floor(i/tileSize), tj = Math.floor(j/tileSize);
-                        const ci = (ti * 7 + tj) % colors.length;
-                        fill = colors[ci] + '55';
-                    } else fill = 'rgba(106,106,126,0.03)';
-                }
-
-                svg.append('rect').attr('x',x).attr('y',y).attr('width',cellSize-1).attr('height',cellSize-1)
-                    .attr('fill',fill).attr('rx',1);
-
-                if (mode === 'flash' && causal) {
-                    if (i % tileSize === 0) svg.append('line').attr('x1',x).attr('y1',y).attr('x2',x+cellSize-1).attr('y2',y).attr('stroke','rgba(255,255,255,0.15)');
-                    if (j % tileSize === 0) svg.append('line').attr('x1',x).attr('y1',y).attr('x2',x).attr('y2',y+cellSize-1).attr('stroke','rgba(255,255,255,0.15)');
-                }
-            }
-        }
-
-        // Legend
-        const ly = startY + gridW + 30;
-        const legendText = {
-            prefill: `PREFILL: All ${N} query rows active. ${N*N} scores. Compute-bound, GPU-friendly.`,
-            decode: `DECODE: Only last row active (1 new token → ${N} cached keys). Memory-bound.`,
-            flash: `FLASH: ${tileSize}×${tileSize} tiles in SRAM. Online softmax across tiles. Never materializes N×N.`
-        };
-        const legendColor = { prefill: '#00ff88', decode: '#ff00aa', flash: '#00ddff' };
-        svg.append('text').attr('x', startX).attr('y', ly).text(legendText[mode])
-            .attr('fill', legendColor[mode]).attr('font-family','JetBrains Mono, monospace').attr('font-size',11);
-    }
-
-    drawAttn();
-    d3.select('#viz-ch10-mode').on('change', drawAttn);
-    d3.select('#viz-ch10-seq').on('input', drawAttn);
-    d3.select('#viz-ch10-tile').on('input', drawAttn);
-})();
-</script>
-
-<h3>FlashDecoding: Parallelizing Over KV Length</h3>
-
-<p>During decode, the query is a single vector but the KV cache can be enormous. Standard FlashAttention parallelizes over query tiles &mdash; useless when there's only one query. <strong>FlashDecoding</strong> instead splits the KV cache into P partitions, computes partial attention in parallel, then reduces:</p>
-
-<pre><code><span class="label">FlashDecoding</span>
-<span class="cm"># Q: [1, d_head] (single decode token)</span>
-<span class="cm"># KV cache: [seq_len, d_head] where seq_len could be 100K+</span>
-
-<span class="cm"># Split KV into P=16 partitions</span>
-<span class="kw">parallel for</span> p <span class="kw">in</span> 0..P:
-    partial_out[p], lse[p] = flash_attn(Q, K[p*chunk:(p+1)*chunk], V[...])
-
-<span class="cm"># Reduce: combine using log-sum-exp values for numerically stable merge</span>
-<span class="cm"># Same online softmax trick — correction factors from max/sum</span>
-O = reduce_with_lse(partial_out, lse)
-</code></pre>
-
-<div class="power">
-<div class="power-label">Impact</div>
-<p>llama.cpp: <strong>11 &rarr; 32 tok/s</strong> on M3 Max after FlashAttention. vLLM: <strong>2-3&times; throughput</strong> on long contexts. FA2 on Hopper: 20-50% higher FLOPS/s vs Ampere. The math is identical &mdash; it's the same computation. The improvement comes entirely from doing that math in fast SRAM instead of slow HBM. FlashAttention didn't speed up attention. It removed the memory bottleneck that was hiding how fast attention already was.</p>
-</div>
-
-<p>We now have a working, efficient single-user engine: quantized weights, KV cache, FlashAttention. But "one user" is a toy. A real service handles hundreds of concurrent requests. How do you serve them all without buying a GPU per user?</p>
-
+<h2>// 10 &mdash; Prefill vs Decode</h2>
+<div class="era-badge"><span class="era-num">Era 6</span> &mdash; Split prefill from decode</div>
+<p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p>
 </section>
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 11: MANY USERS                                          -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
+
 <section id="ch11">
-<h2>// 11 &mdash; Many Users</h2>
-
-<p class="drop-cap">Batching is the escape hatch from the memory wall. Process one request: you read 15 GB of weights to produce one token. Process 32 requests simultaneously: you read 15 GB of weights to produce <em>thirty-two</em> tokens. Same bytes loaded, 32&times; the useful work. The GPU's wasted compute capacity finally gets used.</p>
-
-<p>This insight has a history. In June 2022, researchers at UC Berkeley published the <strong>ORCA</strong> paper (OSDI 2022), introducing <strong>continuous batching</strong>. Before ORCA, inference engines used static batching: collect N requests, pad to same length, wait for the longest to finish. ORCA made scheduling decisions at every decode step. The result: <strong>23&times; throughput improvement</strong>.</p>
-
-<h3>Continuous Batching: Five Scheduling Steps</h3>
-
-<pre><code><span class="label">Walkthrough</span>
-<span class="cm"># 3 slots, requests arrive at different times</span>
-
-<span class="st">═══ Iteration 1 (t=0) ═══</span>
-  Queue: [A(prompt=500tok), B(prompt=200tok)]
-  Action: Admit A and B. Prefill both.
-  Slots: [A:prefill, B:prefill, empty]
-
-<span class="st">═══ Iteration 2 (t=1) ═══</span>
-  A prefill done, B prefill done. C arrives (prompt=100tok).
-  Action: A and B start decode. Admit C, prefill C.
-  Slots: [A:decode, B:decode, C:prefill]
-
-<span class="st">═══ Iteration 3 (t=2) ═══</span>
-  C prefill done. All three decoding.
-  Slots: [A:decode, B:decode, C:decode]  <span class="cm">← full batch, optimal</span>
-
-<span class="st">═══ Iteration 4 (t=3) ═══</span>
-  B hits EOS. Finished! D arrives.
-  Action: Free B's slot <span class="kw">immediately</span>. Admit D, prefill D.
-  Slots: [A:decode, D:prefill, C:decode]
-
-<span class="st">═══ Iteration 5 (t=4) ═══</span>
-  D prefill done.
-  Slots: [A:decode, D:decode, C:decode]  <span class="cm">← full batch again</span>
-
-<span class="cm"># No request ever waits for another to finish.</span>
-<span class="cm"># Slots are reclaimed the instant a request completes.</span>
-</code></pre>
-
-<h3>Batch Scheduler Simulation</h3>
-
-<div class="viz-container">
-<svg id="viz-ch11" viewBox="0 0 780 280"></svg>
-<div class="viz-controls">
-<button id="viz-ch11-start">Run Simulation</button>
-<button id="viz-ch11-reset" class="secondary">Reset</button>
-<span id="viz-ch11-status" style="color: var(--text-dim);"></span>
-</div>
-</div>
-
-<script>
-(function() {
-    const svg = d3.select('#viz-ch11');
-    const slots = 4;
-    const maxSteps = 16;
-    const cellW = 42, cellH = 32, gap = 2;
-    const startX = 70, startY = 45;
-    const colors = ['#00ff88','#00ddff','#ff00aa','#ff8800','#aa44ff','#ffdd00','#4488ff','#ff3344'];
-
-    // Request definitions: [arrive_step, prefill_steps, decode_steps]
-    const reqs = [
-        {name:'A', arrive:0, pf:1, dec:5, color:colors[0]},
-        {name:'B', arrive:0, pf:1, dec:3, color:colors[1]},
-        {name:'C', arrive:1, pf:1, dec:4, color:colors[2]},
-        {name:'D', arrive:3, pf:1, dec:6, color:colors[3]},
-        {name:'E', arrive:4, pf:1, dec:3, color:colors[4]},
-        {name:'F', arrive:6, pf:1, dec:5, color:colors[5]},
-        {name:'G', arrive:8, pf:1, dec:4, color:colors[6]},
-        {name:'H', arrive:10, pf:1, dec:3, color:colors[7]},
-    ];
-
-    let step = 0, animTimer = null;
-    let grid = []; // grid[slot][step] = {req, type}
-
-    function simulate() {
-        grid = Array.from({length: slots}, () => Array(maxSteps).fill(null));
-        let queue = [...reqs];
-        let active = []; // [{req, remaining_pf, remaining_dec, slot}]
-
-        for (let t = 0; t < maxSteps; t++) {
-            // New arrivals
-            const arrivals = queue.filter(r => r.arrive === t);
-
-            // Finish completed
-            active = active.filter(a => {
-                if (a.remaining_dec <= 0 && a.remaining_pf <= 0) return false;
-                return true;
-            });
-
-            // Admit from queue
-            arrivals.forEach(r => {
-                if (active.length < slots) {
-                    const slot = Array.from({length:slots}, (_,i)=>i).find(s => !active.some(a=>a.slot===s));
-                    if (slot !== undefined) {
-                        active.push({req: r, remaining_pf: r.pf, remaining_dec: r.dec, slot});
-                    }
-                }
-            });
-
-            // Process
-            active.forEach(a => {
-                if (a.remaining_pf > 0) {
-                    grid[a.slot][t] = {req: a.req, type: 'PF'};
-                    a.remaining_pf--;
-                } else if (a.remaining_dec > 0) {
-                    grid[a.slot][t] = {req: a.req, type: 'D'};
-                    a.remaining_dec--;
-                }
-            });
-        }
-    }
-
-    simulate();
-
-    function draw() {
-        svg.selectAll('*').remove();
-
-        // Title
-        svg.append('text').attr('x', startX + maxSteps * (cellW+gap) / 2).attr('y', 18)
-            .text('Continuous Batching Scheduler').attr('fill','#6a6a7e')
-            .attr('font-family','JetBrains Mono, monospace').attr('font-size',10)
-            .attr('text-anchor','middle').attr('text-transform','uppercase');
-
-        // Time labels
-        for (let t = 0; t < Math.min(step, maxSteps); t++) {
-            svg.append('text').attr('x', startX + t * (cellW+gap) + cellW/2).attr('y', startY - 5)
-                .text('t'+t).attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace')
-                .attr('font-size',8).attr('text-anchor','middle');
-        }
-
-        // Slot labels
-        for (let s = 0; s < slots; s++) {
-            svg.append('text').attr('x', startX - 10).attr('y', startY + s * (cellH+gap) + cellH/2 + 4)
-                .text('Slot '+s).attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace')
-                .attr('font-size',9).attr('text-anchor','end');
-        }
-
-        // Grid
-        for (let s = 0; s < slots; s++) {
-            for (let t = 0; t < Math.min(step, maxSteps); t++) {
-                const x = startX + t * (cellW+gap);
-                const y = startY + s * (cellH+gap);
-                const cell = grid[s][t];
-
-                if (cell) {
-                    svg.append('rect').attr('x',x).attr('y',y).attr('width',cellW).attr('height',cellH)
-                        .attr('fill', cell.req.color + '44').attr('stroke', cell.req.color).attr('rx',3);
-                    svg.append('text').attr('x', x + cellW/2).attr('y', y + 13)
-                        .text(cell.req.name).attr('fill', cell.req.color)
-                        .attr('font-family','JetBrains Mono, monospace').attr('font-size',10).attr('text-anchor','middle');
-                    svg.append('text').attr('x', x + cellW/2).attr('y', y + 26)
-                        .text(cell.type).attr('fill', cell.req.color + 'aa')
-                        .attr('font-family','JetBrains Mono, monospace').attr('font-size',8).attr('text-anchor','middle');
-                } else {
-                    svg.append('rect').attr('x',x).attr('y',y).attr('width',cellW).attr('height',cellH)
-                        .attr('fill','rgba(106,106,126,0.05)').attr('stroke','#1e1e2e').attr('rx',3);
-                }
-            }
-        }
-
-        // Stats
-        const activeCount = grid.map((s) => s.slice(0, Math.min(step, maxSteps)).filter(c => c).length);
-        const totalActive = activeCount.reduce((a,b)=>a+b, 0);
-        const totalSlots = slots * Math.min(step, maxSteps);
-        const util = totalSlots > 0 ? (totalActive / totalSlots * 100).toFixed(0) : 0;
-        svg.append('text').attr('x', startX).attr('y', startY + slots * (cellH+gap) + 20)
-            .text(`Step ${Math.min(step, maxSteps)} | Utilization: ${util}% | Tokens generated: ${totalActive}`)
-            .attr('fill','#ffdd00').attr('font-family','JetBrains Mono, monospace').attr('font-size',11);
-    }
-
-    draw();
-
-    d3.select('#viz-ch11-start').on('click', function() {
-        if (animTimer) return;
-        function tick() {
-            step++;
-            if (step > maxSteps) { animTimer = null; return; }
-            draw();
-            d3.select('#viz-ch11-status').text(`Step ${step}`);
-            animTimer = setTimeout(tick, 300);
-        }
-        tick();
-    });
-
-    d3.select('#viz-ch11-reset').on('click', function() {
-        if (animTimer) { clearTimeout(animTimer); animTimer = null; }
-        step = 0;
-        d3.select('#viz-ch11-status').text('');
-        draw();
-    });
-})();
-</script>
-
-<h3>In Practice: vLLM's Scheduler</h3>
-
-<p>vLLM is <em>built around</em> continuous batching. Its V1 architecture (2024-2025) was a complete rewrite that unifies scheduling, KV cache management, and kernel fusion into a single engine core:</p>
-
-<div class="diagram">
-<span class="diagram-label">vLLM V1 architecture — batching is the core trick</span>
-<pre><code>
-  <span class="st">API Server</span> (FastAPI, OpenAI-compatible)
-    /v1/chat/completions  /v1/completions
-    &darr; ZMQ sockets
-  <span class="kw">Engine Core</span> (one per data-parallel rank)
-    Unified Scheduler + KV Cache Manager + Block Allocator
-    Chunked prefill (default) + prefix caching (default)
-    &darr;
-  <span class="fn">GPU Workers</span> (TP_size &times; PP_size per engine core)
-    torch.compile with custom kernel fusions
-    CUDA Graphs for reduced launch overhead
-</code></pre>
-</div>
-
-<p>The torch.compile integration automatically fuses operations that would otherwise require separate kernel launches and memory round-trips:</p>
-
-<table>
-<tr><th>Fusion</th><th>What It Combines</th></tr>
-<tr><td><code>fuse_allreduce_rms</code></td><td>TP all-reduce + residual + RMSNorm + optional quant</td></tr>
-<tr><td><code>fuse_rope_kvcache</code></td><td>RoPE + KV cache scatter/write</td></tr>
-<tr><td><code>fuse_gemm_comms</code></td><td>GEMM + reduce-scatter/all-gather (AsyncTP)</td></tr>
-</table>
-
-<p><strong>llama.cpp</strong> takes a simpler approach: its <code>llama-server</code> supports basic batching (multiple slots), but not continuous batching at the vLLM level. It's a single-user-first design &mdash; the batch scheduler is an add-on, not the foundation. For serving many users, vLLM's architecture is purpose-built; for local inference, llama.cpp's simplicity wins.</p>
-
-<p>But batching 32 requests means 32 separate KV caches. The memory crisis is real. Traditional engines pre-allocate KV cache for the maximum possible sequence length. On average, 60-80% of allocated memory is wasted. We need virtual memory.</p>
-
+<h2>// 11 &mdash; Speculative Decoding</h2>
+<div class="era-badge"><span class="era-num">Era 7</span> &mdash; Predict ahead with speculation</div>
+<p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p>
 </section>
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 12: PAGEDATTENTION                                     -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
+
 <section id="ch12">
-<h2>// 12 &mdash; Virtual Memory for Attention</h2>
-
-<p class="drop-cap">In 1961, the Atlas computer at the University of Manchester introduced virtual memory. Sixty-two years later, in June 2023, the vLLM team at UC Berkeley applied the same idea to KV cache management, and it was just as revolutionary the second time around.</p>
-
-<p><strong>PagedAttention</strong> divides KV cache memory into fixed-size blocks (typically 16 tokens each). Each request gets a <strong>block table</strong> that maps logical token positions to physical blocks. Blocks are allocated on demand as the sequence grows. When a request finishes, its blocks are freed immediately.</p>
-
-<div class="diagram">
-<span class="diagram-label">PagedAttention block allocator</span>
-<pre><code>
-  <span class="ty">Block Tables</span> (logical &rarr; physical mapping):
-
-  Req A: [<span class="st">P7</span>] [<span class="st">P2</span>] [<span class="st">P11</span>]         <span class="cm">3 blocks, 48 tokens used</span>
-  Req B: [<span class="fn">P1</span>] [<span class="fn">P5</span>] [<span class="fn">P3</span>] [<span class="fn">P9</span>]    <span class="cm">4 blocks, 64 tokens used</span>
-  Req C: [<span class="kw">P4</span>]                      <span class="cm">1 block, 10 tokens used</span>
-
-  <span class="pp">Physical GPU Memory</span>:
-  ┌────┬────┬────┬────┬────┬────┬────┬────┬────┬────┬────┬────┐
-  │ <span class="fn">P1</span> │ <span class="st">P2</span> │ <span class="fn">P3</span> │ <span class="kw">P4</span> │ <span class="fn">P5</span> │FREE│ <span class="st">P7</span> │FREE│ <span class="fn">P9</span> │FREE│ <span class="st">P11</span>│FREE│
-  └────┴────┴────┴────┴────┴────┴────┴────┴────┴────┴────┴────┘
-</code></pre>
-</div>
-
-<h3>The Paged Attention Kernel</h3>
-
-<pre><code><span class="label">Pseudocode</span>
-<span class="kw">def</span> <span class="fn">paged_attention_kernel</span>(query, block_table, k_cache, v_cache):
-    <span class="cm"># query: [1, n_heads, head_dim] — single decode token</span>
-    <span class="cm"># block_table: [max_blocks] — maps logical→physical block indices</span>
-    <span class="cm"># k_cache, v_cache: [n_physical_blocks, block_size, n_kv_heads, head_dim]</span>
-
-    output = zeros(n_heads, head_dim)
-    m = -inf; l = <span class="nm">0</span>    <span class="cm"># online softmax accumulators</span>
-
-    <span class="kw">for</span> logical_block <span class="kw">in</span> range(num_used_blocks):
-        phys_idx = block_table[logical_block]   <span class="cm"># indirection!</span>
-        k_block = k_cache[phys_idx]             <span class="cm"># [block_size, head_dim]</span>
-        v_block = v_cache[phys_idx]
-
-        scores = query @ k_block.T / sqrt(head_dim)
-        m_new = max(m, max(scores))
-        correction = exp(m - m_new)
-        l = correction * l + sum(exp(scores - m_new))
-        output = correction * output + exp(scores - m_new) @ v_block
-        m = m_new
-
-    <span class="kw">return</span> output / l
-
-<span class="cm"># The block_table indirection is the key: physical memory is scattered,</span>
-<span class="cm"># but the kernel traverses it through the page table. Just like an OS.</span>
-</code></pre>
-
-<h3>Prefix Sharing: Copy-on-Write</h3>
-
-<p>If 100 requests share the same system prompt, they share the same physical blocks for that prefix. Blocks are reference-counted and only copied when a request diverges:</p>
-
-<pre><code><span class="label">Prefix sharing</span>
-<span class="cm"># System prompt: "You are a helpful assistant." → blocks S1, S2</span>
-
-Req A: [<span class="st">S1</span>] [<span class="st">S2</span>] [<span class="kw">A1</span>] [<span class="kw">A2</span>]    <span class="cm">← shares S1, S2</span>
-Req B: [<span class="st">S1</span>] [<span class="st">S2</span>] [<span class="fn">B1</span>]           <span class="cm">← shares S1, S2</span>
-Req C: [<span class="st">S1</span>] [<span class="st">S2</span>] [<span class="pp">C1</span>] [<span class="pp">C2</span>] [<span class="pp">C3</span>]
-
-<span class="cm">S1, S2 exist ONCE in physical memory. ref_count = 3.</span>
-<span class="cm">A 1,000-token system prompt × 100 users: 100 MB instead of 10 GB.</span>
-</code></pre>
-
-<div class="viz-container">
-<svg id="viz-ch12" viewBox="0 0 780 250"></svg>
-</div>
-
-<script>
-(function() {
-    const svg = d3.select('#viz-ch12');
-    const blockW = 50, blockH = 30, gap = 4;
-    const nPhysical = 14;
-    const startX = 20, startY = 20;
-
-    // Physical blocks state
-    const physState = [
-        {owner:'B', label:'B0'}, {owner:'A', label:'A1'}, {owner:'B', label:'B1'},
-        {owner:'C', label:'C0'}, {owner:'B', label:'B2'}, {owner:'free'}, {owner:'A', label:'A2'},
-        {owner:'free'}, {owner:'B', label:'B3'}, {owner:'free'}, {owner:'A', label:'A3'},
-        {owner:'free'}, {owner:'shared', label:'S0'}, {owner:'shared', label:'S1'}
-    ];
-    const ownerColors = {A:'#00ff88',B:'#00ddff',C:'#ff00aa',shared:'#ffdd00',free:'#1e1e2e'};
-
-    svg.append('text').attr('x', startX).attr('y', startY).text('Physical GPU Memory (PagedAttention)')
-        .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',10)
-        .attr('text-transform','uppercase');
-
-    physState.forEach((b, i) => {
-        const x = startX + i * (blockW + gap);
-        const color = ownerColors[b.owner] || '#1e1e2e';
-        svg.append('rect').attr('x',x).attr('y',startY+10).attr('width',blockW).attr('height',blockH)
-            .attr('fill', b.owner === 'free' ? 'rgba(106,106,126,0.06)' : color + '33')
-            .attr('stroke', b.owner === 'free' ? '#1e1e2e' : color).attr('rx',3);
-        svg.append('text').attr('x', x+blockW/2).attr('y', startY+10+blockH/2+4)
-            .text(b.label || 'FREE').attr('fill', b.owner === 'free' ? '#6a6a7e' : color)
-            .attr('font-family','JetBrains Mono, monospace').attr('font-size',9).attr('text-anchor','middle');
-    });
-
-    // Block tables
-    const tables = [
-        {name:'Req A', blocks:['S0→P12','S1→P13','A1→P1','A2→P6','A3→P10'], color:'#00ff88'},
-        {name:'Req B', blocks:['S0→P12','S1→P13','B0→P0','B1→P2','B2→P4','B3→P8'], color:'#00ddff'},
-        {name:'Req C', blocks:['S0→P12','S1→P13','C0→P3'], color:'#ff00aa'},
-    ];
-
-    tables.forEach((t, ti) => {
-        const y = startY + 60 + ti * 40;
-        svg.append('text').attr('x', startX).attr('y', y + 14).text(t.name + ':')
-            .attr('fill', t.color).attr('font-family','JetBrains Mono, monospace').attr('font-size',11);
-        t.blocks.forEach((b, bi) => {
-            const x = startX + 80 + bi * 85;
-            const isShared = b.startsWith('S');
-            svg.append('rect').attr('x',x).attr('y',y).attr('width',80).attr('height',22)
-                .attr('fill', isShared ? '#ffdd0022' : t.color + '22')
-                .attr('stroke', isShared ? '#ffdd00' : t.color).attr('rx',3);
-            svg.append('text').attr('x', x+40).attr('y', y+14).text(b)
-                .attr('fill', isShared ? '#ffdd00' : t.color)
-                .attr('font-family','JetBrains Mono, monospace').attr('font-size',9).attr('text-anchor','middle');
-        });
-    });
-
-    svg.append('text').attr('x', startX).attr('y', 225)
-        .text('S0, S1 (shared prefix): ref_count=3. Physical memory used ONCE. Near-100% utilization.')
-        .attr('fill','#ffdd00').attr('font-family','JetBrains Mono, monospace').attr('font-size',10);
-})();
-</script>
-
-<div class="power">
-<div class="power-label">PagedAttention Impact</div>
-<p><strong>2-4&times; throughput improvement</strong>, entirely from better memory utilization. No algorithmic change, no approximation, no quality loss. Just virtual memory. The lesson: sometimes the biggest wins come from systems engineering, not ML research.</p>
-</div>
-
-</section>
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 13: GOING WIDE                                         -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch13">
-<h2>// 13 &mdash; Going Wide</h2>
-
-<p class="drop-cap">When one GPU isn't enough, split the model across multiple GPUs. <strong>Tensor parallelism</strong> splits individual matrix multiplications (all GPUs work on every layer together). <strong>Pipeline parallelism</strong> assigns entire layers to different GPUs (each GPU handles a portion of the depth).</p>
-
-<h3>Tensor Parallelism: Cut Horizontally</h3>
-
-<p>For attention, the split is natural: GPU 0 gets heads 0-11, GPU 1 gets heads 12-23. Each GPU computes attention independently, then an <strong>all-reduce</strong> combines results after the output projection.</p>
-
-<pre><code><span class="label">Per transformer block with TP=2</span>
-<span class="nm">1.</span> Column-split Q,K,V projections → <span class="st">no communication</span>
-<span class="nm">2.</span> Each GPU computes attention for its heads
-<span class="nm">3.</span> Row-split output projection → <span class="kw">all-reduce</span> (combine partial sums)
-<span class="nm">4.</span> Column-split FFN gate+up → <span class="st">no communication</span>
-<span class="nm">5.</span> Row-split FFN down → <span class="kw">all-reduce</span>
-
-<span class="cm">Total: 2 all-reduces per block, 128 per forward pass (64 layers)</span>
-<span class="cm">Each all-reduce sends ~16 KB (the hidden state vector)</span>
-<span class="cm">On NVLink (450 GB/s): 5.7 μs per all-reduce → negligible</span>
-<span class="cm">On PCIe 4.0 (32 GB/s): 80 μs per all-reduce → 12.8 ms total → noticeable</span>
-
-<span class="cm">For YOUR 3090: NVLink bridge available (2-way only).</span>
-<span class="cm">Two 3090s with NVLink: 27B Q4 runs faster with split, or 72B Q4 fits!</span>
-<span class="cm">Two 3090s on PCIe: same model, ~25 tok/s (PCIe overhead).</span>
-</code></pre>
-
-<h3>Pipeline Parallelism: Cut Vertically</h3>
-
-<p>Assign entire layers to different GPUs. GPU 0: layers 0-19, GPU 1: layers 20-39, etc. Communication happens once per boundary (just the hidden state), but you get <strong>pipeline bubbles</strong> where GPUs wait for the previous stage.</p>
-
-<div class="diagram">
-<span class="diagram-label">Pipeline parallelism bubble (PP=4, 3 microbatches)</span>
-<pre><code>
-  Time →   1    2    3    4    5    6    7    8    9    10
-  GPU 0:  [<span class="st">M1</span>] [<span class="fn">M2</span>] [<span class="kw">M3</span>] <span class="cm">idle idle idle</span> [<span class="st">M1</span>] [<span class="fn">M2</span>] [<span class="kw">M3</span>]
-  GPU 1:  <span class="cm">idle</span> [<span class="st">M1</span>] [<span class="fn">M2</span>] [<span class="kw">M3</span>] <span class="cm">idle idle idle</span> [<span class="st">M1</span>] [<span class="fn">M2</span>]
-  GPU 2:  <span class="cm">idle idle</span> [<span class="st">M1</span>] [<span class="fn">M2</span>] [<span class="kw">M3</span>] <span class="cm">idle idle idle</span> [<span class="st">M1</span>]
-  GPU 3:  <span class="cm">idle idle idle</span> [<span class="st">M1</span>] [<span class="fn">M2</span>] [<span class="kw">M3</span>] <span class="cm">idle idle idle</span>
-
-  <span class="cm">Bubble = (PP - 1) / (PP + M - 1) of total time</span>
-  <span class="cm">With 4 stages, 3 microbatches: bubble = 3/6 = 50% wasted</span>
-  <span class="cm">With 4 stages, 12 microbatches: bubble = 3/15 = 20%</span>
-</code></pre>
-</div>
-
-<h3>Your 3090: Multi-GPU Options</h3>
-
-<table>
-<tr><th>Setup</th><th>Interconnect</th><th>Best For</th><th>72B Q4 tok/s</th></tr>
-<tr><td>1&times; 3090</td><td>&mdash;</td><td>7B-13B fully on GPU</td><td>~8 (split CPU)</td></tr>
-<tr><td>2&times; 3090 NVLink</td><td>112 GB/s (SLI bridge)</td><td>72B Q4 fits in 48 GB</td><td>~35-40</td></tr>
-<tr><td>2&times; 3090 PCIe</td><td>32 GB/s (PCIe 4.0)</td><td>Same model, slower comms</td><td>~20-25</td></tr>
-<tr><td>4&times; 3090 (no NVLink)</td><td>32 GB/s each</td><td>72B FP16 or large MoE Q4</td><td>~15 (PCIe limited)</td></tr>
-</table>
-
-<div class="power">
-<div class="power-label">The Rule</div>
-<p><strong>Tensor parallelism within a node</strong> (NVLink, low latency). <strong>Pipeline parallelism across nodes</strong> (network, tolerates higher latency). A typical 8-GPU, 2-node deployment: TP=4 within each node, PP=2 across nodes. For consumer GPUs: TP=2 with NVLink is the sweet spot. Beyond that, PCIe becomes a bottleneck.</p>
-</div>
-
-<h3>In Practice: Consumer vs Datacenter</h3>
-
-<p><strong>llama.cpp</strong> supports basic tensor split across GPUs (<code>--tensor-split 0.5,0.5</code>) &mdash; layers are distributed by VRAM ratio, not true tensor parallelism. Each GPU holds complete layers, communicating only at layer boundaries. This is effectively pipeline parallelism, and it works well enough over PCIe for consumer setups. <strong>vLLM</strong> has native tensor and pipeline parallelism with NVLink-aware all-reduce kernels, designed for datacenter interconnects where all-reduce latency is microseconds, not milliseconds. The split mirrors the consumer/datacenter divide: llama.cpp makes multi-GPU work on whatever you have; vLLM makes it scale on purpose-built hardware.</p>
-
-<p>We can now run models of any size across any number of GPUs. But we've hit a fundamental limit: the autoregressive bottleneck. No matter how many GPUs, each token must wait for the previous one. Can we break this sequential dependency?</p>
-
-</section>
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 14: SPECULATIVE DECODING                               -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch14">
-<h2>// 14 &mdash; Cheating Time</h2>
-
-<p class="drop-cap">Here is a beautiful paradox. The model can process 1,000 tokens in parallel during prefill but must generate them one at a time during decode. <strong>Speculative decoding</strong> (2023) exploits this asymmetry: use a small, fast draft model to guess the next K tokens, then verify all K guesses in a single forward pass of the target model.</p>
-
-<div class="diagram">
-<span class="diagram-label">Speculative decoding: draft, then verify</span>
-<pre><code>
-  <span class="ty">Draft Model</span> (1B, fast): generate 5 guesses
-  t₁ → t₂ → t₃ → t₄ → t₅
-
-  <span class="kw">Target Model</span> (72B): verify ALL 5 in ONE forward pass
-  [context, t₁, t₂, t₃, t₄, t₅] → logits for each position
-
-  Compare: t₁ <span class="st">✓</span>  t₂ <span class="st">✓</span>  t₃ <span class="st">✓</span>  t₄ <span class="kw">✗</span>  t₅ <span class="cm">(discarded)</span>
-  Resample t₄ from adjusted target distribution.
-
-  <span class="fn">Result: 4 tokens from 1 target forward pass (3× speedup)</span>
-</code></pre>
-</div>
-
-<h3>Rejection Sampling: The Math</h3>
-
-<pre><code><span class="label">Algorithm</span>
-<span class="cm"># For each draft token t with draft probability q(t) and target probability p(t):</span>
-
-acceptance_prob = min(<span class="nm">1</span>, p(t) / q(t))
-
-<span class="cm"># If accepted: keep the token. Move to next.</span>
-<span class="cm"># If rejected: resample from the ADJUSTED distribution:</span>
-<span class="cm">#   p'(x) = max(0, p(x) - q(x)) / Z</span>
-<span class="cm"># This guarantees the output distribution is EXACTLY p(x).</span>
-<span class="cm"># Zero quality loss. Pure speed.</span>
-
-<span class="cm"># Example with actual numbers:</span>
-<span class="cm"># Draft says "Paris" with prob 0.7. Target says "Paris" with prob 0.85.</span>
-<span class="cm"># Accept prob = min(1, 0.85/0.7) = 1.0 → always accepted.</span>
-
-<span class="cm"># Draft says "London" with prob 0.3. Target says "London" with prob 0.05.</span>
-<span class="cm"># Accept prob = min(1, 0.05/0.3) = 0.167 → rejected 83% of the time.</span>
-</code></pre>
-
-<p>The draft model can be: a smaller model from the same family (Qwen-3.5 0.6B for Qwen-3.5 27B, ~70% acceptance, 2-3&times; speedup), an N-gram lookup from the prompt (free but lower acceptance), or specialized architectures like <strong>EAGLE</strong> (extrapolation from hidden states) and <strong>Medusa</strong> (parallel prediction heads).</p>
-
-<div class="power zen">
-<div class="power-label">When It Helps Most</div>
-<p>Speculative decoding shines at <strong>batch=1</strong> on your 3090 &mdash; the GPU is bandwidth-starved anyway, so verifying K tokens costs barely more than generating 1. At large batch sizes, the target model is already compute-efficient, so the benefit shrinks. Best on predictable tasks: code, translation, structured output.</p>
-</div>
-
-</section>
-
-<div class="act-break">
-    <div class="act-number">Putting It All Together</div>
-    <div class="act-title">From Theory to Production</div>
-    <div class="act-subtitle">Every optimization, composed into real systems.</div>
-</div>
-
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 15: THE SERVING STACK                                  -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch15">
-<h2>// 15 &mdash; The Serving Stack</h2>
-
-<p class="drop-cap">The model produces a token. The sampler picks it. The detokenizer converts it to text. Now that text fragment needs to cross the internet and appear in a user's browser. This is the <strong>serving stack</strong>.</p>
-
-<h3>Server-Sent Events</h3>
-
-<pre><code><span class="label">HTTP</span>
-HTTP/1.1 200 OK
-Content-Type: text/event-stream
-
-data: {<span class="st">"choices"</span>:[{<span class="st">"delta"</span>:{<span class="st">"content"</span>:<span class="st">"The"</span>}}]}
-
-data: {<span class="st">"choices"</span>:[{<span class="st">"delta"</span>:{<span class="st">"content"</span>:<span class="st">" capital"</span>}}]}
-
-data: [DONE]
-</code></pre>
-
-<h3>Prefix-Aware Routing</h3>
-
-<p>For production deployments with multiple instances: hash the system prompt, route to the same instance. That instance has the prefix's KV cache computed. TTFT drops from 500ms to 50ms.</p>
-
-<h3>2025/2026: The Frontier</h3>
-
-<p><strong>Prefix caching as default</strong>: vLLM V1 enables it by default. System prompts are never recomputed.</p>
-
-<p><strong>Disaggregated serving</strong>: Separate GPU pools for prefill (compute-optimized) and decode (bandwidth-optimized). Prefill servers have H100s running at 60%+ compute utilization. Decode servers have more bandwidth per FLOP.</p>
-
-<p><strong>MoE routing</strong>: Mixture-of-Experts models (like Mixtral, DeepSeek-V3) only activate a subset of parameters per token. A 400B MoE model might only use 50B parameters per token &mdash; the memory wall becomes less severe, but expert routing adds scheduling complexity.</p>
-
-<h3>The Engine Landscape (2025/2026)</h3>
-
-<p>Each optimization chapter showed how llama.cpp and vLLM implement techniques differently. Here's the full landscape:</p>
-
-<table>
-<tr><th>Engine</th><th>Strength</th><th>Use Case</th></tr>
-<tr><td><strong>llama.cpp</strong></td><td>Runs anywhere, aggressive quant, minimal deps</td><td>Local / edge / consumer</td></tr>
-<tr><td><strong>vLLM</strong></td><td>PagedAttention, continuous batch, TP/PP</td><td>Production serving</td></tr>
-<tr><td>SGLang</td><td>Structured generation, RadixAttention</td><td>Constrained output (JSON, code)</td></tr>
-<tr><td>TensorRT-LLM</td><td>NVIDIA-optimized, FP8 native</td><td>Max perf on NVIDIA GPUs</td></tr>
-<tr><td>ExLlamaV2</td><td>Extreme quantization quality (EXL2)</td><td>Best quality at low bits</td></tr>
-<tr><td>MLX</td><td>Apple Silicon native</td><td>Mac-native inference</td></tr>
-</table>
-
-<div class="power purple">
-<div class="power-label">Choose Your Engine</div>
-<p>Running on your 3090? <strong>llama.cpp</strong> (or Ollama, which wraps it). Serving to users? <strong>vLLM</strong>. Need structured output? <strong>SGLang</strong>. NVIDIA datacenter with budget? <strong>TensorRT-LLM</strong>. Mac? <strong>MLX</strong> or llama.cpp with Metal.</p>
-</div>
-
-<div class="power">
-<div class="power-label">The Economics</div>
-<p>4&times; H100 serving Qwen-3.5 27B: ~$0.003 per 1K tokens (compute cost). Running locally on your <strong>RTX 3090</strong> ($700 used) at 8 hrs/day with Qwen-3.5 27B: break-even vs API pricing in <strong>4-6 weeks</strong>. After that, inference is essentially free.</p>
-</div>
-
-</section>
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 16: THE PLAYBOOK                                       -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch16">
-<h2>// 16 &mdash; The Playbook</h2>
-
-<p class="drop-cap">Every optimization we've discussed, ranked by impact. Do the top ones first &mdash; they give 90% of the benefit with 10% of the effort.</p>
-
-<h3>Tier 1: Massive Impact</h3>
-
-<table>
-<tr><th>What</th><th>Impact</th><th>How</th></tr>
-<tr><td>Quantize weights (4-bit)</td><td>3-4&times; throughput</td><td>Q4_K_M (llama.cpp) or AWQ (vLLM)</td></tr>
-<tr><td>FlashAttention</td><td>2-3&times; for long contexts</td><td><code>-fa</code> flag / default in vLLM</td></tr>
-<tr><td>Continuous batching</td><td>2-23&times; throughput</td><td>Use vLLM, SGLang, or TGI</td></tr>
-<tr><td>Right-size the GPU</td><td>Avoid CPU offload penalty</td><td>Model must fit VRAM fully</td></tr>
-</table>
-
-<h3>Tier 2: Important</h3>
-
-<table>
-<tr><th>What</th><th>Impact</th><th>How</th></tr>
-<tr><td>Tensor parallelism</td><td>~N&times; with N GPUs</td><td><code>--tensor-parallel-size N</code></td></tr>
-<tr><td>Prefix caching</td><td>5-10&times; TTFT</td><td><code>--enable-prefix-caching</code> (default in V1)</td></tr>
-<tr><td>KV cache quantization</td><td>2&times; concurrent reqs</td><td><code>--kv-cache-dtype fp8</code></td></tr>
-<tr><td>Speculative decoding</td><td>1.5-3&times; latency</td><td>Configure draft model</td></tr>
-</table>
-
-<h3>Benchmarking: Common Traps</h3>
-
-<table>
-<tr><th>Metric</th><th>What It Measures</th><th>Who Cares</th></tr>
-<tr><td><strong>TTFT</strong></td><td>Time To First Token</td><td>User experience (chat)</td></tr>
-<tr><td><strong>ITL</strong></td><td>Inter-Token Latency</td><td>Perceived typing speed</td></tr>
-<tr><td><strong>TPS (per user)</strong></td><td>Decode tokens/sec for one request</td><td>Single-user speed</td></tr>
-<tr><td><strong>TPS (total)</strong></td><td>Total tokens/sec across all requests</td><td>Cost efficiency</td></tr>
-<tr><td><strong>P99 latency</strong></td><td>Worst-case tail latency</td><td>SLA compliance</td></tr>
-</table>
-
-<div class="power danger">
-<div class="power-label">Common Traps</div>
-<p><strong>Trap 1:</strong> Reporting prefill speed as "tokens/s." <strong>Trap 2:</strong> Benchmarking batch=1 for vLLM (its worst case). <strong>Trap 3:</strong> Short contexts only. <strong>Trap 4:</strong> Not warming up. <strong>Trap 5:</strong> Not reporting hardware.</p>
-</div>
-
-<h3>Your 3090: Specific Numbers</h3>
-
-<table>
-<tr><th>Scenario</th><th>Model</th><th>Config</th><th>Expected</th></tr>
-<tr><td>Sweet spot (fits fully)</td><td>Qwen-3.5 27B Q4_K_M</td><td><code>-ngl 99 -fa</code></td><td>~45 tok/s</td></tr>
-<tr><td>Fast + lightweight</td><td>Qwen-2.5 7B Q5_K_M</td><td><code>-ngl 99 -fa</code></td><td>~120 tok/s</td></tr>
-<tr><td>Maximum quality</td><td>Qwen-2.5 72B Q4_K_M</td><td><code>-ngl 40</code> (split)</td><td>~8 tok/s</td></tr>
-<tr><td>Long context</td><td>Qwen-3.5 27B Q4_K_M</td><td><code>-c 32768 -fa</code></td><td>~35 tok/s</td></tr>
-</table>
-
-<h3>Decision Tree</h3>
-
-<pre><code><span class="label">Choosing your path</span>
-<span class="cm">Serving many users?</span>
-├── <span class="st">YES</span> → vLLM + continuous batching
-│   ├── Fits one GPU? → Quantize (AWQ/FP8), prefix caching
-│   └── Doesn't fit? → Tensor parallel, then quantize
-│
-└── <span class="kw">NO</span> (single user, local) → llama.cpp
-    ├── Have GPU? → Full offload (-ngl 99), Q4_K_M, -fa
-    │   ├── Model fits? → Done. You're golden.
-    │   └── Too big? → Try Q3_K, or split GPU/CPU
-    └── No GPU? → CPU mode, Q4_K_M, tune thread count
-</code></pre>
-
-<div class="power">
-<div class="power-label">The Golden Rule</div>
-<p>Before optimizing, <strong>profile</strong>. If GPU utilization is 30%, you need more batching, not faster kernels. If it's 95%, you need faster kernels or more GPUs. Most people optimize the wrong thing because they didn't measure.</p>
-</div>
-
-</section>
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 17: BUILD ONE                                          -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch17">
-<h2>// 17 &mdash; Build One</h2>
-
-<p class="drop-cap">In Chapter 2 we wrote the forward pass for GPT-2 in NumPy. That was the toy. Now let's make it real: load actual GPT-2 124M weights, add a KV cache, and generate text. Then we'll show what llama.cpp does differently for each line &mdash; mapping the toy to production.</p>
-
-<h3>Load Real GPT-2 Weights</h3>
-
-<pre><code><span class="label">Python</span>
-<span class="kw">import</span> numpy <span class="kw">as</span> np, json, struct, os
-
-<span class="kw">def</span> <span class="fn">load_gpt2_weights</span>(model_dir):
-    <span class="st">"""Load GPT-2 124M from safetensors format."""</span>
-    <span class="kw">with</span> open(os.path.join(model_dir, <span class="st">"model.safetensors"</span>), <span class="st">"rb"</span>) <span class="kw">as</span> f:
-        header_len = struct.unpack(<span class="st">"&lt;Q"</span>, f.read(<span class="nm">8</span>))[<span class="nm">0</span>]
-        header = json.loads(f.read(header_len))
-        data_start = <span class="nm">8</span> + header_len
-        tensors = {}
-        <span class="kw">for</span> name, info <span class="kw">in</span> header.items():
-            <span class="kw">if</span> name == <span class="st">"__metadata__"</span>: <span class="kw">continue</span>
-            dtype_map = {<span class="st">"F16"</span>: np.float16, <span class="st">"F32"</span>: np.float32}
-            dtype = dtype_map[info[<span class="st">"dtype"</span>]]
-            start, end = info[<span class="st">"data_offsets"</span>]
-            f.seek(data_start + start)
-            tensors[name] = np.frombuffer(
-                f.read(end - start), dtype=dtype
-            ).reshape(info[<span class="st">"shape"</span>]).astype(np.float32)
-    <span class="kw">return</span> tensors
-
-<span class="cm"># model = load_gpt2_weights("gpt2")</span>
-<span class="cm"># model['wte.weight'].shape → (50257, 768)  # embedding table</span>
-<span class="cm"># model['h.0.attn.c_attn.weight'].shape → (768, 2304)  # QKV for layer 0</span>
-</code></pre>
-
-<h3>Add a KV Cache</h3>
-
-<pre><code><span class="label">Python</span>
-<span class="kw">def</span> <span class="fn">attention_with_cache</span>(x, w_qkv, w_proj, b_qkv, b_proj, n_heads, cache, layer, pos):
-    B, D = x.shape
-    qkv = x @ w_qkv + b_qkv
-    q, k, v = np.split(qkv, <span class="nm">3</span>, axis=-<span class="nm">1</span>)
-
-    <span class="cm"># Store K, V in cache (never recompute)</span>
-    cache[<span class="st">'k'</span>][layer][pos:pos+B] = k  <span class="cm"># [1, 768] into slot</span>
-    cache[<span class="st">'v'</span>][layer][pos:pos+B] = v
-
-    <span class="cm"># Attend to ALL cached K, V (including current)</span>
-    keys = cache[<span class="st">'k'</span>][layer][:pos+B]   <span class="cm"># [pos+1, 768]</span>
-    vals = cache[<span class="st">'v'</span>][layer][:pos+B]
-
-    head_dim = D // n_heads
-    q = q.reshape(B, n_heads, head_dim).transpose(<span class="nm">1</span>,<span class="nm">0</span>,<span class="nm">2</span>)
-    k = keys.reshape(-<span class="nm">1</span>, n_heads, head_dim).transpose(<span class="nm">1</span>,<span class="nm">0</span>,<span class="nm">2</span>)
-    v = vals.reshape(-<span class="nm">1</span>, n_heads, head_dim).transpose(<span class="nm">1</span>,<span class="nm">0</span>,<span class="nm">2</span>)
-
-    scores = (q @ k.transpose(<span class="nm">0</span>,<span class="nm">2</span>,<span class="nm">1</span>)) / np.sqrt(head_dim)
-    mask = np.triu(np.full((B, pos+B), -<span class="nm">1e9</span>), k=pos+<span class="nm">1</span>)
-    scores += mask[..., :scores.shape[-<span class="nm">1</span>]]
-    attn = softmax(scores)
-    out = (attn @ v).transpose(<span class="nm">1</span>,<span class="nm">0</span>,<span class="nm">2</span>).reshape(B, D)
-    <span class="kw">return</span> out @ w_proj + b_proj
-
-<span class="cm"># With KV cache: generate() runs ONE token through the network per step.</span>
-<span class="cm"># Without: runs ALL tokens. At step 500: 1 forward pass vs 500.</span>
-</code></pre>
-
-<h3>The Complete Generate Loop (with KV Cache)</h3>
-
-<pre><code><span class="label">Python</span>
-<span class="kw">def</span> <span class="fn">generate_with_cache</span>(prompt_tokens, model, max_tokens=<span class="nm">100</span>, temp=<span class="nm">0.8</span>):
-    n_layers = len(model[<span class="st">'blocks'</span>])
-    max_seq = <span class="nm">1024</span>  <span class="cm"># GPT-2 max context</span>
-    d = <span class="nm">768</span>
-
-    <span class="cm"># Pre-allocate KV cache: [n_layers, max_seq, d]</span>
-    cache = {
-        <span class="st">'k'</span>: np.zeros((n_layers, max_seq, d), dtype=np.float32),
-        <span class="st">'v'</span>: np.zeros((n_layers, max_seq, d), dtype=np.float32),
-    }
-    <span class="cm"># Memory: 2 × 12 × 1024 × 768 × 4 bytes = 72 MB. Trivial for GPT-2.</span>
-    <span class="cm"># For Qwen-3.5 27B at 128K context: 32 GB. Not trivial at all.</span>
-
-    tokens = list(prompt_tokens)
-    <span class="cm"># Phase 1: PREFILL — process all prompt tokens</span>
-    <span class="cm"># (Could batch, but for simplicity we process one at a time)</span>
-    <span class="kw">for</span> pos, tok <span class="kw">in</span> enumerate(tokens):
-        logits = forward_with_cache(model, tok, pos, cache)
-    print(<span class="st">"[prefill done, TTFT: {:.1f}ms]"</span>.format(time_elapsed * <span class="nm">1000</span>))
-
-    <span class="cm"># Phase 2: DECODE — generate one token at a time</span>
-    <span class="kw">for</span> i <span class="kw">in</span> range(max_tokens):
-        <span class="cm"># Apply sampling pipeline</span>
-        probs = softmax(logits[-<span class="nm">1</span>] / temp)
-        next_tok = np.random.choice(len(probs), p=probs)
-        <span class="kw">if</span> next_tok == eos_token: <span class="kw">break</span>
-
-        tokens.append(next_tok)
-        print(detokenize(next_tok), end=<span class="st">""</span>, flush=<span class="kw">True</span>)  <span class="cm"># SSE-like streaming</span>
-
-        <span class="cm"># Only ONE token through the network (the new one)</span>
-        logits = forward_with_cache(model, next_tok, len(tokens)-<span class="nm">1</span>, cache)
-
-    <span class="kw">return</span> tokens
-
-<span class="cm"># GPT-2 124M: ~250M FLOPs per token, ~500 MB model</span>
-<span class="cm"># NumPy on CPU: ~5 tok/s (Python overhead dominates)</span>
-<span class="cm"># llama.cpp on same model: ~200 tok/s (SIMD, no Python)</span>
-<span class="cm"># The code is the same. The engineering is everything.</span>
-</code></pre>
-
-<h3>Toy vs Production: Line by Line</h3>
-
-<table>
-<tr><th>Our Toy Engine</th><th>llama.cpp</th><th>Why It's Different</th></tr>
-<tr><td><code>np.frombuffer()</code></td><td><code>mmap()</code></td><td>No copy. Pages fault in on demand.</td></tr>
-<tr><td>FP32 weights</td><td>Q4_K_M (4.5 bits)</td><td>4&times; smaller, SIMD dot product.</td></tr>
-<tr><td><code>x @ w_qkv</code></td><td><code>ggml_mul_mat (fused)</code></td><td>Quantize activation, fused int dot.</td></tr>
-<tr><td>LayerNorm</td><td>RMSNorm</td><td>Simpler, no mean subtraction.</td></tr>
-<tr><td>Learned positions</td><td>RoPE</td><td>No lookup table, extends to any length.</td></tr>
-<tr><td>GELU</td><td>SiLU/SwiGLU</td><td>Gated FFN with 3 matrices.</td></tr>
-<tr><td><code>softmax(Q@K.T)</code></td><td>FlashAttention</td><td>Tiled in SRAM, never materializes N&times;N.</td></tr>
-<tr><td>Contiguous cache</td><td>Ring buffer</td><td>Fixed memory, wraps around.</td></tr>
-<tr><td>Sequential loop</td><td>CUDA Graphs</td><td>Batch kernel launches, 1.2&times; faster.</td></tr>
-</table>
-
-<h3>The Complete Stack</h3>
-
-<div class="diagram">
-<span class="diagram-label">The complete inference stack &mdash; bottom to top</span>
-<pre><code>
-  ┌──────────────────────────────────────────────────────────────┐
-  │  <span class="ty">User sees streaming text in browser</span>                        │
-  ├──────────────────────────────────────────────────────────────┤
-  │  SSE streaming + prefix-aware routing                        │
-  ├──────────────────────────────────────────────────────────────┤
-  │  Sampling pipeline (temperature, min-p, penalties)           │
-  ├──────────────────────────────────────────────────────────────┤
-  │  Speculative decoding (draft → verify)                       │
-  ├──────────────────────────────────────────────────────────────┤
-  │  Continuous batching + scheduler                             │
-  ├──────────────────────────────────────────────────────────────┤
-  │  PagedAttention (virtual KV cache blocks)                    │
-  ├──────────────────────────────────────────────────────────────┤
-  │  FlashAttention (tiled SRAM kernels)                         │
-  ├──────────────────────────────────────────────────────────────┤
-  │  Tensor / Pipeline Parallelism                               │
-  ├──────────────────────────────────────────────────────────────┤
-  │  KV Cache (per-layer, GQA, FP8 quantized)                   │
-  ├──────────────────────────────────────────────────────────────┤
-  │  Forward pass: RMSNorm → Attention → FFN (&times; N blocks)       │
-  ├──────────────────────────────────────────────────────────────┤
-  │  Quantized MatMul (fused dequant + GEMM)                    │
-  ├──────────────────────────────────────────────────────────────┤
-  │  Model weights (GGUF/safetensors, mmap loaded)               │
-  ├──────────────────────────────────────────────────────────────┤
-  │  <span class="st">Hardware: GPU HBM → L2 → L1/SRAM → Registers</span>              │
-  └──────────────────────────────────────────────────────────────┘
-
-  <span class="cm">Every layer solves one problem.</span>
-  <span class="cm">Every layer was motivated by a crisis in the layer below.</span>
-  <span class="cm">Together: a file of numbers becomes streaming thought.</span>
-</code></pre>
-</div>
-
-</section>
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 18: THE TIMELINE                                       -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch18">
-<h2>// 18 &mdash; The Timeline</h2>
-
-<p class="drop-cap">The history of inference optimization is surprisingly compressed. The field barely existed before 2022. In three years it went from "nobody cares how fast inference is" to "inference efficiency determines who can compete in AI." Here's the timeline.</p>
-
-<div class="viz-container">
-<svg id="viz-ch18" viewBox="0 0 780 520"></svg>
-</div>
-
-<script>
-(function() {
-    const svg = d3.select('#viz-ch18');
-    const events = [
-        {year:2017, month:6, label:'Attention Is All You Need', desc:'Transformer architecture published', color:'#6a6a7e', cat:'arch'},
-        {year:2019, month:2, label:'GPT-2 Released', desc:'124M params. "Too dangerous to release." Inference was trivial.', color:'#ffdd00', cat:'model'},
-        {year:2020, month:6, label:'GPT-3 (175B)', desc:'First model where inference cost matters', color:'#ffdd00', cat:'model'},
-        {year:2022, month:5, label:'FlashAttention', desc:'Tri Dao. IO-aware tiling. 2-3× on long context.', color:'#00ff88', cat:'opt'},
-        {year:2022, month:6, label:'ORCA (Continuous Batching)', desc:'OSDI 2022. 23× throughput.', color:'#00ddff', cat:'serving'},
-        {year:2022, month:8, label:'LLM.int8()', desc:'Dettmers. First practical LLM quantization.', color:'#ff00aa', cat:'quant'},
-        {year:2022, month:10, label:'GPTQ', desc:'Frantar. 3-4 bit with error redistribution.', color:'#ff00aa', cat:'quant'},
-        {year:2023, month:3, label:'llama.cpp', desc:'Gerganov. Billion-param models on a MacBook. Democratizes local AI.', color:'#00ff88', cat:'opt'},
-        {year:2023, month:6, label:'vLLM / PagedAttention', desc:'UC Berkeley. OS virtual memory for KV cache.', color:'#00ddff', cat:'serving'},
-        {year:2023, month:6, label:'AWQ', desc:'Ji Lin. Activation-aware quantization.', color:'#ff00aa', cat:'quant'},
-        {year:2023, month:7, label:'FlashAttention-2', desc:'2× over FA1. Better parallelism.', color:'#00ff88', cat:'opt'},
-        {year:2023, month:11, label:'Speculative Decoding Matures', desc:'Leviathan et al. Draft-verify paradigm.', color:'#ff8800', cat:'opt'},
-        {year:2024, month:3, label:'FlashAttention-3 (Hopper)', desc:'FP8, warp specialization. 740 TFLOPS.', color:'#00ff88', cat:'opt'},
-        {year:2024, month:6, label:'vLLM V1', desc:'Multi-process, unified scheduler, torch.compile fusions.', color:'#00ddff', cat:'serving'},
-        {year:2024, month:9, label:'FP8 Goes Mainstream', desc:'Hopper native, near-zero quality loss at 2× speed.', color:'#ff00aa', cat:'quant'},
-        {year:2025, month:3, label:'Blackwell B200', desc:'192 GB, 8 TB/s bandwidth. Inference-first GPU.', color:'#aa44ff', cat:'hw'},
-        {year:2025, month:6, label:'Disaggregated Serving', desc:'Separate prefill/decode pools. MoE routing.', color:'#00ddff', cat:'serving'},
-    ];
-
-    const margin = {top: 30, right: 20, bottom: 20, left: 20};
-    const w = 780 - margin.left - margin.right;
-    const h = 520 - margin.top - margin.bottom;
-    const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
-
-    const timeScale = d3.scaleLinear()
-        .domain([2017, 2026])
-        .range([0, w]);
-
-    // Year markers
-    for (let yr = 2017; yr <= 2025; yr++) {
-        const x = timeScale(yr);
-        g.append('line').attr('x1', x).attr('y1', 0).attr('x2', x).attr('y2', h)
-            .attr('stroke','#1e1e2e');
-        g.append('text').attr('x', x).attr('y', h + 15).text(yr)
-            .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',10).attr('text-anchor','middle');
-    }
-
-    // Central axis
-    g.append('line').attr('x1', 0).attr('y1', h/2).attr('x2', w).attr('y2', h/2)
-        .attr('stroke','#2a2a4a').attr('stroke-width',2);
-
-    // Events
-    events.forEach((ev, i) => {
-        const x = timeScale(ev.year + (ev.month - 1) / 12);
-        const side = i % 2 === 0 ? -1 : 1;
-        const yOff = side * (30 + (i % 5) * 38);
-        const y = h/2 + yOff;
-
-        // Stem
-        g.append('line').attr('x1', x).attr('y1', h/2).attr('x2', x).attr('y2', y)
-            .attr('stroke', ev.color + '66');
-        // Dot
-        g.append('circle').attr('cx', x).attr('cy', y).attr('r', 4).attr('fill', ev.color);
-        // Label
-        g.append('text').attr('x', x + 8).attr('y', y - 4).text(ev.label)
-            .attr('fill', ev.color).attr('font-family','JetBrains Mono, monospace').attr('font-size',9).attr('font-weight','bold');
-        g.append('text').attr('x', x + 8).attr('y', y + 10).text(ev.desc)
-            .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',8);
-    });
-
-    // Legend
-    const cats = [{label:'Architecture',color:'#6a6a7e'},{label:'Model',color:'#ffdd00'},{label:'Optimization',color:'#00ff88'},{label:'Serving',color:'#00ddff'},{label:'Quantization',color:'#ff00aa'},{label:'Hardware',color:'#aa44ff'}];
-    const leg = svg.append('g').attr('transform', `translate(${margin.left}, 15)`);
-    cats.forEach((c, i) => {
-        const lx = i * 125;
-        leg.append('circle').attr('cx', lx).attr('cy', 0).attr('r', 4).attr('fill', c.color);
-        leg.append('text').attr('x', lx + 8).attr('y', 4).text(c.label)
-            .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',9);
-    });
-})();
-</script>
-
-<p>The compression is remarkable: from "inference is trivial" (2019) to "a $30B industry built on inference optimization" (2025) in six years. The key inflection point was 2022: FlashAttention, ORCA, and LLM.int8() all in the same year. Before 2022, running a large model meant a cluster. After 2022, it meant a laptop.</p>
-
+<h2>// 12 &mdash; The Engines</h2>
+<div class="era-badge"><span class="era-num">Era 8</span> &mdash; Treat serving as scheduling</div>
+<p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p>
 </section>
 
 
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- APPENDIX: REAL-WORLD DEPLOYMENT RECIPES                        -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="case-studies">
-<h2>// Appendix &mdash; Real-World Deployment Recipes</h2>
-
-<p>Concrete configurations for common deployment scenarios. Copy, adapt, deploy.</p>
-
-<h3>Recipe 1: Your RTX 3090 (Local Chat)</h3>
-
-<pre><code><span class="label">Shell</span>
-<span class="cm"># Hardware: RTX 3090 (24 GB VRAM, 936 GB/s), 64 GB RAM</span>
-
-<span class="cm"># Option A: Best quality that fits fully (the sweet spot)</span>
-$ ./llama-server \
-    -m qwen3.5-27b-Q4_K_M.gguf \
-    -ngl <span class="nm">99</span> \            <span class="cm"># all layers on GPU (~15 GB)</span>
-    -c <span class="nm">16384</span> \           <span class="cm"># 16K context (fits in remaining VRAM)</span>
-    -fa \                <span class="cm"># FlashAttention</span>
-    --host <span class="nm">0.0.0.0</span> --port <span class="nm">8080</span>
-<span class="cm"># Result: ~45 tok/s. 27B fully on GPU. The 3090 sweet spot.</span>
-
-<span class="cm"># Option B: Bigger model, partial offload</span>
-$ ./llama-server \
-    -m qwen2.5-72b-Q4_K_M.gguf \
-    -ngl <span class="nm">40</span> \            <span class="cm"># 40 of 80 layers on GPU (~20 GB)</span>
-    -c <span class="nm">4096</span> \            <span class="cm"># shorter context to save VRAM</span>
-    -fa --host <span class="nm">0.0.0.0</span> --port <span class="nm">8080</span>
-<span class="cm"># Result: ~8 tok/s. Slow, but it's 72B on a consumer GPU.</span>
-</code></pre>
-
-<h3>Recipe 2: Production API (Multi-User)</h3>
-
-<pre><code><span class="label">Shell</span>
-<span class="cm"># Hardware: 4× H100 80GB with NVLink</span>
-$ vllm serve Qwen/Qwen3.5-27B-Instruct \
-    --tensor-parallel-size <span class="nm">4</span> \
-    --max-model-len <span class="nm">8192</span> \
-    --gpu-memory-utilization <span class="nm">0.92</span> \
-    --enable-prefix-caching \
-    --enable-chunked-prefill \
-    --kv-cache-dtype fp8 \
-    --port <span class="nm">8000</span>
-
-<span class="cm"># Expected: TTFT ~150ms, ITL ~25ms, ~2000 tok/s total throughput</span>
-</code></pre>
-
-<h3>Recipe 3: M4 Ultra (Mac Local)</h3>
-
-<pre><code><span class="label">Shell</span>
-<span class="cm"># Hardware: M4 Ultra, 192 GB unified memory</span>
-$ ./llama-server \
-    -m qwen3.5-27b-Q5_K_M.gguf \   <span class="cm"># ~19 GB — fits easily in unified memory</span>
-    -ngl <span class="nm">99</span> -c <span class="nm">16384</span> -fa \
-    --host <span class="nm">0.0.0.0</span> --port <span class="nm">8080</span>
-<span class="cm"># Result: ~40 tok/s. The whole 27B model, no split, on a Mac.</span>
-</code></pre>
-
-<div class="power">
-<div class="power-label">The Economics</div>
-<p>H100 rental: ~$2-3/hr per GPU. At 4&times; H100 serving Qwen-3.5 27B with 3000 tok/s: <strong>$0.003 per 1K tokens</strong>. Your RTX 3090 ($700 used) running Qwen-3.5 27B at 8 hrs/day: break-even vs API pricing in <strong>4-6 weeks</strong>. After that, inference is free.</p>
-</div>
-
-</section>
-
-
-
-
-
-<!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- FOOTER                                                         -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<div style="text-align:center; padding:3rem 0 1rem; border-top:1px solid var(--border);">
-    <a href="inference-engine-deep-dive.html" style="font-family:'JetBrains Mono',monospace; font-size:1rem; color:var(--green); text-decoration:none; text-shadow:0 0 10px rgba(0,255,136,0.2);">
-        &larr; Back to Part I: The Machine
-    </a>
+<div style="text-align:center; padding:3rem 0 1.5rem; border-top:1px solid var(--border);">
+    <div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-dim); margin-bottom:1rem;">End of Part II</div>
+    <div style="font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim); line-height:1.8; margin-bottom:1.5rem;">
+        <span style="color:var(--green)">Ch 5</span> Why It&rsquo;s Slow &middot;
+        <span style="color:var(--text-dim)">Ch 6</span> KV Cache &middot;
+        <span style="color:var(--text-dim)">Ch 7</span> Quantization &middot;
+        <span style="color:var(--text-dim)">Ch 8</span> FlashAttention &middot;
+        <span style="color:var(--text-dim)">Ch 9</span> Batching &middot;
+        <span style="color:var(--text-dim)">Ch 10</span> Prefill/Decode &middot;
+        <span style="color:var(--text-dim)">Ch 11</span> Speculation &middot;
+        <span style="color:var(--text-dim)">Ch 12</span> The Engines
+    </div>
+    <div style="display:flex; justify-content:center; gap:2rem; flex-wrap:wrap;">
+        <a href="inference-engine-deep-dive.html" style="font-family:'JetBrains Mono',monospace; font-size:1rem; color:var(--green); text-decoration:none; text-shadow:0 0 10px rgba(0,255,136,0.2);">
+            &larr; Part I: The Machine
+        </a>
+        <a href="inference-engine-deep-dive-3.html" style="font-family:'JetBrains Mono',monospace; font-size:1rem; color:var(--green); text-decoration:none; text-shadow:0 0 10px rgba(0,255,136,0.2);">
+            Part III: Serving at Scale &rarr;
+        </a>
+    </div>
 </div>
-
-<section style="padding-top: 1.5rem; text-align: center;">
-    <p style="color: var(--text-dim); font-family: 'JetBrains Mono', monospace; font-size: 0.85rem;">
-        <span class="ticker">INFERENCE_ENGINE_DEEP_DIVE</span><br>
-        Part II &middot; 13 chapters + appendix &middot; 8 interactive visualizations<br>
-        llama.cpp &bull; vLLM &bull; DeepSeek-V3 &bull; PagedAttention &bull; FlashAttention<br><br>
-        <span style="color: var(--text-dim);">Every token you've ever received from an LLM<br>
-        traveled through a stack like the one described here.<br>
-        Now you know what happens at every layer.</span>
-    </p>
-</section>
 
 </div>
 </body>
