@@ -592,8 +592,120 @@
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- Chapters will be inserted here                                  -->
+<!-- CHAPTER 1: THE ESCAPE FROM JAVASCRIPT                           -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch1">
+<h2>01 &mdash; the escape from javascript</h2>
+
+<p class="drop-cap">JavaScript was never designed to run a physics engine. It was built in ten days in 1995 to make buttons change color, and for two decades every attempt to make it fast has been an increasingly heroic act of engineering against its own nature. JIT compilers guess what types your variables are, speculate on which branches you&rsquo;ll take, and when they guess wrong they throw away the compiled code and start over. By 2010, browsers could run JavaScript 100x faster than they could in 2005. That still wasn&rsquo;t fast enough to render Photoshop.</p>
+
+<p>The escape started with a compiler that shouldn&rsquo;t have worked. In 2010, Alon Zakai at Mozilla built Emscripten &mdash; a tool that took LLVM bitcode from C and C++ programs and compiled it into JavaScript. Not a special JavaScript. Regular JavaScript. The kind your browser already knew how to run. It was slow and the output was enormous, but it proved an idea that mattered: you could use the web as a compilation target.</p>
+
+<h3>The asm.js Hack</h3>
+
+<p>By 2013, Zakai and Luke Wagner at Mozilla had refined the idea into something that actually performed. They called it <strong>asm.js</strong> &mdash; a strict subset of JavaScript where every variable was explicitly typed using a hack so elegant it was almost offensive. You told the engine a variable was a 32-bit integer by bitwise-ORing it with zero:</p>
+
+<pre><span class="label">asm.js</span><code><span class="kw">function</span> <span class="fn">add</span>(a, b) {
+  a = a<span class="nm">|0</span>;            <span class="cm">// ← type annotation: a is i32</span>
+  b = b<span class="nm">|0</span>;            <span class="cm">// ← type annotation: b is i32</span>
+  <span class="kw">return</span> (a + b)<span class="nm">|0</span>;  <span class="cm">// ← return type: i32</span>
+}</code></pre>
+
+<p>The <code>|0</code> is a no-op at runtime &mdash; bitwise OR with zero doesn&rsquo;t change the value. But it signals to the engine: <em>this is an integer, don&rsquo;t guess, don&rsquo;t speculate, compile it straight to machine code.</em> Firefox&rsquo;s SpiderMonkey engine recognized the <code>"use asm"</code> pragma at the top of these modules and switched from its JIT pipeline to ahead-of-time compilation. No warmup. No deoptimization. No re-JIT.</p>
+
+<p>It worked. In August 2013, Epic demonstrated Unreal Engine 4 running at 60 fps in a Firefox tab &mdash; compiled from C++ through Emscripten into asm.js. Mozilla&rsquo;s benchmarks showed asm.js running within 1.5x of native C. On some tests, it beat Clang.</p>
+
+<h3>The Dead End Next Door</h3>
+
+<p>Google had been chasing the same problem from a different direction. Their answer was <strong>Native Client (NaCl)</strong>, launched in 2011 &mdash; a sandbox for running native x86 code inside Chrome. It was fast, genuinely fast, but it only worked in Chrome and only on x86. Portable NaCl (PNaCl) tried to fix the architecture lock-in by using LLVM bitcode as the distribution format, but no other browser vendor adopted it. By 2019, Google deprecated the entire project. NaCl proved that the performance was possible. It also proved that a single-vendor solution was a dead end.</p>
+
+<h3>The Convergence</h3>
+
+<p>asm.js had the right idea &mdash; a compilation target that works everywhere &mdash; but it was fighting against the very thing that made it portable. It was still JavaScript. Still UTF-8 text that had to be parsed character by character. A Unity game compiled to asm.js shipped 19 MB of JavaScript source code that took 20&ndash;40 seconds to parse on a mobile device. The performance was there once the code ran, but getting to first instruction was brutal.</p>
+
+<div class="diagram">
+<span class="diagram-label">The road to WebAssembly</span>
+<pre><code>  <span class="nm">2010</span>         <span class="nm">2011</span>         <span class="nm">2013</span>         <span class="nm">2013</span>          <span class="nm">2015</span>           <span class="nm">2017</span>
+    │            │            │            │             │              │
+    ○            ○            ○            ○             ○              ◉
+    │            │            │            │             │              │
+ Emscripten    NaCl       asm.js       Unreal 4     W3C Wasm       MVP ships
+ <span class="ty">Zakai</span>      <span class="ty">Chrome-only</span>  <span class="ty">Mozilla</span>    <span class="ty">60fps in</span>    <span class="ty">Community</span>    <span class="st">all 4 browsers</span>
+ LLVM → JS   native x86  <span class="st">"use asm"</span>   <span class="st">a browser</span>    <span class="ty">Group</span>       <span class="st">same week</span>
+                          <span class="st">1.5× native</span>   <span class="st">tab</span>    <span class="ty">Moz+Goog+MS</span>
+                                                    <span class="ty">+Apple</span>
+    │            │            │            │             │              │
+    └────────────┴───── <span class="cm">Mozilla's path</span> ─────┴─────────────┴──────────────┘
+                 │                                       │
+                 └───── <span class="cm">Google's NaCl: deprecated 2019</span> ──┘</code></pre>
+</div>
+
+<p>In June 2015, something unprecedented happened. Mozilla, Google, Microsoft, and Apple &mdash; companies that agree on almost nothing &mdash; formed the WebAssembly Community Group at the W3C and began designing a binary instruction format together. Not JavaScript. Not native code. Something new: a portable, size-efficient bytecode with a formal semantics that any browser could compile to native machine code in a single pass.</p>
+
+<p>Twenty months later, in March 2017, WebAssembly shipped. Firefox 52 on March 7. Chrome 57 on March 10. Safari and Edge followed within months. By November 2017, all four major browsers supported it. It was the fastest cross-vendor consensus on a new web capability in the platform&rsquo;s history.</p>
+
+<h3>What Changed</h3>
+
+<p>The same C function that produced 73 characters of asm.js tricks now compiled to 41 bytes of binary &mdash; and those 41 bytes could be validated and compiled an order of magnitude faster than the JavaScript text could be parsed.</p>
+
+<div class="vs">
+<div class="vs-col">
+<h4>asm.js (text, 73 bytes)</h4>
+<pre><code><span class="kw">function</span> <span class="fn">add</span>(a,b){
+  a=a<span class="nm">|0</span>;b=b<span class="nm">|0</span>;
+  <span class="kw">return</span> (a+b)<span class="nm">|0</span>
+}</code></pre>
+<p style="font-size:0.82rem;color:var(--text-dim);">UTF-8 text. Lexed into tokens. Parsed into AST. Then compiled. Every character is a decision point for the parser.</p>
+</div>
+<div class="vs-col">
+<h4>WebAssembly (binary, 41 bytes)</h4>
+<div class="mem-row"><div class="mc g">00</div><div class="mc g">61</div><div class="mc g">73</div><div class="mc g">6D</div><div class="mc c">01</div><div class="mc c">00</div><div class="mc c">00</div><div class="mc c">00</div></div>
+<div class="mem-row"><div class="mc m">01</div><div class="mc m">07</div><div class="mc m">01</div><div class="mc m">60</div><div class="mc m">02</div><div class="mc m">7F</div><div class="mc m">7F</div><div class="mc m">01</div><div class="mc m">7F</div></div>
+<div class="mem-row"><div class="mc o">03</div><div class="mc o">02</div><div class="mc o">01</div><div class="mc o">00</div><div class="mc y">07</div><div class="mc y">07</div><div class="mc y">01</div><div class="mc y">03</div><div class="mc y">61</div><div class="mc y">64</div><div class="mc y">64</div><div class="mc y">00</div><div class="mc y">00</div></div>
+<div class="mem-row"><div class="mc b">0A</div><div class="mc b">09</div><div class="mc b">01</div><div class="mc b">07</div><div class="mc b">00</div><div class="mc b">20</div><div class="mc b">00</div><div class="mc b">20</div><div class="mc b">01</div><div class="mc b">6A</div><div class="mc b">0B</div></div>
+<p style="font-size:0.82rem;color:var(--text-dim);margin-top:0.4rem;"><span style="color:var(--green)">■</span> magic &nbsp; <span style="color:var(--cyan)">■</span> version &nbsp; <span style="color:var(--magenta)">■</span> types &nbsp; <span style="color:var(--orange)">■</span> funcs &nbsp; <span style="color:var(--yellow)">■</span> exports &nbsp; <span style="color:var(--blue)">■</span> code</p>
+</div>
+</div>
+
+<p>The real function body is five bytes: <code>20 00 20 01 6A</code> &mdash; <em>get local 0, get local 1, add</em>. No ambiguity. No AST. Each byte maps to exactly one instruction. The engine reads them left to right and emits native code as it goes.</p>
+
+<p>Figma was one of the first to make the switch. Their C++ design tool had been compiled to asm.js; moving to WebAssembly cut load time by more than 3x. The bottleneck had never been execution speed &mdash; it was the parse tax. Wasm binaries decode more than 20x faster than equivalent JavaScript parses, because there is nothing to parse. The binary format is the instruction stream.</p>
+
+<div class="power">
+<div class="power-label">The Parse Tax</div>
+<p>asm.js shipped as JavaScript text &mdash; megabytes of <code>a&nbsp;=&nbsp;a|0</code> that browsers parsed character by character before compiling a single instruction. A Unity game took 19 MB of asm.js source. Wasm&rsquo;s binary format for the same game: 6.3 MB &mdash; 3x smaller &mdash; and it validated in a single linear pass. No lexer, no parser, no AST. Firefox 58 could stream-compile Wasm at 30&ndash;60 MB/sec on desktop &mdash; faster than the network could deliver it.</p>
+</div>
+
+<h3>Four Promises</h3>
+
+<p>WebAssembly&rsquo;s design was guided by four goals that became its identity:</p>
+
+<div class="vs">
+<div class="vs-col" style="border-top: 2px solid var(--green);">
+<h4 style="color:var(--green);">Fast</h4>
+<p style="font-size:0.9rem;">Near-native speed through typed instructions and AOT compilation. No warmup, no speculative optimization, no deopt. The compiler knows every type before it emits a single instruction.</p>
+</div>
+<div class="vs-col" style="border-top: 2px solid var(--cyan);">
+<h4 style="color:var(--cyan);">Safe</h4>
+<p style="font-size:0.9rem;">Sandboxed linear memory, validated before execution. A module cannot read the browser&rsquo;s memory. It gets a flat byte array and every access is bounds-checked. Validation proves safety before a single instruction runs.</p>
+</div>
+</div>
+<div class="vs">
+<div class="vs-col" style="border-top: 2px solid var(--blue);">
+<h4 style="color:var(--blue);">Portable</h4>
+<p style="font-size:0.9rem;">Architecture-independent bytecode. The same <code>.wasm</code> file runs on x86 laptops, ARM phones, and RISC-V boards. Compile once, run anywhere the web reaches.</p>
+</div>
+<div class="vs-col" style="border-top: 2px solid var(--magenta);">
+<h4 style="color:var(--magenta);">Compact</h4>
+<p style="font-size:0.9rem;">Binary encoding with LEB128 variable-length integers and single-byte opcodes. 20&ndash;30% smaller than asm.js uncompressed, 10&ndash;20% smaller after gzip. But the real win is decode speed: an order of magnitude faster than parsing text.</p>
+</div>
+</div>
+
+<p>In December 2019, the W3C made it official: WebAssembly became a W3C Recommendation, the fourth language of the web alongside HTML, CSS, and JavaScript. Today it runs in 97% of browsers worldwide.</p>
+
+<p>But knowing what Wasm <em>promises</em> is different from knowing how it <em>works</em>. The binary encodes instructions for a machine that doesn&rsquo;t exist on any real chip &mdash; a stack machine with zero registers, structured control flow, and a type system that makes safety provable. That machine is where we go next.</p>
+
+</section>
 
 </div><!-- .content -->
 </body>
