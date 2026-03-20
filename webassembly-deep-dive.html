@@ -1761,6 +1761,249 @@
 <div class="act-subtitle">From handwritten bytecode to browser engines to production deployments</div>
 </div>
 
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 7: HANDWRITING WASM                                     -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch7">
+<h2>07 &mdash; handwriting wasm</h2>
+
+<p class="drop-cap">Writing WAT directly instead of compiling from C or Rust sounds like writing x86 assembly by choice &mdash; a niche hobby for masochists. But there is a practical reason people do it: LLVM does not always produce optimal Wasm. The compiler introduces unnecessary locals, emits redundant stack manipulation, and sometimes misses patterns that a human can spot in thirty seconds. For tight inner loops where every instruction counts, handwritten WAT wins.</p>
+
+<h3>What the Compiler Produces</h3>
+
+<p>Consider a simple function that sums an array of integers. Here is the C:</p>
+
+<pre><span class="label">C</span><code><span class="ty">int</span> <span class="fn">sum</span>(<span class="ty">int</span>* arr, <span class="ty">int</span> len) {
+    <span class="ty">int</span> total = <span class="nm">0</span>;
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i < len; i++)
+        total += arr[i];
+    <span class="kw">return</span> total;
+}</code></pre>
+
+<p>Emscripten with <code>-O3</code> produces reasonable output, but it introduces extra locals and stack shuffling that a human would avoid. Here is a simplified view of what typical compiler output looks like versus what you can write by hand:</p>
+
+<div class="tabbed">
+<input type="radio" name="hw" id="hw-t1" class="t1" checked>
+<input type="radio" name="hw" id="hw-t2" class="t2">
+<div class="tab-bar">
+  <label for="hw-t1">Compiler Output</label>
+  <label for="hw-t2">Hand-Optimized</label>
+</div>
+<div class="tab-panel p1">
+<pre><code><span class="cm">;; Typical LLVM output (simplified)</span>
+(<span class="kw">func</span> <span class="fn">$sum</span> (<span class="kw">param</span> <span class="ty">$arr i32</span>) (<span class="kw">param</span> <span class="ty">$len i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
+  (<span class="kw">local</span> <span class="ty">$i i32</span>) (<span class="kw">local</span> <span class="ty">$total i32</span>) (<span class="kw">local</span> <span class="ty">$tmp i32</span>)
+  <span class="kw">i32.const</span> <span class="nm">0</span>
+  <span class="kw">local.set</span> $total            <span class="cm">;; total = 0</span>
+  <span class="kw">i32.const</span> <span class="nm">0</span>
+  <span class="kw">local.set</span> $i                <span class="cm">;; i = 0</span>
+  <span class="kw">block</span> $exit
+    <span class="kw">loop</span> $loop
+      <span class="kw">local.get</span> $i
+      <span class="kw">local.get</span> $len
+      <span class="kw">i32.ge_s</span>
+      <span class="kw">br_if</span> $exit              <span class="cm">;; if i >= len, break</span>
+      <span class="kw">local.get</span> $total
+      <span class="kw">local.get</span> $arr
+      <span class="kw">local.get</span> $i
+      <span class="kw">i32.const</span> <span class="nm">4</span>
+      <span class="kw">i32.mul</span>                   <span class="cm">;; i * 4 (byte offset)</span>
+      <span class="kw">i32.add</span>                   <span class="cm">;; arr + i*4</span>
+      <span class="kw">i32.load</span>                  <span class="cm">;; load arr[i]</span>
+      <span class="kw">i32.add</span>
+      <span class="kw">local.set</span> $total          <span class="cm">;; total += arr[i]</span>
+      <span class="kw">local.get</span> $i
+      <span class="kw">i32.const</span> <span class="nm">1</span>
+      <span class="kw">i32.add</span>
+      <span class="kw">local.set</span> $i              <span class="cm">;; i++</span>
+      <span class="kw">br</span> $loop
+    <span class="kw">end</span>
+  <span class="kw">end</span>
+  <span class="kw">local.get</span> $total)
+
+<span class="cm">;; 21 instructions, 3 locals (+ 2 params)</span></code></pre>
+</div>
+<div class="tab-panel p2">
+<pre><code><span class="cm">;; Hand-optimized: use pointer arithmetic, no multiply</span>
+(<span class="kw">func</span> <span class="fn">$sum</span> (<span class="kw">param</span> <span class="ty">$ptr i32</span>) (<span class="kw">param</span> <span class="ty">$len i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
+  (<span class="kw">local</span> <span class="ty">$total i32</span>) (<span class="kw">local</span> <span class="ty">$end i32</span>)
+  <span class="cm">;; compute end pointer: ptr + len * 4</span>
+  <span class="kw">local.get</span> $ptr
+  <span class="kw">local.get</span> $len
+  <span class="kw">i32.const</span> <span class="nm">2</span>
+  <span class="kw">i32.shl</span>                     <span class="cm">;; len << 2 = len * 4</span>
+  <span class="kw">i32.add</span>
+  <span class="kw">local.set</span> $end              <span class="cm">;; end = ptr + len*4</span>
+  <span class="kw">block</span> $exit
+    <span class="kw">loop</span> $loop
+      <span class="kw">local.get</span> $ptr
+      <span class="kw">local.get</span> $end
+      <span class="kw">i32.ge_u</span>
+      <span class="kw">br_if</span> $exit              <span class="cm">;; if ptr >= end, break</span>
+      <span class="kw">local.get</span> $total
+      <span class="kw">local.get</span> $ptr
+      <span class="kw">i32.load</span>                  <span class="cm">;; load *ptr</span>
+      <span class="kw">i32.add</span>
+      <span class="kw">local.set</span> $total          <span class="cm">;; total += *ptr</span>
+      <span class="kw">local.get</span> $ptr
+      <span class="kw">i32.const</span> <span class="nm">4</span>
+      <span class="kw">i32.add</span>
+      <span class="kw">local.set</span> $ptr            <span class="cm">;; ptr += 4</span>
+      <span class="kw">br</span> $loop
+    <span class="kw">end</span>
+  <span class="kw">end</span>
+  <span class="kw">local.get</span> $total)
+
+<span class="cm">;; 18 instructions, 2 locals (+ 2 params)</span>
+<span class="cm">;; Eliminated: i*4 multiply per iteration</span>
+<span class="cm">;; Replaced: index multiply with pointer increment</span></code></pre>
+</div>
+</div>
+
+<p>The hand-optimized version does three things differently. First, it replaces the per-iteration <code>i32.mul</code> with a pointer increment &mdash; advancing by 4 bytes each loop instead of recomputing <code>i * 4</code>. Second, it uses <code>i32.shl</code> (shift left by 2) instead of <code>i32.mul</code> for the initial end-pointer calculation. Third, it eliminates the separate loop counter <code>$i</code> entirely, using the pointer itself as the loop variable. Three fewer instructions per iteration in a hot loop.</p>
+
+<h3>The S-Expression Syntax</h3>
+
+<p>WAT supports two equivalent syntaxes. The <strong>flat form</strong> (used in the examples above) lists instructions sequentially, matching how the stack machine actually executes. The <strong>S-expression form</strong> nests operations inside parentheses, making the data flow explicit:</p>
+
+<div class="vs">
+<div class="vs-col">
+<h4>Flat Form</h4>
+<pre><code><span class="kw">local.get</span> $a
+<span class="kw">local.get</span> $b
+<span class="kw">i32.add</span>
+<span class="kw">local.get</span> $c
+<span class="kw">i32.mul</span></code></pre>
+</div>
+<div class="vs-col">
+<h4>S-Expression Form</h4>
+<pre><code>(<span class="kw">i32.mul</span>
+  (<span class="kw">i32.add</span>
+    (<span class="kw">local.get</span> $a)
+    (<span class="kw">local.get</span> $b))
+  (<span class="kw">local.get</span> $c))</code></pre>
+</div>
+</div>
+
+<p>Both produce identical bytecode. The S-expression form reads like a function call tree; the flat form reads like assembly. Most hand-writers use the flat form because it maps directly to what the engine sees. Both are valid input to <code>wat2wasm</code>.</p>
+
+<h3>The Disassembly Loop</h3>
+
+<p>The practical workflow for optimization is not writing WAT from scratch. It is a loop:</p>
+
+<div class="diagram">
+<span class="diagram-label">The optimization cycle</span>
+<pre><code>  <span class="ty">1. Compile</span>         emcc -O3 hot_loop.c -o hot_loop.wasm
+  <span class="ty">2. Disassemble</span>     wasm2wat hot_loop.wasm -o hot_loop.wat
+  <span class="ty">3. Inspect</span>         Read the WAT. Find redundant locals, missed patterns.
+  <span class="ty">4. Edit</span>            Modify the .wat file by hand.
+  <span class="ty">5. Reassemble</span>      wat2wasm hot_loop.wat -o hot_loop_opt.wasm
+  <span class="ty">6. Benchmark</span>       Compare hot_loop.wasm vs hot_loop_opt.wasm
+  <span class="ty">7. Repeat</span>          Until diminishing returns.
+
+  Tools: <span class="fn">wabt</span> (WebAssembly Binary Toolkit) provides wat2wasm, wasm2wat
+         <span class="fn">wasm-opt</span> (Binaryen) for automated Wasm→Wasm optimization</code></pre>
+</div>
+
+<p>The key insight is that you are not competing with the compiler on the whole program. You are competing on <em>one function</em> &mdash; the innermost loop that runs a million times per frame. The compiler wins everywhere else. But in that one hot path, a human who understands the stack machine can sometimes shave 10&ndash;20% off the instruction count by eliminating the overhead that LLVM&rsquo;s register-to-stack lowering introduces.</p>
+
+<div class="power wild">
+<div class="power-label">When to Hand-Write</div>
+<p>Hand-writing WAT makes sense in exactly two situations: SIMD inner loops where you need specific instruction sequences that the autovectorizer misses, and performance-critical paths where profiling shows the compiler introduced measurable overhead. In every other case, trust the compiler and spend your time on the algorithm. The maintainability cost of handwritten bytecode is real &mdash; code that nobody else can read is code that nobody else can fix.</p>
+</div>
+
+<p>Whether you write Wasm by hand or let a compiler do it, the binary eventually needs to reach JavaScript. The bridge between the two worlds &mdash; how functions are imported and exported, how strings cross the boundary, and what it costs to cross &mdash; is where the next chapter picks up.</p>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 8: THE JAVASCRIPT BRIDGE                                -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch8">
+<h2>08 &mdash; the javascript bridge</h2>
+
+<p class="drop-cap">WebAssembly does not run alone. In the browser, it runs inside a JavaScript host that loads the module, provides imports, and calls exports. The bridge between the two is clean but constrained: you can pass numbers back and forth instantly, but you cannot pass a string, an object, or a closure. Everything that is not a number must be serialized into linear memory, passed as a pointer, and deserialized on the other side.</p>
+
+<h3>Loading a Module</h3>
+
+<p>The modern way to load Wasm is <code>WebAssembly.instantiateStreaming</code>, which compiles the module while it downloads &mdash; the streaming compilation from Chapter 3 in action:</p>
+
+<pre><span class="label">JavaScript</span><code><span class="kw">const</span> { instance } = <span class="kw">await</span> <span class="fn">WebAssembly.instantiateStreaming</span>(
+  <span class="fn">fetch</span>(<span class="st">'module.wasm'</span>),
+  {
+    env: {
+      <span class="fn">log</span>: (x) => <span class="fn">console.log</span>(<span class="st">'Wasm says:'</span>, x),  <span class="cm">// import: JS function Wasm can call</span>
+    }
+  }
+);
+
+<span class="kw">const</span> result = instance.exports.<span class="fn">add</span>(<span class="nm">3</span>, <span class="nm">7</span>);  <span class="cm">// export: Wasm function JS can call</span>
+<span class="fn">console.log</span>(result);  <span class="cm">// 10</span></code></pre>
+
+<p>The second argument is the <strong>import object</strong> &mdash; a JavaScript object whose shape must match the module&rsquo;s import declarations exactly. If the module declares <code>(import "env" "log" (func (param i32)))</code>, the import object must have <code>env.log</code> as a function that accepts one argument. Mismatches cause a <code>LinkError</code> at instantiation.</p>
+
+<h3>Passing Strings</h3>
+
+<p>This is where the bridge gets uncomfortable. Wasm has no string type. A &ldquo;string&rdquo; in Wasm is a sequence of bytes in linear memory, addressed by a pointer (i32 offset) and a length. To pass a string from JavaScript to Wasm, you must:</p>
+
+<pre><span class="label">JavaScript</span><code><span class="cm">// 1. Get access to Wasm's linear memory</span>
+<span class="kw">const</span> memory = instance.exports.memory;
+<span class="kw">const</span> buffer = <span class="kw">new</span> <span class="ty">Uint8Array</span>(memory.buffer);
+
+<span class="cm">// 2. Encode the string as UTF-8</span>
+<span class="kw">const</span> encoder = <span class="kw">new</span> <span class="ty">TextEncoder</span>();
+<span class="kw">const</span> encoded = encoder.<span class="fn">encode</span>(<span class="st">"hello, wasm"</span>);
+
+<span class="cm">// 3. Allocate space in Wasm memory (call a Wasm-side allocator)</span>
+<span class="kw">const</span> ptr = instance.exports.<span class="fn">alloc</span>(encoded.length);
+
+<span class="cm">// 4. Copy bytes into linear memory</span>
+buffer.<span class="fn">set</span>(encoded, ptr);
+
+<span class="cm">// 5. Call the Wasm function with pointer + length</span>
+instance.exports.<span class="fn">process_string</span>(ptr, encoded.length);
+
+<span class="cm">// 6. Free the allocation when done</span>
+instance.exports.<span class="fn">dealloc</span>(ptr, encoded.length);</code></pre>
+
+<p>Coming back is the same process in reverse: the Wasm function writes bytes into linear memory, returns a pointer and length, and JavaScript reads those bytes with <code>TextDecoder</code>. It is manual, verbose, and exactly how C programs pass strings to each other across process boundaries. Tools like <code>wasm-bindgen</code> (Rust) and Emscripten&rsquo;s <code>ccall</code>/<code>cwrap</code> automate this, but underneath, the bytes are always being copied into and out of the flat array.</p>
+
+<h3>The Import/Export Table</h3>
+
+<div class="diagram">
+<span class="diagram-label">How JS and Wasm connect</span>
+<pre><code>  <span class="ty">JavaScript Host</span>                        <span class="ty">Wasm Module</span>
+  ┌────────────────────┐                ┌────────────────────┐
+  │                    │  <span class="st">imports</span>        │                    │
+  │  env.log(x)  ──────│───────────────▶│  (import "env"     │
+  │  env.memory  ──────│───────────────▶│    "log" (func))   │
+  │                    │                │                    │
+  │                    │  <span class="fn">exports</span>        │                    │
+  │  instance          │◀───────────────│  (export "add"     │
+  │   .exports.add ◀───│───────────────│    (func $add))    │
+  │   .exports.memory ◀│───────────────│  (export "memory"  │
+  │                    │                │    (memory 0))     │
+  └────────────────────┘                └────────────────────┘
+
+  Numbers cross instantly: i32, i64, f32, f64
+  Everything else: serialize into linear memory, pass a pointer</code></pre>
+</div>
+
+<h3>The Cost of Crossing</h3>
+
+<p>A JavaScript-to-Wasm function call is fast &mdash; typically under 10 nanoseconds in V8 and SpiderMonkey, comparable to a native function call through a vtable. For bulk computation, the boundary cost is negligible: call once, process a million items, return the result.</p>
+
+<p>The problem is <em>frequency</em>. If your architecture requires a JS&harr;Wasm call for every pixel, every particle, or every DOM update, the overhead adds up. A million calls at 10 ns each is 10 milliseconds &mdash; a meaningful chunk of a 16 ms frame budget. The rule of thumb: keep hot loops entirely in Wasm, batch data in linear memory, and cross the bridge as infrequently as possible.</p>
+
+<div class="power zen">
+<div class="power-label">The Bridge Tax</div>
+<p>The JS&harr;Wasm boundary costs almost nothing per call. But &ldquo;almost nothing&rdquo; times a million is something. Design your API surface to minimize crossings: pass a pointer to an array, not individual elements. Return a struct offset, not individual fields. Think of the bridge like a network call &mdash; batch your requests.</p>
+</div>
+
+<p>We know how to write Wasm, how to connect it to JavaScript, and how to pass data across the boundary. But what happens after <code>instantiateStreaming</code> returns? The browser has a <code>.wasm</code> binary and needs to turn it into machine code that runs on a real CPU. The next chapter opens the hood on V8, SpiderMonkey, and the compilation pipelines that make Wasm fast.</p>
+
+</section>
+
 </div><!-- .content -->
 </body>
 </html>
