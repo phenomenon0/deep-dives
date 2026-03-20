@@ -888,6 +888,182 @@
   </div>
 </section>
 
+<!-- ============================================================ -->
+<!--  §7 — LAYER 4: DATA BINDING                                   -->
+<!-- ============================================================ -->
+<section id="data-binding">
+  <h2>§7 — Layer 4: Data Binding</h2>
+
+  <p class="drop-cap">This is the truly modern part. Objects on the canvas bind to external data sources — JSON files, CSV sheets, REST APIs, database rows, user forms, LLM outputs, spreadsheet cells. When the data changes, the canvas updates. The document becomes generative. One template, infinite outputs.</p>
+
+  <p>Think about what this unlocks:</p>
+
+  <ul>
+    <li><strong>Sports scouting cards</strong> — 200 cards from one template and a player database</li>
+    <li><strong>Social graphics</strong> — auto-generated from a CMS with brand tokens</li>
+    <li><strong>Dashboards</strong> — designed vector layouts with live data, not chart-library defaults</li>
+    <li><strong>Maps</strong> — with live annotations pulled from a spatial API</li>
+    <li><strong>Product catalogs</strong> — pages generated from inventory data</li>
+    <li><strong>Certificates</strong> — personalized at scale from a registration form</li>
+    <li><strong>Election results</strong> — live-updating infographics bound to vote counts</li>
+    <li><strong>Lineup graphics</strong> — automated from match-day squad sheets</li>
+  </ul>
+
+  <p>This is huge because most design tools are catastrophically bad at structured, repeatable graphics generation. They treat every output as a one-off.</p>
+
+  <h3>Binding syntax</h3>
+
+  <pre><code><span class="label">DATA BINDING</span>
+<span class="cm">// Bind a single object to a data source</span>
+<span class="kw">const</span> card = doc.<span class="fn">query</span>(<span class="st">'#player-card'</span>);
+
+card.<span class="fn">bind</span>({
+  <span class="fn">source</span>: <span class="st">'https://api.club.com/players/42'</span>,
+  <span class="fn">refresh</span>: <span class="st">'30s'</span>,
+  <span class="fn">map</span>: (player) => ({
+    <span class="st">'.name'</span>:       player.display_name,
+    <span class="st">'.number'</span>:     player.shirt_number,
+    <span class="st">'.position'</span>:   player.primary_position,
+    <span class="st">'.portrait'</span>:   player.headshot_url,
+    <span class="st">'.rating-bar'</span>: { <span class="fn">width</span>: <span class="st">`${</span>player.rating<span class="st">}%`</span> },
+    <span class="st">'.team-color'</span>: player.team.primary_color,
+  }),
+});
+
+<span class="cm">// Bind a repeater to a dataset</span>
+<span class="kw">const</span> grid = doc.<span class="fn">query</span>(<span class="st">'#card-grid'</span>);
+
+grid.<span class="fn">repeat</span>({
+  <span class="fn">source</span>: <span class="st">'./squad.csv'</span>,
+  <span class="fn">template</span>: <span class="st">'#player-card'</span>,
+  <span class="fn">columns</span>: <span class="nm">4</span>,
+  <span class="fn">gap</span>: <span class="nm">16</span>,
+  <span class="fn">filter</span>: (row) => row.appearances > <span class="nm">10</span>,
+  <span class="fn">sort</span>: (a, b) => b.rating - a.rating,
+});
+
+<span class="cm">// Bind to an LLM output</span>
+card.<span class="fn">bind</span>({
+  <span class="fn">source</span>: { <span class="fn">type</span>: <span class="st">'llm'</span>, <span class="fn">prompt</span>: <span class="st">'Summarize this player in 2 sentences'</span> },
+  <span class="fn">map</span>: (result) => ({
+    <span class="st">'.bio-text'</span>: result.text,
+  }),
+});
+</code></pre>
+
+  <div class="power wild">
+    <div class="power-label">LLM as Data Source</div>
+    <p>When the data binding layer treats LLM outputs the same as JSON or CSV, agents become first-class content generators. A prompt fills a text slot the same way an API response fills a number slot. The canvas does not care where the data comes from — only that it conforms to the binding contract.</p>
+  </div>
+
+  <h3>Reactive updates</h3>
+
+  <p>Bindings are not one-shot. They are reactive. When the source emits new data — a webhook fires, a CSV is re-uploaded, a form field changes — the binding re-evaluates, the constraint solver re-runs, and the affected nodes re-render. The update is surgical: only touched nodes recompute. The rest of the scene is untouched.</p>
+
+  <div class="diagram">
+    <span class="diagram-label">Reactive Data Flow</span>
+    <pre><code>
+  Data Source           Binding Layer          Scene Graph         Renderer
+  ───────────          ─────────────          ───────────         ────────
+  JSON / CSV   ──▶     evaluate map    ──▶    update props  ──▶  repaint
+  API poll     ──▶     type coerce     ──▶    mark dirty    ──▶  (only
+  WebSocket    ──▶     validate        ──▶    re-constrain  ──▶   dirty
+  LLM stream   ──▶     diff prev       ──▶    propagate     ──▶   nodes)
+  Form input   ──▶     emit change     ──▶    notify subs
+    </code></pre>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!--  §8 — LAYER 5: AUTOMATION / RUNTIME LANGUAGE                   -->
+<!-- ============================================================ -->
+<section id="automation">
+  <h2>§8 — Layer 5: Automation &amp; Runtime Language</h2>
+
+  <p class="drop-cap">This is the "programmable" in "Programmable SVG OS." You need a scripting layer — a way for users and agents to express operations as code. Not just click-and-drag. Create 100 cards from CSV. Apply a theme pack across all scenes. Normalize spacing in a layout. Convert paths to extrusions. Run batch exports. Generate variants. Attach hover interactions. Animate layers. Publish scenes.</p>
+
+  <p>The runtime language is JavaScript/TypeScript with a domain-specific API surface. It runs in the browser, in a sandboxed worker, or server-side for batch operations.</p>
+
+  <h3>Batch export pipeline</h3>
+
+  <pre><code><span class="label">AUTOMATION</span>
+<span class="kw">import</span> { Doc, CSV, Theme } <span class="kw">from</span> <span class="st">'@svgos/runtime'</span>;
+
+<span class="kw">async function</span> <span class="fn">generateSquadCards</span>() {
+  <span class="kw">const</span> data     = <span class="kw">await</span> CSV.<span class="fn">load</span>(<span class="st">'./squad-2025.csv'</span>);
+  <span class="kw">const</span> template = <span class="kw">await</span> Doc.<span class="fn">open</span>(<span class="st">'./templates/player-card.svg'</span>);
+  <span class="kw">const</span> theme    = <span class="kw">await</span> Theme.<span class="fn">load</span>(<span class="st">'./themes/matchday-dark.json'</span>);
+
+  template.<span class="fn">applyTheme</span>(theme);
+
+  <span class="kw">for</span> (<span class="kw">const</span> player <span class="kw">of</span> data.<span class="fn">rows</span>) {
+    <span class="kw">const</span> card = template.<span class="fn">clone</span>();
+    card.<span class="fn">bindAll</span>(player);
+
+    <span class="cm">// Export social-sized PNG</span>
+    <span class="kw">await</span> card.<span class="fn">export</span>(<span class="st">'png'</span>, {
+      <span class="fn">path</span>: <span class="st">`output/social/${</span>player.slug<span class="st">}.png`</span>,
+      <span class="fn">size</span>: [<span class="nm">1080</span>, <span class="nm">1350</span>],
+      <span class="fn">dpi</span>: <span class="nm">144</span>,
+    });
+
+    <span class="cm">// Export print-ready PDF</span>
+    <span class="kw">await</span> card.<span class="fn">export</span>(<span class="st">'pdf'</span>, {
+      <span class="fn">path</span>: <span class="st">`output/print/${</span>player.slug<span class="st">}.pdf`</span>,
+      <span class="fn">size</span>: [<span class="nm">300</span>, <span class="nm">420</span>],
+      <span class="fn">unit</span>: <span class="st">'mm'</span>,
+      <span class="fn">bleed</span>: <span class="nm">3</span>,
+    });
+  }
+
+  console.<span class="fn">log</span>(<span class="st">`Generated ${</span>data.rows.length<span class="st">} cards in 2 formats.`</span>);
+}
+</code></pre>
+
+  <h3>Theme operations</h3>
+
+  <pre><code><span class="label">THEME SCRIPT</span>
+<span class="cm">// Apply a theme pack to all open scenes</span>
+<span class="kw">const</span> scenes = <span class="kw">await</span> Workspace.<span class="fn">openScenes</span>(<span class="st">'./project'</span>);
+<span class="kw">const</span> theme  = Theme.<span class="fn">create</span>({
+  <span class="fn">colors</span>: {
+    primary:   <span class="st">'#1a1a2e'</span>,
+    secondary: <span class="st">'#e94560'</span>,
+    accent:    <span class="st">'#0f3460'</span>,
+    text:      <span class="st">'#f5f5f5'</span>,
+  },
+  <span class="fn">fonts</span>: {
+    heading: <span class="st">'Inter'</span>,
+    body:    <span class="st">'Source Serif 4'</span>,
+    mono:    <span class="st">'JetBrains Mono'</span>,
+  },
+  <span class="fn">spacing</span>: { base: <span class="nm">8</span>, scale: <span class="nm">1.5</span> },
+});
+
+<span class="kw">for</span> (<span class="kw">const</span> scene <span class="kw">of</span> scenes) {
+  scene.<span class="fn">applyTheme</span>(theme);
+  scene.<span class="fn">reConstrain</span>();   <span class="cm">// re-run layout solver with new spacing</span>
+  <span class="kw">await</span> scene.<span class="fn">save</span>();
+}
+</code></pre>
+
+  <h3>What the automation layer enables</h3>
+
+  <table>
+    <tr><th>Operation</th><th>Before (manual)</th><th>After (scripted)</th></tr>
+    <tr><td>200 player cards</td><td>Hours of copy-paste</td><td>One script, 30 seconds</td></tr>
+    <tr><td>Rebrand across 50 scenes</td><td>Open each, find-replace</td><td>Theme.apply() in a loop</td></tr>
+    <tr><td>Export 3 formats per asset</td><td>Export dialog × 3 × N</td><td>Batch pipeline, one command</td></tr>
+    <tr><td>Normalize spacing</td><td>Select all, eyeball it</td><td><code>distribute(group, {gap: 12})</code></td></tr>
+    <tr><td>Generate variants</td><td>Duplicate, tweak, repeat</td><td>Map over data, clone, bind</td></tr>
+  </table>
+
+  <div class="power zen">
+    <div class="power-label">The Real Power</div>
+    <p>The automation layer turns the SVG OS from a tool you use into a tool that <em>works for you</em>. Graphics generation becomes a pipeline, not a session. You write the recipe once. The system executes it a thousand times. That is what "programmable" means.</p>
+  </div>
+</section>
+
 </div>
 </body>
 </html>
