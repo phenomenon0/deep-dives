@@ -659,7 +659,310 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 
 
 <!-- Placeholder sections for remaining chapters -->
-<section id="ch7"><h2>// 07 &mdash; Quantization</h2><div class="era-badge"><span class="era-num">Era 2</span> &mdash; Make it fit</div><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
+<section id="ch7">
+<h2>// 07 &mdash; Quantization</h2>
+<div class="era-badge"><span class="era-num">Era 2</span> &mdash; Make it fit</div>
+<div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--white)">16 bits</span> &rarr; <span style="color:var(--cyan)">8</span> &rarr; <span style="color:var(--yellow)">6</span> &rarr; <span style="color:var(--orange)">4</span> &rarr; <span style="color:var(--red)">3</span> &rarr; <span style="color:var(--red)">2</span></div>
+<div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
+    Make the weights smaller. Hope the model still recognizes the world.<span class="blink">_</span>
+</div>
+
+<p class="drop-cap">Chapter 5 showed that decode speed is bandwidth-limited: tokens per second equals bandwidth divided by weight size. The fastest way to double your speed is to halve your weights. A 7B model in FP16 is 14 GB; in 4-bit quantization, it&rsquo;s 3.5 GB. Same model, 4&times; less data through the memory bus, roughly 4&times; faster decode. The question is what you lose.</p>
+
+<p>Quantization is the oldest inference trick and still one of the most important. Smaller weights mean less bandwidth, less memory, bigger models on cheaper hardware. But every lost bit is a wager.</p>
+
+<h3>What the Bits Mean</h3>
+
+<div class="diagram">
+<span class="diagram-label">Floating-point formats &mdash; what you&rsquo;re compressing from</span>
+<pre><code>
+  <span class="ty">FP16</span> (Half Precision)
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  [<span style="color:var(--red)">S</span>][<span style="color:var(--cyan)">E E E E E</span>][<span style="color:var(--green)">M M M M M M M M M M</span>]
+   1      5 exp          10 mantissa         = 16 bits
+  Range: &plusmn;65,504    Precision: ~3.3 decimal digits
+
+  <span class="ty">FP8 E4M3</span> (Datacenter, Hopper/Ada native)
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  [<span style="color:var(--red)">S</span>][<span style="color:var(--cyan)">E E E E</span>][<span style="color:var(--green)">M M M</span>]
+   1     4 exp     3 mantissa               = 8 bits
+  Range: &plusmn;448     Precision: ~1.9 digits
+  <span class="pp">Tensor cores consume FP8 directly on H100. No dequant overhead.</span>
+
+  <span class="ty">INT8</span> (Q8_0 in llama.cpp)
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  [<span style="color:var(--yellow)">V V V V V V V V</span>]  + 1 shared FP16 scale per 32 values
+  8 bits, values &minus;128 to +127             = 8.5 bpw effective
+
+  <span class="ty">INT4</span> (Q4_0 in llama.cpp)
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  [<span style="color:var(--orange)">V V V V</span>]  + 1 shared FP16 scale per 32 values
+  4 bits, values &minus;8 to +7                 = 4.5 bpw effective
+  Two values packed into one byte.
+</code></pre>
+</div>
+
+<h3>How It Works: Block Quantization</h3>
+
+<div class="tabbed">
+<input type="radio" name="quant-how" id="quant-how-t1" class="t1" checked>
+<input type="radio" name="quant-how" id="quant-how-t2" class="t2">
+<input type="radio" name="quant-how" id="quant-how-t3" class="t3">
+<div class="tab-bar">
+<label for="quant-how-t1">Q4_0 (Simple)</label>
+<label for="quant-how-t2">Q4_K_M (Smart)</label>
+<label for="quant-how-t3">GPTQ / AWQ</label>
+</div>
+<div class="tab-panel p1">
+<div class="diagram"><span class="diagram-label">Q4_0 &mdash; the simplest quantization</span>
+<pre><code>
+  <span class="cm">32 FP16 weights &rarr; 1 FP16 scale + 32 &times; 4-bit integers</span>
+
+  <span class="cm">Step 1:</span> Find the max absolute value in the group of 32
+         max_abs = 1.27
+
+  <span class="cm">Step 2:</span> Compute scale = max_abs / 7 = 0.181
+
+  <span class="cm">Step 3:</span> Quantize each weight:
+         w = 0.53  &rarr;  round(0.53 / 0.181) = round(2.93) = <span class="nm">3</span>
+         w = -0.87 &rarr;  round(-0.87 / 0.181) = round(-4.81) = <span class="nm">-5</span>
+
+  <span class="cm">Step 4:</span> Dequantize (at inference time):
+         3 &times; 0.181 = <span class="st">0.543</span>    (was 0.530, error = 0.013)
+         -5 &times; 0.181 = <span class="st">-0.905</span>  (was -0.870, error = 0.035)
+
+  <span class="cm">Storage: 2 bytes (scale) + 16 bytes (32&times;4 bits) = 18 bytes for 32 weights</span>
+  <span class="pp">Effective: 4.5 bits per weight. Down from 16. 3.6&times; smaller.</span>
+</code></pre></div></div>
+<div class="tab-panel p2">
+<div class="diagram"><span class="diagram-label">Q4_K_M &mdash; the recommended default</span>
+<pre><code>
+  <span class="cm">Two-level hierarchy: super-blocks of 256 values</span>
+
+  <span class="ty">Super-block</span> (256 weights):
+    fp16 <span class="nm">d</span>       &larr; scale for sub-block scales
+    fp16 <span class="nm">dmin</span>    &larr; scale for sub-block minimums
+    12 bytes     &larr; 8 sub-block scales + 8 mins, 6 bits each
+    128 bytes    &larr; 256 weights at 4 bits each
+
+  <span class="cm">Dequant for one sub-block of 32 values:</span>
+    value = d &times; sub_scale &times; nibble &minus; dmin &times; sub_min
+
+  <span class="cm">Total: 144 bytes for 256 weights = 4.50 bpw</span>
+
+  <span class="pp">The &ldquo;M&rdquo; variant: uses Q6_K for attention.wv and ffn.w2 tensors</span>
+  <span class="pp">(the most sensitive layers), Q4_K for the rest.</span>
+  <span class="pp">Effective: ~4.89 bpw across the whole model.</span>
+  <span class="pp">Only +0.05 perplexity vs FP16. 3.3&times; smaller.</span>
+</code></pre></div></div>
+<div class="tab-panel p3">
+<div class="diagram"><span class="diagram-label">GPTQ and AWQ &mdash; calibration-based approaches</span>
+<pre><code>
+  <span class="ty">GPTQ</span> (Frantar et al., 2022)
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  Process one column of weights at a time.
+  When you round a weight, compute the error.
+  <strong>Redistribute that error</strong> to unprocessed columns
+  using the Hessian (second-order sensitivity info).
+
+  The Hessian tells you which directions the model cares about.
+  Push rounding errors into directions it cares <em>less</em> about.
+  Result: INT4 with far less quality loss than naive rounding.
+
+  <span class="cm">Cost: 2&ndash;4 hours calibration on 2048+ samples (7B on A100)</span>
+
+  <span class="ty">AWQ</span> (Lin et al., 2023, MIT Han Lab)
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  ~1% of weight channels drive disproportionately large activations.
+  Instead of mixed precision, <strong>scale those channels UP</strong> before
+  quantization. They get more of the INT4 grid. They survive better.
+
+  No Hessian, no column-by-column reconstruction.
+  Just a per-channel rescaling. Comparable quality to GPTQ.
+
+  <span class="cm">Cost: 10&ndash;30 min calibration on 128&ndash;512 samples</span>
+
+  <span class="pp">GPTQ compensates for errors after rounding.</span>
+  <span class="pp">AWQ prevents the worst errors before rounding.</span>
+  <span class="pp">Both achieve similar quality at INT4.</span>
+</code></pre></div></div>
+</div>
+
+<h3>The Quality Cliff</h3>
+
+<p>Drag the slider to see how quality degrades as you compress harder. The sweet spot is clear &mdash; and so is the cliff.</p>
+
+<div class="viz-container">
+<svg id="viz-ch7-quant" viewBox="0 0 780 360"></svg>
+<div class="viz-controls">
+<div><label>Model</label><select id="viz-ch7-model"><option value="7" selected>7B / 8B</option><option value="13">13B</option><option value="27">27B</option><option value="70">70B</option></select></div>
+<div><label>VRAM Budget</label><select id="viz-ch7-vram"><option value="24" selected>24 GB (3090/4090)</option><option value="48">48 GB (A6000)</option><option value="80">80 GB (A100/H100)</option></select></div>
+</div>
+</div>
+
+<script>
+(function() {
+    const svg = d3.select('#viz-ch7-quant');
+    const W = 780, H = 360;
+    const margin = {top: 40, right: 30, bottom: 55, left: 70};
+    const w = W - margin.left - margin.right, h = H - margin.top - margin.bottom;
+
+    // Perplexity deltas (Llama-3-8B from llama.cpp benchmarks)
+    const quantTypes = [
+        {name:'F16',    bpw:16.0, pplD:0,      color:'#e8e8f0'},
+        {name:'Q8_0',   bpw:8.5,  pplD:0.003,  color:'#00ff88'},
+        {name:'Q6_K',   bpw:6.56, pplD:0.022,  color:'#00ff88'},
+        {name:'Q5_K_M', bpw:5.70, pplD:0.057,  color:'#00ddff'},
+        {name:'Q5_K_S', bpw:5.57, pplD:0.105,  color:'#00ddff'},
+        {name:'Q4_K_M', bpw:4.89, pplD:0.175,  color:'#ffdd00'},
+        {name:'Q4_K_S', bpw:4.67, pplD:0.269,  color:'#ffdd00'},
+        {name:'Q4_0',   bpw:4.50, pplD:0.469,  color:'#ff8800'},
+        {name:'Q3_K_M', bpw:4.00, pplD:0.657,  color:'#ff8800'},
+        {name:'Q3_K_S', bpw:3.64, pplD:1.632,  color:'#ff3344'},
+        {name:'Q2_K',   bpw:3.16, pplD:3.520,  color:'#ff3344'},
+    ];
+
+    function draw() {
+        svg.selectAll('*').remove();
+        const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+        const modelB = +document.getElementById('viz-ch7-model').value;
+        const vram = +document.getElementById('viz-ch7-vram').value;
+
+        const xS = d3.scaleLinear().domain([2.5, 17]).range([0, w]);
+        const yS = d3.scaleLog().domain([0.001, 5]).range([h, 0]);
+
+        // Grid
+        [3,4,5,6,8,10,12,14,16].forEach(v=>{g.append('line').attr('x1',xS(v)).attr('y1',0).attr('x2',xS(v)).attr('y2',h).attr('stroke','#1e1e2e');});
+        [0.01,0.05,0.1,0.5,1,2,4].forEach(v=>{g.append('line').attr('x1',0).attr('y1',yS(v)).attr('x2',w).attr('y2',yS(v)).attr('stroke','#1e1e2e');});
+
+        // Axes
+        g.append('g').attr('transform',`translate(0,${h})`).call(d3.axisBottom(xS).tickValues([3,4,5,6,8,10,12,14,16]).tickFormat(d=>d+' bpw')).selectAll('text').attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',10);
+        g.append('g').call(d3.axisLeft(yS).tickValues([0.01,0.05,0.1,0.5,1,2,4]).tickFormat(d=>{if(d>=1)return'+'+d.toFixed(0);if(d>=0.1)return'+'+d.toFixed(1);return'+'+d.toFixed(2);})).selectAll('text').attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',10);
+        g.selectAll('.domain, .tick line').attr('stroke','#2a2a3a');
+
+        svg.append('text').attr('x',W/2).attr('y',H-5).text('Bits Per Weight').attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',10).attr('text-anchor','middle');
+        svg.append('text').attr('x',14).attr('y',H/2).text('Perplexity Increase').attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',10).attr('text-anchor','middle').attr('transform',`rotate(-90,14,${H/2})`);
+        svg.append('text').attr('x',W/2).attr('y',20).text(`Quantization Quality \u2014 ${modelB}B Model`).attr('fill','#ffdd00').attr('font-family','JetBrains Mono').attr('font-size',12).attr('text-anchor','middle');
+
+        // Quality zones
+        g.append('rect').attr('x',0).attr('y',yS(0.1)).attr('width',w).attr('height',yS(0.001)-yS(0.1)).attr('fill','#00ff8808');
+        g.append('text').attr('x',w-5).attr('y',yS(0.03)).text('NEAR-LOSSLESS').attr('fill','#00ff8844').attr('font-family','JetBrains Mono').attr('font-size',9).attr('text-anchor','end');
+        g.append('rect').attr('x',0).attr('y',yS(0.5)).attr('width',w).attr('height',yS(0.1)-yS(0.5)).attr('fill','#ffdd0005');
+        g.append('text').attr('x',w-5).attr('y',yS(0.25)).text('SWEET SPOT').attr('fill','#ffdd0044').attr('font-family','JetBrains Mono').attr('font-size',9).attr('text-anchor','end');
+        g.append('rect').attr('x',0).attr('y',yS(5)).attr('width',w).attr('height',yS(1)-yS(5)).attr('fill','#ff334408');
+        g.append('text').attr('x',w-5).attr('y',yS(2.5)).text('QUALITY CLIFF').attr('fill','#ff334444').attr('font-family','JetBrains Mono').attr('font-size',9).attr('text-anchor','end');
+
+        // VRAM fit line
+        const maxBpw = (vram * 8) / modelB; // approximate: vram in GB * 8 bits / billion params
+        if(maxBpw >= 2.5 && maxBpw <= 17) {
+            g.append('line').attr('x1',xS(maxBpw)).attr('y1',0).attr('x2',xS(maxBpw)).attr('y2',h).attr('stroke','#ff334488').attr('stroke-width',1.5).attr('stroke-dasharray','6,4');
+            g.append('text').attr('x',xS(maxBpw)-5).attr('y',15).text(`\u2190 fits ${vram}GB`).attr('fill','#ff334488').attr('font-family','JetBrains Mono').attr('font-size',9).attr('text-anchor','end');
+        }
+
+        // Line through points
+        const lineData = quantTypes.filter(q=>q.pplD>0).sort((a,b)=>b.bpw-a.bpw);
+        g.append('path').datum(lineData).attr('d', d3.line().x(d=>xS(d.bpw)).y(d=>yS(d.pplD)).curve(d3.curveMonotoneX)).attr('stroke','#6a6a7e44').attr('stroke-width',1.5).attr('fill','none');
+
+        // Points
+        quantTypes.forEach(q => {
+            if(q.pplD <= 0) return;
+            const cx = xS(q.bpw), cy = yS(q.pplD);
+            const sizeGB = (modelB * q.bpw / 8).toFixed(1);
+            const fits = parseFloat(sizeGB) < vram * 0.85;
+
+            g.append('circle').attr('cx',cx).attr('cy',cy).attr('r',7).attr('fill',q.color).attr('opacity',0.9);
+            if(!fits) g.append('line').attr('x1',cx-5).attr('y1',cy-5).attr('x2',cx+5).attr('y2',cy+5).attr('stroke','#ff3344').attr('stroke-width',2);
+
+            g.append('text').attr('x',cx).attr('y',cy-12).text(q.name).attr('fill',q.color).attr('font-family','JetBrains Mono').attr('font-size',9).attr('text-anchor','middle').attr('font-weight','bold');
+            g.append('text').attr('x',cx).attr('y',cy+18).text(sizeGB+'G').attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',8).attr('text-anchor','middle');
+        });
+
+        // F16 baseline
+        g.append('text').attr('x',xS(16)).attr('y',yS(0.003)).text('F16 (baseline)').attr('fill','#e8e8f0').attr('font-family','JetBrains Mono').attr('font-size',9).attr('text-anchor','middle');
+        g.append('circle').attr('cx',xS(16)).attr('cy',yS(0.003)).attr('r',5).attr('fill','#e8e8f0').attr('opacity',0.5);
+    }
+    draw();
+    ['viz-ch7-model','viz-ch7-vram'].forEach(id=>document.getElementById(id).addEventListener('change',draw));
+})();
+</script>
+
+<h3>What Fits on Your GPU</h3>
+
+<table>
+<tr><th>Model</th><th>Quant</th><th>Size</th><th>24 GB</th><th>48 GB</th><th>80 GB</th></tr>
+<tr><td>7B</td><td>FP16</td><td>14 GB</td><td><span style="color:var(--green)">&check;</span></td><td><span style="color:var(--green)">&check;</span></td><td><span style="color:var(--green)">&check;</span></td></tr>
+<tr><td>7B</td><td>Q4_K_M</td><td>4.6 GB</td><td><span style="color:var(--green)">&check; 19 GB free</span></td><td><span style="color:var(--green)">&check;</span></td><td><span style="color:var(--green)">&check;</span></td></tr>
+<tr><td>13B</td><td>FP16</td><td>26 GB</td><td><span style="color:var(--red)">&times;</span></td><td><span style="color:var(--green)">&check;</span></td><td><span style="color:var(--green)">&check;</span></td></tr>
+<tr><td>13B</td><td>Q4_K_M</td><td>8.4 GB</td><td><span style="color:var(--green)">&check;</span></td><td><span style="color:var(--green)">&check;</span></td><td><span style="color:var(--green)">&check;</span></td></tr>
+<tr><td>27B</td><td>FP16</td><td>54 GB</td><td><span style="color:var(--red)">&times;</span></td><td><span style="color:var(--red)">&times;</span></td><td><span style="color:var(--green)">&check;</span></td></tr>
+<tr><td>27B</td><td>Q4_K_M</td><td>~16 GB</td><td><span style="color:var(--yellow)">tight</span></td><td><span style="color:var(--green)">&check;</span></td><td><span style="color:var(--green)">&check;</span></td></tr>
+<tr><td>70B</td><td>Q4_K_M</td><td>~42 GB</td><td><span style="color:var(--red)">&times;</span></td><td><span style="color:var(--red)">&times;</span></td><td><span style="color:var(--green)">&check;</span></td></tr>
+<tr><td>70B</td><td>Q3_K_M</td><td>~33 GB</td><td><span style="color:var(--red)">&times;</span></td><td><span style="color:var(--yellow)">tight</span></td><td><span style="color:var(--green)">&check;</span></td></tr>
+</table>
+
+<h3>Why Quantization Changes Kernels</h3>
+
+<p>You can&rsquo;t just swap the file and get the same speed. INT4 weights must be <em>dequantized</em> to FP16 before the GPU&rsquo;s tensor cores can use them. That dequant cost is real &mdash; but bandwidth savings usually win because decode is memory-bound, not compute-bound.</p>
+
+<div class="diagram">
+<span class="diagram-label">The dequantization tradeoff</span>
+<pre><code>
+  <span class="cm">7B model, single decode token, RTX 3090 (936 GB/s):</span>
+
+  <span class="ty">FP16:</span>  Read 14 GB  &rarr;  no dequant  &rarr;  <span class="nm">15.0 ms</span>
+  <span class="fn">Q4:</span>    Read 3.5 GB &rarr;  + dequant   &rarr;  <span class="nm">~5 ms</span>   <span style="color:var(--green)">&check; 3&times; faster</span>
+
+  <span class="cm">The dequant adds ALU work, but the 4&times; bandwidth savings dominate.</span>
+
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+
+  <span class="cm">But kernel quality matters enormously:</span>
+
+  <span style="color:var(--red)">Naive AWQ kernel:</span>   68 tok/s
+  <span style="color:var(--green)">Marlin AWQ kernel:</span>  741 tok/s  <span style="color:var(--green)">(10.9&times; faster, same weights)</span>
+
+  Marlin fuses dequant directly into the tensor core pipeline.
+  Both pipelines (ALU + tensor core) stay saturated simultaneously.
+  The kernel ships weights pre-shuffled into the exact layout
+  tensor cores expect. Zero wasted memory transactions.
+
+  <span class="pp">FP8 on H100: tensor cores consume FP8 natively.</span>
+  <span class="pp">No dequant at all. 2&times; FP8 FLOPS vs FP16 FLOPS.</span>
+</code></pre>
+</div>
+
+<h3>The Ecosystem</h3>
+
+<div class="diagram">
+<span class="diagram-label">Format &harr; Engine &harr; Hardware mapping</span>
+<pre><code>
+  <span class="fn">GGUF (llama.cpp)</span>    Q4_K_M, Q5_K_M, Q6_K, Q8_0, IQ types
+                      Runs anywhere: CUDA, Metal, Vulkan, CPU
+                      No calibration. Widest hardware reach.
+                      <span class="pp">Best for: local inference, edge, portability</span>
+
+  <span class="fn">GPTQ</span>                INT4 with group_size 128, Hessian-calibrated
+                      Optimized via ExLlama or Marlin kernels
+                      <span class="pp">Best for: NVIDIA GPU, maximum single-user speed</span>
+
+  <span class="fn">AWQ</span>                 INT4 with activation-aware scaling
+                      Optimized via Marlin-AWQ kernels
+                      <span class="pp">Best for: NVIDIA GPU, faster to quantize than GPTQ</span>
+
+  <span class="fn">FP8</span>                 E4M3 on Hopper/Ada, native tensor core support
+                      vLLM, TensorRT-LLM, SGLang all support
+                      <span class="pp">Best for: datacenter, H100/L4/RTX 4090</span>
+
+  <span class="cm">K-quants always beat legacy types at the same bpw.</span>
+  <span class="cm">Q4_K_S (+0.27 ppl) crushes Q4_0 (+0.47 ppl) at same size.</span>
+</code></pre>
+</div>
+
+<div class="power zen">
+<div class="power-label">Fit vs Fast</div>
+<p>Quantization serves two masters. <strong>&ldquo;Fit&rdquo;</strong> means: can the model load at all? A 70B at Q4 needs 42 GB &mdash; it fits on an A100 but not a 3090. <strong>&ldquo;Fast&rdquo;</strong> means: once loaded, how quickly does it generate? A 7B at Q4 on a 3090 is 3&times; faster than FP16 because it reads 3.5 GB instead of 14 GB per token. These are different problems with the same solution. Quantization is the first trick you reach for, and often the last one you need.</p>
+</div>
+</section>
 <section id="ch8"><h2>// 08 &mdash; FlashAttention</h2><div class="era-badge"><span class="era-num">Era 3</span> &mdash; Reduce attention IO</div><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
 <section id="ch9"><h2>// 09 &mdash; Continuous Batching</h2><div class="era-badge"><span class="era-num">Era 5</span> &mdash; Keep the batch full</div><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
 <section id="ch10"><h2>// 10 &mdash; Prefill vs Decode</h2><div class="era-badge"><span class="era-num">Era 6</span> &mdash; Split prefill from decode</div><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>

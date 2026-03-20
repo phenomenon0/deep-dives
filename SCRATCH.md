@@ -7,7 +7,7 @@
 | Part I tweaks | DONE | — | Already present in existing file |
 | Ch 05 - Why Inference Is Slow | DONE | 03c07c8 | Interactive roofline D3, GPU specs table, decode/prefill analysis |
 | Ch 06 - The KV Cache | DONE | pending | KV growth D3 viz, GQA table, PagedAttention deep-dive, KV quantization |
-| Ch 07 - Quantization | pending | — | |
+| Ch 07 - Quantization | DONE | pending | D3 quality cliff viz, bit format diagrams, GPTQ/AWQ/GGUF tabs, GPU fit table |
 | Ch 08 - FlashAttention | pending | — | |
 | Ch 09 - Continuous Batching | pending | — | |
 | Ch 10 - Prefill vs Decode | pending | — | |
