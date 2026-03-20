@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inference Engines &mdash; Part II: Making It Fast</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+    --white: #e8e8f0;
+}
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+}
+
+body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+    pointer-events: none;
+    z-index: 1000;
+}
+
+nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: rgba(10,10,15,0.92); backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 1.5rem; display: flex; gap: 1rem; align-items: center; overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+}
+nav a { color: var(--text-dim); text-decoration: none; white-space: nowrap; transition: color 0.2s; padding: 0.3rem 0; }
+nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+nav .nav-title { color: var(--green); font-weight: 600; margin-right: 0.5rem; text-shadow: 0 0 10px rgba(0,255,136,0.3); flex-shrink: 0; }
+
+.content { max-width: 820px; margin: 0 auto; padding: 5rem 2rem 6rem; }
+
+.hero { text-align: center; padding: 4rem 0 5rem; border-bottom: 1px solid var(--border); margin-bottom: 4rem; position: relative; }
+.hero h1 { font-family: 'JetBrains Mono', monospace; font-size: 3rem; font-weight: 600; color: var(--green); text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1); margin-bottom: 0.8rem; letter-spacing: -0.02em; }
+.hero .subtitle { font-size: 1.1rem; color: var(--text-dim); font-style: italic; max-width: 620px; margin: 0 auto; }
+.hero .blink { display: inline-block; animation: blink 1s step-end infinite; color: var(--green); }
+@keyframes blink { 50% { opacity: 0; } }
+
+.glitch { position: relative; display: inline-block; }
+.glitch::before, .glitch::after { content: attr(data-text); position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+.glitch::before { color: var(--cyan); animation: glitch-1 3s infinite linear alternate-reverse; clip-path: inset(0 0 80% 0); }
+.glitch::after { color: var(--magenta); animation: glitch-2 2.5s infinite linear alternate-reverse; clip-path: inset(80% 0 0 0); }
+@keyframes glitch-1 { 0%, 90% { transform: translate(0); } 92% { transform: translate(-3px, 1px); } 94% { transform: translate(3px, -1px); } 96% { transform: translate(-2px, 2px); } 100% { transform: translate(0); } }
+@keyframes glitch-2 { 0%, 88% { transform: translate(0); } 90% { transform: translate(2px, -1px); } 93% { transform: translate(-3px, 2px); } 96% { transform: translate(1px, -2px); } 100% { transform: translate(0); } }
+
+section { margin-bottom: 5rem; padding-top: 1rem; }
+
+h2 { font-family: 'JetBrains Mono', monospace; font-size: 1.5rem; color: var(--green); margin-bottom: 1.5rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); text-shadow: 0 0 10px rgba(0,255,136,0.15); letter-spacing: 0.02em; }
+h3 { font-size: 1.25rem; color: var(--cyan); margin: 2.5rem 0 1rem; font-weight: 600; }
+h4 { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: var(--magenta); text-transform: uppercase; letter-spacing: 0.08em; margin: 2rem 0 0.8rem; }
+
+p { margin-bottom: 1rem; }
+a { color: var(--cyan); text-decoration: none; }
+a:hover { text-decoration: underline; }
+strong { color: var(--white); }
+
+.drop-cap::first-letter { float: left; font-family: 'JetBrains Mono', monospace; font-size: 4rem; line-height: 0.8; padding: 0.1em 0.15em 0 0; color: var(--green); font-weight: 700; text-shadow: 0 0 20px rgba(0,255,136,0.3); }
+
+code { font-family: 'JetBrains Mono', monospace; font-size: 0.85em; background: var(--bg-code); border: 1px solid var(--border); border-radius: 3px; padding: 0.15em 0.4em; }
+pre { background: var(--bg-code); border: 1px solid var(--border); border-radius: 6px; padding: 1.2rem; overflow-x: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.6; margin: 1.2rem 0; position: relative; }
+pre code { background: none; border: none; padding: 0; font-size: inherit; color: var(--text); }
+
+.cm { color: var(--text-dim); } .kw { color: var(--magenta); } .ty { color: var(--cyan); } .st { color: var(--green); } .nm { color: var(--yellow); } .fn { color: var(--blue); } .pp { color: var(--orange); }
+.label { position: absolute; top: 0.5rem; right: 0.8rem; font-family: 'JetBrains Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim); }
+
+.diagram { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 1.5rem; margin: 1.5rem 0; overflow-x: auto; }
+.diagram pre { border: none; margin: 0; padding: 0; background: none; font-size: 12.5px; line-height: 1.45; }
+.diagram-label { font-family: 'JetBrains Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim); margin-bottom: 0.8rem; display: block; }
+
+.power { border-left: 3px solid var(--green-dim); background: rgba(0,255,136,0.04); padding: 1rem 1.2rem; margin: 1.5rem 0; border-radius: 0 6px 6px 0; }
+.power p { margin-bottom: 0; }
+.power.danger { border-left-color: var(--red); background: rgba(255,51,68,0.04); }
+.power.hack { border-left-color: var(--magenta); background: rgba(255,0,170,0.04); }
+.power.wild { border-left-color: var(--orange); background: rgba(255,136,0,0.04); }
+.power.zen { border-left-color: var(--cyan); background: rgba(0,221,255,0.04); }
+.power.purple { border-left-color: var(--purple); background: rgba(170,68,255,0.04); }
+.power-label { font-family: 'JetBrains Mono', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--green); margin-bottom: 0.5rem; }
+.power.danger .power-label { color: var(--red); }
+.power.hack .power-label { color: var(--magenta); }
+.power.wild .power-label { color: var(--orange); }
+.power.zen .power-label { color: var(--cyan); }
+.power.purple .power-label { color: var(--purple); }
+
+table { width: 100%; border-collapse: collapse; margin: 1.2rem 0; font-size: 0.92rem; }
+th { font-family: 'JetBrains Mono', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--green); text-align: left; padding: 0.6rem 0.8rem; border-bottom: 2px solid var(--border); }
+td { padding: 0.5rem 0.8rem; border-bottom: 1px solid var(--border); }
+tr:hover td { background: rgba(0,255,136,0.03); }
+
+details { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; margin: 1.2rem 0; }
+summary { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: var(--green); padding: 0.8rem 1.2rem; cursor: pointer; }
+details[open] summary { border-bottom: 1px solid var(--border); }
+details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
+
+.viz-container { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 1.5rem; margin: 1.5rem 0; overflow-x: auto; }
+.viz-container svg { width: 100%; height: auto; display: block; }
+.viz-controls { display: flex; gap: 1.5rem; margin-top: 1rem; align-items: center; flex-wrap: wrap; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+.viz-controls label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--cyan); display: block; margin-bottom: 0.3rem; }
+.viz-controls select, .viz-controls input[type="range"] { background: var(--bg-code); color: var(--text); border: 1px solid var(--border); padding: 0.3rem; font-family: 'JetBrains Mono', monospace; font-size: 12px; border-radius: 4px; }
+.viz-controls .val { color: var(--green); font-size: 13px; }
+.viz-controls button { background: var(--green-dim); color: var(--bg); border: none; padding: 0.4rem 1.2rem; font-family: 'JetBrains Mono', monospace; font-size: 11px; border-radius: 4px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.05em; }
+.viz-controls button:hover { background: var(--green); }
+.viz-controls button.secondary { background: var(--border); color: var(--text); }
+
+.tabbed { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; margin: 1.2rem 0; overflow: hidden; }
+.tabbed input[type="radio"] { display: none; }
+.tabbed .tab-bar { border-bottom: 1px solid var(--border); padding: 0 0.5rem; display: flex; }
+.tabbed .tab-bar label { display: inline-block; padding: 0.55rem 1.4rem; font-family: 'JetBrains Mono', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim); cursor: pointer; border-bottom: 2px solid transparent; transition: color 0.2s, border-color 0.2s; }
+.tabbed .tab-bar label:hover { color: var(--green); }
+.tabbed .tab-panel { display: none; }
+.tabbed .tab-panel > pre { margin: 0; border: none; border-radius: 0; }
+.tabbed .tab-panel > .diagram { margin: 0; border: none; border-radius: 0; }
+.tabbed .tab-panel > div, .tabbed .tab-panel > p { padding: 1rem 1.4rem; }
+.tabbed input.t1:checked ~ .tab-bar label[for$="-t1"] { color: var(--green); border-bottom-color: var(--green); }
+.tabbed input.t2:checked ~ .tab-bar label[for$="-t2"] { color: var(--green); border-bottom-color: var(--green); }
+.tabbed input.t3:checked ~ .tab-bar label[for$="-t3"] { color: var(--green); border-bottom-color: var(--green); }
+.tabbed input.t4:checked ~ .tab-bar label[for$="-t4"] { color: var(--green); border-bottom-color: var(--green); }
+.tabbed input.t1:checked ~ .tab-panel.p1 { display: block; }
+.tabbed input.t2:checked ~ .tab-panel.p2 { display: block; }
+.tabbed input.t3:checked ~ .tab-panel.p3 { display: block; }
+.tabbed input.t4:checked ~ .tab-panel.p4 { display: block; }
+
+.era-badge { font-family: 'JetBrains Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim); padding: 0.3rem 0.8rem; border: 1px solid var(--border); border-radius: 4px; display: inline-block; margin-bottom: 0.8rem; }
+.era-badge .era-num { color: var(--orange); font-weight: 600; }
+
+@media (max-width: 700px) {
+    .hero h1 { font-size: 2rem; }
+    nav { font-size: 9px; gap: 0.7rem; }
+    body { font-size: 16px; }
+    .content { padding: 3rem 0.8rem 4rem; }
+    pre { font-size: 10.5px; padding: 0.7rem; }
+    .diagram pre { font-size: 10.5px; }
+    .diagram { padding: 1rem; }
+    .tabbed .tab-bar { flex-wrap: wrap; gap: 0; }
+    .tabbed .tab-bar label { padding: 0.4rem 0.7rem; font-size: 9px; letter-spacing: 0.05em; }
+    .power { padding: 0.6rem 0.8rem; }
+    .viz-controls { flex-wrap: wrap; gap: 0.5rem; }
+    h2 { font-size: 1.3rem; }
+    h3 { font-size: 1.1rem; }
+}
+</style>
+</head>
+
+<body>
+
+<nav>
+    <span class="nav-title">&gt;_ INFERENCE II</span>
+    <a href="inference-engine-deep-dive.html" style="color:var(--orange)">&larr; Part I</a>
+    <span style="color:var(--border)">&middot;</span>
+    <a href="#ch5">why it's slow</a>
+    <a href="#ch6">KV cache</a>
+    <a href="#ch7">quantization</a>
+    <a href="#ch8">flash attention</a>
+    <a href="#ch9">batching</a>
+    <a href="#ch10">prefill/decode</a>
+    <a href="#ch11">speculation</a>
+    <a href="#ch12">the engines</a>
+    <span style="color:var(--border)">&middot;</span>
+    <a href="part3-serving-at-scale.html" style="color:var(--orange)">Part III &rarr;</a>
+</nav>
+
+<div class="content">
+
+<div class="hero">
+    <h1><span class="glitch" data-text="INFERENCE ENGINES">INFERENCE ENGINES</span></h1>
+    <div class="subtitle">
+        The math stayed the same. The bottleneck moved.<br>
+        54 GB of weights. 24 GB of VRAM. A memory bus that can&rsquo;t keep up.<br>
+        This is the engineering of making the math fit the metal.<span class="blink">_</span>
+    </div>
+    <div style="margin-top:1.2rem; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.1em;">Part II &mdash; Making It Fast</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 5: WHY INFERENCE IS SLOW                               -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch5">
+<h2>// 05 &mdash; Why Inference Is Slow</h2>
+<div class="era-badge"><span class="era-num">Era 1</span> &mdash; Just make it run</div>
+<div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--orange)">WEIGHTS</span> &rarr; <span style="color:var(--red)">HBM</span> &rarr; <span style="color:var(--yellow)">SRAM</span> &rarr; <span style="color:var(--green)">CORES</span> &nbsp; <span style="color:var(--orange)">the real pipeline</span></div>
+<div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
+    You thought the problem was compute. Usually it&rsquo;s movement.<br>
+    A 27B model is not a function. It&rsquo;s a file you keep dragging through memory.<span class="blink">_</span>
+</div>
+
+<p class="drop-cap">Part I traced a vector through 64 transformer blocks. You counted the FLOPs: 44 billion per token for Qwen 27B. That sounds like a compute problem. It isn&rsquo;t. Modern GPUs can compute hundreds of teraFLOPs per second. An RTX 3090 does 142 trillion 16-bit operations every second. At that rate, 44 billion FLOPs should take 0.3 milliseconds. One token every 0.3 ms would mean 3,000 tokens per second.</p>
+
+<p>You don&rsquo;t get 3,000 tokens per second. You get about 30. The model runs <strong>100&times; slower</strong> than the arithmetic alone would suggest. Something else is eating the time. That something is <strong>memory bandwidth</strong> &mdash; the speed at which data travels from GPU memory to the compute cores. The GPU is fast. The pipe feeding it is narrow.</p>
+
+<h3>The Memory Wall</h3>
+
+<p>A GPU has two relevant resources: <strong>compute</strong> (how many operations per second) and <strong>bandwidth</strong> (how many bytes per second it can read from memory). These two numbers define a boundary called the <strong>roofline</strong>.</p>
+
+<table>
+<tr><th>GPU</th><th>FP16 Compute</th><th>Bandwidth</th><th>VRAM</th><th>Ridge Point</th></tr>
+<tr><td>RTX 3090</td><td><span class="nm">142</span> TFLOPS</td><td><span class="nm">936</span> GB/s</td><td>24 GB</td><td><span class="nm">~152</span> FLOPs/byte</td></tr>
+<tr><td>RTX 4090</td><td><span class="nm">165</span> TFLOPS</td><td><span class="nm">1,008</span> GB/s</td><td>24 GB</td><td><span class="nm">~164</span> FLOPs/byte</td></tr>
+<tr><td>A100 80GB</td><td><span class="nm">312</span> TFLOPS</td><td><span class="nm">2,039</span> GB/s</td><td>80 GB</td><td><span class="nm">~153</span> FLOPs/byte</td></tr>
+<tr><td>H100 SXM</td><td><span class="nm">989</span> TFLOPS</td><td><span class="nm">3,350</span> GB/s</td><td>80 GB</td><td><span class="nm">~295</span> FLOPs/byte</td></tr>
+</table>
+
+<p>The <strong>ridge point</strong> is where the bottleneck shifts. Below it, you&rsquo;re <em>memory-bound</em> &mdash; the GPU finishes its math before the next chunk of data arrives. Above it, you&rsquo;re <em>compute-bound</em>. The ridge point is peak compute divided by peak bandwidth.</p>
+
+<h3>Where Decode Lives</h3>
+
+<p>During decode, generating one token requires reading the entire model from memory. For a 7B FP16 model, that&rsquo;s 14 GB per token. The compute is approximately 2 FLOPs per parameter &mdash; 14 billion FLOPs. The arithmetic intensity is:</p>
+
+<div class="diagram">
+<span class="diagram-label">Arithmetic intensity &mdash; decode at batch size 1</span>
+<pre><code>
+  <span class="cm">Bytes read per token:</span>  7B params &times; 2 bytes = <span class="nm">14 GB</span>
+  <span class="cm">FLOPs per token:</span>       7B params &times; 2 FLOPs  = <span class="nm">14 GFLOPs</span>
+
+  <span class="pp">Arithmetic intensity = 14 GFLOPs / 14 GB = <strong>~1 FLOP per byte</strong></span>
+
+  <span class="cm">Ridge point of an A100:  ~153 FLOPs per byte</span>
+  <span class="cm">Decode intensity:          ~1 FLOP per byte</span>
+
+  <span style="color:var(--red)">Decode is 153&times; below the ridge point.</span>
+  <span style="color:var(--red)">The GPU&rsquo;s compute units are ~99.3% idle during decode.</span>
+
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+
+  <span class="cm">For any model at FP16, batch size 1:</span>
+  <span class="cm">  Arithmetic intensity &asymp; 1 FLOP/byte  &larr; independent of model size</span>
+</code></pre>
+</div>
+
+<p>This is the central insight: <strong>decode doesn&rsquo;t get faster with a faster GPU</strong>. The H100 has 3.2&times; the compute of the A100, but only 1.6&times; the bandwidth. For decode, you get roughly 1.6&times; the speed &mdash; the extra compute sits idle.</p>
+
+<h3>Where Prefill Lives</h3>
+
+<p>Prefill processes all prompt tokens at once. Compute scales with sequence length; weight reads don&rsquo;t &mdash; you read weights once and reuse them across all tokens.</p>
+
+<div class="diagram">
+<span class="diagram-label">Arithmetic intensity scales with sequence length during prefill</span>
+<pre><code>
+  <span class="cm">seq_len = 1:</span>     AI &asymp; <span class="nm">1</span> FLOP/byte    <span style="color:var(--red)">memory-bound</span>
+  <span class="cm">seq_len = 32:</span>    AI &asymp; <span class="nm">32</span> FLOPs/byte  <span style="color:var(--red)">memory-bound</span>
+  <span class="cm">seq_len = 128:</span>   AI &asymp; <span class="nm">128</span> FLOPs/byte <span style="color:var(--yellow)">approaching ridge</span>
+  <span class="cm">seq_len = 256:</span>   AI &asymp; <span class="nm">256</span> FLOPs/byte <span style="color:var(--green)">compute-bound</span>
+  <span class="cm">seq_len = 2048:</span>  AI &asymp; <span class="nm">2048</span> FLOPs/byte <span style="color:var(--green)">GPU fully saturated</span>
+
+  <span class="pp">Crossover happens at the ridge point:</span>
+  <span class="cm">  RTX 3090:  seq_len &asymp; 152     A100: &asymp; 153     H100: &asymp; 295</span>
+</code></pre>
+</div>
+
+<h3>The Roofline</h3>
+
+<p>Drag the sliders to see where different workloads land on the roofline.</p>
+
+<div class="viz-container">
+<svg id="viz-ch5-roofline" viewBox="0 0 780 420"></svg>
+<div class="viz-controls">
+<div><label>GPU</label><select id="viz-ch5-gpu"><option value="3090">RTX 3090</option><option value="4090">RTX 4090</option><option value="a100" selected>A100 80GB</option><option value="h100">H100 SXM</option></select></div>
+<div><label>Batch Size (decode)</label><input type="range" id="viz-ch5-batch" min="1" max="128" value="1" style="width:120px;"><span class="val" id="viz-ch5-batch-val">1</span></div>
+<div><label>Prefill Length</label><input type="range" id="viz-ch5-prefill" min="1" max="4096" value="512" style="width:120px;"><span class="val" id="viz-ch5-prefill-val">512</span></div>
+</div>
+</div>
+
+<script>
+(function() {
+    const svg = d3.select('#viz-ch5-roofline');
+    const W = 780, H = 420;
+    const margin = {top: 40, right: 30, bottom: 55, left: 70};
+    const w = W - margin.left - margin.right, h = H - margin.top - margin.bottom;
+    const gpus = {
+        '3090': {name:'RTX 3090', compute:142, bw:936, color:'#00ff88'},
+        '4090': {name:'RTX 4090', compute:165, bw:1008, color:'#00ddff'},
+        'a100': {name:'A100 80GB', compute:312, bw:2039, color:'#ff00aa'},
+        'h100': {name:'H100 SXM', compute:989, bw:3350, color:'#ffdd00'}
+    };
+    function draw() {
+        svg.selectAll('*').remove();
+        const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+        const gpu = gpus[document.getElementById('viz-ch5-gpu').value];
+        const batch = +document.getElementById('viz-ch5-batch').value;
+        const prefill = +document.getElementById('viz-ch5-prefill').value;
+        document.getElementById('viz-ch5-batch-val').textContent = batch;
+        document.getElementById('viz-ch5-prefill-val').textContent = prefill;
+        const ridge = gpu.compute * 1000 / gpu.bw;
+        const xS = d3.scaleLog().domain([0.25, 8192]).range([0, w]);
+        const yS = d3.scaleLog().domain([0.1, 2000]).range([h, 0]);
+        // Grid
+        [1,4,16,64,256,1024,4096].forEach(v => { g.append('line').attr('x1',xS(v)).attr('y1',0).attr('x2',xS(v)).attr('y2',h).attr('stroke','#1e1e2e'); });
+        [0.1,1,10,100,1000].forEach(v => { g.append('line').attr('x1',0).attr('y1',yS(v)).attr('x2',w).attr('y2',yS(v)).attr('stroke','#1e1e2e'); });
+        // Axes
+        g.append('g').attr('transform',`translate(0,${h})`).call(d3.axisBottom(xS).tickValues([1,4,16,64,256,1024,4096]).tickFormat(d3.format('~s'))).selectAll('text').attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',10);
+        g.append('g').call(d3.axisLeft(yS).tickValues([0.1,1,10,100,1000]).tickFormat(d3.format('~s'))).selectAll('text').attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',10);
+        g.selectAll('.domain, .tick line').attr('stroke','#2a2a3a');
+        svg.append('text').attr('x',W/2).attr('y',H-5).text('Arithmetic Intensity (FLOPs/byte)').attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',10).attr('text-anchor','middle');
+        svg.append('text').attr('x',W/2).attr('y',20).text(`Roofline \u2014 ${gpu.name}`).attr('fill',gpu.color).attr('font-family','JetBrains Mono').attr('font-size',12).attr('text-anchor','middle');
+        // Roofline
+        const bwPts = []; for(let a=0.25;a<=ridge*1.05;a*=1.15){bwPts.push([a, gpu.bw*a/1000]);} bwPts.push([ridge, gpu.compute]);
+        g.append('path').datum(bwPts).attr('d',d3.line().x(d=>xS(d[0])).y(d=>yS(d[1]))).attr('stroke',gpu.color).attr('stroke-width',2.5).attr('fill','none').attr('opacity',0.8);
+        g.append('line').attr('x1',xS(ridge)).attr('y1',yS(gpu.compute)).attr('x2',xS(8192)).attr('y2',yS(gpu.compute)).attr('stroke',gpu.color).attr('stroke-width',2.5).attr('opacity',0.8);
+        g.append('circle').attr('cx',xS(ridge)).attr('cy',yS(gpu.compute)).attr('r',5).attr('fill',gpu.color);
+        g.append('text').attr('x',xS(ridge)).attr('y',yS(gpu.compute)-12).text(`Ridge: ${ridge.toFixed(0)}`).attr('fill',gpu.color).attr('font-family','JetBrains Mono').attr('font-size',9).attr('text-anchor','middle');
+        g.append('text').attr('x',xS(2)).attr('y',20).text('MEMORY-BOUND').attr('fill','#ff334466').attr('font-family','JetBrains Mono').attr('font-size',10);
+        g.append('text').attr('x',xS(ridge*3)).attr('y',20).text('COMPUTE-BOUND').attr('fill','#00ff8866').attr('font-family','JetBrains Mono').attr('font-size',10);
+        // Decode dot
+        const dAI = Math.max(0.3, batch), dPerf = Math.min(gpu.bw*dAI/1000, gpu.compute), dUtil = dPerf/gpu.compute*100;
+        g.append('circle').attr('cx',xS(dAI)).attr('cy',yS(Math.max(0.1,dPerf))).attr('r',8).attr('fill','#ff3344');
+        g.append('circle').attr('cx',xS(dAI)).attr('cy',yS(Math.max(0.1,dPerf))).attr('r',14).attr('fill','none').attr('stroke','#ff3344').attr('opacity',0.3);
+        g.append('text').attr('x',xS(dAI)+16).attr('y',yS(Math.max(0.1,dPerf))+4).text(`DECODE b=${batch}`).attr('fill','#ff3344').attr('font-family','JetBrains Mono').attr('font-size',10).attr('font-weight','bold');
+        g.append('text').attr('x',xS(dAI)+16).attr('y',yS(Math.max(0.1,dPerf))+18).text(`${dPerf.toFixed(1)} TF (${dUtil.toFixed(1)}%)`).attr('fill','#ff334499').attr('font-family','JetBrains Mono').attr('font-size',9);
+        // Prefill dot
+        const pAI = Math.max(0.3, prefill), pPerf = Math.min(gpu.bw*pAI/1000, gpu.compute), pUtil = pPerf/gpu.compute*100;
+        const pRight = pAI > 1000;
+        g.append('circle').attr('cx',xS(pAI)).attr('cy',yS(Math.max(0.1,pPerf))).attr('r',8).attr('fill','#00ff88');
+        g.append('circle').attr('cx',xS(pAI)).attr('cy',yS(Math.max(0.1,pPerf))).attr('r',14).attr('fill','none').attr('stroke','#00ff88').attr('opacity',0.3);
+        const px = pRight ? xS(pAI)-16 : xS(pAI)+16, pa = pRight ? 'end' : 'start';
+        g.append('text').attr('x',px).attr('y',yS(Math.max(0.1,pPerf))+4).text(`PREFILL len=${prefill}`).attr('fill','#00ff88').attr('font-family','JetBrains Mono').attr('font-size',10).attr('font-weight','bold').attr('text-anchor',pa);
+        g.append('text').attr('x',px).attr('y',yS(Math.max(0.1,pPerf))+18).text(`${pPerf.toFixed(1)} TF (${pUtil.toFixed(0)}%)`).attr('fill','#00ff8899').attr('font-family','JetBrains Mono').attr('font-size',9).attr('text-anchor',pa);
+    }
+    draw();
+    document.getElementById('viz-ch5-gpu').addEventListener('change', draw);
+    ['viz-ch5-batch','viz-ch5-prefill'].forEach(id => document.getElementById(id).addEventListener('input', draw));
+})();
+</script>
+
+<div class="power danger">
+<div class="power-label">The Utilization Trap</div>
+<p>An RTX 3090 generating tokens from a 27B model at batch size 1 uses <strong>0.66%</strong> of its compute capability. The other 99.34% is idle, waiting for data. The GPU isn&rsquo;t slow. The memory bus is narrow.</p>
+</div>
+
+<h3>One Decode Step, Dissected</h3>
+
+<div class="tabbed">
+<input type="radio" name="decode-step" id="decode-step-t1" class="t1" checked>
+<input type="radio" name="decode-step" id="decode-step-t2" class="t2">
+<input type="radio" name="decode-step" id="decode-step-t3" class="t3">
+<div class="tab-bar">
+<label for="decode-step-t1">The Timeline</label>
+<label for="decode-step-t2">The Numbers</label>
+<label for="decode-step-t3">Why Batching Helps</label>
+</div>
+<div class="tab-panel p1">
+<div class="diagram"><span class="diagram-label">One token of decode &mdash; 7B FP16 on A100</span>
+<pre><code>
+  <span style="color:var(--red)">read weights</span>            14 GB streamed from HBM
+  <span style="color:var(--orange)">read KV cache</span>           grows with every token
+  <span style="color:var(--yellow)">run kernels</span>             matmuls, norms, activations
+  <span style="color:var(--cyan)">write new K, V</span>          append one row per layer
+  <span style="color:var(--magenta)">project logits</span>          multiply by embedding table
+  <span style="color:var(--green)">sample one token</span>        temperature, top-p, draw
+  <span class="cm">repeat</span>
+
+  <span class="cm">Time budget:</span>
+  <span style="color:var(--red)">Memory read:  14 GB / 2,039 GB/s  =  6.9 ms</span>     &larr; <strong>dominates</strong>
+  <span style="color:var(--yellow)">Compute:      14 GFLOPs / 312 TF  =  0.045 ms</span>   &larr; 150&times; faster
+
+  <span class="pp">Token latency &asymp; 6.9 ms &rarr; ~145 tokens/sec theoretical max</span>
+</code></pre></div></div>
+<div class="tab-panel p2">
+<div class="diagram"><span class="diagram-label">Model sizes on A100 80GB</span>
+<pre><code>
+  <span class="cm">Model       Weight Size   Read Time    Theoretical tok/s</span>
+  <span class="cm">&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;</span>
+  <span class="fn">7B  FP16</span>    14 GB         6.9 ms       <span class="nm">~145</span>
+  <span class="fn">14B FP16</span>    28 GB         13.7 ms      <span class="nm">~73</span>
+  <span class="fn">27B Q4</span>      ~16 GB        7.8 ms       <span class="nm">~128</span>
+  <span class="fn">72B Q4</span>      ~42 GB        20.6 ms      <span class="nm">~49</span>
+
+  <span class="pp">Pattern: tok/s &asymp; bandwidth / weight_size</span>
+</code></pre></div></div>
+<div class="tab-panel p3">
+<div class="diagram"><span class="diagram-label">Batching amortizes weight reads</span>
+<pre><code>
+  <span class="cm">Batch 1:</span>   Read 14 GB &rarr; compute 1 token  &rarr; <span class="nm">1 FLOP/byte</span>
+  <span class="cm">Batch 8:</span>   Read 14 GB &rarr; compute 8 tokens &rarr; <span class="nm">8 FLOPs/byte</span>
+  <span class="cm">Batch 64:</span>  Read 14 GB &rarr; compute 64       &rarr; <span class="nm">64 FLOPs/byte</span>
+  <span class="cm">Batch 256:</span> Read 14 GB &rarr; compute 256      &rarr; <span class="nm">256 FLOPs/byte</span>
+  <span style="color:var(--green)">&check; Past the A100 ridge &mdash; now compute-bound!</span>
+
+  <span class="pp">More users = better GPU utilization.</span>
+  <span class="pp">But each batch member needs its own KV cache.</span>
+  <span class="pp">VRAM fills fast. That tension is the central problem of Part III.</span>
+</code></pre></div></div>
+</div>
+
+<div class="diagram">
+<span class="diagram-label">The optimization map &mdash; every chapter targets a bottleneck</span>
+<pre><code>
+  <span class="cm">Problem</span>                              <span class="cm">Solution</span>                    <span class="cm">Chapter</span>
+  <span class="cm">&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;</span>
+  KV cache eats VRAM                  Paging, compression          <span style="color:var(--cyan)">Ch 6</span>
+  Weights too large for one GPU       Quantization                 <span style="color:var(--cyan)">Ch 7</span>
+  Attention writes too much to HBM    FlashAttention               <span style="color:var(--cyan)">Ch 8</span>
+  GPU idle between requests           Continuous batching           <span style="color:var(--cyan)">Ch 9</span>
+  Prefill and decode fight for GPU    Phase separation              <span style="color:var(--cyan)">Ch 10</span>
+  Decode is serial                    Speculative decoding          <span style="color:var(--cyan)">Ch 11</span>
+  Which tradeoffs to pick?            The engines                   <span style="color:var(--cyan)">Ch 12</span>
+</code></pre>
+</div>
+
+<div class="power zen">
+<div class="power-label">The Real Pipeline</div>
+<p>Part I showed the math pipeline: embed &rarr; norm &rarr; attention &rarr; FFN &rarr; project &rarr; sample. The <em>real</em> pipeline is: <strong>weights &rarr; HBM &rarr; SRAM &rarr; cores</strong>. Before you optimize the model, you optimize the trip the numbers take.</p>
+</div>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 6: THE KV CACHE                                        -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch6">
+<h2>// 06 &mdash; The KV Cache</h2>
+<div class="era-badge"><span class="era-num">Era 4</span> &mdash; Fix the KV cache</div>
+<div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--cyan)">ATTEND ONCE</span> &rarr; <span style="color:var(--orange)">STORE FOREVER</span> &rarr; <span style="color:var(--red)">PAY IN VRAM</span></div>
+<div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
+    The model remembers by writing down what it already saw.<br>
+    That memory is the cache. That cache becomes the problem.<span class="blink">_</span>
+</div>
+
+<p class="drop-cap">Chapter 5 showed you the memory wall: every decode step reads the entire model from HBM. But it reads something else too &mdash; the <strong>KV cache</strong>. Every token the model has ever seen in this conversation has a key vector and a value vector stored per layer. Attention doesn&rsquo;t recompute them; it rereads them. That cache starts small and grows linearly with every word generated. At long contexts, it <em>becomes</em> the memory problem.</p>
+
+<p>The model&rsquo;s memory is not its weights. At runtime, its memory is the KV cache.</p>
+
+<h3>What Gets Cached</h3>
+
+<div class="diagram">
+<span class="diagram-label">KV cache &mdash; what&rsquo;s stored per layer per token</span>
+<pre><code>
+  <span class="cm">For each layer (64 in Qwen 27B):</span>
+
+  Token 1:   K<sub>1</sub> [kv_heads &times; head_dim]  +  V<sub>1</sub> [kv_heads &times; head_dim]
+  Token 2:   K<sub>2</sub> [kv_heads &times; head_dim]  +  V<sub>2</sub> [kv_heads &times; head_dim]
+  &vellip;
+  Token N:   K<sub>N</sub> [kv_heads &times; head_dim]  +  V<sub>N</sub> [kv_heads &times; head_dim]
+
+  <span class="pp">Per token = 2 &times; layers &times; kv_heads &times; head_dim &times; bytes_per_element</span>
+
+  <span class="cm">Qwen 27B (FP16): 2 &times; 64 &times; 4 &times; 256 &times; 2 = <span class="nm">256 KiB</span> per token</span>
+  <span class="cm">Llama-2 7B (MHA): 2 &times; 32 &times; 32 &times; 128 &times; 2 = <span class="nm">512 KiB</span> per token</span>
+</code></pre>
+</div>
+
+<div class="power wild">
+<div class="power-label">The GQA Advantage</div>
+<p>Llama-2 7B uses full multi-head attention: 32 KV heads. Qwen 27B uses grouped-query attention with only 4 KV heads. Despite being <strong>4&times; larger</strong>, Qwen 27B uses <strong>half the KV cache per token</strong>. GQA isn&rsquo;t just a quality tradeoff &mdash; it&rsquo;s a memory architecture decision that determines how many users you can serve.</p>
+</div>
+
+<h3>How the Cache Grows</h3>
+
+<p>Watch what happens as context length increases. Pay attention to the crossover point where KV cache exceeds model weight size.</p>
+
+<div class="viz-container">
+<svg id="viz-ch6-kv" viewBox="0 0 780 380"></svg>
+<div class="viz-controls">
+<div><label>Model</label><select id="viz-ch6-model"><option value="llama2-7b">Llama-2 7B (MHA, 32 KV)</option><option value="llama3-8b">Llama-3 8B (GQA, 8 KV)</option><option value="qwen-27b" selected>Qwen 27B (GQA, 4 KV)</option><option value="llama3-70b">Llama-3.1 70B (GQA, 8 KV)</option></select></div>
+<div><label>Batch</label><input type="range" id="viz-ch6-batch" min="1" max="64" value="1" style="width:100px;"><span class="val" id="viz-ch6-batch-val">1</span></div>
+<div><label>KV Precision</label><select id="viz-ch6-prec"><option value="2" selected>FP16</option><option value="1">FP8</option><option value="0.5">INT4</option></select></div>
+<div><label>VRAM</label><select id="viz-ch6-vram"><option value="24" selected>24 GB</option><option value="48">48 GB</option><option value="80">80 GB</option></select></div>
+</div>
+</div>
+
+<script>
+(function() {
+    const svg = d3.select('#viz-ch6-kv');
+    const W = 780, H = 380;
+    const margin = {top: 40, right: 130, bottom: 55, left: 70};
+    const w = W - margin.left - margin.right, h = H - margin.top - margin.bottom;
+    const models = {
+        'llama2-7b': {name:'Llama-2 7B', layers:32, kvH:32, hDim:128, wGB:13.5, type:'MHA'},
+        'llama3-8b': {name:'Llama-3 8B', layers:32, kvH:8, hDim:128, wGB:16, type:'GQA-4'},
+        'qwen-27b':  {name:'Qwen 27B', layers:64, kvH:4, hDim:256, wGB:54, type:'GQA-8'},
+        'llama3-70b':{name:'Llama-3.1 70B', layers:80, kvH:8, hDim:128, wGB:140, type:'GQA-8'}
+    };
+    function draw() {
+        svg.selectAll('*').remove();
+        const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+        const m = models[document.getElementById('viz-ch6-model').value];
+        const batch = +document.getElementById('viz-ch6-batch').value;
+        const bpe = +document.getElementById('viz-ch6-prec').value;
+        const vram = +document.getElementById('viz-ch6-vram').value;
+        document.getElementById('viz-ch6-batch-val').textContent = batch;
+        const perTok = 2 * m.layers * m.kvH * m.hDim * bpe;
+        const perTokKiB = perTok / 1024;
+        const maxCtx = 131072;
+        const pts = []; for(let c=128;c<=maxCtx;c*=1.12) pts.push(Math.round(c)); pts.push(maxCtx);
+        const xS = d3.scaleLog().domain([128, maxCtx]).range([0, w]);
+        const maxGB = Math.min(Math.max(vram*1.2, perTok*maxCtx*batch/(1024**3)*0.5), 200);
+        const yS = d3.scaleLinear().domain([0, maxGB]).range([h, 0]);
+        // Grid
+        [256,512,1024,2048,4096,8192,16384,32768,65536,131072].forEach(v=>{if(v>=128&&v<=maxCtx)g.append('line').attr('x1',xS(v)).attr('y1',0).attr('x2',xS(v)).attr('y2',h).attr('stroke','#1e1e2e');});
+        // Axes
+        g.append('g').attr('transform',`translate(0,${h})`).call(d3.axisBottom(xS).tickValues([256,1024,4096,16384,65536,131072]).tickFormat(d=>d>=1024?(d/1024)+'K':d)).selectAll('text').attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',9);
+        g.append('g').call(d3.axisLeft(yS).ticks(6).tickFormat(d=>d+' GB')).selectAll('text').attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',9);
+        g.selectAll('.domain, .tick line').attr('stroke','#2a2a3a');
+        svg.append('text').attr('x',W/2).attr('y',H-5).text('Context Length (tokens)').attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',10).attr('text-anchor','middle');
+        svg.append('text').attr('x',W/2).attr('y',20).text(`KV Cache Growth \u2014 ${m.name} (${m.type}, batch=${batch})`).attr('fill','#00ddff').attr('font-family','JetBrains Mono').attr('font-size',12).attr('text-anchor','middle');
+        // VRAM line
+        if(vram<=maxGB){g.append('line').attr('x1',0).attr('y1',yS(vram)).attr('x2',w).attr('y2',yS(vram)).attr('stroke','#ff3344').attr('stroke-width',1.5).attr('stroke-dasharray','6,4');g.append('text').attr('x',w+5).attr('y',yS(vram)+4).text(vram+' GB VRAM').attr('fill','#ff3344').attr('font-family','JetBrains Mono').attr('font-size',9);}
+        // Weight line
+        const wQ = m.wGB * (bpe/2);
+        if(wQ<=maxGB){g.append('line').attr('x1',0).attr('y1',yS(wQ)).attr('x2',w).attr('y2',yS(wQ)).attr('stroke','#ffdd0066').attr('stroke-dasharray','4,4');g.append('text').attr('x',w+5).attr('y',yS(wQ)+4).text(`Weights ${wQ.toFixed(0)} GB`).attr('fill','#ffdd0088').attr('font-family','JetBrains Mono').attr('font-size',9);}
+        // KV budget
+        const kvBudget = vram - wQ;
+        if(kvBudget>0&&kvBudget<=maxGB){g.append('line').attr('x1',0).attr('y1',yS(kvBudget)).attr('x2',w).attr('y2',yS(kvBudget)).attr('stroke','#00ff8844').attr('stroke-dasharray','3,3');g.append('text').attr('x',w+5).attr('y',yS(kvBudget)+4).text('KV budget').attr('fill','#00ff8866').attr('font-family','JetBrains Mono').attr('font-size',9);}
+        // KV curve
+        const kvData = pts.map(c=>[c, perTok*c*batch/(1024**3)]).filter(d=>d[1]<=maxGB*1.2);
+        const defs = svg.append('defs');
+        const grad = defs.append('linearGradient').attr('id','kvGrad').attr('x1','0%').attr('y1','100%').attr('x2','0%').attr('y2','0%');
+        grad.append('stop').attr('offset','0%').attr('stop-color','#00ddff').attr('stop-opacity',0);
+        grad.append('stop').attr('offset','100%').attr('stop-color','#00ddff').attr('stop-opacity',0.4);
+        g.append('path').datum(kvData).attr('d',d3.area().x(d=>xS(d[0])).y0(h).y1(d=>yS(Math.min(d[1],maxGB)))).attr('fill','url(#kvGrad)').attr('opacity',0.3);
+        g.append('path').datum(kvData).attr('d',d3.line().x(d=>xS(d[0])).y(d=>yS(Math.min(d[1],maxGB)))).attr('stroke','#00ddff').attr('stroke-width',2.5).attr('fill','none');
+        // Max context marker
+        if(kvBudget>0){const maxTok=Math.floor(kvBudget*(1024**3)/(perTok*batch));if(maxTok>=128&&maxTok<=maxCtx){g.append('circle').attr('cx',xS(maxTok)).attr('cy',yS(kvBudget)).attr('r',6).attr('fill','#00ff88');g.append('text').attr('x',xS(maxTok)).attr('y',yS(kvBudget)-14).text(`Max: ${maxTok>=1024?(maxTok/1024).toFixed(1)+'K':maxTok}`).attr('fill','#00ff88').attr('font-family','JetBrains Mono').attr('font-size',10).attr('text-anchor','middle').attr('font-weight','bold');}}
+        // Stat
+        g.append('text').attr('x',0).attr('y',h+38).text(`Per token: ${perTokKiB.toFixed(0)} KiB \u00b7 4K: ${(perTok*4096*batch/(1024**3)).toFixed(2)} GB \u00b7 32K: ${(perTok*32768*batch/(1024**3)).toFixed(1)} GB \u00b7 128K: ${(perTok*131072*batch/(1024**3)).toFixed(1)} GB`).attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',9);
+    }
+    draw();
+    ['viz-ch6-model','viz-ch6-prec','viz-ch6-vram'].forEach(id=>document.getElementById(id).addEventListener('change',draw));
+    document.getElementById('viz-ch6-batch').addEventListener('input',draw);
+})();
+</script>
+
+<h3>GQA: Shrinking the Cache by Design</h3>
+
+<table>
+<tr><th>Model</th><th>Type</th><th>KV Heads</th><th>Per-Token KV</th><th>4K Cache</th><th>128K Cache</th></tr>
+<tr><td>Llama-2 7B</td><td>MHA</td><td><span class="nm">32</span></td><td><span class="nm">512</span> KiB</td><td>2.0 GB</td><td style="color:var(--red)">64.0 GB</td></tr>
+<tr><td>Llama-3 8B</td><td>GQA</td><td><span class="nm">8</span></td><td><span class="nm">128</span> KiB</td><td>0.5 GB</td><td>16.0 GB</td></tr>
+<tr><td>Qwen-2.5 27B</td><td>GQA</td><td><span class="nm">4</span></td><td><span class="nm">256</span> KiB</td><td>1.0 GB</td><td>32.0 GB</td></tr>
+<tr><td>Llama-3.1 70B</td><td>GQA</td><td><span class="nm">8</span></td><td><span class="nm">320</span> KiB</td><td>1.25 GB</td><td>40.0 GB</td></tr>
+</table>
+
+<p>Llama-2 7B with full MHA uses <em>more</em> KV cache per token than Llama-3.1 70B with GQA &mdash; despite being 10&times; smaller. GQA shares K and V heads across groups of query heads. Quality loss is under 0.3%. This is why every major model since mid-2023 uses GQA.</p>
+
+<h3>PagedAttention: Virtual Memory for KV</h3>
+
+<p>Traditional KV allocation is contiguous and pre-allocated. The vLLM team measured that existing systems wasted <strong>60&ndash;80%</strong> of KV cache memory due to fragmentation and over-reservation.</p>
+
+<div class="tabbed">
+<input type="radio" name="paged" id="paged-t1" class="t1" checked>
+<input type="radio" name="paged" id="paged-t2" class="t2">
+<input type="radio" name="paged" id="paged-t3" class="t3">
+<div class="tab-bar">
+<label for="paged-t1">The Problem</label>
+<label for="paged-t2">The Solution</label>
+<label for="paged-t3">The Numbers</label>
+</div>
+<div class="tab-panel p1">
+<div class="diagram"><span class="diagram-label">Naive KV allocation &mdash; contiguous, wasteful</span>
+<pre><code>
+  <span class="cm">Request A: max_len=2048, actual output=37 tokens</span>
+  <span style="color:var(--green)">&block;&block;&block;</span><span style="color:var(--red)">&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;</span>
+  <span style="color:var(--green)">used: 37</span>                 <span style="color:var(--red)">wasted: 2,011 slots (98%)</span>
+
+  <span class="cm">Request B: max_len=2048, actual output=412 tokens</span>
+  <span style="color:var(--green)">&block;&block;&block;&block;&block;&block;&block;&block;&block;</span><span style="color:var(--red)">&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;</span>
+  <span style="color:var(--green)">used: 412</span>               <span style="color:var(--red)">wasted: 1,636 slots (80%)</span>
+
+  <span class="pp">Internal fragmentation: unused slots in live buffers.</span>
+  <span class="pp">External fragmentation: freed gaps too small to reuse.</span>
+  <span class="pp">Result: 60&ndash;80% of KV memory wasted.</span>
+</code></pre></div></div>
+<div class="tab-panel p2">
+<div class="diagram"><span class="diagram-label">PagedAttention &mdash; OS virtual memory for the KV cache</span>
+<pre><code>
+  <span class="ty">OS Concept</span>                   <span class="fn">PagedAttention</span>
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  Virtual page               Logical KV block (16 tokens)
+  Physical page frame         Physical KV block (GPU memory)
+  Page table                  Block table (per sequence)
+  Demand paging               Allocate only when tokens arrive
+
+  <span class="cm">Mechanism:</span>
+  1. KV memory split into <strong>fixed-size blocks</strong> (16 tokens default)
+  2. Each sequence has a <strong>block table</strong>: logical &rarr; physical
+  3. Blocks need <strong>not be contiguous</strong>
+  4. New blocks allocated <strong>on demand</strong>
+  5. Attention kernel does a <strong>gather</strong> via block table
+
+  <span class="cm">Request A (37 tokens):</span>
+  Block table: [<span style="color:var(--green)">P7</span>] [<span style="color:var(--green)">P42</span>] [<span style="color:var(--green)">P15</span>]  &larr; 3 blocks, last partial
+  <span class="cm">Waste: at most 15 slots = &lt;3%</span>
+
+  <span class="pp">Average waste = block_size / 2 = 8 tokens per sequence.</span>
+  <span class="pp">Compare to 60&ndash;80% before. Near-zero fragmentation.</span>
+</code></pre></div></div>
+<div class="tab-panel p3">
+<div class="diagram"><span class="diagram-label">Measured improvements (vLLM, SOSP 2023)</span>
+<pre><code>
+  <span class="cm">Before PagedAttention:</span>
+    Memory waste:   <span style="color:var(--red)">60&ndash;80%</span>
+
+  <span class="cm">After PagedAttention:</span>
+    Memory waste:   <span style="color:var(--green)">&lt; 4%</span>
+    Throughput:     <span style="color:var(--green)">2&ndash;4&times;</span> over HuggingFace Transformers
+                    <span style="color:var(--green)">2.2&times;</span> over Orca
+                    <span style="color:var(--green)">up to 24&times;</span> for beam search
+
+  <span class="cm">Copy-on-Write:</span>
+    Beam width 4 &rarr; branches share all existing blocks.
+    Only copied when a branch writes to a shared block.
+    Memory: ~1.05&times; instead of 4&times;.
+
+  <span class="cm">Prefix caching:</span>
+    Shared system prompts computed once and reused.
+    Blocks identified by SHA-256 hash of token IDs.
+    ref_cnt tracks sharing; freed when last user finishes.
+
+  <span class="pp">PagedAttention didn&rsquo;t change the math.</span>
+  <span class="pp">It changed the memory allocator. That was enough.</span>
+</code></pre></div></div>
+</div>
+
+<h3>KV Cache Quantization</h3>
+
+<table>
+<tr><th>Precision</th><th>Bytes</th><th>70B @ 128K</th><th>Quality Impact</th></tr>
+<tr><td>FP16</td><td>2</td><td>40 GB</td><td>Baseline</td></tr>
+<tr><td>FP8</td><td>1</td><td>20 GB</td><td>&lt;0.5% perplexity</td></tr>
+<tr><td>INT4</td><td>0.5</td><td>10 GB</td><td>1&ndash;3% perplexity</td></tr>
+</table>
+
+<p>KV values have a narrower dynamic range than weights, so quantization works surprisingly well. Many implementations keep the most recent 128&ndash;512 tokens in FP16 and quantize older entries. GQA + FP8 KV can reduce memory 8&ndash;16&times; compared to MHA + FP16.</p>
+
+<div class="power zen">
+<div class="power-label">The Central Runtime Object</div>
+<p>Weights are static. Activations are transient. The KV cache is the thing that <em>grows, fragments, gets shared, gets evicted, gets quantized, gets paged, gets transferred between machines</em>. It is the central runtime object of inference. Every optimization in Chapters 7&ndash;12 touches it. Every scheduling decision in Part III revolves around it.</p>
+</div>
+</section>
+
+
+<!-- Placeholder sections for remaining chapters -->
+<section id="ch7"><h2>// 07 &mdash; Quantization</h2><div class="era-badge"><span class="era-num">Era 2</span> &mdash; Make it fit</div><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
+<section id="ch8"><h2>// 08 &mdash; FlashAttention</h2><div class="era-badge"><span class="era-num">Era 3</span> &mdash; Reduce attention IO</div><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
+<section id="ch9"><h2>// 09 &mdash; Continuous Batching</h2><div class="era-badge"><span class="era-num">Era 5</span> &mdash; Keep the batch full</div><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
+<section id="ch10"><h2>// 10 &mdash; Prefill vs Decode</h2><div class="era-badge"><span class="era-num">Era 6</span> &mdash; Split prefill from decode</div><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
+<section id="ch11"><h2>// 11 &mdash; Speculative Decoding</h2><div class="era-badge"><span class="era-num">Era 7</span> &mdash; Predict ahead with speculation</div><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
+<section id="ch12"><h2>// 12 &mdash; The Engines</h2><div class="era-badge"><span class="era-num">Era 8</span> &mdash; Treat serving as scheduling</div><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
+
+<!-- FOOTER -->
+<div style="text-align:center; padding:3rem 0 1.5rem; border-top:1px solid var(--border);">
+    <div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-dim); margin-bottom:1rem;">End of Part II</div>
+    <div style="font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim); line-height:1.8; margin-bottom:1.5rem;">
+        <span style="color:var(--green)">Ch 5</span> Why It&rsquo;s Slow &middot;
+        <span style="color:var(--green)">Ch 6</span> KV Cache &middot;
+        <span style="color:var(--text-dim)">Ch 7</span> Quantization &middot;
+        <span style="color:var(--text-dim)">Ch 8</span> FlashAttention &middot;
+        <span style="color:var(--text-dim)">Ch 9</span> Batching &middot;
+        <span style="color:var(--text-dim)">Ch 10</span> Prefill/Decode &middot;
+        <span style="color:var(--text-dim)">Ch 11</span> Speculation &middot;
+        <span style="color:var(--text-dim)">Ch 12</span> The Engines
+    </div>
+    <div style="display:flex; justify-content:center; gap:2rem; flex-wrap:wrap;">
+        <a href="inference-engine-deep-dive.html" style="font-family:'JetBrains Mono',monospace; font-size:1rem; color:var(--green); text-decoration:none;">&larr; Part I: The Machine</a>
+        <a href="part3-serving-at-scale.html" style="font-family:'JetBrains Mono',monospace; font-size:1rem; color:var(--green); text-decoration:none;">Part III: Serving at Scale &rarr;</a>
+    </div>
+</div>
+
+</div>
+</body>
+</html>
