@@ -2004,6 +2004,148 @@ instance.exports.<span class="fn">dealloc</span>(ptr, encoded.length);</code></p
 
 </section>
 
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 9: HOW BROWSERS ACTUALLY RUN IT                         -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch9">
+<h2>09 &mdash; how browsers actually run it</h2>
+
+<p class="drop-cap">A <code>.wasm</code> binary is not executable. No CPU on earth understands Wasm opcodes natively &mdash; they must be compiled to real machine code first. The question is <em>when</em> and <em>how well</em>. Too slow and the user stares at a blank screen. Too aggressive and the compiler spends more time optimizing than the program spends running. Every major browser has converged on the same answer: compile twice.</p>
+
+<h3>V8: Liftoff and TurboFan</h3>
+
+<p>Chrome&rsquo;s V8 engine uses a two-tier compilation strategy. The first tier, <strong>Liftoff</strong>, is a baseline compiler that generates native code in a single forward pass over the Wasm bytecode. It maintains a virtual stack that maps each Wasm stack position to a CPU register or spill slot, and emits machine instructions as it reads each opcode. No intermediate representation. No optimization passes. The goal is speed: Liftoff compiles Wasm roughly 10x faster than the optimizing tier, getting code running within milliseconds of the module arriving.</p>
+
+<p>The second tier, <strong>TurboFan</strong>, is V8&rsquo;s optimizing compiler. It builds a graph-based intermediate representation (a &ldquo;sea of nodes&rdquo;), runs sophisticated optimization passes &mdash; instruction selection, register allocation, dead code elimination, loop-invariant code motion &mdash; and produces code that runs 2&ndash;4x faster than Liftoff output. TurboFan compiles in background threads while Liftoff code is already running. When an optimized version of a function is ready, V8 swaps it in transparently.</p>
+
+<div class="diagram">
+<span class="diagram-label">V8 Wasm compilation pipeline</span>
+<pre><code>  <span class="ty">.wasm bytes arrive</span>
+        │
+        ▼
+  ┌──────────┐     ┌─────────────────────────────────────────┐
+  │ <span class="st">Validate</span>  │     │ <span class="cm">Streaming: starts before download ends</span>  │
+  └────┬─────┘     └─────────────────────────────────────────┘
+       │
+       ├──────────────────────────┐
+       │                          │
+       ▼                          ▼
+  ┌──────────┐              ┌──────────┐
+  │ <span class="st">Liftoff</span>   │              │ <span class="fn">TurboFan</span>  │
+  │ baseline  │              │ optimizing│
+  │ <span class="nm">~10x</span>      │              │ <span class="nm">2-4x</span>      │
+  │ faster    │              │ better    │
+  │ compile   │              │ code      │
+  └────┬─────┘              └────┬─────┘
+       │ <span class="st">runs immediately</span>        │ <span class="fn">runs in background</span>
+       ▼                          │
+  ┌──────────┐                    │
+  │ Execute  │ ◀──── <span class="fn">hot swap</span> ────┘
+  │ baseline │    when TurboFan
+  │ code     │    finishes a function
+  └──────────┘</code></pre>
+</div>
+
+<p>The result: the user sees the first frame faster (Liftoff), and the steady-state performance is near-native (TurboFan). The two tiers cover each other&rsquo;s weaknesses &mdash; Liftoff is fast to compile but produces mediocre code; TurboFan produces excellent code but takes longer to compile.</p>
+
+<h3>SpiderMonkey: Baseline and Cranelift</h3>
+
+<p>Firefox&rsquo;s SpiderMonkey engine uses a similar two-tier approach. The baseline compiler (sometimes called Rabaldr) is a fast single-pass compiler comparable to Liftoff. The optimizing tier was historically Ion, but SpiderMonkey has been transitioning to <strong>Cranelift</strong> &mdash; the same compiler backend used by the Wasmtime runtime outside the browser.</p>
+
+<p>Cranelift uses an SSA-based intermediate representation and a novel optimization technique called <strong>e-graphs</strong> (equality saturation). Instead of applying optimization rules one at a time and hoping for the best order, e-graphs represent all equivalent forms of an expression simultaneously and extract the optimal version at the end. This produces better code than traditional pass-based optimizers for certain patterns, particularly constant folding and algebraic simplification.</p>
+
+<h3>Wasmtime and Server-Side Compilation</h3>
+
+<p>Outside the browser, runtimes like Wasmtime, Wasmer, and WasmEdge compile Wasm for server-side execution. Wasmtime uses Cranelift exclusively. Because server workloads tolerate higher startup latency than browsers, Wasmtime can afford to run Cranelift&rsquo;s full optimization pipeline upfront &mdash; no need for a baseline tier. The trade-off is different: startup time measured in tens of milliseconds is acceptable when the module will run for hours.</p>
+
+<p>Wasmer offers a choice: the Singlepass compiler (like Liftoff &mdash; fast baseline, decent code) or the LLVM backend (the same LLVM used by Emscripten, producing the highest-quality code at the cost of the slowest compilation). For short-lived serverless functions, Singlepass wins. For long-running compute, LLVM wins.</p>
+
+<div class="power">
+<div class="power-label">20x Faster Than JavaScript</div>
+<p>Figma measured that their Wasm module decoded and compiled more than 20x faster than the equivalent JavaScript could be parsed. This is not a runtime benchmark &mdash; it is a <em>startup</em> benchmark. JavaScript must be lexed into tokens, parsed into an AST, and then compiled. Wasm skips all of that: the binary format is pre-structured, pre-typed, and can be validated and compiled in a single linear pass. The format <em>is</em> the parse tree.</p>
+</div>
+
+<h3>Lazy and Eager Compilation</h3>
+
+<p>Not every function in a module needs to be compiled immediately. V8 uses a combination of <strong>eager</strong> and <strong>lazy</strong> compilation strategies. Small modules are compiled eagerly &mdash; every function gets Liftoff-compiled before execution starts. Large modules use lazy compilation: functions are compiled on their first call, amortizing the startup cost. The validation pass still runs eagerly on the entire module (safety first), but code generation can be deferred.</p>
+
+<p>Firefox&rsquo;s streaming compilation takes a different approach: it compiles functions in parallel as their bytes arrive over the network, spreading the work across multiple CPU cores. On a 4-core machine, four functions can be compiled simultaneously. This is why Firefox can compile Wasm at 30&ndash;60 MB/sec &mdash; the throughput scales with core count.</p>
+
+<p>All of this machinery exists to solve one problem: turn a portable bytecode into native instructions as fast as possible without sacrificing the quality of the generated code. But there is one area where the compilation pipeline matters more than anywhere else &mdash; SIMD. When you pack four integers into a single 128-bit register and operate on all four simultaneously, the quality of the compiler&rsquo;s instruction selection determines whether you get a 2x speedup or an 8x speedup.</p>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 10: SIMD — THE SPEED MULTIPLIER                         -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch10">
+<h2>10 &mdash; simd: the speed multiplier</h2>
+
+<p class="drop-cap">Wasm&rsquo;s core instruction set processes one value at a time. <code>i32.add</code> adds two integers. <code>f64.mul</code> multiplies two doubles. For most code, this is fine. But for image processing, audio DSP, physics simulations, and machine learning inference &mdash; workloads where you apply the same operation to thousands of values &mdash; doing them one by one leaves 75% of the CPU&rsquo;s computational width on the table.</p>
+
+<p>SIMD (Single Instruction, Multiple Data) changes the equation. The Wasm SIMD proposal adds a <code>v128</code> type &mdash; a 128-bit register that holds four <code>i32</code>s, four <code>f32</code>s, two <code>i64</code>s, or two <code>f64</code>s simultaneously. One instruction operates on all lanes at once:</p>
+
+<div class="diagram">
+<span class="diagram-label">SIMD: one instruction, four operations</span>
+<pre><code>  <span class="ty">Scalar (4 instructions)</span>              <span class="st">SIMD (1 instruction)</span>
+
+  i32.add  a₀ + b₀ = c₀               ┌────┬────┬────┬────┐
+  i32.add  a₁ + b₁ = c₁               │ a₀ │ a₁ │ a₂ │ a₃ │  v128
+  i32.add  a₂ + b₂ = c₂               ├────┼────┼────┼────┤
+  i32.add  a₃ + b₃ = c₃               │ b₀ │ b₁ │ b₂ │ b₃ │  v128
+                                       ├────┼────┼────┼────┤
+  4 cycles                             │ c₀ │ c₁ │ c₂ │ c₃ │  v128
+                                       └────┴────┴────┴────┘
+                                       <span class="st">i32x4.add</span> &mdash; 1 cycle</code></pre>
+</div>
+
+<p>The Wasm SIMD spec adds over 200 instructions covering integer and floating-point arithmetic, comparisons, shuffles, conversions, and lane extraction/insertion. On the hardware side, these map to SSE/AVX on x86 and NEON on ARM &mdash; the same vector units that native code uses.</p>
+
+<h3>Real-World Speedups</h3>
+
+<table>
+<tr><th>Workload</th><th>Without SIMD</th><th>With SIMD</th><th>Speedup</th></tr>
+<tr><td>MediaPipe hand tracking</td><td>14 fps</td><td>40 fps</td><td><span style="color:var(--green)">2.9x</span></td></tr>
+<tr><td>ffmpeg.wasm HEVC IDCT</td><td>baseline</td><td>SIMD-optimized</td><td><span style="color:var(--green)">8.7x</span></td></tr>
+<tr><td>Halide image processing</td><td>scalar</td><td>SIMD vectorized</td><td><span style="color:var(--green)">3&ndash;6x</span></td></tr>
+<tr><td>ONNX Runtime Wasm (MobileNet)</td><td>CPU scalar</td><td>CPU SIMD (2 threads)</td><td><span style="color:var(--green)">3.4x</span></td></tr>
+<tr><td>Audio resampling</td><td>scalar loop</td><td>f32x4 vectorized</td><td><span style="color:var(--green)">3.5x</span></td></tr>
+</table>
+
+<h3>Writing SIMD Code</h3>
+
+<p>You can write SIMD in three ways. <strong>Autovectorization</strong>: write a normal C loop and let LLVM figure out the SIMD &mdash; works for simple patterns but misses complex ones. <strong>Intrinsics</strong>: use <code>wasm_simd128.h</code> to call SIMD operations directly from C &mdash; full control, portable across Wasm targets. <strong>Hand-written WAT</strong>: write the SIMD instructions directly in WAT for maximum control.</p>
+
+<pre><span class="label">C with SIMD intrinsics</span><code><span class="pp">#include</span> <span class="st">&lt;wasm_simd128.h&gt;</span>
+
+<span class="kw">void</span> <span class="fn">vec_add</span>(<span class="ty">float</span>* a, <span class="ty">float</span>* b, <span class="ty">float</span>* out, <span class="ty">int</span> n) {
+  <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i < n; i += <span class="nm">4</span>) {
+    <span class="ty">v128_t</span> va = <span class="fn">wasm_v128_load</span>(&amp;a[i]);
+    <span class="ty">v128_t</span> vb = <span class="fn">wasm_v128_load</span>(&amp;b[i]);
+    <span class="ty">v128_t</span> vc = <span class="fn">wasm_f32x4_add</span>(va, vb);
+    <span class="fn">wasm_v128_store</span>(&amp;out[i], vc);
+  }
+}</code></pre>
+
+<p>Each iteration processes four floats at once. The <code>wasm_v128_load</code> loads 128 bits (4 floats) from memory into a <code>v128</code> register. <code>wasm_f32x4_add</code> adds all four lanes in parallel. <code>wasm_v128_store</code> writes the result back. A loop that would have taken N iterations now takes N/4.</p>
+
+<h3>Relaxed SIMD</h3>
+
+<p>Standard Wasm SIMD guarantees deterministic results across all hardware. <code>f32x4.add</code> produces exactly the same bits on x86 and ARM. But this determinism comes at a cost: some operations that hardware can do cheaply (fused multiply-add, reciprocal approximation) have no deterministic equivalent, because different architectures produce slightly different results.</p>
+
+<p><strong>Relaxed SIMD</strong>, finalized in 2024, adds a set of instructions that trade determinism for speed. <code>f32x4.relaxed_madd</code> performs a fused multiply-add that may or may not fuse depending on the hardware. <code>i8x16.relaxed_swizzle</code> uses hardware-native shuffle behavior, which differs between x86 (out-of-range lanes zero) and ARM (out-of-range lanes wrap). The results are implementation-defined but always correct within a reasonable range.</p>
+
+<p>This matters for ML inference, where fused multiply-add is a critical operation and the minor non-determinism is acceptable. It also matters for codecs, where hardware-specific shuffle patterns can avoid extra mask instructions.</p>
+
+<div class="power hack">
+<div class="power-label">SIMD Lane Diagram</div>
+<p>A <code>v128</code> is not a &ldquo;bigger number.&rdquo; It is four numbers traveling together. When you see <code>i32x4.add</code>, read it as: &ldquo;four independent i32 additions happening in the same cycle, in the same register.&rdquo; The &ldquo;x4&rdquo; is not a loop count &mdash; it is the hardware width. SIMD does not make individual operations faster; it makes the bus wider.</p>
+</div>
+
+<p>SIMD multiplies the throughput of data-parallel code. But Wasm&rsquo;s ambitions extend far beyond the browser&rsquo;s compute pipeline. The next chapter follows Wasm outside the browser entirely &mdash; into operating system interfaces, language-agnostic composition, and the idea that a single module should run anywhere, with exactly the capabilities you grant it.</p>
+
+</section>
+
 </div><!-- .content -->
 </body>
 </html>
