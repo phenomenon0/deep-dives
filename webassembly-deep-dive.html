@@ -2282,6 +2282,281 @@ instance.exports.<span class="fn">dealloc</span>(ptr, encoded.length);</code></p
 <div class="act-subtitle">From inference in browser tabs to the universal AI runtime</div>
 </div>
 
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 13: INFERENCE IN THE TAB                                -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch13">
+<h2>13 &mdash; inference in the tab</h2>
+
+<p class="drop-cap">The model used to live on a server. You sent it a prompt over HTTPS and waited for tokens to trickle back. Now it can live in a browser tab &mdash; sandboxed, offline-capable, and entirely yours. The architecture that makes this possible is a collaboration between two runtimes you already know: Wasm handles the control flow, memory management, and tokenization. WebGPU handles the matrix multiplications. The browser is the operating system. Your GPU is the accelerator.</p>
+
+<h3>The Stack You Didn&rsquo;t Expect</h3>
+
+<p>Browser-side LLM inference does not run on Wasm alone. Wasm SIMD on the CPU tops out at single-digit tokens per second for any model above a billion parameters &mdash; the memory bandwidth wall is the same one that limits CPU inference in native code. The breakthrough is <strong>WebGPU</strong>: the browser&rsquo;s modern GPU compute API, which lets Wasm modules dispatch matrix multiplication kernels to the GPU.</p>
+
+<div class="diagram">
+<span class="diagram-label">Split execution: Wasm + WebGPU</span>
+<pre><code>  ┌─────────────────────────────┐     ┌─────────────────────────────┐
+  │ <span class="st">Wasm Module</span>                   │     │ <span class="fn">WebGPU Pipeline</span>               │
+  │                               │     │                               │
+  │  Tokenizer        (CPU)      │     │  Attention kernels   (GPU)   │
+  │  KV cache mgmt    (CPU)      │ ──▶ │  MatMul kernels      (GPU)   │
+  │  Sampling logic    (CPU)      │ ◀── │  Softmax / RMSNorm   (GPU)   │
+  │  Memory alloc      (CPU)      │     │  WGSL shaders        (GPU)   │
+  │                               │     │                               │
+  └─────────────────────────────┘     └─────────────────────────────┘
+         <span class="ty">Orchestration</span>                       <span class="ty">Compute</span>
+
+  Data flows through ArrayBuffers between the two runtimes.</code></pre>
+</div>
+
+<h3>llama.cpp in a Tab</h3>
+
+<p><strong>wllama</strong> compiles llama.cpp to Wasm via Emscripten, running inference entirely on the CPU with SIMD. It supports models up to ~4B parameters at Q4 quantization (fitting within the browser&rsquo;s memory limits). On CPU-only Wasm with SIMD, expect 2&ndash;5 tokens per second for a 1&ndash;3B model on modern hardware. Usable for local chat, but not fast enough for real-time generation.</p>
+
+<p><strong>whisper.cpp</strong> takes the same approach for speech-to-text. The tiny.en model (75 MB) runs in the browser, transcribing audio at roughly real-time speed on modern hardware with SIMD enabled. No server, no API key, no data leaving the device.</p>
+
+<h3>WebGPU: The GPU Escape Hatch</h3>
+
+<p><strong>web-llm</strong> (MLC LLM) takes the faster path. Apache TVM compiles model-specific GPU kernels as WGSL (WebGPU Shading Language) shaders. The Wasm module orchestrates the inference pipeline &mdash; tokenization, KV cache management, sampling &mdash; while dispatching the heavy compute (attention, matmuls) to the GPU via WebGPU.</p>
+
+<p>The results are striking:</p>
+
+<table>
+<tr><th>Model</th><th>Quantization</th><th>WebGPU tok/s</th><th>Native tok/s</th><th>Ratio</th></tr>
+<tr><td>Llama-3.1-8B</td><td>Q4</td><td>~41</td><td>~58</td><td><span style="color:var(--green)">71%</span></td></tr>
+<tr><td>Phi-3.5-mini</td><td>Q4</td><td>~71</td><td>~89</td><td><span style="color:var(--green)">80%</span></td></tr>
+<tr><td>Gemma-2-2B</td><td>Q4</td><td>~85</td><td>~105</td><td><span style="color:var(--green)">81%</span></td></tr>
+</table>
+
+<p style="font-size:0.82rem;color:var(--text-dim);">Numbers from the WebLLM paper and project benchmarks on M3 Max hardware. Performance varies by GPU and browser.</p>
+
+<p>70&ndash;80% of native speed in a browser tab, with no installation, no server, and full privacy. The remaining 20&ndash;30% gap is WebGPU API overhead &mdash; command buffer submission, shader compilation, the lack of direct GPU memory mapping. That gap is narrowing with each browser release.</p>
+
+<h3>What Fits in a Tab</h3>
+
+<p>The practical ceiling is set by browser memory limits and GPU VRAM:</p>
+
+<table>
+<tr><th>Model Size</th><th>Quantization</th><th>Download</th><th>Inference RAM</th><th>Browser Feasible?</th></tr>
+<tr><td>1&ndash;3B</td><td>Q4</td><td>0.5&ndash;1.5 GB</td><td>1&ndash;2 GB</td><td><span style="color:var(--green)">Yes (CPU or GPU)</span></td></tr>
+<tr><td>7&ndash;8B</td><td>Q4</td><td>3&ndash;4 GB</td><td>4&ndash;5 GB</td><td><span style="color:var(--cyan)">Yes (GPU, 8+ GB VRAM)</span></td></tr>
+<tr><td>13B</td><td>Q4</td><td>6&ndash;7 GB</td><td>8&ndash;9 GB</td><td><span style="color:var(--orange)">Marginal (high-end GPU)</span></td></tr>
+<tr><td>70B</td><td>Q4</td><td>35+ GB</td><td>40+ GB</td><td><span style="color:var(--red)">No</span></td></tr>
+</table>
+
+<div class="power zen">
+<div class="power-label">The 80% Line</div>
+<p>WebGPU inference reaches 70&ndash;80% of native speed for models that fit in GPU memory. The remaining gap is the browser&rsquo;s security overhead &mdash; every GPU command goes through a validation layer, every shader is compiled at runtime, there is no direct memory-mapped I/O. That 20% is the price of running AI without trusting a server. For many use cases &mdash; private document analysis, offline translation, accessibility tools &mdash; it is a price worth paying.</p>
+</div>
+
+<p>Running inference in the browser is one side of the AI coin. The other side is more provocative: LLMs <em>generate</em> code, and that code needs to run somewhere safe. Wasm provides the tightest production sandbox available &mdash; and it starts in microseconds.</p>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 14: THE SANDBOX                                         -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch14">
+<h2>14 &mdash; the sandbox</h2>
+
+<p class="drop-cap">An LLM writes a Python function to process your data. It looks correct. It probably is correct. But &ldquo;probably&rdquo; is not a security model. You need to execute code from an author you cannot fully trust, potentially billions of times a day. Docker takes 50 ms to cold-start. Firecracker takes 125 ms. A Wasm instance starts in <strong>40 microseconds</strong> &mdash; and its sandbox has zero capabilities by default. There is nothing to leak because there is nothing to start with.</p>
+
+<h3>The Trust Problem</h3>
+
+<p>AI-generated code creates a new category of untrusted execution. Traditional code review assumes a human author with intentions you can reason about. LLM-generated code has no intentions &mdash; it has statistical patterns shaped by a training set that may include malicious examples, subtle bugs, and security antipatterns. You cannot audit every function an LLM writes at the scale of modern AI agent systems. You need automated isolation.</p>
+
+<p>The Wasm sandbox provides exactly this. A module starts with zero capabilities: no filesystem, no network, no environment variables, no ability to read the host&rsquo;s memory. The host grants specific capabilities for the duration of the execution and revokes them on completion. The module runs in its own linear memory &mdash; a buffer overflow corrupts the module&rsquo;s own data, not the host&rsquo;s. This is not the Docker model (start with everything, try to restrict). This is the opposite: start with nothing, grant only what is needed.</p>
+
+<h3>The Pipeline</h3>
+
+<div class="diagram">
+<span class="diagram-label">LLM &rarr; compile &rarr; sandbox &rarr; execute &rarr; return</span>
+<pre><code>  <span class="nm">1.</span> User asks: <span class="st">"analyze this CSV and find outliers"</span>
+  <span class="nm">2.</span> LLM generates analysis code (Python/JS/Rust)
+  <span class="nm">3.</span> Code compiles to .wasm (via Extism PDK or direct compilation)
+  <span class="nm">4.</span> Host instantiates Wasm module with <span class="ty">limited capabilities</span>:
+     &bull; Memory limit: 64 MB
+     &bull; CPU time limit: 5 seconds
+     &bull; Data access: the CSV (read-only, passed via linear memory)
+     &bull; No filesystem, no network, no exec
+  <span class="nm">5.</span> Module executes, writes result to linear memory
+  <span class="nm">6.</span> Host reads result, tears down the instance
+     Total overhead: <span class="st">&lt; 1 ms</span></code></pre>
+</div>
+
+<h3>Extism: The Plugin Pattern</h3>
+
+<p><strong>Extism</strong> is a framework that makes this pattern practical. It provides a runtime-agnostic layer over Wasmtime and Wasmer with a Plugin Development Kit (PDK) for writing Wasm plugins in Rust, Go, JavaScript, Python, or C. The host API is minimal:</p>
+
+<pre><span class="label">Rust (Host)</span><code><span class="kw">let</span> plugin = <span class="ty">Plugin</span>::<span class="fn">new</span>(&amp;wasm_bytes, manifest, <span class="nm">true</span>)?;
+<span class="kw">let</span> result = plugin.<span class="fn">call</span>::&lt;<span class="ty">&amp;str</span>, <span class="ty">String</span>&gt;(<span class="st">"process"</span>, input_data)?;</code></pre>
+
+<p>One function call. The plugin instantiates in ~40 microseconds, executes within its sandbox, and returns data through Wasm&rsquo;s function exports. Compare this to Docker container creation (~50 ms) or Firecracker microVM boot (~125 ms). Wasm plugin instantiation is roughly <strong>1000x faster</strong>.</p>
+
+<h3>The Isolation Comparison</h3>
+
+<table>
+<tr><th>Property</th><th>Docker</th><th>Firecracker</th><th>Wasm (Wasmtime)</th></tr>
+<tr><td>Cold start</td><td>~50 ms</td><td>~125 ms</td><td><span style="color:var(--green)">~0.04 ms</span></td></tr>
+<tr><td>Memory overhead</td><td>~10 MB</td><td>~5 MB</td><td><span style="color:var(--green)">~64 KB</span></td></tr>
+<tr><td>Security boundary</td><td>Linux kernel</td><td>Hypervisor (KVM)</td><td>Wasm VM</td></tr>
+<tr><td>Default filesystem</td><td>Full</td><td>Full (in VM)</td><td><span style="color:var(--green)">None</span></td></tr>
+<tr><td>Default network</td><td>Full</td><td>NAT bridge</td><td><span style="color:var(--green)">None</span></td></tr>
+<tr><td>Security model</td><td>Deny-list</td><td>Deny-list</td><td><span style="color:var(--green)">Allow-list</span></td></tr>
+<tr><td>Best for AI code?</td><td>Familiar</td><td>Strongest isolation</td><td><span style="color:var(--green)">Fastest + safest default</span></td></tr>
+</table>
+
+<p>The honest caveat: Wasm&rsquo;s sandbox is newer and less battle-tested than container isolation. Researchers have found JIT compiler bugs and speculative execution vulnerabilities in Wasm engines. The smartest production setups run Wasm inside a container or microVM &mdash; belt and suspenders. But the default-deny security model is fundamentally the right architecture for executing untrusted AI-generated code.</p>
+
+<div class="power danger">
+<div class="power-label">The Inversion</div>
+<p>Docker starts with everything and tries to remove what is dangerous. Wasm starts with nothing and adds only what is needed. For LLM-generated code &mdash; which you cannot audit at scale &mdash; the Wasm model is fundamentally safer. Not because its sandbox is impenetrable, but because the default state is harmless. A container you forgot to restrict can read your filesystem. A Wasm module you forgot to configure can do nothing at all.</p>
+</div>
+
+<p>The sandbox solves the trust problem for individual code execution. But what happens when you need to serve AI inference to millions of users across hundreds of locations? The next chapter scales Wasm to the edge.</p>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 15: INFERENCE AT THE EDGE                               -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch15">
+<h2>15 &mdash; inference at the edge</h2>
+
+<p class="drop-cap">A Docker image for a Python inference service starts at 200 MB. Add PyTorch and you are past a gigabyte. That image needs a container runtime, an orchestrator, a registry, health checks, autoscaling rules. Now deploy it to 200 cities. The operational surface is enormous. A Wasm module for the same routing and orchestration logic: 1&ndash;5 MB. Cold start: sub-millisecond. No registry. No orchestrator. The operational surface collapses by an order of magnitude.</p>
+
+<h3>The Weight of a Container</h3>
+
+<p>The core insight is separation of concerns. Not everything in an AI serving pipeline needs a GPU. The orchestration layer &mdash; receiving requests, validating input, routing to models, formatting responses, applying rate limits &mdash; is pure CPU work that runs millions of times per second. This layer does not need PyTorch. It does not need CUDA. It needs to be fast, isolated, and cheap to scale.</p>
+
+<p>Wasm is ideal for this layer. Cloudflare Workers runs V8 isolates (which support Wasm) across 300+ cities. Each Worker handles HTTP routing, authentication, and response formatting in microseconds. When the Worker needs actual model inference, it calls Cloudflare&rsquo;s Workers AI service, which runs models on dedicated GPUs at the nearest datacenter. The Wasm layer absorbs the request volume; the GPU layer handles the compute.</p>
+
+<h3>Multi-Tenant Isolation</h3>
+
+<p>The killer feature for serving is density. On a single machine running inference orchestration for thousands of different tenants, each Wasm instance gets its own linear memory, its own capability set, its own resource limits &mdash; with ~64 KB of overhead per instance. Running 10,000 Wasm instances is feasible on a single server. Running 10,000 Docker containers is not.</p>
+
+<div class="diagram">
+<span class="diagram-label">The two-tier architecture</span>
+<pre><code>  <span class="ty">Tier 1: Wasm Orchestration</span>              <span class="ty">Tier 2: GPU Inference</span>
+  ┌──────────────────────────┐           ┌──────────────────────────┐
+  │  Request parsing          │           │  Model forward pass       │
+  │  Auth / rate limiting     │           │  Attention + MatMul       │
+  │  Prompt formatting        │    ──▶    │  KV cache management      │
+  │  Response streaming       │    ◀──    │  Token generation         │
+  │  Logging / metrics        │           │                            │
+  ├──────────────────────────┤           ├──────────────────────────┤
+  │  Cold start: <span class="st">microseconds</span> │           │  Cold start: <span class="pp">seconds</span>       │
+  │  Scale: <span class="st">independently</span>     │           │  Scale: <span class="pp">GPU-constrained</span>   │
+  │  Cost: <span class="st">minimal</span>            │           │  Cost: <span class="pp">expensive</span>          │
+  │  Instances: <span class="st">10,000+</span>       │           │  Instances: <span class="pp">per GPU</span>       │
+  └──────────────────────────┘           └──────────────────────────┘
+
+  The cheap part (Wasm) scales independently of the expensive part (GPU).
+  You pay for GPU only when tokens are actually being generated.</code></pre>
+</div>
+
+<h3>WASI-NN: Inference as a Capability</h3>
+
+<p><strong>WASI-NN</strong> is the emerging standard that lets Wasm modules declare &ldquo;I need neural network inference&rdquo; the same way WASI lets them declare &ldquo;I need filesystem access.&rdquo; The module calls <code>wasi_nn::load()</code> to load a model, <code>wasi_nn::init_execution_context()</code> to create a session, and <code>wasi_nn::compute()</code> to run inference. The module never touches the GPU directly. The host decides which hardware to use &mdash; ONNX Runtime, TensorFlow Lite, or a dedicated accelerator.</p>
+
+<p>This is the same capability pattern from Chapter 11: the module declares what it needs, the host provides it. The module does not know or care whether inference runs on a CPU, a GPU, or a dedicated AI chip. Same code, different hardware, same security model.</p>
+
+<div class="power wild">
+<div class="power-label">The Operational Collapse</div>
+<p>A Docker-based inference service needs: a Dockerfile, a registry, a container runtime, an orchestrator, a load balancer, health checks, autoscaling rules, a networking CNI, and a monitoring stack. A Wasm-based edge function needs: a <code>.wasm</code> binary and a deploy command. The operational surface shrinks by an order of magnitude. That is not a performance claim &mdash; it is an operations claim. And for teams serving AI at the edge, operations is the bottleneck, not compute.</p>
+</div>
+
+<p>Individual chapters have told individual stories: inference in the browser, sandboxing for safety, edge deployment for scale. The final chapter pulls the thread through all of them and names the pattern that connects them.</p>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 16: THE CONVERGENCE                                     -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch16">
+<h2>16 &mdash; the convergence</h2>
+
+<p class="drop-cap">ONNX Runtime compiles to Wasm. TensorFlow.js uses a Wasm SIMD backend. MediaPipe tracks 468 facial landmarks at 30 fps through a Wasm+GPU hybrid. web-llm runs 8-billion-parameter models in a browser tab at 70% of native speed. Every major ML framework has converged on the same architecture: compile the inference engine to Wasm for portability, then delegate compute-heavy kernels to whatever hardware the host provides.</p>
+
+<h3>The Pattern</h3>
+
+<p>Look at how four different frameworks solve the same problem:</p>
+
+<table>
+<tr><th>Framework</th><th>Wasm Role</th><th>GPU/Accelerator</th><th>Use Case</th></tr>
+<tr><td><strong>ONNX Runtime Web</strong></td><td>CPU inference (SIMD)</td><td>WebGPU / WebNN</td><td>Any ONNX model in browser</td></tr>
+<tr><td><strong>TensorFlow.js</strong></td><td>CPU backend (XNNPack)</td><td>WebGL / WebGPU</td><td>Pre-built models + custom</td></tr>
+<tr><td><strong>MediaPipe</strong></td><td>Pipeline orchestration</td><td>GPU delegation</td><td>Real-time vision/pose</td></tr>
+<tr><td><strong>web-llm (MLC)</strong></td><td>Tokenizer + KV cache</td><td>WebGPU (TVM kernels)</td><td>LLM chat in browser</td></tr>
+</table>
+
+<p>The same architecture repeats: Wasm handles the portable control flow. Hardware-specific acceleration handles the math. The module does not know what hardware it runs on. The host matches capabilities to available resources.</p>
+
+<h3>ONNX Runtime: Three Backends, One API</h3>
+
+<p>Microsoft&rsquo;s ONNX Runtime Web compiles to Wasm and supports three <em>execution providers</em> through the same API:</p>
+
+<div class="diagram">
+<span class="diagram-label">ONNX Runtime execution providers</span>
+<pre><code>                    ┌──────────────────┐
+                    │ <span class="ty">ONNX Model (.onnx)</span> │
+                    └────────┬─────────┘
+                             │
+                    ┌────────▼─────────┐
+                    │ <span class="st">ONNX Runtime Web</span>  │
+                    │   (Wasm module)   │
+                    └──┬──────┬──────┬──┘
+                       │      │      │
+              ┌────────▼┐ ┌──▼────┐ ┌▼────────┐
+              │ <span class="st">wasm</span>    │ │<span class="fn">webgpu</span>│ │ <span class="pp">webnn</span>   │
+              │ CPU+SIMD│ │ GPU   │ │ NPU/HW  │
+              └─────────┘ └──────┘ └─────────┘
+              <span class="cm">Portable</span>    <span class="cm">Fast</span>    <span class="cm">Hardware-</span>
+              <span class="cm">everywhere</span>  <span class="cm">on GPU</span>  <span class="cm">specific</span></code></pre>
+</div>
+
+<p>Same model file, same JavaScript API, three different hardware targets. The Wasm backend works everywhere. WebGPU is faster when a GPU is available. WebNN delegates to the browser&rsquo;s native ML accelerator &mdash; an NPU on modern laptops, dedicated AI silicon on phones. The application code does not change; the runtime selects the best available backend.</p>
+
+<h3>MediaPipe: Vision in Real Time</h3>
+
+<p>Google&rsquo;s MediaPipe is the most tangible demonstration of the Wasm+GPU pattern. Open a webpage, point your camera, and watch 468 dots track your face in real time. No install, no server, no permissions beyond camera access.</p>
+
+<p>The Wasm module (compiled from C++ via Emscripten) orchestrates the inference pipeline: camera capture, image preprocessing, model invocation, landmark post-processing. GPU delegation handles the actual CNN forward pass. On CPU-only Wasm, face tracking runs at 10&ndash;15 fps. With GPU delegation, 30&ndash;60+ fps. The SIMD speedup from Chapter 10 matters here &mdash; CPU-side pre/post-processing uses <code>i32x4</code> and <code>f32x4</code> operations to avoid becoming the bottleneck.</p>
+
+<h3>WebNN: The Hardware Abstraction</h3>
+
+<p>The <strong>Web Neural Network API</strong> is a W3C standard that gives browsers direct access to hardware ML accelerators. Currently in preview in Chrome and Edge, WebNN abstracts over NPUs, dedicated AI silicon, and GPU compute. For Wasm-orchestrated inference, WebNN is the missing piece: a module that says &ldquo;run this model&rdquo; and the host routes it to whatever accelerator is available &mdash; NPU on a laptop, GPU on a desktop, SIMD CPU on a phone, dedicated AI chip on an edge device.</p>
+
+<p>This is the same capability pattern as WASI-NN from Chapter 15, but in the browser. The module declares what it needs. The host provides it. The hardware is an implementation detail.</p>
+
+<h3>The Universal Runtime Thesis</h3>
+
+<p>Pull the thread through all four chapters:</p>
+
+<div class="diagram">
+<span class="diagram-label">The pattern repeats</span>
+<pre><code>  <span class="st">Ch 13</span>  Wasm + WebGPU runs LLMs in the browser at 70&ndash;80% native speed
+  <span class="fn">Ch 14</span>  Wasm sandboxes AI-generated code at 1000&times; the speed of containers
+  <span class="pp">Ch 15</span>  Wasm deploys AI orchestration to 200+ edge locations instantly
+  <span class="ty">Ch 16</span>  Every major ML framework compiles to Wasm as its portable baseline
+
+  The common factor: Wasm is the <span class="st">portable floor</span>.
+  The accelerator is the <span class="fn">performance ceiling</span>.
+  The floor composes with <span class="ty">any ceiling</span>.</code></pre>
+</div>
+
+<p>Wasm is not the fastest runtime for AI. It never will be. The matmul belongs to the GPU, the quantized attention kernel belongs to the NPU, the custom ASIC belongs to the datacenter. But Wasm is the only runtime that works <em>everywhere</em>, isolates <em>everything</em>, and composes with <em>any accelerator</em> the host provides.</p>
+
+<p>Write your inference pipeline once in Wasm. Run it in a browser, on an edge node, inside a serverless function, or in a plugin sandbox. The ceilings change. The floor stays.</p>
+
+<div class="power">
+<div class="power-label">The Floor, Not the Ceiling</div>
+<p>Wasm is the floor of AI inference &mdash; the guaranteed-to-work, runs-anywhere, trusts-nothing baseline. WebGPU is the GPU ceiling. WebNN is the NPU ceiling. CUDA is the datacenter ceiling. The genius of the architecture is that the floor composes with any ceiling. A browser provides WebGPU. An edge node provides WASI-NN. A datacenter provides CUDA. The Wasm module does not know or care. It declares what it needs, and the host provides it. One binary. Every platform. Zero trust.</p>
+</div>
+
+</section>
+
 </div><!-- .content -->
 </body>
 </html>
