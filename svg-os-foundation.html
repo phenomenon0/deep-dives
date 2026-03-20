@@ -1455,6 +1455,139 @@ card.<span class="fn">bind</span>({
   </div>
 </section>
 
+<!-- ============================================================ -->
+<!--  §12 — NEUMENON FORMAT SYNERGIES                               -->
+<!-- ============================================================ -->
+<section id="neumenon">
+  <h2>§12 — Neumenon Format Synergies</h2>
+
+  <p class="drop-cap">Three formats from the Neumenon ecosystem slot naturally into the SVG OS stack. Not because we need to force integration — but because the problems they solve are exactly the problems a visual runtime has. Binary scene graph serialization. Compact agent communication. Fast asset storage. Each format found its niche organically.</p>
+
+  <h3>Cowrie — Scene graph wire format</h3>
+
+  <p><strong>Cowrie</strong> is a multi-language binary JSON codec with graph primitives baked in: Node, Edge, NodeBatch, EdgeBatch, GraphShard, Adjlist. That is not a coincidence — it is a direct match for serializing the SVG OS document tree.</p>
+
+  <p>Where Cowrie fits:</p>
+
+  <ul>
+    <li><strong>Network sync</strong> — Binary-encode scene graph deltas for CRDT transport. Smaller payloads, faster parse than JSON over Phoenix Channels.</li>
+    <li><strong>Snapshot storage</strong> — Serialize document state to Cowrie Gen2 with dictionary coding. Repeated component schemas (imagine 200 player cards with identical structure) get ~50% size reduction.</li>
+    <li><strong>Graph queries</strong> — The scene graph <em>is</em> a graph. Cowrie's NodeBatch and Adjlist types let you ship subgraph queries (e.g., "all nodes bound to this data source") without deserializing the full tree.</li>
+    <li><strong>Cross-language bridge</strong> — Cowrie has multi-language support. The Elixir orchestrator and the TypeScript client can exchange typed graph data without format translation.</li>
+  </ul>
+
+  <pre><code><span class="label">COWRIE SCENE SYNC</span>
+<span class="cm">// Client sends a scene delta as Cowrie-encoded graph patch</span>
+<span class="kw">const</span> delta = Cowrie.<span class="fn">encode</span>({
+  <span class="fn">type</span>: <span class="st">'graph_patch'</span>,
+  <span class="fn">nodes</span>: [
+    { <span class="fn">id</span>: <span class="st">'n_4f2a'</span>, <span class="fn">op</span>: <span class="st">'update'</span>, <span class="fn">props</span>: { fill: <span class="st">'#e94560'</span> } },
+    { <span class="fn">id</span>: <span class="st">'n_7b1c'</span>, <span class="fn">op</span>: <span class="st">'insert'</span>, <span class="fn">parent</span>: <span class="st">'n_root'</span>, <span class="fn">type</span>: <span class="st">'text'</span> },
+  ],
+  <span class="fn">edges</span>: [
+    { <span class="fn">from</span>: <span class="st">'n_7b1c'</span>, <span class="fn">to</span>: <span class="st">'n_root'</span>, <span class="fn">rel</span>: <span class="st">'child_of'</span> },
+  ],
+});
+
+channel.<span class="fn">push</span>(<span class="st">'delta'</span>, delta);  <span class="cm">// binary, compact, typed</span>
+</code></pre>
+
+  <h3>Glyph — AI / agent codec</h3>
+
+  <p><strong>Glyph</strong> is a text-based codec for AI and ML systems — compact structured text with deterministic canonicalization, delta-friendly patches, and frame-oriented streaming. When agents talk to the SVG OS, Glyph is the natural language.</p>
+
+  <p>Where Glyph fits:</p>
+
+  <ul>
+    <li><strong>Agent instructions</strong> — An AI agent describing scene edits in Glyph uses fewer tokens than JSON. That is not a minor optimization — it is a cost multiplier on every LLM call.</li>
+    <li><strong>Delta patches</strong> — Glyph's patch encoding describes incremental scene changes cleanly. "Change this label, recolor that bar, move this group" as a structured delta stream.</li>
+    <li><strong>Streaming transforms</strong> — Glyph's frame-oriented streaming maps to live AI pipelines. The agent streams partial results, each frame updates the canvas, the user sees real-time generation.</li>
+    <li><strong>Canonical hashing</strong> — Deterministic serialization means you can hash scene states for cache keys, version comparison, and change detection.</li>
+  </ul>
+
+  <pre><code><span class="label">GLYPH AGENT PATCH</span>
+<span class="cm">// Glyph-encoded instruction from an AI agent</span>
+<span class="cm">// Compact, deterministic, fewer tokens than JSON</span>
+
+{<span class="fn">action</span>=<span class="st">scene_patch</span> <span class="fn">target</span>=<span class="st">doc_8f3a</span> <span class="fn">ops</span>=[
+  {<span class="fn">op</span>=<span class="st">update</span> <span class="fn">node</span>=<span class="st">n_label_01</span> <span class="fn">text</span>=<span class="st">"Marcus Rashford"</span>}
+  {<span class="fn">op</span>=<span class="st">update</span> <span class="fn">node</span>=<span class="st">n_bar_rating</span> <span class="fn">width</span>=<span class="st">78%</span>}
+  {<span class="fn">op</span>=<span class="st">recolor</span> <span class="fn">node</span>=<span class="st">n_card_bg</span> <span class="fn">fill</span>=<span class="st">#da291c</span>}
+  {<span class="fn">op</span>=<span class="st">bind</span> <span class="fn">node</span>=<span class="st">n_portrait</span> <span class="fn">src</span>=<span class="st">api://players/rashford/headshot</span>}
+]}
+</code></pre>
+
+  <h3>Shard — Asset container format</h3>
+
+  <p><strong>Shard</strong> is a binary container with O(1) name lookup, per-entry compression, CRC32C checksums, and GPU-aligned memory mapping. It is the natural container for the SVG OS asset layer.</p>
+
+  <p>Where Shard fits:</p>
+
+  <ul>
+    <li><strong>Component libraries</strong> — Pack hundreds of reusable symbols, templates, and materials into a single Shard file. O(1) lookup by name means loading a specific component is constant-time regardless of library size.</li>
+    <li><strong>Font and image packs</strong> — Per-entry compression (zstd/lz4) means each asset uses the optimal codec. A 2KB SVG symbol and a 200KB PNG portrait coexist with independent compression.</li>
+    <li><strong>GPU-aligned textures</strong> — When the renderer needs raster data for WebGPU, Shard's 16/32/64-byte aligned data blocks enable zero-copy transfer to the GPU.</li>
+    <li><strong>Role-based profiles</strong> — Shard's role byte in the header can signal asset type: <code>ComponentShard</code>, <code>TemplateShard</code>, <code>MaterialShard</code>, <code>IconShard</code>. The system knows what to expect before reading the index.</li>
+  </ul>
+
+  <pre><code><span class="label">SHARD ASSET LOADING</span>
+<span class="cm">// Load a component from a Shard asset pack</span>
+<span class="kw">const</span> pack = <span class="kw">await</span> Shard.<span class="fn">open</span>(<span class="st">'./assets/sports-kit.shard'</span>);
+
+<span class="cm">// O(1) lookup — xxHash64 name → offset, no scanning</span>
+<span class="kw">const</span> card = <span class="kw">await</span> pack.<span class="fn">get</span>(<span class="st">'templates/player-card'</span>);   <span class="cm">// SVG template</span>
+<span class="kw">const</span> badge = <span class="kw">await</span> pack.<span class="fn">get</span>(<span class="st">'symbols/team-badge'</span>);      <span class="cm">// SVG symbol</span>
+<span class="kw">const</span> font = <span class="kw">await</span> pack.<span class="fn">get</span>(<span class="st">'fonts/athletic-sans'</span>);      <span class="cm">// WOFF2</span>
+<span class="kw">const</span> pitch = <span class="kw">await</span> pack.<span class="fn">get</span>(<span class="st">'textures/grass-tile'</span>);     <span class="cm">// PNG, GPU-aligned</span>
+
+<span class="cm">// Integrity verified automatically (CRC32C per entry)</span>
+console.<span class="fn">log</span>(pack.header.role);  <span class="cm">// → 'ComponentShard'</span>
+console.<span class="fn">log</span>(pack.entries.length); <span class="cm">// → 347 assets</span>
+</code></pre>
+
+  <h3>Where each format sits in the stack</h3>
+
+  <div class="diagram">
+    <span class="diagram-label">Neumenon × SVG OS Integration Map</span>
+    <pre><code>
+                  ┌──────────────────────────────────────┐
+                  │         AI / Agent Layer              │
+                  │                                      │
+                  │   ┌────────────────────────────┐     │
+                  │   │  GLYPH  agent codec         │     │
+                  │   │  instructions, patches,     │     │
+                  │   │  streaming transforms       │     │
+                  │   └────────────────────────────┘     │
+                  └──────────────┬───────────────────────┘
+                                 │
+                  ┌──────────────▼───────────────────────┐
+                  │      Network / Sync Layer             │
+                  │                                      │
+                  │   ┌────────────────────────────┐     │
+                  │   │  COWRIE  wire format         │     │
+                  │   │  graph patches, snapshots,  │     │
+                  │   │  CRDT deltas, typed IPC     │     │
+                  │   └────────────────────────────┘     │
+                  └──────────────┬───────────────────────┘
+                                 │
+                  ┌──────────────▼───────────────────────┐
+                  │       Storage / Asset Layer           │
+                  │                                      │
+                  │   ┌────────────────────────────┐     │
+                  │   │  SHARD  asset container      │     │
+                  │   │  component libs, fonts,     │     │
+                  │   │  textures, templates        │     │
+                  │   └────────────────────────────┘     │
+                  └──────────────────────────────────────┘
+    </code></pre>
+  </div>
+
+  <div class="power">
+    <div class="power-label">Organic, Not Forced</div>
+    <p>These formats were not designed for the SVG OS. They were designed for the problems the SVG OS naturally has: graph serialization, agent communication, and asset packaging. The synergy is structural. Cowrie speaks graphs. Glyph speaks to agents. Shard stores assets. Each one replaces a problem you would otherwise solve with generic JSON or zip files — and solves it better.</p>
+  </div>
+</section>
+
 </div>
 </body>
 </html>
