@@ -613,6 +613,281 @@
   </div>
 </section>
 
+<!-- ============================================================ -->
+<!--  §4 — LAYER 1: DOCUMENT KERNEL                                -->
+<!-- ============================================================ -->
+<section id="doc-kernel">
+  <h2>§4 — Layer 1: The Document Kernel</h2>
+
+  <p class="drop-cap">This is the heart of the system. The document is not just SVG text sitting in a file. Internally, it is a structured scene graph — a visual AST — where every node carries identity, semantics, relationships, and behavior. You may still serialize to SVG for interchange, but internally you want something richer. Think SVG++.</p>
+
+  <p>A <code>&lt;rect&gt;</code> in raw SVG is just geometry and style. A rectangle in the SVG OS is:</p>
+
+  <ul>
+    <li><strong>Geometry</strong> — position, size, corner radius, path data</li>
+    <li><strong>Semantic type</strong> — is it a card background? A stat bar? A button?</li>
+    <li><strong>Bindings</strong> — what data drives its fill, its text, its visibility?</li>
+    <li><strong>Constraints</strong> — what spatial rules does it obey?</li>
+    <li><strong>Component role</strong> — is it part of a symbol? A template slot?</li>
+    <li><strong>Export rules</strong> — flatten for print? Animate for web? Extrude for 3D?</li>
+    <li><strong>Interaction rules</strong> — respond to hover? Click? Agent mutation?</li>
+    <li><strong>Provenance</strong> — who created it, when, from what template?</li>
+  </ul>
+
+  <h3>The node tree</h3>
+
+  <p>The internal model is a tree of typed nodes. Every node has a stable UUID — not a fragile index, not a DOM path. The tree supports groups, symbols, defs, filter references, text runs, and arbitrary metadata. It is the single source of truth. Rendering, export, and collaboration all derive from it.</p>
+
+  <div class="svg-diagram">
+    <svg viewBox="0 0 700 420" xmlns="http://www.w3.org/2000/svg">
+      <!-- Background -->
+      <rect width="700" height="420" fill="#12121a" rx="4"/>
+
+      <!-- Root -->
+      <rect x="290" y="20" width="120" height="36" rx="6" fill="none" stroke="#00ff88" stroke-width="1.5"/>
+      <text x="350" y="43" text-anchor="middle" fill="#00ff88" font-size="12">Document</text>
+
+      <!-- Lines from root -->
+      <line x1="320" y1="56" x2="150" y2="100" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="350" y1="56" x2="350" y2="100" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="380" y1="56" x2="550" y2="100" stroke="#1e1e2e" stroke-width="1"/>
+
+      <!-- Level 1: Defs, Page, Symbols -->
+      <rect x="90" y="100" width="120" height="36" rx="6" fill="none" stroke="#aa44ff" stroke-width="1.5"/>
+      <text x="150" y="123" text-anchor="middle" fill="#aa44ff" font-size="12">Defs</text>
+
+      <rect x="290" y="100" width="120" height="36" rx="6" fill="none" stroke="#00ddff" stroke-width="1.5"/>
+      <text x="350" y="123" text-anchor="middle" fill="#00ddff" font-size="12">Page</text>
+
+      <rect x="490" y="100" width="120" height="36" rx="6" fill="none" stroke="#ff8800" stroke-width="1.5"/>
+      <text x="550" y="123" text-anchor="middle" fill="#ff8800" font-size="12">Symbols</text>
+
+      <!-- Lines from Defs -->
+      <line x1="120" y1="136" x2="80" y2="180" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="150" y1="136" x2="150" y2="180" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="180" y1="136" x2="220" y2="180" stroke="#1e1e2e" stroke-width="1"/>
+
+      <!-- Defs children -->
+      <rect x="30" y="180" width="100" height="30" rx="4" fill="none" stroke="#6a6a7e" stroke-width="1"/>
+      <text x="80" y="199" text-anchor="middle" fill="#6a6a7e" font-size="10">Gradients</text>
+
+      <rect x="100" y="180" width="100" height="30" rx="4" fill="none" stroke="#6a6a7e" stroke-width="1"/>
+      <text x="150" y="199" text-anchor="middle" fill="#6a6a7e" font-size="10">Filters</text>
+
+      <rect x="170" y="180" width="100" height="30" rx="4" fill="none" stroke="#6a6a7e" stroke-width="1"/>
+      <text x="220" y="199" text-anchor="middle" fill="#6a6a7e" font-size="10">ClipPaths</text>
+
+      <!-- Lines from Page -->
+      <line x1="320" y1="136" x2="290" y2="180" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="380" y1="136" x2="420" y2="180" stroke="#1e1e2e" stroke-width="1"/>
+
+      <!-- Page children -->
+      <rect x="240" y="180" width="100" height="30" rx="4" fill="none" stroke="#00ddff" stroke-width="1"/>
+      <text x="290" y="199" text-anchor="middle" fill="#00ddff" font-size="10">Group</text>
+
+      <rect x="370" y="180" width="100" height="30" rx="4" fill="none" stroke="#00ddff" stroke-width="1"/>
+      <text x="420" y="199" text-anchor="middle" fill="#00ddff" font-size="10">Group</text>
+
+      <!-- Lines from Group 1 -->
+      <line x1="270" y1="210" x2="250" y2="250" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="310" y1="210" x2="330" y2="250" stroke="#1e1e2e" stroke-width="1"/>
+
+      <!-- Group 1 children -->
+      <rect x="200" y="250" width="100" height="30" rx="4" fill="none" stroke="#ff00aa" stroke-width="1"/>
+      <text x="250" y="269" text-anchor="middle" fill="#ff00aa" font-size="10">Rect</text>
+
+      <rect x="280" y="250" width="100" height="30" rx="4" fill="none" stroke="#ff00aa" stroke-width="1"/>
+      <text x="330" y="269" text-anchor="middle" fill="#ff00aa" font-size="10">Text</text>
+
+      <!-- Lines from Group 2 -->
+      <line x1="400" y1="210" x2="380" y2="250" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="440" y1="210" x2="460" y2="250" stroke="#1e1e2e" stroke-width="1"/>
+
+      <!-- Group 2 children: component instance -->
+      <rect x="330" y="250" width="100" height="30" rx="4" fill="none" stroke="#ff8800" stroke-width="1" stroke-dasharray="4,3"/>
+      <text x="380" y="269" text-anchor="middle" fill="#ff8800" font-size="10">⟨use⟩</text>
+
+      <rect x="410" y="250" width="100" height="30" rx="4" fill="none" stroke="#ff00aa" stroke-width="1"/>
+      <text x="460" y="269" text-anchor="middle" fill="#ff00aa" font-size="10">Path</text>
+
+      <!-- Symbols children -->
+      <line x1="550" y1="136" x2="550" y2="180" stroke="#1e1e2e" stroke-width="1"/>
+      <rect x="500" y="180" width="100" height="30" rx="4" fill="none" stroke="#ff8800" stroke-width="1"/>
+      <text x="550" y="199" text-anchor="middle" fill="#ff8800" font-size="10">CardTemplate</text>
+
+      <!-- Legend -->
+      <rect x="20" y="330" width="660" height="70" rx="4" fill="#0a0a0f" stroke="#1e1e2e" stroke-width="1"/>
+      <text x="40" y="352" fill="#6a6a7e" font-size="10">LEGEND:</text>
+      <rect x="40" y="362" width="12" height="12" rx="2" fill="none" stroke="#00ff88" stroke-width="1"/>
+      <text x="58" y="372" fill="#6a6a7e" font-size="10">Root</text>
+      <rect x="110" y="362" width="12" height="12" rx="2" fill="none" stroke="#aa44ff" stroke-width="1"/>
+      <text x="128" y="372" fill="#6a6a7e" font-size="10">Resources</text>
+      <rect x="200" y="362" width="12" height="12" rx="2" fill="none" stroke="#00ddff" stroke-width="1"/>
+      <text x="218" y="372" fill="#6a6a7e" font-size="10">Structural</text>
+      <rect x="290" y="362" width="12" height="12" rx="2" fill="none" stroke="#ff00aa" stroke-width="1"/>
+      <text x="308" y="372" fill="#6a6a7e" font-size="10">Geometry</text>
+      <rect x="380" y="362" width="12" height="12" rx="2" fill="none" stroke="#ff8800" stroke-width="1"/>
+      <text x="398" y="372" fill="#6a6a7e" font-size="10">Components</text>
+      <rect x="480" y="362" width="12" height="12" rx="2" fill="none" stroke="#ff8800" stroke-width="1" stroke-dasharray="4,3"/>
+      <text x="498" y="372" fill="#6a6a7e" font-size="10">Instance (use-ref)</text>
+    </svg>
+  </div>
+
+  <h3>Internal representation</h3>
+
+  <pre><code><span class="label">TYPESCRIPT</span>
+<span class="kw">interface</span> <span class="ty">SvgNode</span> {
+  <span class="fn">id</span>:          <span class="ty">UUID</span>;
+  <span class="fn">type</span>:        <span class="ty">NodeType</span>;          <span class="cm">// path | group | text | image | component | effect</span>
+  <span class="fn">name</span>:        <span class="ty">string</span>;
+  <span class="fn">properties</span>:  <span class="ty">Map</span>&lt;<span class="ty">string</span>, <span class="ty">Property</span>&gt;;
+  <span class="fn">children</span>:    <span class="ty">SvgNode</span>[];
+  <span class="fn">parent</span>:      <span class="ty">SvgNode</span> | <span class="kw">null</span>;
+  <span class="fn">effects</span>:     <span class="ty">Effect</span>[];          <span class="cm">// non-destructive effect chain</span>
+  <span class="fn">bindings</span>:    <span class="ty">DataBinding</span>[];    <span class="cm">// reactive data connections</span>
+  <span class="fn">constraints</span>: <span class="ty">Constraint</span>[];     <span class="cm">// spatial rules</span>
+  <span class="fn">metadata</span>:    <span class="ty">Record</span>&lt;<span class="ty">string</span>, <span class="kw">any</span>&gt;;
+
+  <span class="fn">on</span>(event: <span class="ty">string</span>, handler: <span class="ty">Handler</span>): <span class="kw">void</span>;
+  <span class="fn">query</span>(selector: <span class="ty">string</span>): <span class="ty">SvgNode</span>[];
+  <span class="fn">serialize</span>(): <span class="ty">string</span>;          <span class="cm">// → valid SVG fragment</span>
+  <span class="fn">clone</span>(): <span class="ty">SvgNode</span>;
+}
+</code></pre>
+
+  <div class="power">
+    <div class="power-label">Key Insight</div>
+    <p>Export to SVG is a <em>serialization target</em>, not your only truth. The internal model is richer than what SVG can express. That delta — the metadata, bindings, constraints, behaviors — is what makes it an OS and not a format.</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!--  §5 — LAYER 2: OBJECT MODEL                                   -->
+<!-- ============================================================ -->
+<section id="object-model">
+  <h2>§5 — Layer 2: The Object Model</h2>
+
+  <p class="drop-cap">Every thing on the canvas is an object. Not just a shape — an entity with identity, typed properties, methods, event hooks, metadata, and optional behavior scripts. A "player card" is not a group of rectangles and text nodes. It <em>knows</em> it is a player card. It knows the player name, the team, the percentile values, the portrait slot, the stat bars, the theme tokens, the export sizes, and the motion preset.</p>
+
+  <p>This is the difference between editing shapes and editing <em>meaning</em>.</p>
+
+  <h3>Object schema example</h3>
+
+  <pre><code><span class="label">OBJECT SCHEMA</span>
+<span class="kw">const</span> PlayerCard = <span class="fn">defineObject</span>({
+  <span class="fn">type</span>: <span class="st">'sports/player-card'</span>,
+  <span class="fn">version</span>: <span class="st">'1.0'</span>,
+
+  <span class="fn">props</span>: {
+    playerName:   { <span class="fn">type</span>: <span class="st">'string'</span>,  <span class="fn">label</span>: <span class="st">'Player Name'</span> },
+    team:         { <span class="fn">type</span>: <span class="st">'string'</span>,  <span class="fn">label</span>: <span class="st">'Team'</span> },
+    position:     { <span class="fn">type</span>: <span class="st">'string'</span>,  <span class="fn">label</span>: <span class="st">'Position'</span> },
+    rating:       { <span class="fn">type</span>: <span class="st">'number'</span>,  <span class="fn">min</span>: <span class="nm">0</span>, <span class="fn">max</span>: <span class="nm">100</span> },
+    portrait:     { <span class="fn">type</span>: <span class="st">'image'</span>,   <span class="fn">aspect</span>: <span class="st">'3:4'</span> },
+    teamColors:   { <span class="fn">type</span>: <span class="st">'palette'</span>, <span class="fn">slots</span>: [<span class="st">'primary'</span>, <span class="st">'secondary'</span>, <span class="st">'accent'</span>] },
+  },
+
+  <span class="fn">slots</span>: {
+    background:   { <span class="fn">type</span>: <span class="st">'rect'</span>,     <span class="fn">role</span>: <span class="st">'card-bg'</span> },
+    nameLabel:    { <span class="fn">type</span>: <span class="st">'text'</span>,     <span class="fn">bind</span>: <span class="st">'props.playerName'</span> },
+    ratingBar:    { <span class="fn">type</span>: <span class="st">'meter'</span>,    <span class="fn">bind</span>: <span class="st">'props.rating'</span> },
+    portraitSlot: { <span class="fn">type</span>: <span class="st">'image'</span>,    <span class="fn">bind</span>: <span class="st">'props.portrait'</span> },
+  },
+
+  <span class="fn">exports</span>: [
+    { <span class="fn">name</span>: <span class="st">'social'</span>,  <span class="fn">format</span>: <span class="st">'png'</span>, <span class="fn">size</span>: [<span class="nm">1080</span>, <span class="nm">1350</span>] },
+    { <span class="fn">name</span>: <span class="st">'print'</span>,   <span class="fn">format</span>: <span class="st">'pdf'</span>, <span class="fn">size</span>: [<span class="nm">300</span>, <span class="nm">420</span>], <span class="fn">unit</span>: <span class="st">'mm'</span> },
+    { <span class="fn">name</span>: <span class="st">'web'</span>,     <span class="fn">format</span>: <span class="st">'svg'</span>, <span class="fn">interactive</span>: <span class="kw">true</span> },
+  ],
+});
+</code></pre>
+
+  <p>Now editing becomes richer than moving shapes. You change a <code>team</code> property and the colors update. You swap a <code>portrait</code> and the mask recalculates. You bind a <code>rating</code> to a live API and the stat bar animates. The object model makes the canvas semantic.</p>
+
+  <h3>What objects can do</h3>
+
+  <table>
+    <tr><th>Capability</th><th>Method</th><th>Effect</th></tr>
+    <tr><td>Query children</td><td><code>node.query('.stat-bar')</code></td><td>CSS-selector traversal of subtree</td></tr>
+    <tr><td>Bind to data</td><td><code>node.bind(source, map)</code></td><td>Reactive property connection</td></tr>
+    <tr><td>Apply effect</td><td><code>node.applyEffect(blur(4))</code></td><td>Non-destructive visual transform</td></tr>
+    <tr><td>Constrain</td><td><code>node.pin('center', parent)</code></td><td>Spatial rule declaration</td></tr>
+    <tr><td>Listen</td><td><code>node.on('click', fn)</code></td><td>Event handler registration</td></tr>
+    <tr><td>Export</td><td><code>node.export('png', opts)</code></td><td>Targeted output generation</td></tr>
+    <tr><td>Clone</td><td><code>node.clone()</code></td><td>Deep copy with new UUIDs</td></tr>
+  </table>
+</section>
+
+<!-- ============================================================ -->
+<!--  §6 — LAYER 3: CONSTRAINT & LAYOUT ENGINE                     -->
+<!-- ============================================================ -->
+<section id="layout">
+  <h2>§6 — Layer 3: Constraint &amp; Layout Engine</h2>
+
+  <p class="drop-cap">This is one of the biggest unlocks. Most vector tools are still too manual — you place things by hand, nudge pixel by pixel, duplicate and re-align when content changes. Instead, objects in the SVG OS can declare spatial rules. The system resolves them. This is what stops it from being "Illustrator clone" and starts making it a design tool, UI builder, parametric CAD-lite, and presentation system all at once.</p>
+
+  <h3>Constraint types</h3>
+
+  <pre><code><span class="label">CONSTRAINTS</span>
+<span class="cm">// Pin to parent center</span>
+<span class="fn">pin</span>(card.nameLabel, { <span class="fn">to</span>: card, <span class="fn">anchor</span>: <span class="st">'center-top'</span>, <span class="fn">offset</span>: [<span class="nm">0</span>, <span class="nm">24</span>] });
+
+<span class="cm">// Distribute children evenly with 12px spacing</span>
+<span class="fn">distribute</span>(statsGroup, { <span class="fn">axis</span>: <span class="st">'horizontal'</span>, <span class="fn">gap</span>: <span class="nm">12</span> });
+
+<span class="cm">// Auto-grow text container</span>
+<span class="fn">autoResize</span>(nameLabel, { <span class="fn">axis</span>: <span class="st">'vertical'</span>, <span class="fn">minHeight</span>: <span class="nm">20</span>, <span class="fn">maxHeight</span>: <span class="nm">60</span> });
+
+<span class="cm">// Preserve aspect ratio on resize</span>
+<span class="fn">aspectLock</span>(portrait, { <span class="fn">ratio</span>: <span class="st">'3:4'</span> });
+
+<span class="cm">// Repeat per dataset row</span>
+<span class="fn">repeatGrid</span>(cardTemplate, {
+  <span class="fn">data</span>: players,
+  <span class="fn">columns</span>: <span class="nm">4</span>,
+  <span class="fn">gap</span>: [<span class="nm">16</span>, <span class="nm">16</span>],
+  <span class="fn">bind</span>: (card, row) => card.<span class="fn">bindAll</span>(row)
+});
+
+<span class="cm">// Snap to isometric grid</span>
+<span class="fn">isoProject</span>(building, { <span class="fn">grid</span>: isoGrid, <span class="fn">elevation</span>: <span class="nm">2</span> });
+
+<span class="cm">// Responsive breakpoint</span>
+<span class="fn">responsive</span>(layout, {
+  <span class="fn">breakpoints</span>: {
+    <span class="nm">768</span>:  { <span class="fn">columns</span>: <span class="nm">2</span>, <span class="fn">gap</span>: <span class="nm">12</span> },
+    <span class="nm">1200</span>: { <span class="fn">columns</span>: <span class="nm">4</span>, <span class="fn">gap</span>: <span class="nm">16</span> },
+  }
+});
+</code></pre>
+
+  <h3>The solver</h3>
+
+  <p>The constraint engine runs after data binding but before rendering. It is a multi-pass solver:</p>
+
+  <div class="diagram">
+    <span class="diagram-label">Constraint Resolution Pipeline</span>
+    <pre><code>
+  Data Binding Pass              Constraint Solver              Render Pass
+  ─────────────────     ──▶     ─────────────────     ──▶     ───────────
+  Pull values                   1. Resolve pins               Paint to DOM
+  Update props                  2. Compute distributions       Composite
+  Evaluate expressions          3. Auto-resize text            Export
+                                4. Enforce aspect locks
+                                5. Run repeat-grids
+                                6. Apply responsive rules
+                                7. Snap to grids
+    </code></pre>
+  </div>
+
+  <p>Templates work because you define rules, not pixel positions. Change the data, change the viewport, change the theme — the layout engine recomputes everything. Manual nudging becomes the exception, not the default.</p>
+
+  <div class="power hack">
+    <div class="power-label">Halfway Between Worlds</div>
+    <p>With a constraint engine, the SVG OS sits at the intersection of design tool, UI builder, parametric CAD, and presentation system. You get the visual quality of a design tool with the structural rigor of a layout engine. That is the territory no current tool occupies well.</p>
+  </div>
+</section>
+
 </div>
 </body>
 </html>
