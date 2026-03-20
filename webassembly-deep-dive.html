@@ -1498,6 +1498,147 @@
 })();
 </script>
 
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 5: TYPES AND INSTRUCTIONS                               -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch5">
+<h2>05 &mdash; types and instructions</h2>
+
+<p class="drop-cap">Wasm has four numeric types. Not four hundred. Not forty. Four: <code>i32</code>, <code>i64</code>, <code>f32</code>, <code>f64</code>. No strings. No structs. No booleans &mdash; a boolean is just an <code>i32</code> where 0 means false and anything else means true. This minimalism is not a limitation. It is the reason every operation is type-checkable in a single linear pass, every instruction has exactly one defined behavior on every input, and the entire machine is provably safe before it runs.</p>
+
+<h3>The Type Universe</h3>
+
+<div class="vs">
+<div class="vs-col" style="border-top: 2px solid var(--green);">
+<h4 style="color:var(--green);">Integers</h4>
+<table>
+<tr><th>Type</th><th>Size</th><th>Maps to</th></tr>
+<tr><td><code>i32</code></td><td>32 bits</td><td>Any 32-bit register (EAX, W0)</td></tr>
+<tr><td><code>i64</code></td><td>64 bits</td><td>Any 64-bit register (RAX, X0)</td></tr>
+</table>
+<p style="font-size:0.85rem;color:var(--text-dim);">No signed/unsigned distinction in the type &mdash; the same i32 can be treated as signed or unsigned depending on the instruction. <code>i32.div_s</code> divides signed; <code>i32.div_u</code> divides unsigned. The bits are the same.</p>
+</div>
+<div class="vs-col" style="border-top: 2px solid var(--orange);">
+<h4 style="color:var(--orange);">Floats</h4>
+<table>
+<tr><th>Type</th><th>Size</th><th>Maps to</th></tr>
+<tr><td><code>f32</code></td><td>32 bits</td><td>IEEE 754 single (XMM/NEON)</td></tr>
+<tr><td><code>f64</code></td><td>64 bits</td><td>IEEE 754 double (XMM/NEON)</td></tr>
+</table>
+<p style="font-size:0.85rem;color:var(--text-dim);">Fully IEEE 754 compliant. NaN propagation rules are specified exactly. <code>f64.sqrt</code> of a negative number returns NaN, always &mdash; no undefined behavior, no platform variation.</p>
+</div>
+</div>
+
+<p>Beyond the four numerics, Wasm also has <strong>reference types</strong>: <code>funcref</code> (a reference to a function, used for indirect calls) and <code>externref</code> (an opaque handle to a host object, like a JavaScript DOM node). The SIMD proposal adds <code>v128</code> &mdash; a 128-bit vector that holds four i32s, two i64s, four f32s, or two f64s simultaneously. And the GC proposal adds struct and array types for garbage-collected languages. But the four numeric types are the foundation. Everything else is built on top.</p>
+
+<h3>The Instruction Set</h3>
+
+<p>The post-SIMD Wasm spec has roughly 400 instructions. They group into five categories, and every single one declares its exact stack signature &mdash; what types it pops, what types it pushes:</p>
+
+<div class="tabbed">
+<input type="radio" name="insn" id="insn-t1" class="t1" checked>
+<input type="radio" name="insn" id="insn-t2" class="t2">
+<input type="radio" name="insn" id="insn-t3" class="t3">
+<input type="radio" name="insn" id="insn-t4" class="t4">
+<div class="tab-bar">
+  <label for="insn-t1">Arithmetic</label>
+  <label for="insn-t2">Comparison</label>
+  <label for="insn-t3">Memory</label>
+  <label for="insn-t4">Conversion</label>
+</div>
+<div class="tab-panel p1">
+<div style="padding:1rem 1.4rem;">
+<table>
+<tr><th>Instruction</th><th>Opcode</th><th>Stack Effect</th></tr>
+<tr><td><code>i32.add</code></td><td><span class="nm">0x6A</span></td><td>[i32 i32] &rarr; [i32]</td></tr>
+<tr><td><code>i32.sub</code></td><td><span class="nm">0x6B</span></td><td>[i32 i32] &rarr; [i32]</td></tr>
+<tr><td><code>i32.mul</code></td><td><span class="nm">0x6C</span></td><td>[i32 i32] &rarr; [i32]</td></tr>
+<tr><td><code>i32.div_s</code></td><td><span class="nm">0x6D</span></td><td>[i32 i32] &rarr; [i32] &nbsp; (traps on /0)</td></tr>
+<tr><td><code>i32.rem_u</code></td><td><span class="nm">0x70</span></td><td>[i32 i32] &rarr; [i32]</td></tr>
+<tr><td><code>i32.and</code></td><td><span class="nm">0x71</span></td><td>[i32 i32] &rarr; [i32]</td></tr>
+<tr><td><code>i32.or</code></td><td><span class="nm">0x72</span></td><td>[i32 i32] &rarr; [i32]</td></tr>
+<tr><td><code>i32.shl</code></td><td><span class="nm">0x74</span></td><td>[i32 i32] &rarr; [i32]</td></tr>
+<tr><td><code>i64.add</code></td><td><span class="nm">0x7C</span></td><td>[i64 i64] &rarr; [i64]</td></tr>
+<tr><td><code>f64.mul</code></td><td><span class="nm">0xA2</span></td><td>[f64 f64] &rarr; [f64]</td></tr>
+<tr><td><code>f64.sqrt</code></td><td><span class="nm">0x9F</span></td><td>[f64] &rarr; [f64]</td></tr>
+</table>
+</div>
+</div>
+<div class="tab-panel p2">
+<div style="padding:1rem 1.4rem;">
+<table>
+<tr><th>Instruction</th><th>Opcode</th><th>Stack Effect</th></tr>
+<tr><td><code>i32.eqz</code></td><td><span class="nm">0x45</span></td><td>[i32] &rarr; [i32] &nbsp; (1 if zero, else 0)</td></tr>
+<tr><td><code>i32.eq</code></td><td><span class="nm">0x46</span></td><td>[i32 i32] &rarr; [i32]</td></tr>
+<tr><td><code>i32.ne</code></td><td><span class="nm">0x47</span></td><td>[i32 i32] &rarr; [i32]</td></tr>
+<tr><td><code>i32.lt_s</code></td><td><span class="nm">0x48</span></td><td>[i32 i32] &rarr; [i32] &nbsp; (signed)</td></tr>
+<tr><td><code>i32.lt_u</code></td><td><span class="nm">0x49</span></td><td>[i32 i32] &rarr; [i32] &nbsp; (unsigned)</td></tr>
+<tr><td><code>i32.ge_s</code></td><td><span class="nm">0x4E</span></td><td>[i32 i32] &rarr; [i32]</td></tr>
+<tr><td><code>f64.eq</code></td><td><span class="nm">0x61</span></td><td>[f64 f64] &rarr; [i32]</td></tr>
+<tr><td><code>f64.lt</code></td><td><span class="nm">0x63</span></td><td>[f64 f64] &rarr; [i32]</td></tr>
+</table>
+<p style="font-size:0.85rem;color:var(--text-dim);margin-top:0.8rem;">All comparisons return <code>i32</code> (0 or 1). There is no boolean type &mdash; conditions are integers.</p>
+</div>
+</div>
+<div class="tab-panel p3">
+<div style="padding:1rem 1.4rem;">
+<table>
+<tr><th>Instruction</th><th>Opcode</th><th>Stack Effect</th></tr>
+<tr><td><code>i32.load</code></td><td><span class="nm">0x28</span></td><td>[i32] &rarr; [i32] &nbsp; (addr &rarr; value)</td></tr>
+<tr><td><code>i64.load</code></td><td><span class="nm">0x29</span></td><td>[i32] &rarr; [i64]</td></tr>
+<tr><td><code>f64.load</code></td><td><span class="nm">0x2B</span></td><td>[i32] &rarr; [f64]</td></tr>
+<tr><td><code>i32.store</code></td><td><span class="nm">0x36</span></td><td>[i32 i32] &rarr; [] &nbsp; (addr, value)</td></tr>
+<tr><td><code>i32.load8_s</code></td><td><span class="nm">0x2C</span></td><td>[i32] &rarr; [i32] &nbsp; (load byte, sign-extend)</td></tr>
+<tr><td><code>i32.load8_u</code></td><td><span class="nm">0x2D</span></td><td>[i32] &rarr; [i32] &nbsp; (load byte, zero-extend)</td></tr>
+<tr><td><code>i32.store8</code></td><td><span class="nm">0x3A</span></td><td>[i32 i32] &rarr; [] &nbsp; (store low byte)</td></tr>
+<tr><td><code>memory.grow</code></td><td><span class="nm">0x40</span></td><td>[i32] &rarr; [i32] &nbsp; (pages &rarr; old size)</td></tr>
+<tr><td><code>memory.size</code></td><td><span class="nm">0x3F</span></td><td>[] &rarr; [i32] &nbsp; (current pages)</td></tr>
+</table>
+<p style="font-size:0.85rem;color:var(--text-dim);margin-top:0.8rem;">Memory instructions include an alignment hint and an offset immediate. Misaligned access is <em>not</em> a trap &mdash; it just may be slower.</p>
+</div>
+</div>
+<div class="tab-panel p4">
+<div style="padding:1rem 1.4rem;">
+<table>
+<tr><th>Instruction</th><th>Opcode</th><th>Stack Effect</th></tr>
+<tr><td><code>i32.wrap_i64</code></td><td><span class="nm">0xA7</span></td><td>[i64] &rarr; [i32] &nbsp; (truncate to 32 bits)</td></tr>
+<tr><td><code>i64.extend_i32_s</code></td><td><span class="nm">0xAC</span></td><td>[i32] &rarr; [i64] &nbsp; (sign-extend)</td></tr>
+<tr><td><code>i64.extend_i32_u</code></td><td><span class="nm">0xAD</span></td><td>[i32] &rarr; [i64] &nbsp; (zero-extend)</td></tr>
+<tr><td><code>f64.convert_i32_s</code></td><td><span class="nm">0xB7</span></td><td>[i32] &rarr; [f64] &nbsp; (int to double)</td></tr>
+<tr><td><code>i32.trunc_f64_s</code></td><td><span class="nm">0xAA</span></td><td>[f64] &rarr; [i32] &nbsp; (traps on NaN/overflow)</td></tr>
+<tr><td><code>f64.promote_f32</code></td><td><span class="nm">0xBB</span></td><td>[f32] &rarr; [f64]</td></tr>
+<tr><td><code>f32.demote_f64</code></td><td><span class="nm">0xB6</span></td><td>[f64] &rarr; [f32]</td></tr>
+<tr><td><code>i32.reinterpret_f32</code></td><td><span class="nm">0xBC</span></td><td>[f32] &rarr; [i32] &nbsp; (same bits, different type)</td></tr>
+</table>
+<p style="font-size:0.85rem;color:var(--text-dim);margin-top:0.8rem;">Conversions that can fail (like truncating NaN or infinity to an integer) <em>trap</em> rather than produce garbage. There is a saturating variant (<code>i32.trunc_sat_f64_s</code>) for cases where you want clamping instead.</p>
+</div>
+</div>
+</div>
+
+<h3>No Undefined Behavior</h3>
+
+<p>In C, signed integer overflow is undefined behavior. The compiler can assume it never happens, and if it does, anything goes &mdash; nasal demons, time travel, whatever the optimizer felt like. In Wasm, every operation has exactly one defined result for every input:</p>
+
+<table>
+<tr><th>Operation</th><th>C behavior</th><th>Wasm behavior</th></tr>
+<tr><td>Signed overflow</td><td>Undefined</td><td>Wraps modulo 2<sup>32</sup> or 2<sup>64</sup>, always</td></tr>
+<tr><td>Division by zero</td><td>Undefined</td><td>Traps, always</td></tr>
+<tr><td>Integer &divide; that overflows</td><td>Undefined</td><td>Traps (e.g., <code>INT_MIN / -1</code>)</td></tr>
+<tr><td>NaN propagation</td><td>Implementation-defined</td><td>Specified: NaN payload is canonical or propagated</td></tr>
+<tr><td><code>sqrt(-1.0)</code></td><td>Domain error</td><td>Returns NaN, always</td></tr>
+<tr><td>Out-of-range shift</td><td>Undefined</td><td>Shift amount is masked to bit width</td></tr>
+<tr><td>Misaligned memory access</td><td>Undefined (on some archs)</td><td>Valid but possibly slower</td></tr>
+</table>
+
+<div class="power hack">
+<div class="power-label">No Undefined Behavior</div>
+<p>This is not C&rsquo;s &ldquo;trust the programmer.&rdquo; This is &ldquo;trust nobody, verify everything.&rdquo; A Wasm module that passes validation will never produce an undefined result. The type system and deterministic semantics together mean every module either validates and runs correctly, or is rejected before a single instruction executes. There is no third state.</p>
+</div>
+
+<p>The type system is small on purpose. Four numeric types, a handful of reference types, deterministic semantics for every operation. This is what makes single-pass validation possible, what makes the sandbox provable, and what makes compilation to native code straightforward &mdash; every Wasm instruction maps cleanly to one or two native instructions. But nobody writes these instructions by hand. First you need a toolchain that turns your C, Rust, or Go into a <code>.wasm</code> binary. The tools that make that happen are wilder than you would expect.</p>
+
+</section>
+
 </div><!-- .content -->
 </body>
 </html>
