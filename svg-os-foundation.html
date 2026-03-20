@@ -1743,6 +1743,221 @@ scene.<span class="fn">animate</span>(<span class="st">'explode'</span>, {
   </div>
 </section>
 
+<!-- ============================================================ -->
+<!--  §16 — INKSCAPE EXTRACTION PLAN                                -->
+<!-- ============================================================ -->
+<section id="inkscape">
+  <h2>§16 — Inkscape Extraction Plan</h2>
+
+  <p class="drop-cap">Inkscape has three decades of accumulated knowledge about SVG geometry, document semantics, and vector operations. Some of it is invaluable. Some of it is desktop baggage that will sink you. The strategy is surgical: extract the mathematically hard, standards-hard layers. Throw away everything people actually touch. Rebuild the product as a browser-native runtime.</p>
+
+  <div class="vs">
+    <div class="vs-col">
+      <h4>Port / Reuse</h4>
+      <ul>
+        <li><strong>lib2geom</strong> — bezier math, path booleans, affine transforms, intersections, offsets, bounding boxes, curve simplification</li>
+        <li><strong>SVG document semantics</strong> — how the SVG spec maps to internal structure: groups, defs, gradients, markers, clipping, masking, styles, ID references</li>
+        <li><strong>Live Path Effect concepts</strong> — non-destructive parametric effects, editable source geometry, stackable transforms, effect params</li>
+        <li><strong>Import/export logic</strong> — SVG cleanup, style resolution, flattening for PDF/PNG, defs normalization</li>
+        <li><strong>Snapping math</strong> — geometric snap, node snap, guide/grid systems, precision transforms</li>
+      </ul>
+    </div>
+    <div class="vs-col">
+      <h4>Discard / Rebuild</h4>
+      <ul>
+        <li><strong>GTK UI</strong> — the entire desktop interface, dialogs, panels, menus, toolbar. Rebuild for browser.</li>
+        <li><strong>Desktop interaction code</strong> — drag handles, modal flows, desktop window management. Rebuild entirely.</li>
+        <li><strong>Old extension model</strong> — Python script extensions, INX descriptors. Replace with sandboxed browser plugin model.</li>
+        <li><strong>Rendering stack</strong> — Cairo/desktop redraw. Replace with SVG DOM + Canvas + WebGPU.</li>
+        <li><strong>Action/verb/dialog plumbing</strong> — desktop command infrastructure. Replace with web command palette.</li>
+        <li><strong>"Complete parity" ambitions</strong> — the path to bloat and death. Do not attempt.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="power danger">
+    <div class="power-label">The Trap</div>
+    <p>Do not port the GTK UI. Do not port the extension system. Do not try for feature parity. These are traps that will consume years of effort and produce a desktop clone nobody wants. The value of Inkscape is in its <em>knowledge</em>, not its <em>application shape</em>.</p>
+  </div>
+
+  <h3>Extraction phases</h3>
+
+  <table>
+    <tr><th>Phase</th><th>Goal</th><th>Deliverable</th></tr>
+    <tr>
+      <td><strong>0 — Audit</strong></td>
+      <td>Map the codebase into buckets</td>
+      <td>Categorization: geometry, SVG model, rendering, text, filters, extensions, UI, IO</td>
+    </tr>
+    <tr>
+      <td><strong>1 — Geometry + Doc Core</strong></td>
+      <td>Headless library, compile to WASM</td>
+      <td>Path ops, transforms, scene tree parse/serialize, style refs, snap math. No GUI deps. Deterministic tests.</td>
+    </tr>
+    <tr>
+      <td><strong>2 — Browser Editor Shell</strong></td>
+      <td>Entirely new UI</td>
+      <td>New event model, new tool system, new panels. Zero desktop baggage.</td>
+    </tr>
+    <tr>
+      <td><strong>3 — Structured Objects</strong></td>
+      <td>Object schemas + data layer</td>
+      <td>Typed objects, data bindings, constraints, template system.</td>
+    </tr>
+    <tr>
+      <td><strong>4 — Plugin SDK + Orchestration</strong></td>
+      <td>App ecosystem + collaboration</td>
+      <td>Extension runtime, multi-user sync, export pipelines, AI agent hooks.</td>
+    </tr>
+    <tr>
+      <td><strong>5 — 2.5D Layer</strong></td>
+      <td>Wow-factor demos</td>
+      <td>Extrusions, depth, camera, motion scenes, interactive web export.</td>
+    </tr>
+  </table>
+
+  <h3>The anti-bloat rule</h3>
+
+  <p>Only preserve layers that are <strong>mathematically hard</strong> or <strong>standards-hard</strong>. Rebuild everything people actually touch. Geometry is mathematically hard — keep it. SVG spec compliance is standards-hard — keep it. Desktop dialogs are neither — discard them.</p>
+</section>
+
+<!-- ============================================================ -->
+<!--  §17 — COMPETITIVE POSITIONING                                 -->
+<!-- ============================================================ -->
+<section id="positioning">
+  <h2>§17 — Competitive Positioning</h2>
+
+  <p class="drop-cap">Do not message this as "open-source Figma" or "Inkscape on the web." Those framings are traps — they invite feature-by-feature comparison against entrenched products and guarantee you lose on parity. Message it as what it is: a programmable graphics runtime. A design automation platform. A visual operating system for structured graphics. SVG as software.</p>
+
+  <h3>Against the field</h3>
+
+  <table>
+    <tr><th>Competitor</th><th>Their strength</th><th>SVG OS advantage</th></tr>
+    <tr><td><strong>Figma</strong></td><td>Collaboration, UI design</td><td>Structured graphics, data binding, automation, local-first, open</td></tr>
+    <tr><td><strong>Canva</strong></td><td>Templates, ease of use</td><td>Precision, programmability, custom components, no lock-in</td></tr>
+    <tr><td><strong>Illustrator</strong></td><td>Professional vector tools</td><td>Web-native, open-source, automation, multi-format publishing</td></tr>
+    <tr><td><strong>Lucidchart / draw.io</strong></td><td>Diagramming workflows</td><td>Richer visual grammar, pluggable object types, 2.5D, export quality</td></tr>
+    <tr><td><strong>Mermaid / D2</strong></td><td>Code-to-diagram</td><td>Visual editing + code, constraint engine, interactive output</td></tr>
+    <tr><td><strong>Graphite</strong></td><td>Open-source, Rust/WASM</td><td>Data binding, plugin ecosystem, Elixir orchestration, structured objects</td></tr>
+  </table>
+
+  <h3>Why hackers love this</h3>
+
+  <p>Because it turns design from a black box into a system you can reason about. Hackers like inspectable formats, composability, scripting, versionability, automation, reproducibility, pipelines, intermediate representations, and graph transforms. The SVG OS gives all of that to visual work.</p>
+
+  <p>Instead of "open Figma clone," it becomes:</p>
+
+  <ul>
+    <li><strong>Git-friendly visual docs</strong> — diff, branch, review, merge</li>
+    <li><strong>Programmable graphics compiler</strong> — input data, output artifacts</li>
+    <li><strong>Reusable scene components</strong> — import, compose, publish</li>
+    <li><strong>Data-driven visual apps</strong> — bind, repeat, export</li>
+    <li><strong>Browser-native asset runtime</strong> — no install, no plugin, no license</li>
+  </ul>
+
+  <p>It starts to feel like HTML for visual graphics, Blender nodes for 2D systems, React for vector scenes, CAD-lite for structured design, and a notebook for visual artifacts.</p>
+
+  <h3>The moat</h3>
+
+  <p>The moat is not "we have another vector editor." The moat is:</p>
+
+  <ul>
+    <li><strong>Structured visual IR</strong> — documents are queryable graphs, not opaque binaries</li>
+    <li><strong>Programmable object model</strong> — objects have types, methods, behaviors</li>
+    <li><strong>Data-bound graphics runtime</strong> — live connection to real data sources</li>
+    <li><strong>Extension marketplace</strong> — domain-specific apps on a shared substrate</li>
+    <li><strong>Local-first + cloud orchestration</strong> — your data, your control, with collaboration</li>
+    <li><strong>Visual-to-web-to-3D pipeline</strong> — one scene graph, multiple output dimensions</li>
+    <li><strong>AI-readable visual documents</strong> — agents operate on structure, not pixels</li>
+  </ul>
+
+  <div class="power">
+    <div class="power-label">The Tagline</div>
+    <p><strong>Programmable SVG OS</strong> — A local-first visual runtime for diagrams, graphics, apps, and data-bound scenes. Design, automate, script, and publish vector-native artifacts. SVG as software.</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!--  §18 — EXECUTION ROADMAP                                       -->
+<!-- ============================================================ -->
+<section id="roadmap">
+  <h2>§18 — Execution Roadmap</h2>
+
+  <p class="drop-cap">Do not start with "free draw anything." That is the path to an Illustrator clone you cannot finish. Start with structured mode. The MVP is structured vector scenes plus templates plus data binding plus export pipeline. Not a full illustration suite. Not full pen-tool parity. Not full typography. Not full filter authoring. Win on repeatable output, AI compatibility, structured graphics, and business value. Then expand.</p>
+
+  <h3>Phase sequence</h3>
+
+  <div class="diagram">
+    <span class="diagram-label">Build Order</span>
+    <pre><code>
+  Phase 1                Phase 2                Phase 3                Phase 4
+  FOUNDATION             RUNTIME                PRODUCT                SCALE
+  ────────────          ────────────           ────────────           ────────────
+  geom-core WASM         effects-core           editor-shell           orchestrator
+  svg-doc-core           layout-core            plugin-sdk             sync-service
+  renderer-web MVP       runtime-core           Killer App A           collaboration
+  basic canvas           data binding           (Visual Automation)    AI agents
+                         constraints            templates              marketplace
+                         theme system           export pipeline        multi-tenant
+    </code></pre>
+  </div>
+
+  <h3>MVP feature set</h3>
+
+  <div class="vs">
+    <div class="vs-col">
+      <h4>Ship in MVP</h4>
+      <ul>
+        <li>Artboards / pages</li>
+        <li>Shapes, text, groups</li>
+        <li>Symbols / components</li>
+        <li>JSON / CSV data binding</li>
+        <li>Templates + repeat-grid</li>
+        <li>Export presets (PNG/PDF/SVG)</li>
+        <li>Basic path editing</li>
+        <li>A few killer effects</li>
+        <li>Brand / theme tokens</li>
+        <li>Share / publish / export</li>
+      </ul>
+    </div>
+    <div class="vs-col">
+      <h4>Defer to Later</h4>
+      <ul>
+        <li>Every text feature</li>
+        <li>Every SVG filter</li>
+        <li>Every node tool nuance</li>
+        <li>Every import format</li>
+        <li>Full pen-tool parity</li>
+        <li>Full plugin marketplace</li>
+        <li>Real-time collaboration</li>
+        <li>2.5D rendering</li>
+        <li>Animation timeline</li>
+        <li>Self-hosting option</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>What the MVP wins on</h3>
+
+  <table>
+    <tr><th>Dimension</th><th>How the MVP wins</th></tr>
+    <tr><td>Repeatable output</td><td>One template, 200 exports. No other design tool does this well.</td></tr>
+    <tr><td>AI compatibility</td><td>Agents can read, write, and modify the document tree directly.</td></tr>
+    <tr><td>Structured graphics</td><td>Objects have types, schemas, and semantic meaning. Not just shapes.</td></tr>
+    <tr><td>Business value</td><td>Sports graphics, branded assets, reports, certificates — immediate ROI.</td></tr>
+    <tr><td>Openness</td><td>SVG in, SVG out. No format lock-in. No vendor dependency. Git-friendly.</td></tr>
+  </table>
+
+  <div class="power zen">
+    <div class="power-label">The Clean Strategy</div>
+    <p>Extract Inkscape's hard-won geometry and document knowledge. Do not inherit its application shape. Rebuild the product as a browser-native runtime for structured graphics. Use Elixir for the orchestration brain. Use Neumenon formats for the wire, the agent codec, and the asset layer. Ship the Visual Automation Studio first. Let the platform grow from there.</p>
+  </div>
+
+  <div class="ticker" style="margin-top: 3rem; display: block; text-align: center;">
+    SVG is not a file format. It is a runtime substrate. Build on it.
+  </div>
+</section>
+
 </div>
 </body>
 </html>
