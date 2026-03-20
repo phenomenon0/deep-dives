@@ -13,10 +13,10 @@
 | Ch 10 - Prefill vs Decode | DONE | pending | TTFT vs ITL diagram, chunked prefill/disaggregated P/D tabs, DistServe/Splitwise numbers |
 | Ch 11 - Speculative Decoding | DONE | pending | D3 draft/verify animation, rejection sampling math, variants tab, when-it-helps analysis |
 | Ch 12 - The Engines | DONE | pending | D3 radar charts, decision matrix, feature table, 2026 landscape (Dynamo, ExV3, LMDeploy) |
-| Ch 13 - One User Becomes Many | pending | — | |
-| Ch 14 - The Scheduler | pending | — | |
-| Ch 15 - Prefix Caching | pending | — | |
-| Ch 16 - Disaggregated P/D | pending | — | |
+| Ch 13 - One User Becomes Many | DONE | pending | D3 traffic sim, Little's Law + KV, tail latency causes |
+| Ch 14 - The Scheduler | DONE | pending | vLLM V1 two-phase loop, policies/preemption/tradeoff tabs |
+| Ch 15 - Prefix Caching | DONE | pending | vLLM APC, SGLang RadixAttention, economics tabs, llm-d cluster |
+| Ch 16 - Disaggregated P/D | DONE | pending | Architecture diagram, KV transfer math, DistServe/Splitwise/Dynamo |
 | Ch 17 - Parallelism | pending | — | |
 | Ch 18 - LoRA & Multi-Tenancy | pending | — | |
 | Ch 19 - Metrics That Matter | pending | — | |

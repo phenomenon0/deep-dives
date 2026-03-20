@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inference Engines &mdash; Part III: Serving at Scale</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root {
+    --bg: #0a0a0f; --bg-card: #12121a; --bg-code: #0e0e16;
+    --border: #1e1e2e; --border-glow: #2a2a4a;
+    --text: #c8c8d4; --text-dim: #6a6a7e;
+    --green: #00ff88; --green-dim: #00aa55; --cyan: #00ddff; --magenta: #ff00aa;
+    --orange: #ff8800; --red: #ff3344; --yellow: #ffdd00; --blue: #4488ff;
+    --purple: #aa44ff; --white: #e8e8f0;
+}
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: var(--bg); color: var(--text); font-family: 'Source Serif 4', Georgia, serif; font-size: 18px; line-height: 1.7; overflow-x: hidden; }
+body::after { content: ''; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px); pointer-events: none; z-index: 1000; }
+
+nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; background: rgba(10,10,15,0.92); backdrop-filter: blur(16px); border-bottom: 1px solid var(--border); padding: 0.5rem 1.5rem; display: flex; gap: 1rem; align-items: center; overflow-x: auto; font-family: 'JetBrains Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
+nav a { color: var(--text-dim); text-decoration: none; white-space: nowrap; transition: color 0.2s; padding: 0.3rem 0; }
+nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+nav .nav-title { color: var(--green); font-weight: 600; margin-right: 0.5rem; text-shadow: 0 0 10px rgba(0,255,136,0.3); flex-shrink: 0; }
+
+.content { max-width: 820px; margin: 0 auto; padding: 5rem 2rem 6rem; }
+
+.hero { text-align: center; padding: 4rem 0 5rem; border-bottom: 1px solid var(--border); margin-bottom: 4rem; }
+.hero h1 { font-family: 'JetBrains Mono', monospace; font-size: 3rem; font-weight: 600; color: var(--green); text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1); margin-bottom: 0.8rem; letter-spacing: -0.02em; }
+.hero .subtitle { font-size: 1.1rem; color: var(--text-dim); font-style: italic; max-width: 620px; margin: 0 auto; }
+.hero .blink { display: inline-block; animation: blink 1s step-end infinite; color: var(--green); }
+@keyframes blink { 50% { opacity: 0; } }
+
+.glitch { position: relative; display: inline-block; }
+.glitch::before, .glitch::after { content: attr(data-text); position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+.glitch::before { color: var(--cyan); animation: g1 3s infinite linear alternate-reverse; clip-path: inset(0 0 80% 0); }
+.glitch::after { color: var(--magenta); animation: g2 2.5s infinite linear alternate-reverse; clip-path: inset(80% 0 0 0); }
+@keyframes g1 { 0%,90%{transform:translate(0)}92%{transform:translate(-3px,1px)}94%{transform:translate(3px,-1px)}96%{transform:translate(-2px,2px)}100%{transform:translate(0)} }
+@keyframes g2 { 0%,88%{transform:translate(0)}90%{transform:translate(2px,-1px)}93%{transform:translate(-3px,2px)}96%{transform:translate(1px,-2px)}100%{transform:translate(0)} }
+
+section { margin-bottom: 5rem; padding-top: 1rem; }
+h2 { font-family: 'JetBrains Mono', monospace; font-size: 1.5rem; color: var(--green); margin-bottom: 1.5rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); text-shadow: 0 0 10px rgba(0,255,136,0.15); letter-spacing: 0.02em; }
+h3 { font-size: 1.25rem; color: var(--cyan); margin: 2.5rem 0 1rem; font-weight: 600; }
+h4 { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: var(--magenta); text-transform: uppercase; letter-spacing: 0.08em; margin: 2rem 0 0.8rem; }
+p { margin-bottom: 1rem; }
+a { color: var(--cyan); text-decoration: none; }
+a:hover { text-decoration: underline; }
+strong { color: var(--white); }
+
+.drop-cap::first-letter { float: left; font-family: 'JetBrains Mono', monospace; font-size: 4rem; line-height: 0.8; padding: 0.1em 0.15em 0 0; color: var(--green); font-weight: 700; text-shadow: 0 0 20px rgba(0,255,136,0.3); }
+
+code { font-family: 'JetBrains Mono', monospace; font-size: 0.85em; background: var(--bg-code); border: 1px solid var(--border); border-radius: 3px; padding: 0.15em 0.4em; }
+pre { background: var(--bg-code); border: 1px solid var(--border); border-radius: 6px; padding: 1.2rem; overflow-x: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.6; margin: 1.2rem 0; position: relative; }
+pre code { background: none; border: none; padding: 0; font-size: inherit; color: var(--text); }
+.cm { color: var(--text-dim); } .kw { color: var(--magenta); } .ty { color: var(--cyan); } .st { color: var(--green); } .nm { color: var(--yellow); } .fn { color: var(--blue); } .pp { color: var(--orange); }
+.label { position: absolute; top: 0.5rem; right: 0.8rem; font-family: 'JetBrains Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim); }
+
+.diagram { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 1.5rem; margin: 1.5rem 0; overflow-x: auto; }
+.diagram pre { border: none; margin: 0; padding: 0; background: none; font-size: 12.5px; line-height: 1.45; }
+.diagram-label { font-family: 'JetBrains Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim); margin-bottom: 0.8rem; display: block; }
+
+.power { border-left: 3px solid var(--green-dim); background: rgba(0,255,136,0.04); padding: 1rem 1.2rem; margin: 1.5rem 0; border-radius: 0 6px 6px 0; }
+.power p { margin-bottom: 0; }
+.power.danger { border-left-color: var(--red); background: rgba(255,51,68,0.04); }
+.power.hack { border-left-color: var(--magenta); background: rgba(255,0,170,0.04); }
+.power.wild { border-left-color: var(--orange); background: rgba(255,136,0,0.04); }
+.power.zen { border-left-color: var(--cyan); background: rgba(0,221,255,0.04); }
+.power.purple { border-left-color: var(--purple); background: rgba(170,68,255,0.04); }
+.power-label { font-family: 'JetBrains Mono', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--green); margin-bottom: 0.5rem; }
+.power.danger .power-label { color: var(--red); } .power.hack .power-label { color: var(--magenta); }
+.power.wild .power-label { color: var(--orange); } .power.zen .power-label { color: var(--cyan); }
+.power.purple .power-label { color: var(--purple); }
+
+table { width: 100%; border-collapse: collapse; margin: 1.2rem 0; font-size: 0.92rem; }
+th { font-family: 'JetBrains Mono', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--green); text-align: left; padding: 0.6rem 0.8rem; border-bottom: 2px solid var(--border); }
+td { padding: 0.5rem 0.8rem; border-bottom: 1px solid var(--border); }
+tr:hover td { background: rgba(0,255,136,0.03); }
+
+details { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; margin: 1.2rem 0; }
+summary { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: var(--green); padding: 0.8rem 1.2rem; cursor: pointer; }
+details[open] summary { border-bottom: 1px solid var(--border); }
+
+.viz-container { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 1.5rem; margin: 1.5rem 0; overflow-x: auto; }
+.viz-container svg { width: 100%; height: auto; display: block; }
+.viz-controls { display: flex; gap: 1.5rem; margin-top: 1rem; align-items: center; flex-wrap: wrap; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+.viz-controls label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--cyan); display: block; margin-bottom: 0.3rem; }
+.viz-controls select, .viz-controls input[type="range"] { background: var(--bg-code); color: var(--text); border: 1px solid var(--border); padding: 0.3rem; font-family: 'JetBrains Mono', monospace; font-size: 12px; border-radius: 4px; }
+.viz-controls .val { color: var(--green); font-size: 13px; }
+.viz-controls button { background: var(--green-dim); color: var(--bg); border: none; padding: 0.4rem 1.2rem; font-family: 'JetBrains Mono', monospace; font-size: 11px; border-radius: 4px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.05em; }
+.viz-controls button:hover { background: var(--green); }
+.viz-controls button.secondary { background: var(--border); color: var(--text); }
+
+.tabbed { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; margin: 1.2rem 0; overflow: hidden; }
+.tabbed input[type="radio"] { display: none; }
+.tabbed .tab-bar { border-bottom: 1px solid var(--border); padding: 0 0.5rem; display: flex; }
+.tabbed .tab-bar label { display: inline-block; padding: 0.55rem 1.4rem; font-family: 'JetBrains Mono', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim); cursor: pointer; border-bottom: 2px solid transparent; transition: color 0.2s, border-color 0.2s; }
+.tabbed .tab-bar label:hover { color: var(--green); }
+.tabbed .tab-panel { display: none; }
+.tabbed .tab-panel > pre { margin: 0; border: none; border-radius: 0; }
+.tabbed .tab-panel > .diagram { margin: 0; border: none; border-radius: 0; }
+.tabbed .tab-panel > div, .tabbed .tab-panel > p { padding: 1rem 1.4rem; }
+.tabbed input.t1:checked ~ .tab-bar label[for$="-t1"] { color: var(--green); border-bottom-color: var(--green); }
+.tabbed input.t2:checked ~ .tab-bar label[for$="-t2"] { color: var(--green); border-bottom-color: var(--green); }
+.tabbed input.t3:checked ~ .tab-bar label[for$="-t3"] { color: var(--green); border-bottom-color: var(--green); }
+.tabbed input.t1:checked ~ .tab-panel.p1 { display: block; }
+.tabbed input.t2:checked ~ .tab-panel.p2 { display: block; }
+.tabbed input.t3:checked ~ .tab-panel.p3 { display: block; }
+
+.era-badge { font-family: 'JetBrains Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim); padding: 0.3rem 0.8rem; border: 1px solid var(--border); border-radius: 4px; display: inline-block; margin-bottom: 0.8rem; }
+.era-badge .era-num { color: var(--orange); font-weight: 600; }
+
+@media (max-width: 700px) {
+    .hero h1 { font-size: 2rem; } nav { font-size: 9px; gap: 0.7rem; } body { font-size: 16px; }
+    .content { padding: 3rem 0.8rem 4rem; } pre { font-size: 10.5px; padding: 0.7rem; }
+    .diagram pre { font-size: 10.5px; } .diagram { padding: 1rem; }
+    .tabbed .tab-bar { flex-wrap: wrap; } .tabbed .tab-bar label { padding: 0.4rem 0.7rem; font-size: 9px; }
+    .power { padding: 0.6rem 0.8rem; } .viz-controls { flex-wrap: wrap; gap: 0.5rem; }
+    h2 { font-size: 1.3rem; } h3 { font-size: 1.1rem; }
+}
+</style>
+</head>
+
+<body>
+
+<nav>
+    <span class="nav-title">&gt;_ INFERENCE III</span>
+    <a href="inference-engine-deep-dive.html" style="color:var(--orange)">&larr; Part I</a>
+    <a href="part2-making-it-fast.html" style="color:var(--orange)">&larr; Part II</a>
+    <span style="color:var(--border)">&middot;</span>
+    <a href="#ch13">many users</a>
+    <a href="#ch14">scheduler</a>
+    <a href="#ch15">prefix cache</a>
+    <a href="#ch16">disaggregated</a>
+    <a href="#ch17">parallelism</a>
+    <a href="#ch18">lora</a>
+    <a href="#ch19">metrics</a>
+    <a href="#ch20">the stack</a>
+</nav>
+
+<div class="content">
+
+<div class="hero">
+    <h1><span class="glitch" data-text="INFERENCE ENGINES">INFERENCE ENGINES</span></h1>
+    <div class="subtitle">
+        One model is a program. Ten thousand users is traffic.<br>
+        Requests arrive with different lengths, different urgency, different memory footprints.<br>
+        This part is about what happens when the model becomes infrastructure.<span class="blink">_</span>
+    </div>
+    <div style="margin-top:1.2rem; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.1em;">Part III &mdash; Serving at Scale</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 13: ONE USER BECOMES MANY                              -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch13">
+<h2>// 13 &mdash; One User Becomes Many</h2>
+<div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--red)">PROMPTS</span> &rarr; <span style="color:var(--orange)">QUEUE</span> &rarr; <span style="color:var(--yellow)">BATCH</span> &rarr; <span style="color:var(--green)">SERVICE</span></div>
+<div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
+    The first user is a benchmark. The hundredth user is a policy problem.<span class="blink">_</span>
+</div>
+
+<p class="drop-cap">The moment multiple people share one model, clean diagrams break. Now prompt lengths vary. Output lengths vary. SLAs appear. Tail latency appears. A single long prefill can freeze every other user&rsquo;s stream for half a second. Serving begins where toy inference ends.</p>
+
+<h3>The Traffic</h3>
+
+<div class="viz-container">
+<svg id="viz-ch13-traffic" viewBox="0 0 780 300"></svg>
+<div class="viz-controls">
+<button id="viz-ch13-play">Simulate Traffic</button>
+<button id="viz-ch13-reset" class="secondary">Reset</button>
+<span id="viz-ch13-status" style="color:var(--text-dim);"></span>
+</div>
+</div>
+
+<script>
+(function() {
+    const svg = d3.select('#viz-ch13-traffic');
+    const W = 780, H = 300;
+    const margin = {top: 30, right: 20, bottom: 40, left: 60};
+    const w = W - margin.left - margin.right, h = H - margin.top - margin.bottom;
+    let reqs = [], timer = null, t = 0;
+
+    function genReq(time) {
+        const promptLen = Math.floor(Math.exp(Math.random() * 4 + 3)); // 20 to ~8000, heavy-tailed
+        const outputLen = Math.floor(Math.exp(Math.random() * 3.5 + 2)); // 7 to ~2400
+        const colors = ['#00ff88','#00ddff','#ff00aa','#ffdd00','#ff8800','#aa44ff','#4488ff','#ff3344'];
+        return {time, promptLen: Math.min(promptLen, 8000), outputLen: Math.min(outputLen, 2000),
+                color: colors[Math.floor(Math.random()*colors.length)], id: reqs.length};
+    }
+
+    function draw() {
+        svg.selectAll('*').remove();
+        const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+        svg.append('text').attr('x',W/2).attr('y',18).text('Request Arrivals \u2014 Heterogeneous Traffic')
+            .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',11).attr('text-anchor','middle');
+
+        if (reqs.length === 0) {
+            g.append('text').attr('x',w/2).attr('y',h/2).text('Click Simulate to watch requests arrive.')
+                .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',12).attr('text-anchor','middle');
+            return;
+        }
+
+        const xS = d3.scaleLinear().domain([0, Math.max(t, 20)]).range([0, w]);
+        const yS = d3.scaleLog().domain([10, 10000]).range([h, 0]);
+
+        // Axes
+        g.append('g').attr('transform',`translate(0,${h})`).call(d3.axisBottom(xS).ticks(10).tickFormat(d=>'t='+d))
+            .selectAll('text').attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',9);
+        g.append('g').call(d3.axisLeft(yS).tickValues([10,50,100,500,1000,5000]).tickFormat(d3.format('~s')))
+            .selectAll('text').attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',9);
+        g.selectAll('.domain, .tick line').attr('stroke','#2a2a3a');
+
+        svg.append('text').attr('x',margin.left-45).attr('y',margin.top+h/2)
+            .text('Tokens').attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',9)
+            .attr('text-anchor','middle').attr('transform',`rotate(-90,${margin.left-45},${margin.top+h/2})`);
+
+        // Requests as bubbles
+        reqs.forEach(r => {
+            const cx = xS(r.time), cy = yS(r.promptLen);
+            const radius = Math.sqrt(r.outputLen) * 0.4;
+            g.append('circle').attr('cx',cx).attr('cy',cy).attr('r',radius).attr('fill',r.color).attr('opacity',0.6);
+            // Output length as vertical line down
+            const outY = yS(r.outputLen);
+            g.append('line').attr('x1',cx).attr('y1',cy).attr('x2',cx).attr('y2',outY)
+                .attr('stroke',r.color).attr('stroke-width',1).attr('opacity',0.3);
+        });
+
+        // Legend
+        g.append('circle').attr('cx',w-150).attr('cy',10).attr('r',5).attr('fill','#6a6a7e');
+        g.append('text').attr('x',w-140).attr('y',14).text('Y = prompt length, size = output length')
+            .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',9);
+
+        // Stats
+        if (reqs.length > 2) {
+            const prompts = reqs.map(r=>r.promptLen);
+            const outputs = reqs.map(r=>r.outputLen);
+            g.append('text').attr('x',0).attr('y',h+30)
+                .text(`${reqs.length} requests \u00b7 prompt: ${Math.min(...prompts)}\u2013${Math.max(...prompts)} tokens \u00b7 output: ${Math.min(...outputs)}\u2013${Math.max(...outputs)} tokens \u00b7 same engine, different pain`)
+                .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono').attr('font-size',9);
+        }
+    }
+
+    draw();
+
+    d3.select('#viz-ch13-play').on('click', function() {
+        if (timer) return;
+        reqs = []; t = 0;
+        function tick() {
+            // Poisson-ish arrivals: 2-5 per second
+            const n = Math.floor(Math.random() * 4) + 1;
+            for (let i = 0; i < n; i++) reqs.push(genReq(t + Math.random()));
+            t++;
+            draw();
+            document.getElementById('viz-ch13-status').textContent = `t=${t}: ${reqs.length} total requests`;
+            if (t >= 30) { timer = null; document.getElementById('viz-ch13-status').textContent += ' \u2014 done'; return; }
+            timer = setTimeout(tick, 200);
+        }
+        tick();
+    });
+    d3.select('#viz-ch13-reset').on('click', function() {
+        if (timer) { clearTimeout(timer); timer = null; }
+        reqs = []; t = 0; draw(); document.getElementById('viz-ch13-status').textContent = '';
+    });
+})();
+</script>
+
+<h3>Little&rsquo;s Law Meets KV Cache</h3>
+
+<div class="diagram">
+<span class="diagram-label">The queuing math that governs VRAM</span>
+<pre><code>
+  <span class="ty">Little&rsquo;s Law:</span>  L = &lambda; &times; W
+
+  L = average number of concurrent requests in the system
+  &lambda; = arrival rate (requests per second)
+  W = average time a request spends in the system
+
+  <span class="cm">Example: &lambda; = 50 req/s, W = 2 seconds</span>
+  <span class="cm">L = 100 concurrent requests</span>
+
+  <span class="cm">For Llama-3.1 70B (GQA, 8 KV heads) at avg 4K context:</span>
+  <span class="cm">Per-request KV: 320 KiB/token &times; 4096 = <span class="nm">1.25 GB</span></span>
+  <span class="cm">100 concurrent requests: <span class="nm">125 GB</span> of KV cache alone</span>
+  <span class="cm">+ 140 GB model weights = needs multiple A100s just for memory</span>
+
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+
+  <span class="pp">The arrival rate sets how many KV caches you hold simultaneously.</span>
+  <span class="pp">KV cache size determines your maximum concurrency.</span>
+  <span class="pp">Maximum concurrency determines your maximum throughput.</span>
+  <span class="pp">Everything connects back to the cache from Chapter 6.</span>
+</code></pre>
+</div>
+
+<h3>Tail Latency</h3>
+
+<p>P50 latency might be 500ms. P99 might be 5 seconds &mdash; 10&times; worse. Tail latency is what users <em>remember</em>. It&rsquo;s also what SLOs are written against: &ldquo;99% of requests complete in &lt;2 seconds.&rdquo;</p>
+
+<div class="diagram">
+<span class="diagram-label">What causes tail latency in LLM serving</span>
+<pre><code>
+  <span style="color:var(--red)">1. Long prefills block decode</span>
+     A 32K-token prefill takes ~400ms of pure compute.
+     Every decode request in the batch is frozen during this.
+     <span class="cm">&rarr; Chunked prefill (Ch 10) is the fix.</span>
+
+  <span style="color:var(--red)">2. Preemption</span>
+     When VRAM fills, requests get evicted and recomputed later.
+     Preemption accounts for <span class="nm">~70%</span> of P99 latency (vLLM measurements).
+     <span class="cm">&rarr; Better scheduling and memory management (Ch 14).</span>
+
+  <span style="color:var(--red)">3. Heavy-tailed output lengths</span>
+     Most responses are short. Some are very long.
+     Long responses hold KV cache and batch slots for much longer.
+     <span class="cm">&rarr; Max-tokens limits reduce E[S&sup2;] variance by 59%.</span>
+
+  <span style="color:var(--red)">4. Queue buildup at high load</span>
+     As utilization approaches 100%, queuing delay explodes.
+     M/G/1 queue: wait time &prop; &rho;/(1&minus;&rho;) &times; E[S&sup2;]
+     <span class="cm">&rarr; Scale out before hitting the knee of the curve.</span>
+
+  <span class="pp">A service can feel fast at P50 and be terrible at P99.</span>
+  <span class="pp">SLOs are written on tails, not averages.</span>
+</code></pre>
+</div>
+
+<div class="power danger">
+<div class="power-label">Fast vs Reliable</div>
+<p>A demo with one user is always fast. A service with a thousand users needs <em>predictability</em>. The difference between &ldquo;fast&rdquo; and &ldquo;reliable&rdquo; is that reliability holds under load. Every optimization from Part II &mdash; quantization, FlashAttention, continuous batching &mdash; becomes a scheduling input in Part III. The question is no longer &ldquo;how fast can one token be?&rdquo; It&rsquo;s &ldquo;how many tokens can you serve without anyone waiting too long?&rdquo;</p>
+</div>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 14: THE SCHEDULER                                      -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch14">
+<h2>// 14 &mdash; The Scheduler</h2>
+<div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--cyan)">ADMIT</span> &middot; <span style="color:var(--green)">PAUSE</span> &middot; <span style="color:var(--yellow)">RESUME</span> &middot; <span style="color:var(--red)">EVICT</span></div>
+<div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
+    Kernels make a model fast. Schedulers decide who gets served.<span class="blink">_</span>
+</div>
+
+<p class="drop-cap">At scale, the scheduler becomes the real product. Who enters the batch? Who gets preempted? Who keeps their KV cache? Who gets evicted when memory runs tight? These decisions, made every decode step, determine whether your service meets its SLO or breaks it.</p>
+
+<h3>The Loop</h3>
+
+<div class="diagram">
+<span class="diagram-label">vLLM V1 scheduler &mdash; the two-phase loop</span>
+<pre><code>
+  <span class="kw">every</span> decode step:
+
+  <span class="ty">Phase 1: Service running requests</span>
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  <span class="kw">for each</span> running request:
+      Can we allocate KV blocks for its next token?
+      <span style="color:var(--green)">Yes</span> &rarr; continue decoding
+      <span style="color:var(--red)">No</span>  &rarr; preempt (evict KV, move to waiting queue)
+
+  <span class="ty">Phase 2: Admit waiting requests</span>
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  remaining_budget = max_num_batched_tokens &minus; decode_tokens
+  <span class="kw">while</span> waiting_queue not empty <span class="kw">and</span> budget &gt; 0:
+      req = waiting_queue.pop()
+      <span class="kw">if</span> enough KV blocks for req&rsquo;s prompt:
+          <span style="color:var(--cyan)">schedule prefill</span> (or chunked prefill if prompt &gt; budget)
+          budget &minus;= prompt_tokens
+      <span class="kw">else</span>:
+          break  <span class="cm">&larr; no room, stop admitting</span>
+
+  <span class="cm">Run forward pass with the assembled batch.</span>
+
+  <span class="pp">Key controls:</span>
+  <span class="pp">  max_num_seqs = 128      &larr; max concurrent sequences</span>
+  <span class="pp">  max_num_batched_tokens   &larr; total token budget per step</span>
+  <span class="pp">  gpu_memory_utilization = 0.9  &larr; VRAM fraction for KV</span>
+</code></pre>
+</div>
+
+<div class="tabbed">
+<input type="radio" name="sched-tabs" id="sched-tabs-t1" class="t1" checked>
+<input type="radio" name="sched-tabs" id="sched-tabs-t2" class="t2">
+<input type="radio" name="sched-tabs" id="sched-tabs-t3" class="t3">
+<div class="tab-bar">
+<label for="sched-tabs-t1">Policies</label>
+<label for="sched-tabs-t2">Preemption</label>
+<label for="sched-tabs-t3">The Tradeoff</label>
+</div>
+<div class="tab-panel p1">
+<div class="diagram"><span class="diagram-label">Scheduling policies</span>
+<pre><code>
+  <span class="ty">FCFS</span> (First Come First Served)
+  Simple. Fair. But head-of-line blocking: one 32K-token prompt
+  holds up everything behind it. <span class="cm">Most common default.</span>
+
+  <span class="ty">Decode-First</span> (vLLM V1 with chunked prefill)
+  All pending decode tokens scheduled before any prefill work.
+  Prefill chunks fill remaining budget. Protects ITL for active users.
+  <span class="pp">This is why vLLM V1 has better tail latency than V0.</span>
+
+  <span class="ty">Priority-Based</span>
+  Premium users get higher priority. Time-sensitive requests first.
+  Requires application-level priority signals.
+
+  <span class="ty">Sarathi-Serve</span>
+  Decode-maximal batching: maximize decode tokens per step.
+  2.6&ndash;6.3&times; higher capacity under strict P99 SLOs vs vLLM.
+</code></pre></div></div>
+<div class="tab-panel p2">
+<div class="diagram"><span class="diagram-label">Preemption &mdash; when VRAM runs out</span>
+<pre><code>
+  <span class="ty">RECOMPUTE</span> (vLLM V1 default)
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  1. Evict most recently arrived request (LIFO under FCFS)
+  2. Free its KV cache blocks
+  3. Request returns to waiting queue
+  4. When space frees: re-enter, recompute KV from scratch
+
+  Cost: one forward pass over (prompt + generated-so-far).
+  For a 4K-context request: ~200ms to recompute. Cheaper than swap.
+
+  <span class="ty">SWAP</span> (vLLM V0, now deprecated)
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  1. Copy KV blocks to CPU RAM via PCIe (32 GB/s)
+  2. When space frees: copy back to GPU
+  PCIe is 60&times; slower than HBM. Complex memory management.
+  <span class="cm">Only needed for beam search where recompute doesn&rsquo;t work.</span>
+
+  <span class="pp">Preemption accounts for ~70% of P99 latency.</span>
+  <span class="pp">The best preemption strategy is not needing to preempt.</span>
+</code></pre></div></div>
+<div class="tab-panel p3">
+<div class="diagram"><span class="diagram-label">The throughput-latency tradeoff</span>
+<pre><code>
+  <span class="cm">Small batch (e.g., max_seqs=8):</span>
+    Latency:     <span style="color:var(--green)">low</span> (few requests competing)
+    Throughput:  <span style="color:var(--red)">low</span> (GPU underutilized)
+    Preemption:  <span style="color:var(--green)">rare</span>
+    <span class="cm">Good for: latency-sensitive chat, real-time assistants</span>
+
+  <span class="cm">Large batch (e.g., max_seqs=128):</span>
+    Latency:     <span style="color:var(--red)">higher</span> (more contention, more preemption)
+    Throughput:  <span style="color:var(--green)">high</span> (GPU well-utilized)
+    Preemption:  <span style="color:var(--red)">frequent</span>
+    <span class="cm">Good for: batch processing, high-throughput APIs</span>
+
+  <span class="pp">The optimal point depends on your SLO.</span>
+  <span class="pp">vLLM&rsquo;s auto_tune.sh script finds it by binary search:</span>
+  <span class="pp">iterate max_seqs and token budget until P99 meets target.</span>
+</code></pre></div></div>
+</div>
+
+<div class="power">
+<div class="power-label">The Real Product</div>
+<p>A serving engine is not just kernels. It is a <em>policy machine</em>. The scheduler decides, every 7 milliseconds, who gets GPU time and who waits. Get it wrong and your P99 explodes. Get it right and the same hardware serves 6&times; more users. The scheduler is the most underappreciated component in the stack.</p>
+</div>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 15: PREFIX CACHING                                     -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch15">
+<h2>// 15 &mdash; Prefix Caching</h2>
+<div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--green)">IF THE BEGINNING IS THE SAME</span>, <span style="color:var(--cyan)">DON&rsquo;T PAY TWICE</span></div>
+<div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
+    Most chat systems repeat themselves before the user says anything.<span class="blink">_</span>
+</div>
+
+<p class="drop-cap">System prompts. Policy prompts. Tool instructions. Few-shot scaffolds. RAG preambles. Every request to a chatbot starts with hundreds or thousands of identical tokens. That repetition is money &mdash; money you can stop spending. Prefix caching reuses KV blocks that have already been computed, skipping redundant prefill and slashing TTFT.</p>
+
+<div class="diagram">
+<span class="diagram-label">Shared prefixes in the wild</span>
+<pre><code>
+  <span class="cm">Request A:</span> [<span style="color:var(--green)">system prompt</span>][<span style="color:var(--green)">policy</span>][<span style="color:var(--green)">tools</span>][<span style="color:var(--cyan)">user A&rsquo;s message</span>]
+  <span class="cm">Request B:</span> [<span style="color:var(--green)">system prompt</span>][<span style="color:var(--green)">policy</span>][<span style="color:var(--green)">tools</span>][<span style="color:var(--orange)">user B&rsquo;s message</span>]
+  <span class="cm">Request C:</span> [<span style="color:var(--green)">system prompt</span>][<span style="color:var(--green)">policy</span>][<span style="color:var(--green)">tools</span>][<span style="color:var(--magenta)">user C&rsquo;s message</span>]
+
+  <span style="color:var(--green)">&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;</span> shared prefix &mdash; compute once, reuse forever
+  <span style="color:var(--cyan)">&block;&block;&block;&block;</span><span style="color:var(--orange)">&block;&block;&block;&block;&block;&block;</span><span style="color:var(--magenta)">&block;&block;&block;</span> unique suffixes &mdash; only these need fresh prefill
+
+  <span class="pp">10,000 requests &times; 1,000-token system prompt:</span>
+  <span class="pp">  Without caching: 10,000 &times; 1,000 = 10M tokens of prefill</span>
+  <span class="pp">  With caching:    1 &times; 1,000 + 10,000 &times; suffix only</span>
+  <span class="pp">  TTFT: drops from seconds to milliseconds for cached prefixes</span>
+</code></pre>
+</div>
+
+<div class="tabbed">
+<input type="radio" name="prefix-tabs" id="prefix-tabs-t1" class="t1" checked>
+<input type="radio" name="prefix-tabs" id="prefix-tabs-t2" class="t2">
+<input type="radio" name="prefix-tabs" id="prefix-tabs-t3" class="t3">
+<div class="tab-bar">
+<label for="prefix-tabs-t1">vLLM APC</label>
+<label for="prefix-tabs-t2">SGLang RadixAttention</label>
+<label for="prefix-tabs-t3">The Economics</label>
+</div>
+<div class="tab-panel p1">
+<div class="diagram"><span class="diagram-label">vLLM Automatic Prefix Caching</span>
+<pre><code>
+  <span class="cm">Block-level hashing:</span>
+  Each full KV block (16 tokens) gets a SHA-256 hash of:
+    parent_block_hash + token_IDs + extra_keys (LoRA, multimodal)
+
+  <span class="cm">On new request:</span>
+  1. Hash the prompt tokens block-by-block
+  2. Look up each hash in BlockHashToBlockMap
+  3. <span style="color:var(--green)">Cache hit</span>: reuse physical block, bump ref_cnt
+  4. <span style="color:var(--red)">Cache miss</span>: allocate new block, compute KV, register hash
+
+  <span class="cm">Eviction:</span>
+  LRU on blocks with ref_cnt == 0.
+  Leaf blocks (end of sequences) evicted first.
+  Near-zero overhead on miss &mdash; just a hash lookup.
+
+  <span class="cm">Measured improvement (vLLM docs):</span>
+  10K-token repeated prompt: TTFT <span style="color:var(--red)">4.3s</span> &rarr; <span style="color:var(--green)">0.6s</span>  (7&times; faster)
+  <span class="pp">vLLM calls this &ldquo;a free lunch&rdquo; &mdash; near-zero cost, huge win.</span>
+</code></pre></div></div>
+<div class="tab-panel p2">
+<div class="diagram"><span class="diagram-label">SGLang RadixAttention &mdash; prefix tree for KV</span>
+<pre><code>
+  <span class="cm">Token-level radix tree (vs vLLM&rsquo;s block-level hashing):</span>
+
+                         [system prompt]
+                        /               \
+              [user A history]      [user B history]
+              /           \              |
+         [turn 3A]    [turn 3A']    [turn 2B]
+
+  <span class="cm">Advantages over block hashing:</span>
+  &bull; Caches <strong>generation tokens</strong> too, not just prompts
+  &bull; Multi-turn conversations share history branches
+  &bull; Fork/merge semantics for parallel sampling
+  &bull; Token-level granularity &rarr; no block-boundary alignment issues
+
+  <span class="cm">Result: 10&ndash;20% advantage on multi-turn cached workloads</span>
+  <span class="cm">Up to 5&times; throughput over vLLM v0.2.5 on prefix-heavy loads</span>
+
+  <span class="pp">RadixAttention is why SGLang wins on chat applications.</span>
+  <span class="pp">The more your traffic shares structure, the bigger the win.</span>
+</code></pre></div></div>
+<div class="tab-panel p3">
+<div class="diagram"><span class="diagram-label">Prefix caching economics</span>
+<pre><code>
+  <span class="cm">Production cache hit rates:</span>
+    Chat applications:     <span class="nm">60&ndash;90%</span>
+    RAG pipelines:         <span class="nm">40&ndash;70%</span> (document overlap)
+    Tool-use agents:       <span class="nm">70&ndash;85%</span> (repeated function schemas)
+    Batch processing:      <span class="nm">90%+</span> (same prompt template)
+
+  <span class="cm">Cost impact:</span>
+    Cached tokens cost <span class="nm">~10&times; less</span> than fresh prefill.
+    TTFT for cached requests: near-instant (just suffix prefill).
+    Memory cost: blocks stay in GPU memory (LRU eviction).
+
+  <span class="cm">Cluster-scale (llm-d project):</span>
+    Global KV-block index across multiple GPUs.
+    Prefix-aware routing: send requests to the GPU that has the prefix.
+    Result: <span class="nm">57&times; faster P90 TTFT</span> vs approximate scheduling.
+    365 GB of cached KV tracked in just 339 KB of metadata.
+
+  <span class="pp">Prefix caching is the highest-leverage serving optimization</span>
+  <span class="pp">for any application with repeated prompt structure.</span>
+  <span class="pp">If you serve a chatbot and don&rsquo;t cache prefixes, you&rsquo;re</span>
+  <span class="pp">paying full price for the same work, thousands of times.</span>
+</code></pre></div></div>
+</div>
+
+<div class="power">
+<div class="power-label">The Free Lunch</div>
+<p>Prefix caching is the closest thing to a free lunch in inference. Enable it, pay near-zero overhead on cache misses, and watch TTFT collapse for your most common traffic patterns. The combination of prefix caching + continuous batching + chunked prefill is what makes modern LLM serving feel instant instead of sluggish.</p>
+</div>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 16: DISAGGREGATED PREFILL/DECODE                       -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch16">
+<h2>// 16 &mdash; Disaggregated Prefill / Decode</h2>
+<div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--green)">ONE CLUSTER READS</span> &middot; <span style="color:var(--orange)">ANOTHER SPEAKS</span></div>
+<div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
+    The same model wants different hardware depending on whether it is reading or talking.<span class="blink">_</span>
+</div>
+
+<p class="drop-cap">Chapter 10 showed that prefill and decode are two species of work. Chunked prefill manages their interference on a single GPU. Disaggregation takes the next step: separate GPU pools, each optimized for its phase. Prefill instances maximize compute throughput. Decode instances maximize bandwidth utilization. KV cache transfers between them.</p>
+
+<div class="diagram">
+<span class="diagram-label">Disaggregated architecture</span>
+<pre><code>
+  Client request
+       &darr;
+  <span style="color:var(--cyan)">Smart Router</span>  &larr; radix tree for prefix/KV location tracking
+       &darr;
+  ┌─────────────────────┐         ┌─────────────────────┐
+  &boxv; <span style="color:var(--green)">PREFILL POOL</span>          &boxv;  KV    &boxv; <span style="color:var(--orange)">DECODE POOL</span>           &boxv;
+  &boxv;                       &boxv; &rarr;&rarr;&rarr;&rarr; &boxv;                       &boxv;
+  &boxv; Compute-bound         &boxv; xfer  &boxv; Bandwidth-bound       &boxv;
+  &boxv; Dense matmuls         &boxv;       &boxv; Read weights for 1 tok&boxv;
+  &boxv; High GPU utilization  &boxv;       &boxv; Needs max bandwidth   &boxv;
+  &boxv; TP optimized for      &boxv;       &boxv; TP optimized for      &boxv;
+  &boxv; throughput             &boxv;       &boxv; latency               &boxv;
+  └─────────────────────┘         └─────────────────────┘
+       &darr;                                   &darr;
+  TTFT optimized independently      ITL optimized independently
+</code></pre>
+</div>
+
+<div class="tabbed">
+<input type="radio" name="disagg-tabs" id="disagg-tabs-t1" class="t1" checked>
+<input type="radio" name="disagg-tabs" id="disagg-tabs-t2" class="t2">
+<input type="radio" name="disagg-tabs" id="disagg-tabs-t3" class="t3">
+<div class="tab-bar">
+<label for="disagg-tabs-t1">The Papers</label>
+<label for="disagg-tabs-t2">KV Transfer</label>
+<label for="disagg-tabs-t3">Production 2026</label>
+</div>
+<div class="tab-panel p1">
+<div class="diagram"><span class="diagram-label">Research results</span>
+<pre><code>
+  <span class="ty">DistServe</span> (OSDI 2024)
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  Eliminates prefill-decode interference entirely.
+  Independent parallelism strategies per phase.
+  Placement algorithm accounts for interconnect bandwidth.
+
+  Results: <span class="nm">7.4&times;</span> more requests served
+           <span class="nm">12.6&times;</span> tighter SLO compliance
+
+  <span class="ty">Splitwise</span> (ISCA 2024)
+  &boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;
+  Observed that decode underutilizes compute on high-end GPUs.
+  Splits phases across machines via high-bandwidth interconnect.
+
+  Results: <span class="nm">1.4&times;</span> throughput at <span class="nm">20%</span> lower cost
+           <span class="nm">2.35&times;</span> throughput at identical cost
+</code></pre></div></div>
+<div class="tab-panel p2">
+<div class="diagram"><span class="diagram-label">The KV transfer bottleneck</span>
+<pre><code>
+  <span class="cm">Llama-3.1 70B, 4K context, GQA 8 KV heads:</span>
+  Per-token KV: 320 KiB &times; 4096 tokens = <span class="nm">1.34 GB</span>
+
+  <span class="cm">Transfer time by interconnect:</span>
+  NVLink (900 GB/s):       <span style="color:var(--green)">1.5 ms</span>    &larr; ideal, same-node
+  InfiniBand (400 Gb/s):   <span style="color:var(--yellow)">27 ms</span>     &larr; acceptable, cross-node
+  100 GbE:                 <span style="color:var(--red)">110 ms</span>    &larr; painful, adds to TTFT
+
+  <span class="pp">Disaggregation only works with fast interconnect.</span>
+  <span class="pp">NVLink within a node. InfiniBand across nodes.</span>
+  <span class="pp">Ethernet is too slow for the KV transfer.</span>
+</code></pre></div></div>
+<div class="tab-panel p3">
+<div class="diagram"><span class="diagram-label">Disaggregation in production &mdash; March 2026</span>
+<pre><code>
+  <span class="ty">NVIDIA Dynamo</span>
+  Open-sourced GTC 2025, production March 2026.
+  &ldquo;Inference operating system&rdquo; wrapping TRT-LLM, vLLM, SGLang.
+  Smart Router with radix tree for KV location tracking.
+  Dynamic Planner: switches between disagg and aggregated modes.
+  DeepSeek-R1 671B on GB200 NVL72: <span class="nm">30&times; throughput</span>.
+
+  <span class="ty">vLLM</span>
+  Experimental disaggregated prefill in production at
+  Meta, LinkedIn, Mistral, HuggingFace.
+
+  <span class="ty">SGLang</span>
+  P/D disaggregation as core feature.
+  96 H100s: <span class="nm">52,300 input tokens/sec</span> with 3:9 prefill:decode ratio.
+
+  <span class="pp">Every major framework now supports disaggregation.</span>
+  <span class="pp">This is no longer a research idea. It&rsquo;s table stakes for</span>
+  <span class="pp">large-scale deployments in 2026.</span>
+</code></pre></div></div>
+</div>
+
+<div class="power purple">
+<div class="power-label">The Datacenter Technique</div>
+<p>Disaggregation feels like overkill until you run the numbers. A single GPU running both phases wastes compute during decode and blocks decode during prefill. Two specialized pools, connected by fast interconnect, let each phase run at its natural pace. It&rsquo;s the same insight as separating reads and writes in a database &mdash; applied to the two fundamental operations of LLM inference.</p>
+</div>
+</section>
+
+
+<!-- Placeholder sections for remaining chapters -->
+<section id="ch17"><h2>// 17 &mdash; Parallelism Across GPUs</h2><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
+<section id="ch18"><h2>// 18 &mdash; LoRA and Multi-Tenancy</h2><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
+<section id="ch19"><h2>// 19 &mdash; Metrics That Matter</h2><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
+<section id="ch20"><h2>// 20 &mdash; The Modern Serving Stack</h2><p style="color:var(--text-dim); font-style:italic;">Chapter under construction.</p></section>
+
+
+<!-- FOOTER -->
+<div style="text-align:center; padding:3rem 0 1.5rem; border-top:1px solid var(--border);">
+    <div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-dim); margin-bottom:1rem;">End of Part III</div>
+    <div style="font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim); line-height:1.8; margin-bottom:1.5rem;">
+        <span style="color:var(--green)">Ch 13</span> Many Users &middot;
+        <span style="color:var(--green)">Ch 14</span> Scheduler &middot;
+        <span style="color:var(--green)">Ch 15</span> Prefix Cache &middot;
+        <span style="color:var(--green)">Ch 16</span> Disaggregated &middot;
+        <span style="color:var(--text-dim)">Ch 17</span> Parallelism &middot;
+        <span style="color:var(--text-dim)">Ch 18</span> LoRA &middot;
+        <span style="color:var(--text-dim)">Ch 19</span> Metrics &middot;
+        <span style="color:var(--text-dim)">Ch 20</span> The Stack
+    </div>
+    <div style="display:flex; justify-content:center; gap:2rem; flex-wrap:wrap;">
+        <a href="inference-engine-deep-dive.html" style="font-family:'JetBrains Mono',monospace; font-size:1rem; color:var(--green); text-decoration:none;">&larr; Part I: The Machine</a>
+        <a href="part2-making-it-fast.html" style="font-family:'JetBrains Mono',monospace; font-size:1rem; color:var(--green); text-decoration:none;">&larr; Part II: Making It Fast</a>
+    </div>
+</div>
+
+</div>
+</body>
+</html>
