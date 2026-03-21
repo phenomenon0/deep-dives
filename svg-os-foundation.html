@@ -1,0 +1,2300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Programmable SVG OS — A Visual Runtime for Structured Graphics</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+    --white: #e8e8f0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  /* === SCANLINE OVERLAY === */
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.03) 2px,
+      rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  /* === NAV === */
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 2rem;
+    display: flex;
+    gap: 1.2rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.2s, text-shadow 0.2s;
+    padding: 0.3rem 0;
+  }
+  nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+  nav a.active { color: var(--green); text-shadow: 0 0 12px rgba(0,255,136,0.4); }
+  nav .nav-title {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 1rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.3);
+  }
+
+  /* === LAYOUT === */
+  .content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+  }
+
+  /* === HERO === */
+  .hero {
+    text-align: center;
+    padding: 4rem 0 5rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4rem;
+    position: relative;
+  }
+  .hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3.2rem;
+    font-weight: 600;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+  }
+  .hero .subtitle {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 550px;
+    margin: 0 auto;
+  }
+  .hero .blink {
+    display: inline-block;
+    animation: blink 1s step-end infinite;
+    color: var(--green);
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* === SECTIONS === */
+  section {
+    margin-bottom: 5rem;
+    padding-top: 1rem;
+  }
+  h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: var(--green);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: 0.02em;
+  }
+  h3 {
+    font-size: 1.25rem;
+    color: var(--cyan);
+    margin: 2.5rem 0 1rem;
+    font-weight: 600;
+  }
+  h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 2rem 0 0.8rem;
+  }
+  p { margin-bottom: 1rem; }
+
+  /* === DROP CAP === */
+  .drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4rem;
+    line-height: 0.8;
+    padding: 0.1em 0.15em 0 0;
+    color: var(--green);
+    font-weight: 600;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+  }
+
+  /* === CODE === */
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    padding: 0.12em 0.4em;
+    border-radius: 3px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem 1.4rem;
+    overflow-x: auto;
+    margin: 1.2rem 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px;
+    line-height: 1.55;
+    position: relative;
+  }
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+  }
+  .cm { color: var(--text-dim); }
+  .kw { color: var(--magenta); }
+  .ty { color: var(--cyan); }
+  .st { color: var(--green); }
+  .nm { color: var(--yellow); }
+  .fn { color: var(--blue); }
+  .pp { color: var(--orange); }
+  .label {
+    position: absolute;
+    top: 0.3rem; right: 0.7rem;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    opacity: 0.5;
+  }
+
+  /* === DIAGRAM === */
+  .diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+  }
+  .diagram pre {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text);
+  }
+  .diagram pre code { color: var(--text); }
+  .diagram-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--green-dim);
+    margin-bottom: 0.8rem;
+    display: block;
+  }
+
+  /* === SVG DIAGRAM === */
+  .svg-diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+    text-align: center;
+  }
+  .svg-diagram svg { max-width: 100%; height: auto; }
+  .svg-diagram text {
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* === POWER BOX (insight) === */
+  .power {
+    background: var(--bg-card);
+    border-left: 3px solid var(--green);
+    padding: 1.2rem 1.4rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .power-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.3rem;
+  }
+  .power p { margin-bottom: 0; font-size: 0.95rem; }
+  .power.danger { border-left-color: var(--red); }
+  .power.danger .power-label { color: var(--red); }
+  .power.hack { border-left-color: var(--magenta); }
+  .power.hack .power-label { color: var(--magenta); }
+  .power.wild { border-left-color: var(--orange); }
+  .power.wild .power-label { color: var(--orange); }
+  .power.zen { border-left-color: var(--cyan); }
+  .power.zen .power-label { color: var(--cyan); }
+
+  /* === MEMORY VIS === */
+  .mem-row {
+    display: flex;
+    gap: 1px;
+    margin: 0.4rem 0;
+    flex-wrap: wrap;
+  }
+  .mc {
+    width: 30px; height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 600;
+    border-radius: 2px;
+  }
+  .mc.g { background: var(--green); color: var(--bg); }
+  .mc.c { background: var(--cyan); color: var(--bg); }
+  .mc.m { background: var(--magenta); color: var(--bg); }
+  .mc.o { background: var(--orange); color: var(--bg); }
+  .mc.r { background: var(--red); color: var(--bg); }
+  .mc.y { background: var(--yellow); color: var(--bg); }
+  .mc.b { background: var(--blue); color: var(--bg); }
+  .mc.d { background: var(--text-dim); color: var(--bg); opacity: 0.3; }
+  .mc.e { background: transparent; border: 1px dashed var(--border); color: var(--text-dim); }
+  .mc.w { background: var(--white); color: var(--bg); }
+  .mc.p { background: var(--purple); color: #fff; }
+
+  /* === TABLE === */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.88rem;
+  }
+  th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    text-align: left;
+    padding: 0.5rem 0.7rem;
+    border-bottom: 2px solid var(--border);
+  }
+  td {
+    padding: 0.45rem 0.7rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:hover { background: rgba(0,255,136,0.02); }
+
+  /* === EXPANDABLE === */
+  details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1rem 0;
+    overflow: hidden;
+  }
+  details summary {
+    padding: 0.7rem 1.1rem;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--green);
+    user-select: none;
+    transition: background 0.2s;
+  }
+  details summary:hover { background: rgba(0,255,136,0.04); }
+  details[open] summary { border-bottom: 1px solid var(--border); }
+  details .det { padding: 1.1rem; }
+  details pre { margin: 0.8rem 0; }
+
+  /* === COMPARISON === */
+  .vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .vs-col {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.1rem;
+  }
+  .vs-col h4 { margin-top: 0; }
+
+  /* === GLITCH TEXT === */
+  .glitch {
+    position: relative;
+    display: inline-block;
+  }
+  .glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+  .glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 2s infinite linear alternate-reverse;
+    clip-path: inset(0 0 65% 0);
+  }
+  .glitch::after {
+    color: var(--magenta);
+    animation: glitch-2 3s infinite linear alternate-reverse;
+    clip-path: inset(65% 0 0 0);
+  }
+  @keyframes glitch-1 {
+    0%, 95% { transform: translateX(0); }
+    96% { transform: translateX(-2px); }
+    97% { transform: translateX(2px); }
+    98% { transform: translateX(-1px); }
+    100% { transform: translateX(0); }
+  }
+  @keyframes glitch-2 {
+    0%, 93% { transform: translateX(0); }
+    94% { transform: translateX(2px); }
+    96% { transform: translateX(-2px); }
+    98% { transform: translateX(1px); }
+    100% { transform: translateX(0); }
+  }
+
+  /* === TICKER === */
+  .ticker {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--green);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    display: inline-block;
+    text-shadow: 0 0 6px rgba(0,255,136,0.3);
+  }
+
+  /* === LIST === */
+  ul, ol { margin: 0.5rem 0 1rem 1.5rem; }
+  li { margin-bottom: 0.3rem; }
+
+  /* === RESPONSIVE === */
+  @media (max-width: 700px) {
+    .vs { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2rem; }
+    .content { padding: 4rem 1rem 4rem; }
+    nav { font-size: 10px; gap: 0.8rem; padding: 0.4rem 1rem; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="nav-title">&gt;_ SVG OS</span>
+  <a href="#thesis">thesis</a>
+  <a href="#why-svg">why svg</a>
+  <a href="#os-metaphor">the os</a>
+  <a href="#doc-kernel">document</a>
+  <a href="#object-model">objects</a>
+  <a href="#layout">layout</a>
+  <a href="#data-binding">data</a>
+  <a href="#text-engine">text</a>
+  <a href="#automation">automation</a>
+  <a href="#plugins">plugins</a>
+  <a href="#elixir">elixir</a>
+  <a href="#packages">packages</a>
+  <a href="#neumenon">neumenon</a>
+  <a href="#killer-apps">apps</a>
+  <a href="#3d-path">3d</a>
+  <a href="#render-backends">renderers</a>
+  <a href="#ai">ai</a>
+  <a href="#inkscape">inkscape</a>
+  <a href="#positioning">position</a>
+  <a href="#roadmap">roadmap</a>
+</nav>
+
+<div class="content">
+
+<!-- ============================================================ -->
+<!--  HERO                                                         -->
+<!-- ============================================================ -->
+<div class="hero">
+  <h1><span class="glitch" data-text="PROGRAMMABLE SVG OS">PROGRAMMABLE SVG OS</span></h1>
+  <p class="subtitle">A local-first visual runtime for diagrams, graphics, apps, and data-bound scenes.<span class="blink">_</span></p>
+</div>
+
+<!-- ============================================================ -->
+<!--  §1 — PRODUCT THESIS                                          -->
+<!-- ============================================================ -->
+<section id="thesis">
+  <h2>§1 — The Thesis</h2>
+
+  <p class="drop-cap">Think of it as a runtime for visual objects. Not a drawing app. Not "Inkscape in a browser." Not "open-source Figma." Something else entirely. A system where SVG stops being a file format for illustrations and becomes a scene graph, a document model, a UI substrate, a geometry language, a layout engine, and a programmable canvas operating system.</p>
+
+  <p>The key shift is this. A normal design app says: <em>draw rectangle, change fill, export PNG</em>. The SVG OS says: <em>define a card component, bind its color to a score percentile, bind its text to player metadata, let it react to filters, let it render for print, web, animation, and 3D extrusion, let agents modify it, let users fork it like code</em>.</p>
+
+  <div class="vs">
+    <div class="vs-col">
+      <h4>Normal design app</h4>
+      <p>You draw shapes. You move pixels. You export flat files. The document is dumb. The tool does the thinking.</p>
+    </div>
+    <div class="vs-col">
+      <h4>Programmable SVG OS</h4>
+      <p>You create visual entities with behavior, state, rules, data bindings, timelines, automations, and exports. The document is alive.</p>
+    </div>
+  </div>
+
+  <div class="power">
+    <div class="power-label">One Sentence</div>
+    <p>A browser-native, local-first visual runtime where SVG objects are programmable, data-bound, extensible, and exportable across 2D, interactive web, and lightweight 3D.</p>
+  </div>
+
+  <p>Instead of treating vector documents as final artifacts — static, dumb, inert — we treat them as <strong>running programs</strong>. The canvas is not a viewport. It is a runtime. Every object on it has identity, state, lifecycle, event hooks, and relationships. You don't just look at the document. You <em>query</em> it, <em>bind</em> to it, <em>automate</em> it, and <em>publish</em> it.</p>
+</section>
+
+<!-- ============================================================ -->
+<!--  §2 — WHY SVG                                                 -->
+<!-- ============================================================ -->
+<section id="why-svg">
+  <h2>§2 — Why SVG Specifically</h2>
+
+  <p class="drop-cap">Because SVG is already secretly a very powerful base layer. It is vector-native, structured as a DOM tree, styleable with CSS, transformable, text-aware, resolution-independent, web-native, composable, and scriptable. It already has the bones of a visual operating system. Most apps just refuse to see it.</p>
+
+  <p>Most applications treat SVG as one of three things: an import/export format, a final artifact, or a dumb container. The hacker move — the real unlock — is to treat SVG as:</p>
+
+  <ul>
+    <li><strong>Source code</strong> — version it, diff it, branch it, review it</li>
+    <li><strong>Intermediate representation</strong> — transform it, compile it, optimize it</li>
+    <li><strong>Live runtime object model</strong> — query it, bind to it, react to it, automate it</li>
+  </ul>
+
+  <p>That changes everything.</p>
+
+  <h3>What SVG already gives you</h3>
+
+  <table>
+    <tr><th>Property</th><th>What it means for the OS</th></tr>
+    <tr><td>Vector-native</td><td>Resolution-independent at every scale. No pixels, no rasterization debt.</td></tr>
+    <tr><td>DOM / tree structure</td><td>Already a queryable, traversable scene graph. CSS selectors work on it.</td></tr>
+    <tr><td>CSS-styleable</td><td>Theme tokens, media queries, dark mode — all free from the platform.</td></tr>
+    <tr><td>Transformable</td><td>Affine transforms, nested coordinate systems, composable matrix math.</td></tr>
+    <tr><td>Text-aware</td><td>Real text nodes, not rasterized glyphs. Searchable, accessible, bindable.</td></tr>
+    <tr><td>Web-native</td><td>Renders in every browser. No plugin, no runtime, no install.</td></tr>
+    <tr><td>Composable</td><td>Groups, symbols, defs, use-references — built-in component primitives.</td></tr>
+    <tr><td>Scriptable</td><td>Full DOM API access. Event listeners, mutations, dynamic creation.</td></tr>
+  </table>
+
+  <div class="power hack">
+    <div class="power-label">The Hacker Insight</div>
+    <p>SVG is the only vector format that is simultaneously a document model, a rendering format, and a first-class DOM citizen. No other format gives you all three. That is why it is the right substrate for a visual operating system.</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!--  §3 — WHAT OS MEANS HERE                                      -->
+<!-- ============================================================ -->
+<section id="os-metaphor">
+  <h2>§3 — What "Operating System" Means Here</h2>
+
+  <p class="drop-cap">Not kernel, not drivers, not bootloader. Operating system in the softer, truer sense: a system that manages objects, state, processes, events, views, storage, permissions, extensions, transformations, and export targets. The machinery that makes everything else possible.</p>
+
+  <h3>Visual processes</h3>
+  <p>Things that run on objects, in passes:</p>
+  <ul>
+    <li><strong>Layout pass</strong> — resolve constraints, compute positions, distribute spacing</li>
+    <li><strong>Constraint pass</strong> — enforce pinning, aspect locks, anchor relationships</li>
+    <li><strong>Animation pass</strong> — interpolate keyframes, run tweens, update timelines</li>
+    <li><strong>Filter pass</strong> — apply SVG filters, effects chains, non-destructive transforms</li>
+    <li><strong>Export pass</strong> — flatten for PNG, serialize for PDF, optimize for web</li>
+    <li><strong>Data-binding pass</strong> — pull fresh values, update labels, recolor conditionally</li>
+    <li><strong>AI transform pass</strong> — let agents rewrite, generate, rebalance, retheme</li>
+  </ul>
+
+  <h3>Visual filesystem</h3>
+  <p>Not just folders of SVGs. A graph of reusable assets:</p>
+
+  <div class="diagram">
+    <span class="diagram-label">Asset Graph</span>
+    <pre><code>
+  symbols ──────┐
+  palettes ─────┤
+  components ───┤
+  templates ────┼──▶  Visual Filesystem  ──▶  Queryable
+  materials ────┤                              Versionable
+  behaviors ────┤                              Composable
+  filter chains ┤                              Publishable
+  variable sets ┘
+    </code></pre>
+  </div>
+
+  <h3>Visual IPC</h3>
+  <p>Objects talk to other objects. This label updates when this value changes. This badge recolors when the team changes. This chart rerenders when data changes. This layer responds to hover, click, or agent edits. The document is a living network of reactive relationships.</p>
+
+  <h3>Extension runtime</h3>
+  <p>Users install "apps" inside the SVG OS — not tiny utility scripts, but full products:</p>
+  <ul>
+    <li>Icon generator</li>
+    <li>Sports lineup generator</li>
+    <li>Packaging dieline builder</li>
+    <li>Isometric city builder</li>
+    <li>Motion graphics tool</li>
+    <li>Data card compositor</li>
+    <li>Vector-to-3D converter</li>
+  </ul>
+
+  <div class="power zen">
+    <div class="power-label">Why "OS" is the right metaphor</div>
+    <p>The OS manages documents, windows/views, processes, packages, permissions, events, storage, and interop. The SVG OS manages scenes, canvas views, layout/render passes, plugins, access control, reactive bindings, local-first storage, and multi-format export. The parallel is structural, not metaphorical.</p>
+  </div>
+
+  <div class="diagram">
+    <span class="diagram-label">OS Primitives Mapping</span>
+    <pre><code>
+  Traditional OS          SVG OS
+  ─────────────           ──────
+  Files / Docs     ──▶    Scenes / Projects / Boards
+  Windows          ──▶    Canvas / Code / Timeline / Data views
+  Processes        ──▶    Layout engine / Animation / Export workers
+  Packages         ──▶    Templates / Plugins / Materials / Behaviors
+  Permissions      ──▶    Who edits structure / content / themes / exports
+  Events           ──▶    Selection / Data update / Publish / Plugin install
+  Storage          ──▶    Local-first docs / Cloud sync / Asset registries
+  Interop          ──▶    SVG / PNG / PDF / HTML / JSON / 3D export
+    </code></pre>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!--  §4 — LAYER 1: DOCUMENT KERNEL                                -->
+<!-- ============================================================ -->
+<section id="doc-kernel">
+  <h2>§4 — Layer 1: The Document Kernel</h2>
+
+  <p class="drop-cap">This is the heart of the system. The document is not just SVG text sitting in a file. Internally, it is a structured scene graph — a visual AST — where every node carries identity, semantics, relationships, and behavior. You may still serialize to SVG for interchange, but internally you want something richer. Think SVG++.</p>
+
+  <p>A <code>&lt;rect&gt;</code> in raw SVG is just geometry and style. A rectangle in the SVG OS is:</p>
+
+  <ul>
+    <li><strong>Geometry</strong> — position, size, corner radius, path data</li>
+    <li><strong>Semantic type</strong> — is it a card background? A stat bar? A button?</li>
+    <li><strong>Bindings</strong> — what data drives its fill, its text, its visibility?</li>
+    <li><strong>Constraints</strong> — what spatial rules does it obey?</li>
+    <li><strong>Component role</strong> — is it part of a symbol? A template slot?</li>
+    <li><strong>Export rules</strong> — flatten for print? Animate for web? Extrude for 3D?</li>
+    <li><strong>Interaction rules</strong> — respond to hover? Click? Agent mutation?</li>
+    <li><strong>Provenance</strong> — who created it, when, from what template?</li>
+  </ul>
+
+  <h3>The node tree</h3>
+
+  <p>The internal model is a tree of typed nodes. Every node has a stable UUID — not a fragile index, not a DOM path. The tree supports groups, symbols, defs, filter references, text runs, and arbitrary metadata. It is the single source of truth. Rendering, export, and collaboration all derive from it.</p>
+
+  <div class="svg-diagram">
+    <svg viewBox="0 0 700 420" xmlns="http://www.w3.org/2000/svg">
+      <!-- Background -->
+      <rect width="700" height="420" fill="#12121a" rx="4"/>
+
+      <!-- Root -->
+      <rect x="290" y="20" width="120" height="36" rx="6" fill="none" stroke="#00ff88" stroke-width="1.5"/>
+      <text x="350" y="43" text-anchor="middle" fill="#00ff88" font-size="12">Document</text>
+
+      <!-- Lines from root -->
+      <line x1="320" y1="56" x2="150" y2="100" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="350" y1="56" x2="350" y2="100" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="380" y1="56" x2="550" y2="100" stroke="#1e1e2e" stroke-width="1"/>
+
+      <!-- Level 1: Defs, Page, Symbols -->
+      <rect x="90" y="100" width="120" height="36" rx="6" fill="none" stroke="#aa44ff" stroke-width="1.5"/>
+      <text x="150" y="123" text-anchor="middle" fill="#aa44ff" font-size="12">Defs</text>
+
+      <rect x="290" y="100" width="120" height="36" rx="6" fill="none" stroke="#00ddff" stroke-width="1.5"/>
+      <text x="350" y="123" text-anchor="middle" fill="#00ddff" font-size="12">Page</text>
+
+      <rect x="490" y="100" width="120" height="36" rx="6" fill="none" stroke="#ff8800" stroke-width="1.5"/>
+      <text x="550" y="123" text-anchor="middle" fill="#ff8800" font-size="12">Symbols</text>
+
+      <!-- Lines from Defs -->
+      <line x1="120" y1="136" x2="80" y2="180" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="150" y1="136" x2="150" y2="180" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="180" y1="136" x2="220" y2="180" stroke="#1e1e2e" stroke-width="1"/>
+
+      <!-- Defs children -->
+      <rect x="30" y="180" width="100" height="30" rx="4" fill="none" stroke="#6a6a7e" stroke-width="1"/>
+      <text x="80" y="199" text-anchor="middle" fill="#6a6a7e" font-size="10">Gradients</text>
+
+      <rect x="100" y="180" width="100" height="30" rx="4" fill="none" stroke="#6a6a7e" stroke-width="1"/>
+      <text x="150" y="199" text-anchor="middle" fill="#6a6a7e" font-size="10">Filters</text>
+
+      <rect x="170" y="180" width="100" height="30" rx="4" fill="none" stroke="#6a6a7e" stroke-width="1"/>
+      <text x="220" y="199" text-anchor="middle" fill="#6a6a7e" font-size="10">ClipPaths</text>
+
+      <!-- Lines from Page -->
+      <line x1="320" y1="136" x2="290" y2="180" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="380" y1="136" x2="420" y2="180" stroke="#1e1e2e" stroke-width="1"/>
+
+      <!-- Page children -->
+      <rect x="240" y="180" width="100" height="30" rx="4" fill="none" stroke="#00ddff" stroke-width="1"/>
+      <text x="290" y="199" text-anchor="middle" fill="#00ddff" font-size="10">Group</text>
+
+      <rect x="370" y="180" width="100" height="30" rx="4" fill="none" stroke="#00ddff" stroke-width="1"/>
+      <text x="420" y="199" text-anchor="middle" fill="#00ddff" font-size="10">Group</text>
+
+      <!-- Lines from Group 1 -->
+      <line x1="270" y1="210" x2="250" y2="250" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="310" y1="210" x2="330" y2="250" stroke="#1e1e2e" stroke-width="1"/>
+
+      <!-- Group 1 children -->
+      <rect x="200" y="250" width="100" height="30" rx="4" fill="none" stroke="#ff00aa" stroke-width="1"/>
+      <text x="250" y="269" text-anchor="middle" fill="#ff00aa" font-size="10">Rect</text>
+
+      <rect x="280" y="250" width="100" height="30" rx="4" fill="none" stroke="#ff00aa" stroke-width="1"/>
+      <text x="330" y="269" text-anchor="middle" fill="#ff00aa" font-size="10">Text</text>
+
+      <!-- Lines from Group 2 -->
+      <line x1="400" y1="210" x2="380" y2="250" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="440" y1="210" x2="460" y2="250" stroke="#1e1e2e" stroke-width="1"/>
+
+      <!-- Group 2 children: component instance -->
+      <rect x="330" y="250" width="100" height="30" rx="4" fill="none" stroke="#ff8800" stroke-width="1" stroke-dasharray="4,3"/>
+      <text x="380" y="269" text-anchor="middle" fill="#ff8800" font-size="10">⟨use⟩</text>
+
+      <rect x="410" y="250" width="100" height="30" rx="4" fill="none" stroke="#ff00aa" stroke-width="1"/>
+      <text x="460" y="269" text-anchor="middle" fill="#ff00aa" font-size="10">Path</text>
+
+      <!-- Symbols children -->
+      <line x1="550" y1="136" x2="550" y2="180" stroke="#1e1e2e" stroke-width="1"/>
+      <rect x="500" y="180" width="100" height="30" rx="4" fill="none" stroke="#ff8800" stroke-width="1"/>
+      <text x="550" y="199" text-anchor="middle" fill="#ff8800" font-size="10">CardTemplate</text>
+
+      <!-- Legend -->
+      <rect x="20" y="330" width="660" height="70" rx="4" fill="#0a0a0f" stroke="#1e1e2e" stroke-width="1"/>
+      <text x="40" y="352" fill="#6a6a7e" font-size="10">LEGEND:</text>
+      <rect x="40" y="362" width="12" height="12" rx="2" fill="none" stroke="#00ff88" stroke-width="1"/>
+      <text x="58" y="372" fill="#6a6a7e" font-size="10">Root</text>
+      <rect x="110" y="362" width="12" height="12" rx="2" fill="none" stroke="#aa44ff" stroke-width="1"/>
+      <text x="128" y="372" fill="#6a6a7e" font-size="10">Resources</text>
+      <rect x="200" y="362" width="12" height="12" rx="2" fill="none" stroke="#00ddff" stroke-width="1"/>
+      <text x="218" y="372" fill="#6a6a7e" font-size="10">Structural</text>
+      <rect x="290" y="362" width="12" height="12" rx="2" fill="none" stroke="#ff00aa" stroke-width="1"/>
+      <text x="308" y="372" fill="#6a6a7e" font-size="10">Geometry</text>
+      <rect x="380" y="362" width="12" height="12" rx="2" fill="none" stroke="#ff8800" stroke-width="1"/>
+      <text x="398" y="372" fill="#6a6a7e" font-size="10">Components</text>
+      <rect x="480" y="362" width="12" height="12" rx="2" fill="none" stroke="#ff8800" stroke-width="1" stroke-dasharray="4,3"/>
+      <text x="498" y="372" fill="#6a6a7e" font-size="10">Instance (use-ref)</text>
+    </svg>
+  </div>
+
+  <h3>Internal representation</h3>
+
+  <pre><code><span class="label">TYPESCRIPT</span>
+<span class="kw">interface</span> <span class="ty">SvgNode</span> {
+  <span class="fn">id</span>:          <span class="ty">UUID</span>;
+  <span class="fn">type</span>:        <span class="ty">NodeType</span>;          <span class="cm">// path | group | text | image | component | effect</span>
+  <span class="fn">name</span>:        <span class="ty">string</span>;
+  <span class="fn">properties</span>:  <span class="ty">Map</span>&lt;<span class="ty">string</span>, <span class="ty">Property</span>&gt;;
+  <span class="fn">children</span>:    <span class="ty">SvgNode</span>[];
+  <span class="fn">parent</span>:      <span class="ty">SvgNode</span> | <span class="kw">null</span>;
+  <span class="fn">effects</span>:     <span class="ty">Effect</span>[];          <span class="cm">// non-destructive effect chain</span>
+  <span class="fn">bindings</span>:    <span class="ty">DataBinding</span>[];    <span class="cm">// reactive data connections</span>
+  <span class="fn">constraints</span>: <span class="ty">Constraint</span>[];     <span class="cm">// spatial rules</span>
+  <span class="fn">metadata</span>:    <span class="ty">Record</span>&lt;<span class="ty">string</span>, <span class="kw">any</span>&gt;;
+
+  <span class="fn">on</span>(event: <span class="ty">string</span>, handler: <span class="ty">Handler</span>): <span class="kw">void</span>;
+  <span class="fn">query</span>(selector: <span class="ty">string</span>): <span class="ty">SvgNode</span>[];
+  <span class="fn">serialize</span>(): <span class="ty">string</span>;          <span class="cm">// → valid SVG fragment</span>
+  <span class="fn">clone</span>(): <span class="ty">SvgNode</span>;
+}
+</code></pre>
+
+  <div class="power">
+    <div class="power-label">Key Insight</div>
+    <p>Export to SVG is a <em>serialization target</em>, not your only truth. The internal model is richer than what SVG can express. That delta — the metadata, bindings, constraints, behaviors — is what makes it an OS and not a format.</p>
+  </div>
+
+  <h3>Failure modes</h3>
+
+  <p>A runtime that only describes happy paths is a demo, not a product. The document kernel needs defined behavior for every failure state:</p>
+
+  <table>
+    <tr><th>Failure</th><th>Behavior</th></tr>
+    <tr><td>Node references a missing def (gradient, filter, symbol)</td><td>Render with fallback (transparent fill, no filter). Flag node as <code>error:missing-ref</code>. Surface in diagnostics panel.</td></tr>
+    <tr><td>Circular parent-child relationship</td><td>Reject the mutation. Return error to caller. Tree invariants are non-negotiable.</td></tr>
+    <tr><td>Duplicate UUIDs after paste/merge</td><td>Re-mint UUIDs on the incoming subtree. Always. No "hope it works" path.</td></tr>
+    <tr><td>Corrupt serialization on load</td><td>Parse what you can. Wrap unrecoverable subtrees in an error boundary node. Show diagnostic overlay. Never silently drop content.</td></tr>
+    <tr><td>Plugin mutates tree into invalid state</td><td>Validate after plugin transaction. Roll back if invariants broken. Log the violation for plugin debugging.</td></tr>
+  </table>
+
+  <p>Every node in the tree can carry an <code>errorState</code> flag. Error nodes render with a visible diagnostic overlay (dashed red border in the editor, invisible in export). This means errors are <em>visible</em> — not silent corruption you discover three hours later.</p>
+
+  <div class="power danger">
+    <div class="power-label">Non-Negotiable</div>
+    <p>A runtime that only describes happy paths is a demo, not a product. Define error semantics before you ship. Every data binding, every constraint, every plugin hook, every CRDT merge needs a failure mode. Graceful degradation is an architecture decision, not an afterthought.</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!--  §5 — LAYER 2: OBJECT MODEL                                   -->
+<!-- ============================================================ -->
+<section id="object-model">
+  <h2>§5 — Layer 2: The Object Model</h2>
+
+  <p class="drop-cap">Every thing on the canvas is an object. Not just a shape — an entity with identity, typed properties, methods, event hooks, metadata, and optional behavior scripts. A "player card" is not a group of rectangles and text nodes. It <em>knows</em> it is a player card. It knows the player name, the team, the percentile values, the portrait slot, the stat bars, the theme tokens, the export sizes, and the motion preset.</p>
+
+  <p>This is the difference between editing shapes and editing <em>meaning</em>.</p>
+
+  <h3>Object schema example</h3>
+
+  <pre><code><span class="label">OBJECT SCHEMA</span>
+<span class="kw">const</span> PlayerCard = <span class="fn">defineObject</span>({
+  <span class="fn">type</span>: <span class="st">'sports/player-card'</span>,
+  <span class="fn">version</span>: <span class="st">'1.0'</span>,
+
+  <span class="fn">props</span>: {
+    playerName:   { <span class="fn">type</span>: <span class="st">'string'</span>,  <span class="fn">label</span>: <span class="st">'Player Name'</span> },
+    team:         { <span class="fn">type</span>: <span class="st">'string'</span>,  <span class="fn">label</span>: <span class="st">'Team'</span> },
+    position:     { <span class="fn">type</span>: <span class="st">'string'</span>,  <span class="fn">label</span>: <span class="st">'Position'</span> },
+    rating:       { <span class="fn">type</span>: <span class="st">'number'</span>,  <span class="fn">min</span>: <span class="nm">0</span>, <span class="fn">max</span>: <span class="nm">100</span> },
+    portrait:     { <span class="fn">type</span>: <span class="st">'image'</span>,   <span class="fn">aspect</span>: <span class="st">'3:4'</span> },
+    teamColors:   { <span class="fn">type</span>: <span class="st">'palette'</span>, <span class="fn">slots</span>: [<span class="st">'primary'</span>, <span class="st">'secondary'</span>, <span class="st">'accent'</span>] },
+  },
+
+  <span class="fn">slots</span>: {
+    background:   { <span class="fn">type</span>: <span class="st">'rect'</span>,     <span class="fn">role</span>: <span class="st">'card-bg'</span> },
+    nameLabel:    { <span class="fn">type</span>: <span class="st">'text'</span>,     <span class="fn">bind</span>: <span class="st">'props.playerName'</span> },
+    ratingBar:    { <span class="fn">type</span>: <span class="st">'meter'</span>,    <span class="fn">bind</span>: <span class="st">'props.rating'</span> },
+    portraitSlot: { <span class="fn">type</span>: <span class="st">'image'</span>,    <span class="fn">bind</span>: <span class="st">'props.portrait'</span> },
+  },
+
+  <span class="fn">exports</span>: [
+    { <span class="fn">name</span>: <span class="st">'social'</span>,  <span class="fn">format</span>: <span class="st">'png'</span>, <span class="fn">size</span>: [<span class="nm">1080</span>, <span class="nm">1350</span>] },
+    { <span class="fn">name</span>: <span class="st">'print'</span>,   <span class="fn">format</span>: <span class="st">'pdf'</span>, <span class="fn">size</span>: [<span class="nm">300</span>, <span class="nm">420</span>], <span class="fn">unit</span>: <span class="st">'mm'</span> },
+    { <span class="fn">name</span>: <span class="st">'web'</span>,     <span class="fn">format</span>: <span class="st">'svg'</span>, <span class="fn">interactive</span>: <span class="kw">true</span> },
+  ],
+});
+</code></pre>
+
+  <p>Now editing becomes richer than moving shapes. You change a <code>team</code> property and the colors update. You swap a <code>portrait</code> and the mask recalculates. You bind a <code>rating</code> to a live API and the stat bar animates. The object model makes the canvas semantic.</p>
+
+  <h3>What objects can do</h3>
+
+  <table>
+    <tr><th>Capability</th><th>Method</th><th>Effect</th></tr>
+    <tr><td>Query children</td><td><code>node.query('.stat-bar')</code></td><td>CSS-selector traversal of subtree</td></tr>
+    <tr><td>Bind to data</td><td><code>node.bind(source, map)</code></td><td>Reactive property connection</td></tr>
+    <tr><td>Apply effect</td><td><code>node.applyEffect(blur(4))</code></td><td>Non-destructive visual transform</td></tr>
+    <tr><td>Constrain</td><td><code>node.pin('center', parent)</code></td><td>Spatial rule declaration</td></tr>
+    <tr><td>Listen</td><td><code>node.on('click', fn)</code></td><td>Event handler registration</td></tr>
+    <tr><td>Export</td><td><code>node.export('png', opts)</code></td><td>Targeted output generation</td></tr>
+    <tr><td>Clone</td><td><code>node.clone()</code></td><td>Deep copy with new UUIDs</td></tr>
+  </table>
+</section>
+
+<!-- ============================================================ -->
+<!--  §6 — LAYER 3: CONSTRAINT & LAYOUT ENGINE                     -->
+<!-- ============================================================ -->
+<section id="layout">
+  <h2>§6 — Layer 3: Constraint &amp; Layout Engine</h2>
+
+  <p class="drop-cap">This is one of the biggest unlocks. Most vector tools are still too manual — you place things by hand, nudge pixel by pixel, duplicate and re-align when content changes. Instead, objects in the SVG OS can declare spatial rules. The system resolves them. This is what stops it from being "Illustrator clone" and starts making it a design tool, UI builder, parametric CAD-lite, and presentation system all at once.</p>
+
+  <h3>Constraint types</h3>
+
+  <pre><code><span class="label">CONSTRAINTS</span>
+<span class="cm">// Pin to parent center</span>
+<span class="fn">pin</span>(card.nameLabel, { <span class="fn">to</span>: card, <span class="fn">anchor</span>: <span class="st">'center-top'</span>, <span class="fn">offset</span>: [<span class="nm">0</span>, <span class="nm">24</span>] });
+
+<span class="cm">// Distribute children evenly with 12px spacing</span>
+<span class="fn">distribute</span>(statsGroup, { <span class="fn">axis</span>: <span class="st">'horizontal'</span>, <span class="fn">gap</span>: <span class="nm">12</span> });
+
+<span class="cm">// Auto-grow text container</span>
+<span class="fn">autoResize</span>(nameLabel, { <span class="fn">axis</span>: <span class="st">'vertical'</span>, <span class="fn">minHeight</span>: <span class="nm">20</span>, <span class="fn">maxHeight</span>: <span class="nm">60</span> });
+
+<span class="cm">// Preserve aspect ratio on resize</span>
+<span class="fn">aspectLock</span>(portrait, { <span class="fn">ratio</span>: <span class="st">'3:4'</span> });
+
+<span class="cm">// Repeat per dataset row</span>
+<span class="fn">repeatGrid</span>(cardTemplate, {
+  <span class="fn">data</span>: players,
+  <span class="fn">columns</span>: <span class="nm">4</span>,
+  <span class="fn">gap</span>: [<span class="nm">16</span>, <span class="nm">16</span>],
+  <span class="fn">bind</span>: (card, row) => card.<span class="fn">bindAll</span>(row)
+});
+
+<span class="cm">// Snap to isometric grid</span>
+<span class="fn">isoProject</span>(building, { <span class="fn">grid</span>: isoGrid, <span class="fn">elevation</span>: <span class="nm">2</span> });
+
+<span class="cm">// Responsive breakpoint</span>
+<span class="fn">responsive</span>(layout, {
+  <span class="fn">breakpoints</span>: {
+    <span class="nm">768</span>:  { <span class="fn">columns</span>: <span class="nm">2</span>, <span class="fn">gap</span>: <span class="nm">12</span> },
+    <span class="nm">1200</span>: { <span class="fn">columns</span>: <span class="nm">4</span>, <span class="fn">gap</span>: <span class="nm">16</span> },
+  }
+});
+</code></pre>
+
+  <h3>The solver</h3>
+
+  <p>The constraint engine runs after data binding but before rendering. It is a multi-pass solver:</p>
+
+  <div class="diagram">
+    <span class="diagram-label">Constraint Resolution Pipeline</span>
+    <pre><code>
+  Data Binding Pass              Constraint Solver              Render Pass
+  ─────────────────     ──▶     ─────────────────     ──▶     ───────────
+  Pull values                   1. Resolve pins               Paint to DOM
+  Update props                  2. Compute distributions       Composite
+  Evaluate expressions          3. Auto-resize text            Export
+                                4. Enforce aspect locks
+                                5. Run repeat-grids
+                                6. Apply responsive rules
+                                7. Snap to grids
+    </code></pre>
+  </div>
+
+  <p>Templates work because you define rules, not pixel positions. Change the data, change the viewport, change the theme — the layout engine recomputes everything. Manual nudging becomes the exception, not the default.</p>
+
+  <div class="power hack">
+    <div class="power-label">Halfway Between Worlds</div>
+    <p>With a constraint engine, the SVG OS sits at the intersection of design tool, UI builder, parametric CAD, and presentation system. You get the visual quality of a design tool with the structural rigor of a layout engine. That is the territory no current tool occupies well.</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!--  §7 — LAYER 4: DATA BINDING                                   -->
+<!-- ============================================================ -->
+<section id="data-binding">
+  <h2>§7 — Layer 4: Data Binding</h2>
+
+  <p class="drop-cap">This is the truly modern part. Objects on the canvas bind to external data sources — JSON files, CSV sheets, REST APIs, database rows, user forms, LLM outputs, spreadsheet cells. When the data changes, the canvas updates. The document becomes generative. One template, infinite outputs.</p>
+
+  <p>Think about what this unlocks:</p>
+
+  <ul>
+    <li><strong>Sports scouting cards</strong> — 200 cards from one template and a player database</li>
+    <li><strong>Social graphics</strong> — auto-generated from a CMS with brand tokens</li>
+    <li><strong>Dashboards</strong> — designed vector layouts with live data, not chart-library defaults</li>
+    <li><strong>Maps</strong> — with live annotations pulled from a spatial API</li>
+    <li><strong>Product catalogs</strong> — pages generated from inventory data</li>
+    <li><strong>Certificates</strong> — personalized at scale from a registration form</li>
+    <li><strong>Election results</strong> — live-updating infographics bound to vote counts</li>
+    <li><strong>Lineup graphics</strong> — automated from match-day squad sheets</li>
+  </ul>
+
+  <p>This is huge because most design tools are catastrophically bad at structured, repeatable graphics generation. They treat every output as a one-off.</p>
+
+  <h3>Binding syntax</h3>
+
+  <pre><code><span class="label">DATA BINDING</span>
+<span class="cm">// Bind a single object to a data source</span>
+<span class="kw">const</span> card = doc.<span class="fn">query</span>(<span class="st">'#player-card'</span>);
+
+card.<span class="fn">bind</span>({
+  <span class="fn">source</span>: <span class="st">'https://api.club.com/players/42'</span>,
+  <span class="fn">refresh</span>: <span class="st">'30s'</span>,
+  <span class="fn">map</span>: (player) => ({
+    <span class="st">'.name'</span>:       player.display_name,
+    <span class="st">'.number'</span>:     player.shirt_number,
+    <span class="st">'.position'</span>:   player.primary_position,
+    <span class="st">'.portrait'</span>:   player.headshot_url,
+    <span class="st">'.rating-bar'</span>: { <span class="fn">width</span>: <span class="st">`${</span>player.rating<span class="st">}%`</span> },
+    <span class="st">'.team-color'</span>: player.team.primary_color,
+  }),
+});
+
+<span class="cm">// Bind a repeater to a dataset</span>
+<span class="kw">const</span> grid = doc.<span class="fn">query</span>(<span class="st">'#card-grid'</span>);
+
+grid.<span class="fn">repeat</span>({
+  <span class="fn">source</span>: <span class="st">'./squad.csv'</span>,
+  <span class="fn">template</span>: <span class="st">'#player-card'</span>,
+  <span class="fn">columns</span>: <span class="nm">4</span>,
+  <span class="fn">gap</span>: <span class="nm">16</span>,
+  <span class="fn">filter</span>: (row) => row.appearances > <span class="nm">10</span>,
+  <span class="fn">sort</span>: (a, b) => b.rating - a.rating,
+});
+
+<span class="cm">// Bind to an LLM output</span>
+card.<span class="fn">bind</span>({
+  <span class="fn">source</span>: { <span class="fn">type</span>: <span class="st">'llm'</span>, <span class="fn">prompt</span>: <span class="st">'Summarize this player in 2 sentences'</span> },
+  <span class="fn">map</span>: (result) => ({
+    <span class="st">'.bio-text'</span>: result.text,
+  }),
+});
+</code></pre>
+
+  <div class="power wild">
+    <div class="power-label">LLM as Data Source</div>
+    <p>When the data binding layer treats LLM outputs the same as JSON or CSV, agents become first-class content generators. A prompt fills a text slot the same way an API response fills a number slot. The canvas does not care where the data comes from — only that it conforms to the binding contract.</p>
+  </div>
+
+  <h3>Reactive updates</h3>
+
+  <p>Bindings are not one-shot. They are reactive. When the source emits new data — a webhook fires, a CSV is re-uploaded, a form field changes — the binding re-evaluates, the constraint solver re-runs, and the affected nodes re-render. The update is surgical: only touched nodes recompute. The rest of the scene is untouched.</p>
+
+  <div class="diagram">
+    <span class="diagram-label">Reactive Data Flow</span>
+    <pre><code>
+  Data Source           Binding Layer          Scene Graph         Renderer
+  ───────────          ─────────────          ───────────         ────────
+  JSON / CSV   ──▶     evaluate map    ──▶    update props  ──▶  repaint
+  API poll     ──▶     type coerce     ──▶    mark dirty    ──▶  (only
+  WebSocket    ──▶     validate        ──▶    re-constrain  ──▶   dirty
+  LLM stream   ──▶     diff prev       ──▶    propagate     ──▶   nodes)
+  Form input   ──▶     emit change     ──▶    notify subs
+    </code></pre>
+  </div>
+
+  <h3>Binding failures</h3>
+
+  <p>Data sources fail. APIs go down, CSVs have bad rows, LLMs time out, WebSockets disconnect. The binding layer needs defined behavior for every failure — not just the happy path.</p>
+
+  <table>
+    <tr><th>Failure</th><th>Behavior</th></tr>
+    <tr><td>API returns 404 / 500</td><td>Hold last-known value. Show stale-data badge in editor. Retry with exponential backoff. After N failures, surface error to user.</td></tr>
+    <tr><td>Binding evaluates to <code>null</code> / <code>undefined</code></td><td>Use fallback value from schema default. If no default, render placeholder text. Never render "undefined" as visible text.</td></tr>
+    <tr><td>Type mismatch (string where number expected)</td><td>Attempt coercion. If coercion fails, flag the binding as <code>error:type</code> and use fallback.</td></tr>
+    <tr><td>LLM timeout / rate limit</td><td>Show placeholder or cached result. Queue for retry. Never block the render pipeline on an LLM call.</td></tr>
+    <tr><td>CSV parse error (bad row)</td><td>Skip the row. Log it. Continue processing remaining rows. Report skipped count in diagnostics.</td></tr>
+    <tr><td>WebSocket disconnect</td><td>Freeze at last state. Reconnect automatically. Replay missed deltas on reconnect if server supports it.</td></tr>
+  </table>
+
+  <pre><code><span class="label">BINDING WITH FALLBACKS</span>
+card.<span class="fn">bind</span>({
+  <span class="fn">source</span>: { <span class="fn">type</span>: <span class="st">'api'</span>, <span class="fn">url</span>: <span class="st">'https://stats.example.com/player/42'</span> },
+  <span class="fn">map</span>: (data) => ({
+    <span class="st">'.player-name'</span>: data.name,
+    <span class="st">'.rating'</span>: data.rating,
+  }),
+  <span class="fn">fallback</span>: {
+    <span class="st">'.player-name'</span>: <span class="st">'Player Name'</span>,
+    <span class="st">'.rating'</span>: <span class="st">'—'</span>,
+  },
+  <span class="fn">onError</span>: <span class="st">'hold-last'</span>,       <span class="cm">// 'hold-last' | 'use-fallback' | 'hide-node'</span>
+  <span class="fn">retryPolicy</span>: {
+    <span class="fn">maxRetries</span>: <span class="nm">3</span>,
+    <span class="fn">backoff</span>: <span class="st">'exponential'</span>,
+    <span class="fn">initialDelay</span>: <span class="nm">2000</span>,
+  },
+});
+</code></pre>
+</section>
+
+<!-- ============================================================ -->
+<!--  §8 — LAYER 5: TEXT LAYOUT ENGINE                               -->
+<!-- ============================================================ -->
+<section id="text-engine">
+  <h2>§8 — Layer 5: Text Layout Engine</h2>
+
+  <p class="drop-cap">Text is the iceberg. Every data-bound template has text. Every card, certificate, social post, dashboard label, and stadium graphic depends on text that wraps correctly, sizes predictably, and exports identically across SVG, Canvas, PDF, and PNG. Defer text entirely and your MVP breaks on its core use cases. The system needs an honest text strategy from day one.</p>
+
+  <p>SVG's native <code>&lt;text&gt;</code> element is deceptively simple. It handles single lines fine. But the moment you need paragraph wrapping, auto-sizing text boxes, overflow truncation, mixed fonts, or bidirectional scripts — you are on your own. SVG has no paragraph model. No line-breaking algorithm. No text-box concept. Every design tool that uses SVG has had to build this layer from scratch.</p>
+
+  <h3>What text actually requires</h3>
+
+  <table>
+    <tr><th>Capability</th><th>Difficulty</th><th>Why it matters</th></tr>
+    <tr><td>Line breaking</td><td>Medium</td><td>Every multi-line label. Every data-bound text block that might overflow.</td></tr>
+    <tr><td>Paragraph layout</td><td>Hard</td><td>Justified text, widow/orphan control, column flow. Print-quality output.</td></tr>
+    <tr><td>Font shaping (HarfBuzz)</td><td>Hard</td><td>Ligatures, kerning, Arabic/Devanagari/CJK. Without it, non-Latin text is broken.</td></tr>
+    <tr><td>Variable fonts</td><td>Medium</td><td>Weight, width, slant axes. One font file, infinite tuning. Modern type design depends on this.</td></tr>
+    <tr><td>Text-on-path</td><td>Medium</td><td>SVG supports it natively via <code>&lt;textPath&gt;</code>, but interaction/editing is complex.</td></tr>
+    <tr><td>Text wrapping in shapes</td><td>Very hard</td><td>Wrap text inside a circle, polygon, or arbitrary path. Requires geometry + text cooperation.</td></tr>
+    <tr><td>Bidirectional text</td><td>Hard</td><td>Hebrew, Arabic mixed with Latin. Unicode Bidi Algorithm (UBA) is non-trivial.</td></tr>
+    <tr><td>Font fallback chains</td><td>Medium</td><td>Missing glyphs must cascade to backup fonts. CJK coverage requires large fallback stacks.</td></tr>
+    <tr><td>Emoji sequences</td><td>Surprisingly hard</td><td>Family emoji = 7 code points, 1 glyph. ZWJ sequences, skin tone modifiers, flag pairs.</td></tr>
+  </table>
+
+  <h3>The pragmatic approach: two tiers</h3>
+
+  <p>Do not try to solve all of text on day one. But do not pretend it does not exist either. The strategy is two tiers, shipped in sequence.</p>
+
+  <div class="vs">
+    <div class="vs-col">
+      <h4>Tier 1 — MVP text (ship first)</h4>
+      <ul>
+        <li>Use the browser's native text layout via <code>foreignObject</code> or positioned HTML overlays for editable text. Caveat: <code>foreignObject</code> does not render when SVG is used as <code>&lt;img src&gt;</code> or CSS <code>background-image</code> (security restriction), and screen readers may not interpret its contents. Plan for a <code>&lt;switch&gt;</code> fallback path.</li>
+        <li>SVG <code>&lt;text&gt;</code> for simple labels and headings</li>
+        <li>Basic auto-size: shrink-to-fit, truncate with ellipsis</li>
+        <li>Font stack declarations per text node</li>
+        <li>Export renders text to positioned <code>&lt;tspan&gt;</code> elements or rasterizes via Canvas (use <code>OffscreenCanvas</code> in a worker to avoid blocking the main thread — supported in all major browsers since 2023)</li>
+      </ul>
+    </div>
+    <div class="vs-col">
+      <h4>Tier 2 — Full text engine (later)</h4>
+      <ul>
+        <li>HarfBuzz compiled to WASM via <code>harfbuzzjs</code> (v0.8.0, Emscripten, <code>-DHB_TINY</code> flag). The <code>hb-subset.wasm</code> is ~554 KB. Memory must be manually grown for large CJK fonts. Low-level API — wrap it.</li>
+        <li>Custom paragraph layout via Knuth-Plass line breaking — dynamic programming over all breakpoints to minimize total badness (spacing deviation, consecutive hyphenation, loose/tight adjacency). CSS <code>text-wrap: pretty</code> aims at this but no browser fully implements it yet.</li>
+        <li>Bidi algorithm (UAX #9) for mixed-direction text</li>
+        <li>Text-in-shape wrapping via geometry intersection with <code>geom-core</code></li>
+        <li>Variable font axis control in the property inspector</li>
+        <li>Font subsetting for export via <code>hb-subset.wasm</code> — only ship used glyphs, critical for CJK where full fonts exceed 10 MB</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Text as a constraint problem</h3>
+
+  <p>Text is not separate from the layout engine — it feeds into it. A text node with <code>autoSize: 'height'</code> needs the constraint solver to resize its container. A text node with <code>overflow: 'shrink'</code> needs font-size to become a solver variable. This coupling is why text cannot be a bolt-on afterthought.</p>
+
+  <pre><code><span class="label">TEXT CONSTRAINTS</span>
+<span class="kw">const</span> titleText = <span class="fn">defineTextNode</span>({
+  <span class="fn">content</span>: <span class="st">'{{ player.name }}'</span>,
+  <span class="fn">fontStack</span>: [<span class="st">'Inter'</span>, <span class="st">'system-ui'</span>, <span class="st">'sans-serif'</span>],
+  <span class="fn">fontSize</span>: { <span class="fn">base</span>: <span class="nm">24</span>, <span class="fn">min</span>: <span class="nm">14</span>, <span class="fn">max</span>: <span class="nm">36</span> },
+  <span class="fn">overflow</span>: <span class="st">'shrink'</span>,          <span class="cm">// reduce font size before truncating</span>
+  <span class="fn">truncation</span>: <span class="st">'ellipsis'</span>,     <span class="cm">// last resort</span>
+  <span class="fn">autoSize</span>: <span class="st">'width-fixed'</span>,    <span class="cm">// height grows, width locked to container</span>
+  <span class="fn">lineHeight</span>: <span class="nm">1.3</span>,
+  <span class="fn">maxLines</span>: <span class="nm">2</span>,               <span class="cm">// clamp to 2 lines max</span>
+});
+
+<span class="cm">// The constraint solver sees this as:</span>
+<span class="cm">//   IF text.measuredWidth > container.width</span>
+<span class="cm">//     THEN reduce fontSize until fit OR fontSize == min</span>
+<span class="cm">//     THEN truncate with ellipsis</span>
+<span class="cm">//   IF autoSize == 'width-fixed'</span>
+<span class="cm">//     THEN container.height = text.measuredHeight</span>
+</code></pre>
+
+  <div class="power danger">
+    <div class="power-label">The Iceberg Warning</div>
+    <p>Text looks simple on the surface. Underneath: Unicode normalization, ligatures, kerning tables, paragraph breaking algorithms (Knuth-Plass), vertical scripts, RTL reordering, emoji ZWJ sequences, and font subsetting for export. Every vector graphics tool that has shipped has learned this the hard way. Tier 1 buys you time. Tier 2 is where the real work lives. Budget for it.</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!--  §9 — LAYER 6: AUTOMATION / RUNTIME LANGUAGE                   -->
+<!-- ============================================================ -->
+<section id="automation">
+  <h2>§9 — Layer 6: Automation &amp; Runtime Language</h2>
+
+  <p class="drop-cap">This is the "programmable" in "Programmable SVG OS." You need a scripting layer — a way for users and agents to express operations as code. Not just click-and-drag. Create 100 cards from CSV. Apply a theme pack across all scenes. Normalize spacing in a layout. Convert paths to extrusions. Run batch exports. Generate variants. Attach hover interactions. Animate layers. Publish scenes.</p>
+
+  <p>The runtime language is JavaScript/TypeScript with a domain-specific API surface. It runs in the browser, in a sandboxed worker, or server-side for batch operations.</p>
+
+  <h3>Batch export pipeline</h3>
+
+  <pre><code><span class="label">AUTOMATION</span>
+<span class="kw">import</span> { Doc, CSV, Theme } <span class="kw">from</span> <span class="st">'@svgos/runtime'</span>;
+
+<span class="kw">async function</span> <span class="fn">generateSquadCards</span>() {
+  <span class="kw">const</span> data     = <span class="kw">await</span> CSV.<span class="fn">load</span>(<span class="st">'./squad-2025.csv'</span>);
+  <span class="kw">const</span> template = <span class="kw">await</span> Doc.<span class="fn">open</span>(<span class="st">'./templates/player-card.svg'</span>);
+  <span class="kw">const</span> theme    = <span class="kw">await</span> Theme.<span class="fn">load</span>(<span class="st">'./themes/matchday-dark.json'</span>);
+
+  template.<span class="fn">applyTheme</span>(theme);
+
+  <span class="kw">for</span> (<span class="kw">const</span> player <span class="kw">of</span> data.<span class="fn">rows</span>) {
+    <span class="kw">const</span> card = template.<span class="fn">clone</span>();
+    card.<span class="fn">bindAll</span>(player);
+
+    <span class="cm">// Export social-sized PNG</span>
+    <span class="kw">await</span> card.<span class="fn">export</span>(<span class="st">'png'</span>, {
+      <span class="fn">path</span>: <span class="st">`output/social/${</span>player.slug<span class="st">}.png`</span>,
+      <span class="fn">size</span>: [<span class="nm">1080</span>, <span class="nm">1350</span>],
+      <span class="fn">dpi</span>: <span class="nm">144</span>,
+    });
+
+    <span class="cm">// Export print-ready PDF</span>
+    <span class="kw">await</span> card.<span class="fn">export</span>(<span class="st">'pdf'</span>, {
+      <span class="fn">path</span>: <span class="st">`output/print/${</span>player.slug<span class="st">}.pdf`</span>,
+      <span class="fn">size</span>: [<span class="nm">300</span>, <span class="nm">420</span>],
+      <span class="fn">unit</span>: <span class="st">'mm'</span>,
+      <span class="fn">bleed</span>: <span class="nm">3</span>,
+    });
+  }
+
+  console.<span class="fn">log</span>(<span class="st">`Generated ${</span>data.rows.length<span class="st">} cards in 2 formats.`</span>);
+}
+</code></pre>
+
+  <h3>Theme operations</h3>
+
+  <pre><code><span class="label">THEME SCRIPT</span>
+<span class="cm">// Apply a theme pack to all open scenes</span>
+<span class="kw">const</span> scenes = <span class="kw">await</span> Workspace.<span class="fn">openScenes</span>(<span class="st">'./project'</span>);
+<span class="kw">const</span> theme  = Theme.<span class="fn">create</span>({
+  <span class="fn">colors</span>: {
+    primary:   <span class="st">'#1a1a2e'</span>,
+    secondary: <span class="st">'#e94560'</span>,
+    accent:    <span class="st">'#0f3460'</span>,
+    text:      <span class="st">'#f5f5f5'</span>,
+  },
+  <span class="fn">fonts</span>: {
+    heading: <span class="st">'Inter'</span>,
+    body:    <span class="st">'Source Serif 4'</span>,
+    mono:    <span class="st">'JetBrains Mono'</span>,
+  },
+  <span class="fn">spacing</span>: { base: <span class="nm">8</span>, scale: <span class="nm">1.5</span> },
+});
+
+<span class="kw">for</span> (<span class="kw">const</span> scene <span class="kw">of</span> scenes) {
+  scene.<span class="fn">applyTheme</span>(theme);
+  scene.<span class="fn">reConstrain</span>();   <span class="cm">// re-run layout solver with new spacing</span>
+  <span class="kw">await</span> scene.<span class="fn">save</span>();
+}
+</code></pre>
+
+  <h3>What the automation layer enables</h3>
+
+  <table>
+    <tr><th>Operation</th><th>Before (manual)</th><th>After (scripted)</th></tr>
+    <tr><td>200 player cards</td><td>Hours of copy-paste</td><td>One script, 30 seconds</td></tr>
+    <tr><td>Rebrand across 50 scenes</td><td>Open each, find-replace</td><td>Theme.apply() in a loop</td></tr>
+    <tr><td>Export 3 formats per asset</td><td>Export dialog × 3 × N</td><td>Batch pipeline, one command</td></tr>
+    <tr><td>Normalize spacing</td><td>Select all, eyeball it</td><td><code>distribute(group, {gap: 12})</code></td></tr>
+    <tr><td>Generate variants</td><td>Duplicate, tweak, repeat</td><td>Map over data, clone, bind</td></tr>
+  </table>
+
+  <div class="power zen">
+    <div class="power-label">The Real Power</div>
+    <p>The automation layer turns the SVG OS from a tool you use into a tool that <em>works for you</em>. Graphics generation becomes a pipeline, not a session. You write the recipe once. The system executes it a thousand times. That is what "programmable" means.</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!--  §10 — LAYER 7: PLUGIN / APP SYSTEM                            -->
+<!-- ============================================================ -->
+<section id="plugins">
+  <h2>§10 — Layer 7: Plugin &amp; App System</h2>
+
+  <p class="drop-cap">This is where it becomes a platform. Plugins are not just tiny utility scripts. They are mini products — first-class applications that run inside the SVG OS, with their own object types, panels, export recipes, and data pipelines. The OS provides the substrate. The apps provide the domain knowledge.</p>
+
+  <h3>App categories</h3>
+
+  <div class="vs">
+    <div class="vs-col">
+      <h4>Creative Apps</h4>
+      <ul>
+        <li>Poster generator</li>
+        <li>Icon set builder</li>
+        <li>Album art system</li>
+        <li>Lyric video template tool</li>
+        <li>Motion graphics kit</li>
+      </ul>
+    </div>
+    <div class="vs-col">
+      <h4>Sports Apps</h4>
+      <ul>
+        <li>Lineup builder</li>
+        <li>Scouting dashboard graphics</li>
+        <li>Shot map designer</li>
+        <li>Match report compositor</li>
+        <li>Transfer card generator</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="vs">
+    <div class="vs-col">
+      <h4>Technical Apps</h4>
+      <ul>
+        <li>Network diagram builder</li>
+        <li>Architecture overlay system</li>
+        <li>Process flow mapper</li>
+        <li>PCB annotation tool</li>
+        <li>Manufacturing stencil generator</li>
+      </ul>
+    </div>
+    <div class="vs-col">
+      <h4>Education Apps</h4>
+      <ul>
+        <li>Worksheet composer</li>
+        <li>Timeline / map builder</li>
+        <li>Science illustration generator</li>
+        <li>Interactive quiz builder</li>
+        <li>Annotated diagram maker</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Plugin SDK</h3>
+
+  <pre><code><span class="label">PLUGIN SDK</span>
+<span class="kw">import</span> { Plugin, ObjectType, Panel, ExportRecipe } <span class="kw">from</span> <span class="st">'@svgos/plugin-sdk'</span>;
+
+<span class="kw">export default</span> Plugin.<span class="fn">define</span>({
+  <span class="fn">name</span>: <span class="st">'sports-lineup'</span>,
+  <span class="fn">version</span>: <span class="st">'1.0.0'</span>,
+  <span class="fn">description</span>: <span class="st">'Generate match-day lineup graphics'</span>,
+
+  <span class="cm">// Register custom object types</span>
+  <span class="fn">objectTypes</span>: [
+    ObjectType.<span class="fn">define</span>({
+      <span class="fn">name</span>: <span class="st">'lineup/pitch'</span>,
+      <span class="fn">props</span>: {
+        formation: { <span class="fn">type</span>: <span class="st">'string'</span>, <span class="fn">default</span>: <span class="st">'4-3-3'</span> },
+        surface:   { <span class="fn">type</span>: <span class="st">'enum'</span>,   <span class="fn">values</span>: [<span class="st">'grass'</span>, <span class="st">'minimal'</span>, <span class="st">'dark'</span>] },
+      },
+      <span class="fn">render</span>: (node, ctx) => { <span class="cm">/* draw pitch with formation slots */</span> },
+    }),
+  ],
+
+  <span class="cm">// Add inspector panel</span>
+  <span class="fn">panels</span>: [
+    Panel.<span class="fn">define</span>({
+      <span class="fn">name</span>: <span class="st">'Formation Editor'</span>,
+      <span class="fn">icon</span>: <span class="st">'tactics'</span>,
+      <span class="fn">target</span>: <span class="st">'lineup/pitch'</span>,
+      <span class="fn">render</span>: (node) => { <span class="cm">/* formation picker UI */</span> },
+    }),
+  ],
+
+  <span class="cm">// Define export recipes</span>
+  <span class="fn">exports</span>: [
+    ExportRecipe.<span class="fn">define</span>({
+      <span class="fn">name</span>: <span class="st">'Social Lineup'</span>,
+      <span class="fn">format</span>: <span class="st">'png'</span>,
+      <span class="fn">size</span>: [<span class="nm">1080</span>, <span class="nm">1080</span>],
+      <span class="fn">preprocess</span>: (scene) => scene.<span class="fn">flatten</span>(),
+    }),
+  ],
+
+  <span class="cm">// Context menu actions</span>
+  <span class="fn">commands</span>: [
+    { <span class="fn">name</span>: <span class="st">'Auto-position players'</span>, <span class="fn">action</span>: autoPosition },
+    { <span class="fn">name</span>: <span class="st">'Import squad from CSV'</span>,  <span class="fn">action</span>: importSquad },
+  ],
+});
+</code></pre>
+
+  <div class="power">
+    <div class="power-label">Platform Primitive</div>
+    <p>A plugin can register object types, add inspector panels, define export recipes, add context menu commands, run transforms on selected nodes, bind to external data sources, and render custom overlays. That is not a script hook — it is an application model.</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!--  §11 — LAYER 8: ELIXIR ORCHESTRATION                          -->
+<!-- ============================================================ -->
+<section id="elixir">
+  <h2>§11 — Layer 8: Collaboration &amp; Orchestration</h2>
+
+  <p class="drop-cap">Elixir is not the drawing engine. It is the orchestration brain around it. The BEAM VM was built for exactly the kind of work a collaborative graphics platform needs: millions of lightweight concurrent processes, fault-tolerant supervision trees, real-time message passing, and distributed state. One GenServer per open document is not a hack — it is the natural architecture.</p>
+
+  <h3>Why Elixir</h3>
+
+  <table>
+    <tr><th>Requirement</th><th>Why Elixir excels</th></tr>
+    <tr><td>Real-time sync</td><td>Phoenix Channels — bidirectional WebSockets with topic-based pub/sub</td></tr>
+    <tr><td>Presence tracking</td><td>Phoenix.Presence — built-in distributed user tracking, cursor colors, "who's editing"</td></tr>
+    <tr><td>Per-document state</td><td>GenServer per document — isolated, supervised, garbage-collected when idle</td></tr>
+    <tr><td>Background jobs</td><td>Oban or custom workers — export queues, AI pipelines, batch generation</td></tr>
+    <tr><td>Distributed clustering</td><td>Erlang distribution — multi-node with automatic process migration</td></tr>
+    <tr><td>Fault tolerance</td><td>Supervision trees — a crashed export job doesn't take down the editor</td></tr>
+  </table>
+
+  <h3>Backend services</h3>
+
+  <div class="svg-diagram">
+    <svg viewBox="0 0 700 400" xmlns="http://www.w3.org/2000/svg">
+      <rect width="700" height="400" fill="#12121a" rx="4"/>
+
+      <!-- Central hub -->
+      <circle cx="350" cy="200" r="45" fill="none" stroke="#00ff88" stroke-width="2"/>
+      <text x="350" y="196" text-anchor="middle" fill="#00ff88" font-size="10">Phoenix</text>
+      <text x="350" y="210" text-anchor="middle" fill="#00ff88" font-size="10">PubSub</text>
+
+      <!-- Doc Service (top-left) -->
+      <rect x="80" y="55" width="120" height="50" rx="8" fill="none" stroke="#00ff88" stroke-width="1.5"/>
+      <text x="140" y="78" text-anchor="middle" fill="#00ff88" font-size="11">doc-service</text>
+      <text x="140" y="93" text-anchor="middle" fill="#6a6a7e" font-size="9">CRUD, versions</text>
+      <line x1="200" y1="80" x2="305" y2="185" stroke="#1e1e2e" stroke-width="1"/>
+
+      <!-- Sync Service (top-right) -->
+      <rect x="500" y="55" width="120" height="50" rx="8" fill="none" stroke="#00ddff" stroke-width="1.5"/>
+      <text x="560" y="78" text-anchor="middle" fill="#00ddff" font-size="11">sync-service</text>
+      <text x="560" y="93" text-anchor="middle" fill="#6a6a7e" font-size="9">CRDT, presence</text>
+      <line x1="500" y1="80" x2="395" y2="185" stroke="#1e1e2e" stroke-width="1"/>
+
+      <!-- Job Service (middle-left) -->
+      <rect x="30" y="175" width="120" height="50" rx="8" fill="none" stroke="#ff8800" stroke-width="1.5"/>
+      <text x="90" y="198" text-anchor="middle" fill="#ff8800" font-size="11">job-service</text>
+      <text x="90" y="213" text-anchor="middle" fill="#6a6a7e" font-size="9">export, batch, AI</text>
+      <line x1="150" y1="200" x2="305" y2="200" stroke="#1e1e2e" stroke-width="1"/>
+
+      <!-- Asset Service (middle-right) -->
+      <rect x="550" y="175" width="120" height="50" rx="8" fill="none" stroke="#4488ff" stroke-width="1.5"/>
+      <text x="610" y="198" text-anchor="middle" fill="#4488ff" font-size="11">asset-service</text>
+      <text x="610" y="213" text-anchor="middle" fill="#6a6a7e" font-size="9">images, fonts, CDN</text>
+      <line x1="550" y1="200" x2="395" y2="200" stroke="#1e1e2e" stroke-width="1"/>
+
+      <!-- Plugin Service (bottom-left) -->
+      <rect x="80" y="295" width="120" height="50" rx="8" fill="none" stroke="#ff00aa" stroke-width="1.5"/>
+      <text x="140" y="318" text-anchor="middle" fill="#ff00aa" font-size="11">plugin-service</text>
+      <text x="140" y="333" text-anchor="middle" fill="#6a6a7e" font-size="9">registry, sandbox</text>
+      <line x1="200" y1="320" x2="305" y2="215" stroke="#1e1e2e" stroke-width="1"/>
+
+      <!-- Publish Service (bottom-right) -->
+      <rect x="500" y="295" width="120" height="50" rx="8" fill="none" stroke="#aa44ff" stroke-width="1.5"/>
+      <text x="560" y="318" text-anchor="middle" fill="#aa44ff" font-size="11">publish-service</text>
+      <text x="560" y="333" text-anchor="middle" fill="#6a6a7e" font-size="9">static, embeds</text>
+      <line x1="500" y1="320" x2="395" y2="215" stroke="#1e1e2e" stroke-width="1"/>
+    </svg>
+  </div>
+
+  <h3>GenServer per document</h3>
+
+  <pre><code><span class="label">ELIXIR</span>
+<span class="kw">defmodule</span> <span class="ty">SvgOS.DocumentServer</span> <span class="kw">do</span>
+  <span class="kw">use</span> <span class="ty">GenServer</span>
+
+  <span class="kw">def</span> <span class="fn">start_link</span>(doc_id) <span class="kw">do</span>
+    <span class="ty">GenServer</span>.<span class="fn">start_link</span>(__MODULE__, doc_id,
+      <span class="fn">name</span>: {:global, {<span class="st">:doc</span>, doc_id}})
+  <span class="kw">end</span>
+
+  <span class="kw">def</span> <span class="fn">init</span>(doc_id) <span class="kw">do</span>
+    state = <span class="ty">SvgOS.Store</span>.<span class="fn">load</span>(doc_id)
+    {:ok, %{<span class="fn">doc_id</span>: doc_id, <span class="fn">tree</span>: state.tree,
+            <span class="fn">version</span>: state.version, <span class="fn">clients</span>: %{}}}
+  <span class="kw">end</span>
+
+  <span class="cm">  # Apply an operation from a client</span>
+  <span class="kw">def</span> <span class="fn">handle_call</span>({<span class="st">:apply_op</span>, op, client_id}, _from, state) <span class="kw">do</span>
+    {new_tree, delta} = <span class="ty">SvgOS.CRDT</span>.<span class="fn">apply</span>(state.tree, op)
+    broadcast_delta(state.doc_id, delta, client_id)
+    {:reply, :ok, %{state | <span class="fn">tree</span>: new_tree,
+                             <span class="fn">version</span>: state.version + <span class="nm">1</span>}}
+  <span class="kw">end</span>
+
+  <span class="cm">  # Periodic snapshot for durability</span>
+  <span class="kw">def</span> <span class="fn">handle_info</span>(<span class="st">:snapshot</span>, state) <span class="kw">do</span>
+    <span class="ty">SvgOS.Store</span>.<span class="fn">save_snapshot</span>(state.doc_id, state.tree)
+    <span class="ty">Process</span>.<span class="fn">send_after</span>(self(), <span class="st">:snapshot</span>, <span class="nm">30_000</span>)
+    {:noreply, state}
+  <span class="kw">end</span>
+
+  <span class="kw">defp</span> <span class="fn">broadcast_delta</span>(doc_id, delta, exclude) <span class="kw">do</span>
+    <span class="ty">SvgOS.PubSub</span>.<span class="fn">broadcast</span>(<span class="st">"doc:#{</span>doc_id<span class="st">}"</span>, {<span class="st">:delta</span>, delta}, exclude)
+  <span class="kw">end</span>
+<span class="kw">end</span>
+</code></pre>
+
+  <h3>CRDT choices</h3>
+
+  <table>
+    <tr><th>Library</th><th>Language</th><th>Strengths</th><th>Best for</th></tr>
+    <tr><td><strong>Yjs</strong></td><td>JavaScript</td><td>Mature, huge ecosystem, P2P capable</td><td>Client-side state, offline editing</td></tr>
+    <tr><td><strong>Loro</strong></td><td>Rust + JS</td><td>Tree CRDT, time-travel, undo/redo</td><td>Scene graph specifically</td></tr>
+    <tr><td><strong>DeltaCrdt</strong></td><td>Elixir</td><td>Native BEAM, delta-only sync, Merkle trees</td><td>Server-side cluster state</td></tr>
+  </table>
+
+  <p>The recommended architecture: <strong>Loro</strong> on the client for scene graph CRDT (its tree type maps directly to SVG node trees), <strong>DeltaCrdt</strong> on the Elixir cluster for server-side state distribution, and <strong>Phoenix Channels</strong> as the transport bridge between them.</p>
+
+  <div class="power zen">
+    <div class="power-label">One GenServer Per Document</div>
+    <p>The BEAM was built for this. Each document gets its own lightweight process — isolated memory, supervised lifecycle, garbage-collected when the last client disconnects. A million open documents means a million processes. Erlang/OTP has been doing this for telecom switches since the 1980s. The architecture is free.</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!--  §12 — PACKAGE DECOMPOSITION                                  -->
+<!-- ============================================================ -->
+<section id="packages">
+  <h2>§12 — Clean Package Decomposition</h2>
+
+  <p class="drop-cap">Thirteen packages with clear boundaries. Each one has a single responsibility, a defined language, and a clean API surface. The packages are independent — you can use the geometry engine without the editor, the data binding without the collaboration layer, the WebGPU renderer without the SVG backend. That modularity is what makes it a system and not a monolith.</p>
+
+  <div class="svg-diagram">
+    <svg viewBox="0 0 700 640" xmlns="http://www.w3.org/2000/svg">
+      <rect width="700" height="640" fill="#12121a" rx="4"/>
+
+      <!-- Tier 5 (top): editor-shell, plugin-sdk -->
+      <rect x="150" y="20" width="160" height="42" rx="6" fill="none" stroke="#00ddff" stroke-width="1.5"/>
+      <text x="230" y="37" text-anchor="middle" fill="#00ddff" font-size="11">editor-shell</text>
+      <text x="230" y="52" text-anchor="middle" fill="#6a6a7e" font-size="9">TypeScript</text>
+
+      <rect x="390" y="20" width="160" height="42" rx="6" fill="none" stroke="#00ddff" stroke-width="1.5"/>
+      <text x="470" y="37" text-anchor="middle" fill="#00ddff" font-size="11">plugin-sdk</text>
+      <text x="470" y="52" text-anchor="middle" fill="#6a6a7e" font-size="9">TypeScript</text>
+
+      <!-- Arrows from tier 5 to tier 4 -->
+      <line x1="230" y1="62" x2="110" y2="110" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="230" y1="62" x2="300" y2="110" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="230" y1="62" x2="490" y2="110" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="470" y1="62" x2="300" y2="110" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="470" y1="62" x2="110" y2="110" stroke="#1e1e2e" stroke-width="1"/>
+
+      <!-- Tier 4: render backends (3 parallel) + runtime-core + layout-core -->
+      <rect x="20" y="110" width="130" height="42" rx="6" fill="none" stroke="#00ddff" stroke-width="1.5"/>
+      <text x="85" y="127" text-anchor="middle" fill="#00ddff" font-size="10">render-svg</text>
+      <text x="85" y="142" text-anchor="middle" fill="#6a6a7e" font-size="9">TypeScript</text>
+
+      <rect x="160" y="110" width="130" height="42" rx="6" fill="none" stroke="#ff8800" stroke-width="1.5"/>
+      <text x="225" y="127" text-anchor="middle" fill="#ff8800" font-size="10">render-canvas</text>
+      <text x="225" y="142" text-anchor="middle" fill="#6a6a7e" font-size="9">TypeScript</text>
+
+      <rect x="300" y="110" width="130" height="42" rx="6" fill="none" stroke="#ff8800" stroke-width="1.5"/>
+      <text x="365" y="127" text-anchor="middle" fill="#ff8800" font-size="10">render-webgpu</text>
+      <text x="365" y="142" text-anchor="middle" fill="#6a6a7e" font-size="9">TS + WGSL</text>
+
+      <rect x="440" y="110" width="120" height="42" rx="6" fill="none" stroke="#00ddff" stroke-width="1.5"/>
+      <text x="500" y="127" text-anchor="middle" fill="#00ddff" font-size="10">runtime-core</text>
+      <text x="500" y="142" text-anchor="middle" fill="#6a6a7e" font-size="9">TypeScript</text>
+
+      <rect x="570" y="110" width="110" height="42" rx="6" fill="none" stroke="#00ddff" stroke-width="1.5"/>
+      <text x="625" y="127" text-anchor="middle" fill="#00ddff" font-size="10">layout-core</text>
+      <text x="625" y="142" text-anchor="middle" fill="#6a6a7e" font-size="9">TypeScript</text>
+
+      <!-- Arrows from tier 4 to tier 3 -->
+      <line x1="85" y1="152" x2="175" y2="210" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="225" y1="152" x2="175" y2="210" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="365" y1="152" x2="175" y2="210" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="365" y1="152" x2="475" y2="210" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="500" y1="152" x2="175" y2="210" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="500" y1="152" x2="325" y2="210" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="625" y1="152" x2="175" y2="210" stroke="#1e1e2e" stroke-width="1"/>
+
+      <!-- Tier 3: svg-doc-core, effects-core, effects-webgpu, text-engine -->
+      <rect x="90" y="210" width="160" height="42" rx="6" fill="none" stroke="#00ddff" stroke-width="1.5"/>
+      <text x="170" y="227" text-anchor="middle" fill="#00ddff" font-size="11">svg-doc-core</text>
+      <text x="170" y="242" text-anchor="middle" fill="#6a6a7e" font-size="9">TypeScript</text>
+
+      <rect x="260" y="210" width="130" height="42" rx="6" fill="none" stroke="#00ddff" stroke-width="1.5"/>
+      <text x="325" y="227" text-anchor="middle" fill="#00ddff" font-size="11">effects-core</text>
+      <text x="325" y="242" text-anchor="middle" fill="#6a6a7e" font-size="9">TypeScript</text>
+
+      <rect x="400" y="210" width="150" height="42" rx="6" fill="none" stroke="#ff8800" stroke-width="1.5"/>
+      <text x="475" y="227" text-anchor="middle" fill="#ff8800" font-size="11">effects-webgpu</text>
+      <text x="475" y="242" text-anchor="middle" fill="#6a6a7e" font-size="9">TS + WGSL</text>
+
+      <rect x="560" y="210" width="120" height="42" rx="6" fill="none" stroke="#ff00aa" stroke-width="1.5"/>
+      <text x="620" y="227" text-anchor="middle" fill="#ff00aa" font-size="11">text-engine</text>
+      <text x="620" y="242" text-anchor="middle" fill="#6a6a7e" font-size="9">TS + WASM</text>
+
+      <!-- Arrows from tier 3 to tier 2 -->
+      <line x1="170" y1="252" x2="300" y2="310" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="325" y1="252" x2="300" y2="310" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="475" y1="252" x2="300" y2="310" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="620" y1="252" x2="300" y2="310" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="620" y1="252" x2="475" y2="310" stroke="#1e1e2e" stroke-width="1"/>
+
+      <!-- Tier 2: geom-core -->
+      <rect x="220" y="310" width="160" height="42" rx="6" fill="none" stroke="#ff00aa" stroke-width="1.5"/>
+      <text x="300" y="327" text-anchor="middle" fill="#ff00aa" font-size="11">geom-core</text>
+      <text x="300" y="342" text-anchor="middle" fill="#6a6a7e" font-size="9">C++/Rust → WASM</text>
+
+      <rect x="420" y="310" width="160" height="42" rx="6" fill="none" stroke="#ff00aa" stroke-width="1.5"/>
+      <text x="500" y="327" text-anchor="middle" fill="#ff00aa" font-size="11">harfbuzz-wasm</text>
+      <text x="500" y="342" text-anchor="middle" fill="#6a6a7e" font-size="9">C++ → WASM</text>
+
+      <!-- Arrows to orchestrator -->
+      <line x1="300" y1="352" x2="350" y2="410" stroke="#1e1e2e" stroke-width="1"/>
+      <line x1="170" y1="252" x2="350" y2="410" stroke="#1e1e2e" stroke-width="1" stroke-dasharray="4"/>
+
+      <!-- Tier 1 (bottom): orchestrator -->
+      <rect x="250" y="410" width="200" height="42" rx="6" fill="none" stroke="#aa44ff" stroke-width="1.5"/>
+      <text x="350" y="427" text-anchor="middle" fill="#aa44ff" font-size="11">orchestrator</text>
+      <text x="350" y="442" text-anchor="middle" fill="#6a6a7e" font-size="9">Elixir / Phoenix</text>
+
+      <!-- Legend -->
+      <rect x="50" y="490" width="600" height="120" rx="4" fill="#0a0a0f" stroke="#1e1e2e" stroke-width="1"/>
+      <text x="70" y="512" fill="#6a6a7e" font-size="10">TECHNOLOGY:</text>
+      <rect x="70" y="524" width="12" height="12" rx="2" fill="none" stroke="#00ddff" stroke-width="1"/>
+      <text x="88" y="534" fill="#6a6a7e" font-size="10">TypeScript (browser)</text>
+      <rect x="280" y="524" width="12" height="12" rx="2" fill="none" stroke="#ff00aa" stroke-width="1"/>
+      <text x="298" y="534" fill="#6a6a7e" font-size="10">C++/Rust → WASM (compiled)</text>
+      <rect x="70" y="544" width="12" height="12" rx="2" fill="none" stroke="#ff8800" stroke-width="1"/>
+      <text x="88" y="554" fill="#6a6a7e" font-size="10">GPU-capable (WebGPU / WGSL shaders)</text>
+      <rect x="70" y="564" width="12" height="12" rx="2" fill="none" stroke="#aa44ff" stroke-width="1"/>
+      <text x="88" y="574" fill="#6a6a7e" font-size="10">Elixir (server)</text>
+      <line x1="280" y1="570" x2="320" y2="570" stroke="#1e1e2e" stroke-width="1"/>
+      <text x="326" y="574" fill="#6a6a7e" font-size="10">Dependency arrow (top depends on bottom)</text>
+      <line x1="280" y1="550" x2="320" y2="550" stroke="#1e1e2e" stroke-width="1" stroke-dasharray="4"/>
+      <text x="326" y="554" fill="#6a6a7e" font-size="10">Indirect / optional dependency</text>
+    </svg>
+  </div>
+
+  <h3>Package responsibility matrix</h3>
+
+  <table>
+    <tr><th>Package</th><th>Language</th><th>Responsibility</th></tr>
+    <tr>
+      <td><code>geom-core</code></td>
+      <td>C++/Rust → WASM</td>
+      <td>Bezier/path primitives, boolean ops, transforms, intersections, offsets, bounding boxes, simplify, snapping math. The hardest, most durable layer. Derived from lib2geom lineage.</td>
+    </tr>
+    <tr>
+      <td><code>svg-doc-core</code></td>
+      <td>TypeScript</td>
+      <td>Node tree, groups, defs, gradients, markers, clipping/masking, styles, text model, ID/ref resolution, serialization to/from SVG, import/export transforms.</td>
+    </tr>
+    <tr>
+      <td><code>effects-core</code></td>
+      <td>TypeScript</td>
+      <td>Non-destructive effect graph, effect params, stackable geometric transforms, cache invalidation, object/effect dependency tracking. Inspired by Inkscape's Live Path Effects.</td>
+    </tr>
+    <tr>
+      <td><code>layout-core</code></td>
+      <td>TypeScript</td>
+      <td>Constraint solver, auto-layout, anchor rules, repeaters, grids, responsive breakpoints, isometric projection, semantic placement.</td>
+    </tr>
+    <tr>
+      <td><code>runtime-core</code></td>
+      <td>TypeScript</td>
+      <td>Variables, expressions, data source adapters (JSON/CSV/API/LLM), reactive binding engine, object property system, change propagation.</td>
+    </tr>
+    <tr>
+      <td><code>render-svg</code></td>
+      <td>TypeScript</td>
+      <td>Default browser renderer. Native SVG DOM for editable, interactive, accessible scenes. Dirty-rect tracking. The lightest backend — use this unless you need more.</td>
+    </tr>
+    <tr>
+      <td><code>render-canvas</code></td>
+      <td>TypeScript</td>
+      <td>Canvas 2D backend. Faster compositing for raster-heavy scenes, image blending, headless export. No DOM overhead for non-interactive elements.</td>
+    </tr>
+    <tr>
+      <td><code>render-webgpu</code></td>
+      <td>TypeScript + WGSL</td>
+      <td>GPU rendering pipeline. Mesh generation from scene graph, shader materials, camera system. For stadium-scale playback, dense animation, real-time effects.</td>
+    </tr>
+    <tr>
+      <td><code>effects-webgpu</code></td>
+      <td>TypeScript + WGSL</td>
+      <td>GPU compute modules. Particle systems, procedural textures, physics simulations, blur/glow at scale. Runs as compute shaders, outputs textures composited by any render backend.</td>
+    </tr>
+    <tr>
+      <td><code>text-engine</code></td>
+      <td>TypeScript + WASM</td>
+      <td>Text layout: line breaking, paragraph layout, font shaping (HarfBuzz-WASM), variable fonts, bidi text, text-in-shape wrapping, font subsetting for export. Integrates with constraint solver.</td>
+    </tr>
+    <tr>
+      <td><code>editor-shell</code></td>
+      <td>TypeScript</td>
+      <td>Browser UI: canvas interactions, tool system, property inspector, command palette, document tabs, timeline (later), plugin host, collaboration cursors.</td>
+    </tr>
+    <tr>
+      <td><code>plugin-sdk</code></td>
+      <td>TypeScript</td>
+      <td>Typed extension API: object type registration, panel injection, export hooks, command registration, automation hooks, permissions, sandboxing.</td>
+    </tr>
+    <tr>
+      <td><code>orchestrator</code></td>
+      <td>Elixir</td>
+      <td>Backend platform: auth, real-time sync, presence, job queues, permissions, team/org management, asset CDN, AI worker coordination, publishing.</td>
+    </tr>
+  </table>
+
+  <h3>Technology choices</h3>
+
+  <table>
+    <tr><th>Concern</th><th>Choice</th><th>Rationale</th></tr>
+    <tr><td>Geometry engine</td><td>lib2geom → WASM via Emscripten</td><td>Battle-tested bezier math. Node.js N-API addon already exists. Compiles to WASM with Embind for TS bindings.</td></tr>
+    <tr><td>Scene graph reference</td><td>Paper.js / Two.js patterns</td><td>Mature, well-documented scene graph APIs. Adapt concepts, don't wrap libraries.</td></tr>
+    <tr><td>Client CRDT</td><td>Loro</td><td>Rust-based, tree CRDT (maps to SVG DOM), time-travel, undo/redo. WASM bindings.</td></tr>
+    <tr><td>Server CRDT</td><td>DeltaCrdt (Elixir)</td><td>Native BEAM, delta-only sync, Merkle tree verification. Built for distributed Elixir apps.</td></tr>
+    <tr><td>Real-time transport</td><td>Phoenix Channels</td><td>Bidirectional WebSockets, topic-based PubSub, built-in presence tracking.</td></tr>
+    <tr><td>Rendering</td><td>SVG DOM + Canvas + WebGPU hybrid</td><td>SVG for editability, Canvas for raster export, WebGPU for performance when available.</td></tr>
+    <tr><td>Perf-critical paths</td><td>Rust → WASM</td><td>Path booleans, tessellation, export rasterization. Deterministic, fast, portable.</td></tr>
+  </table>
+
+  <div class="power">
+    <div class="power-label">Design Principle</div>
+    <p>The packages are layered so that each one can be tested, versioned, and deployed independently. You can run geom-core in a headless test harness. You can use svg-doc-core without a renderer. You can embed the plugin-sdk in a third-party app. Modularity is not a luxury — it is the architecture.</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!--  §13 — NEUMENON FORMAT SYNERGIES                               -->
+<!-- ============================================================ -->
+<section id="neumenon">
+  <h2>§13 — Neumenon Format Synergies</h2>
+
+  <p class="drop-cap">Three formats from the Neumenon ecosystem slot naturally into the SVG OS stack. Not because we need to force integration — but because the problems they solve are exactly the problems a visual runtime has. Binary scene graph serialization. Compact agent communication. Fast asset storage. Each format found its niche organically.</p>
+
+  <h3>Cowrie — Scene graph wire format</h3>
+
+  <p><strong>Cowrie</strong> is a multi-language binary JSON codec with graph primitives baked in: Node, Edge, NodeBatch, EdgeBatch, GraphShard, Adjlist. That is not a coincidence — it is a direct match for serializing the SVG OS document tree.</p>
+
+  <p>Where Cowrie fits:</p>
+
+  <ul>
+    <li><strong>Network sync</strong> — Binary-encode scene graph deltas for CRDT transport. Smaller payloads, faster parse than JSON over Phoenix Channels.</li>
+    <li><strong>Snapshot storage</strong> — Serialize document state to Cowrie Gen2 with dictionary coding. Repeated component schemas (imagine 200 player cards with identical structure) get ~50% size reduction.</li>
+    <li><strong>Graph queries</strong> — The scene graph <em>is</em> a graph. Cowrie's NodeBatch and Adjlist types let you ship subgraph queries (e.g., "all nodes bound to this data source") without deserializing the full tree.</li>
+    <li><strong>Cross-language bridge</strong> — Cowrie has multi-language support. The Elixir orchestrator and the TypeScript client can exchange typed graph data without format translation.</li>
+  </ul>
+
+  <pre><code><span class="label">COWRIE SCENE SYNC</span>
+<span class="cm">// Client sends a scene delta as Cowrie-encoded graph patch</span>
+<span class="kw">const</span> delta = Cowrie.<span class="fn">encode</span>({
+  <span class="fn">type</span>: <span class="st">'graph_patch'</span>,
+  <span class="fn">nodes</span>: [
+    { <span class="fn">id</span>: <span class="st">'n_4f2a'</span>, <span class="fn">op</span>: <span class="st">'update'</span>, <span class="fn">props</span>: { fill: <span class="st">'#e94560'</span> } },
+    { <span class="fn">id</span>: <span class="st">'n_7b1c'</span>, <span class="fn">op</span>: <span class="st">'insert'</span>, <span class="fn">parent</span>: <span class="st">'n_root'</span>, <span class="fn">type</span>: <span class="st">'text'</span> },
+  ],
+  <span class="fn">edges</span>: [
+    { <span class="fn">from</span>: <span class="st">'n_7b1c'</span>, <span class="fn">to</span>: <span class="st">'n_root'</span>, <span class="fn">rel</span>: <span class="st">'child_of'</span> },
+  ],
+});
+
+channel.<span class="fn">push</span>(<span class="st">'delta'</span>, delta);  <span class="cm">// binary, compact, typed</span>
+</code></pre>
+
+  <h3>Glyph — AI / agent codec</h3>
+
+  <p><strong>Glyph</strong> is a text-based codec for AI and ML systems — compact structured text with deterministic canonicalization, delta-friendly patches, and frame-oriented streaming. When agents talk to the SVG OS, Glyph is the natural language.</p>
+
+  <p>Where Glyph fits:</p>
+
+  <ul>
+    <li><strong>Agent instructions</strong> — An AI agent describing scene edits in Glyph uses fewer tokens than JSON. That is not a minor optimization — it is a cost multiplier on every LLM call.</li>
+    <li><strong>Delta patches</strong> — Glyph's patch encoding describes incremental scene changes cleanly. "Change this label, recolor that bar, move this group" as a structured delta stream.</li>
+    <li><strong>Streaming transforms</strong> — Glyph's frame-oriented streaming maps to live AI pipelines. The agent streams partial results, each frame updates the canvas, the user sees real-time generation.</li>
+    <li><strong>Canonical hashing</strong> — Deterministic serialization means you can hash scene states for cache keys, version comparison, and change detection.</li>
+  </ul>
+
+  <pre><code><span class="label">GLYPH AGENT PATCH</span>
+<span class="cm">// Glyph-encoded instruction from an AI agent</span>
+<span class="cm">// Compact, deterministic, fewer tokens than JSON</span>
+
+{<span class="fn">action</span>=<span class="st">scene_patch</span> <span class="fn">target</span>=<span class="st">doc_8f3a</span> <span class="fn">ops</span>=[
+  {<span class="fn">op</span>=<span class="st">update</span> <span class="fn">node</span>=<span class="st">n_label_01</span> <span class="fn">text</span>=<span class="st">"Marcus Rashford"</span>}
+  {<span class="fn">op</span>=<span class="st">update</span> <span class="fn">node</span>=<span class="st">n_bar_rating</span> <span class="fn">width</span>=<span class="st">78%</span>}
+  {<span class="fn">op</span>=<span class="st">recolor</span> <span class="fn">node</span>=<span class="st">n_card_bg</span> <span class="fn">fill</span>=<span class="st">#da291c</span>}
+  {<span class="fn">op</span>=<span class="st">bind</span> <span class="fn">node</span>=<span class="st">n_portrait</span> <span class="fn">src</span>=<span class="st">api://players/rashford/headshot</span>}
+]}
+</code></pre>
+
+  <h3>Shard — Asset container format</h3>
+
+  <p><strong>Shard</strong> is a binary container with O(1) name lookup, per-entry compression, CRC32C checksums, and GPU-aligned memory mapping. It is the natural container for the SVG OS asset layer.</p>
+
+  <p>Where Shard fits:</p>
+
+  <ul>
+    <li><strong>Component libraries</strong> — Pack hundreds of reusable symbols, templates, and materials into a single Shard file. O(1) lookup by name means loading a specific component is constant-time regardless of library size.</li>
+    <li><strong>Font and image packs</strong> — Per-entry compression (zstd/lz4) means each asset uses the optimal codec. A 2KB SVG symbol and a 200KB PNG portrait coexist with independent compression.</li>
+    <li><strong>GPU-aligned textures</strong> — When the renderer needs raster data for WebGPU, Shard's 16/32/64-byte aligned data blocks enable zero-copy transfer to the GPU.</li>
+    <li><strong>Role-based profiles</strong> — Shard's role byte in the header can signal asset type: <code>ComponentShard</code>, <code>TemplateShard</code>, <code>MaterialShard</code>, <code>IconShard</code>. The system knows what to expect before reading the index.</li>
+  </ul>
+
+  <pre><code><span class="label">SHARD ASSET LOADING</span>
+<span class="cm">// Load a component from a Shard asset pack</span>
+<span class="kw">const</span> pack = <span class="kw">await</span> Shard.<span class="fn">open</span>(<span class="st">'./assets/sports-kit.shard'</span>);
+
+<span class="cm">// O(1) lookup — xxHash64 name → offset, no scanning</span>
+<span class="kw">const</span> card = <span class="kw">await</span> pack.<span class="fn">get</span>(<span class="st">'templates/player-card'</span>);   <span class="cm">// SVG template</span>
+<span class="kw">const</span> badge = <span class="kw">await</span> pack.<span class="fn">get</span>(<span class="st">'symbols/team-badge'</span>);      <span class="cm">// SVG symbol</span>
+<span class="kw">const</span> font = <span class="kw">await</span> pack.<span class="fn">get</span>(<span class="st">'fonts/athletic-sans'</span>);      <span class="cm">// WOFF2</span>
+<span class="kw">const</span> pitch = <span class="kw">await</span> pack.<span class="fn">get</span>(<span class="st">'textures/grass-tile'</span>);     <span class="cm">// PNG, GPU-aligned</span>
+
+<span class="cm">// Integrity verified automatically (CRC32C per entry)</span>
+console.<span class="fn">log</span>(pack.header.role);  <span class="cm">// → 'ComponentShard'</span>
+console.<span class="fn">log</span>(pack.entries.length); <span class="cm">// → 347 assets</span>
+</code></pre>
+
+  <h3>Where each format sits in the stack</h3>
+
+  <div class="diagram">
+    <span class="diagram-label">Neumenon × SVG OS Integration Map</span>
+    <pre><code>
+                  ┌──────────────────────────────────────┐
+                  │         AI / Agent Layer              │
+                  │                                      │
+                  │   ┌────────────────────────────┐     │
+                  │   │  GLYPH  agent codec         │     │
+                  │   │  instructions, patches,     │     │
+                  │   │  streaming transforms       │     │
+                  │   └────────────────────────────┘     │
+                  └──────────────┬───────────────────────┘
+                                 │
+                  ┌──────────────▼───────────────────────┐
+                  │      Network / Sync Layer             │
+                  │                                      │
+                  │   ┌────────────────────────────┐     │
+                  │   │  COWRIE  wire format         │     │
+                  │   │  graph patches, snapshots,  │     │
+                  │   │  CRDT deltas, typed IPC     │     │
+                  │   └────────────────────────────┘     │
+                  └──────────────┬───────────────────────┘
+                                 │
+                  ┌──────────────▼───────────────────────┐
+                  │       Storage / Asset Layer           │
+                  │                                      │
+                  │   ┌────────────────────────────┐     │
+                  │   │  SHARD  asset container      │     │
+                  │   │  component libs, fonts,     │     │
+                  │   │  textures, templates        │     │
+                  │   └────────────────────────────┘     │
+                  └──────────────────────────────────────┘
+    </code></pre>
+  </div>
+
+  <div class="power">
+    <div class="power-label">Organic, Not Forced</div>
+    <p>These formats were not designed for the SVG OS. They were designed for the problems the SVG OS naturally has: graph serialization, agent communication, and asset packaging. The synergy is structural. Cowrie speaks graphs. Glyph speaks to agents. Shard stores assets. Each one replaces a problem you would otherwise solve with generic JSON or zip files — and solves it better.</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!--  §14 — THREE KILLER APPS                                      -->
+<!-- ============================================================ -->
+<section id="killer-apps">
+  <h2>§14 — Three Killer Apps</h2>
+
+  <p class="drop-cap">The platform exists to run applications. These three are built first because they prove the substrate — each one exercises a different combination of layers, and together they demonstrate that this is not a toy. They are products, not demos.</p>
+
+  <h3>A. Visual Automation Studio</h3>
+
+  <h4>Why first</h4>
+
+  <p>This is the highest-value, most immediately useful application. Upload a dataset, pick a template, bind the data, preview the grid, export the batch. Sports cards from a player database. Social posts from a CMS feed. Certificates from a registration form. Reports from analytics output. It is "mail merge for graphics" — and nobody does it well.</p>
+
+  <p>Exercises: data binding layer, template system, repeat-grid constraints, batch export pipeline, theme tokens. This app alone justifies the SVG OS for production teams.</p>
+
+  <div class="diagram">
+    <span class="diagram-label">Visual Automation Flow</span>
+    <pre><code>
+  Data Source          Template          Bind + Repeat          Export
+  ───────────         ──────────        ──────────────        ────────
+  CSV / JSON   ──▶    Card layout  ──▶  200 instances   ──▶   200 PNGs
+  API / DB     ──▶    Report page  ──▶  50 pages        ──▶   50 PDFs
+  Form input   ──▶    Certificate  ──▶  1 personalized  ──▶   1 PDF
+  LLM output   ──▶    Social post  ──▶  10 variants     ──▶   10 SVGs
+    </code></pre>
+  </div>
+
+  <h3>B. Diagram &amp; Technical Illustration Studio</h3>
+
+  <h4>Why second</h4>
+
+  <p>Architecture diagrams, system topologies, network maps, process flows, engineering overlays, scientific figures. This is a domain where geometry <em>matters</em>, where SVG <em>matters</em>, and where the existing tools (Lucidchart, draw.io, Mermaid) are either locked-in SaaS, ugly, or non-programmable. The SVG OS gives you constraint-based diagramming with smart connectors, auto-layout, semantic objects, and multi-format export. Strong vertical monetization — enterprises pay real money for technical diagrams.</p>
+
+  <p>Exercises: constraint engine, connector objects, auto-layout, snap system, SVG export fidelity, print-quality output.</p>
+
+  <h3>C. SVG-to-2.5D Scene Builder</h3>
+
+  <h4>Why third</h4>
+
+  <p>This is the "holy hell" demo. Take flat SVG artwork — icons, illustrations, layouts — and extrude layers into pseudo-3D space. Isometric city builders. Animated logo reveals. Explainer scenes with parallax depth. Interactive product showcases. Web-native storytelling experiences.</p>
+
+  <p>This differentiates the SVG OS from Figma, Canva, and every other 2D tool. No one else offers a path from flat vector to interactive 3D-ish scenes without leaving the tool. It sits on the same scene graph — just richer rendering.</p>
+
+  <p>Exercises: scene graph extensibility, 2.5D projection, camera/lighting primitives, animation timeline, WebGL renderer path, interactive web export.</p>
+
+  <div class="power hack">
+    <div class="power-label">Prove the Substrate</div>
+    <p>Each killer app exercises different layers of the SVG OS. Visual Automation proves data binding and export. Diagrams prove constraints and geometry. 2.5D proves rendering extensibility and scene graph depth. If all three work, the platform is real.</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!--  §15 — 3D EXTENSION PATH                                      -->
+<!-- ============================================================ -->
+<section id="3d-path">
+  <h2>§15 — The 3D Extension Path</h2>
+
+  <p class="drop-cap">The smartest 3D angle is not full mesh modeling. That is Blender's territory and you will lose. The smart angle is: SVG → scene graph → 2.5D / lightweight 3D. Take vector shapes and turn them into extrusions, depth layers, animated planes, billboards, and simple meshes. Add a camera, lights, materials, parallax, and transitions. Now you compete with motion graphics lite — and that is an enormous market.</p>
+
+  <h3>What 2.5D means</h3>
+
+  <table>
+    <tr><th>Input</th><th>Transform</th><th>Output</th></tr>
+    <tr><td>Flat logo SVG</td><td>Extrude + bevel</td><td>Rotating 3D logo animation</td></tr>
+    <tr><td>Icon set</td><td>Stack at depth layers</td><td>Parallax hero section</td></tr>
+    <tr><td>City illustration</td><td>Isometric projection</td><td>Interactive explorable map</td></tr>
+    <tr><td>Product diagram</td><td>Explode into layers</td><td>Scroll-triggered reveal</td></tr>
+    <tr><td>Data dashboard</td><td>Depth + perspective</td><td>3D data landscape</td></tr>
+    <tr><td>Presentation slides</td><td>Z-axis transitions</td><td>Cinematic deck</td></tr>
+  </table>
+
+  <h3>2.5D primitives</h3>
+
+  <pre><code><span class="label">2.5D API</span>
+<span class="cm">// Extrude a flat path into depth</span>
+<span class="kw">const</span> logo3d = scene.<span class="fn">extrude</span>(logoPath, {
+  <span class="fn">depth</span>: <span class="nm">20</span>,
+  <span class="fn">bevel</span>: { <span class="fn">size</span>: <span class="nm">2</span>, <span class="fn">segments</span>: <span class="nm">3</span> },
+  <span class="fn">material</span>: { <span class="fn">color</span>: <span class="st">'#00ff88'</span>, <span class="fn">metalness</span>: <span class="nm">0.3</span> },
+});
+
+<span class="cm">// Stack layers at different depths</span>
+scene.<span class="fn">setDepth</span>(background, <span class="nm">0</span>);
+scene.<span class="fn">setDepth</span>(midground,  <span class="nm">50</span>);
+scene.<span class="fn">setDepth</span>(foreground,  <span class="nm">100</span>);
+scene.<span class="fn">setDepth</span>(overlay,     <span class="nm">150</span>);
+
+<span class="cm">// Add camera with parallax</span>
+<span class="kw">const</span> camera = scene.<span class="fn">addCamera</span>({
+  <span class="fn">type</span>: <span class="st">'perspective'</span>,
+  <span class="fn">fov</span>: <span class="nm">45</span>,
+  <span class="fn">parallax</span>: { <span class="fn">source</span>: <span class="st">'scroll'</span>, <span class="fn">range</span>: [<span class="nm">0</span>, <span class="nm">1</span>] },
+});
+
+<span class="cm">// Animate the reveal</span>
+scene.<span class="fn">animate</span>(<span class="st">'explode'</span>, {
+  <span class="fn">duration</span>: <span class="nm">2000</span>,
+  <span class="fn">easing</span>: <span class="st">'ease-out-cubic'</span>,
+  <span class="fn">trigger</span>: <span class="st">'scroll-into-view'</span>,
+});
+</code></pre>
+
+  <p>The key constraint: the 2.5D layer sits <em>on top of</em> the same scene graph. It does not create a separate product or a parallel document model. A flat SVG group can be promoted to a 3D-capable layer with one property change. That composability is what makes it powerful.</p>
+</section>
+
+<!-- ============================================================ -->
+<!--  §16 — STADIUM-SCALE RENDERING & MULTI-BACKEND ARCHITECTURE     -->
+<!-- ============================================================ -->
+<section id="render-backends">
+  <h2>§16 — Stadium-Scale Rendering &amp; Multi-Backend Architecture</h2>
+
+  <p class="drop-cap">SVG is the right authoring model. It is not always the right runtime renderer. For stadium jumbotrons, broadcast walls, ribbon displays, dense particle animations, or GPU-driven effects, raw DOM/SVG rendering hits a wall. The architecture needs a render abstraction layer — so you author once in a structured visual model, then render differently depending on the target. The timing is right: WebGPU now ships in all major browsers — Chrome since 2023, Firefox 141+ (July 2025, Windows and macOS ARM64), Safari 26+ (June 2025, including visionOS). The GPU web is no longer experimental.</p>
+
+  <h3>Three-layer rendering architecture</h3>
+
+  <p>The system splits into three distinct layers. The top layer is your native document model — the SVG-like scene graph where all authoring happens. The middle layer decides <em>how</em> each element gets drawn. The bottom layer adapts the output to the delivery target.</p>
+
+  <div class="diagram">
+    <span class="diagram-label">Render Architecture</span>
+    <pre><code>
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  STRUCTURED SCENE LAYER                                        │
+  │  objects · groups · constraints · bindings · timelines          │
+  │  semantic components · SVG-native document model                │
+  └──────────────────────────┬──────────────────────────────────────┘
+                             │
+                   ┌─────────┼─────────┐
+                   ▼         ▼         ▼
+  ┌──────────┐ ┌──────────┐ ┌──────────────┐
+  │ SVG/DOM  │ │ Canvas   │ │   WebGPU     │
+  │ Backend  │ │ Backend  │ │   Backend    │
+  │          │ │          │ │              │
+  │ editable │ │ medium   │ │ heavy scenes │
+  │ light    │ │ raster   │ │ particles    │
+  │ scenes   │ │ scenes   │ │ shaders      │
+  │          │ │          │ │ real-time    │
+  └────┬─────┘ └────┬─────┘ └──────┬───────┘
+       │             │              │
+       └─────────────┼──────────────┘
+                     ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │  OUTPUT / ADAPTATION LAYER                                     │
+  │  16:9 board · ultra-wide ribbon · square social · vertical     │
+  │  mobile · print/PDF · transparent video · image sequences      │
+  └─────────────────────────────────────────────────────────────────┘
+    </code></pre>
+  </div>
+
+  <h3>Render backend selection</h3>
+
+  <table>
+    <tr><th>Scene Profile</th><th>Backend</th><th>Rationale</th></tr>
+    <tr><td>Editable / light (&lt;500 nodes)</td><td>SVG DOM</td><td>Native browser rendering, CSS styling, DOM events, accessibility, inspectable</td></tr>
+    <tr><td>Medium / raster-heavy</td><td>Canvas 2D</td><td>Faster compositing, image blending, no DOM overhead for non-interactive elements</td></tr>
+    <tr><td>Heavy / real-time / particles</td><td>WebGPU</td><td>GPU compute, shader effects, massive parallelism, 60fps at scale</td></tr>
+    <tr><td>Print / export</td><td>Headless Canvas or PDF pipeline</td><td>Deterministic output, CMYK support (via ICC), font embedding, bleed marks</td></tr>
+    <tr><td>Control-room preview</td><td>Simplified SVG</td><td>Lightweight proxy rendering for monitoring many outputs simultaneously</td></tr>
+  </table>
+
+  <div class="power zen">
+    <div class="power-label">Implementation Note</div>
+    <p>Chrome's WebGPU uses Dawn (C++), Firefox uses wgpu (Rust) — both map to D3D12/Metal/Vulkan underneath. For the Canvas 2D backend, use <code>OffscreenCanvas</code> with <code>transferControlToOffscreen()</code> to move rendering to a Web Worker. Once transferred, the worker has exclusive control — the main thread stays free for interaction. This is how you hit 60fps on data-heavy scenes without jank.</p>
+  </div>
+
+  <h3>Per-object render paths</h3>
+
+  <p>Objects in the scene graph are not locked to one renderer. Each node can declare a render hint — or the system can infer one from the node's complexity. A sponsor logo renders as crisp vector. A particle burst behind a player intro runs through the GPU. Both live in the same scene graph, authored the same way.</p>
+
+  <pre><code><span class="label">RENDER HINTS</span>
+<span class="kw">const</span> sponsorLogo = scene.<span class="fn">findById</span>(<span class="st">'sponsor-main'</span>);
+sponsorLogo.<span class="fn">renderHint</span> = <span class="st">'vector'</span>;      <span class="cm">// always native SVG path</span>
+
+<span class="kw">const</span> particleBurst = scene.<span class="fn">findById</span>(<span class="st">'intro-particles'</span>);
+particleBurst.<span class="fn">renderHint</span> = <span class="st">'gpu'</span>;       <span class="cm">// WebGPU compute + render</span>
+particleBurst.<span class="fn">gpuConfig</span> = {
+  <span class="fn">shader</span>: <span class="st">'effects/particle-burst.wgsl'</span>,
+  <span class="fn">particleCount</span>: <span class="nm">50000</span>,
+  <span class="fn">blendMode</span>: <span class="st">'additive'</span>,
+};
+
+<span class="kw">const</span> statOverlay = scene.<span class="fn">findById</span>(<span class="st">'live-stats'</span>);
+statOverlay.<span class="fn">renderHint</span> = <span class="st">'canvas'</span>;    <span class="cm">// Canvas 2D for fast text updates</span>
+
+<span class="kw">const</span> backgroundMesh = scene.<span class="fn">findById</span>(<span class="st">'stadium-bg'</span>);
+backgroundMesh.<span class="fn">renderHint</span> = <span class="st">'gpu'</span>;    <span class="cm">// GPU mesh with lighting shader</span>
+backgroundMesh.<span class="fn">gpuConfig</span> = {
+  <span class="fn">shader</span>: <span class="st">'materials/stadium-lights.wgsl'</span>,
+  <span class="fn">uniforms</span>: { <span class="fn">time</span>: <span class="st">'auto'</span>, <span class="fn">intensity</span>: <span class="nm">0.8</span> },
+};
+</code></pre>
+
+  <h3>Stadium-scale examples</h3>
+
+  <div class="vs">
+    <div class="vs-col">
+      <h4>Sponsor board graphics</h4>
+      <p>Mostly vector. Crisp logos, text, brand colors. Renders via SVG/DOM or Canvas. Resolution-independent. Data-bound to sponsorship rotation schedule.</p>
+    </div>
+    <div class="vs-col">
+      <h4>Player intro scene</h4>
+      <p>WebGPU particles, lighting shaders, animated meshes. Player photo composited over GPU-driven effects. Triggered by live data feed.</p>
+    </div>
+  </div>
+
+  <div class="vs">
+    <div class="vs-col">
+      <h4>Concourse menu boards</h4>
+      <p>Lightweight SVG/Canvas. Data-bound to inventory system. Auto-layout for price changes. Dozens of displays, low resource budget per screen.</p>
+    </div>
+    <div class="vs-col">
+      <h4>Stadium playback — final output</h4>
+      <p>Full GPU render path. Composites all layers at native resolution. 60fps on massive LED arrays. Fallback to Canvas if WebGPU unavailable.</p>
+    </div>
+  </div>
+
+  <h3>Parallel render libraries</h3>
+
+  <p>The multi-backend architecture decomposes cleanly into parallel packages:</p>
+
+  <ul>
+    <li><strong>render-svg</strong> — Default. Native SVG DOM rendering with dirty-rect tracking. Best for editable, interactive, accessible scenes.</li>
+    <li><strong>render-canvas</strong> — Canvas 2D backend. Faster compositing for raster-heavy scenes, image blending, headless export.</li>
+    <li><strong>render-webgpu</strong> — GPU rendering pipeline. Mesh generation, shader materials, camera system. For heavy real-time playback.</li>
+    <li><strong>effects-webgpu</strong> — GPU compute modules. Particle systems, procedural textures, physics simulations, blur/glow at scale.</li>
+    <li><strong>layout-gpu</strong> — Future. GPU-accelerated constraint solving and layout computation for very large scenes (10k+ nodes).</li>
+  </ul>
+
+  <p>These sit alongside existing packages. They do not replace the core scene graph — they consume it. Any scene authored in the structured model can be pointed at any renderer.</p>
+
+  <div class="power">
+    <div class="power-label">The Scaling Principle</div>
+    <p>SVG for structure, WebGPU for horsepower. Author once in a structured visual model, render differently depending on target. That is the abstraction that scales from a social media card to a stadium jumbotron.</p>
+  </div>
+
+  <h3>Competitive context</h3>
+
+  <table>
+    <tr><th>System</th><th>Strength</th><th>Gap SVG OS fills</th></tr>
+    <tr><td>Rive</td><td>Proprietary <code>.riv</code> binary format. WASM runtime with Canvas2D and WebGL2 render paths. Custom GPU renderer (compute shaders + pixel local storage). State machines, mesh deformation, procedural animation. HarfBuzz for text internally.</td><td>No structured data binding. No multi-format export (output is always <code>.riv</code> → runtime). No open SVG authoring. No template/variant system.</td></tr>
+    <tr><td>Penpot</td><td>Open source (MPL 2.0). SVG is the native data model — every shape is an SVG node. New GPU-based tile renderer (2025) for performance. Export via headless Chromium. HTML/CSS/SVG inspect mode.</td><td>No GPU compute path for effects. No stadium-scale output. No data binding. No automation scripting. Tile renderer is for editing perf, not runtime delivery.</td></tr>
+    <tr><td>Custom WebGPU engines</td><td>Raw GPU performance, full shader control, custom pipelines mapped to D3D12/Metal/Vulkan</td><td>No structured authoring model, no semantic objects, no data binding, no template system, no multi-target export</td></tr>
+  </table>
+
+  <div class="power hack">
+    <div class="power-label">The Position</div>
+    <p>SVG OS sits where no one else does: structured authoring that Rive lacks, GPU rendering that Penpot lacks, and semantic data binding that raw WebGPU engines lack. It is not "pick two." It is all three, layered cleanly.</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!--  §17 — THE AI ANGLE                                            -->
+<!-- ============================================================ -->
+<section id="ai">
+  <h2>§17 — The AI Angle</h2>
+
+  <p class="drop-cap">This kind of system is extremely AI-friendly — and for a reason most people miss. It is not because you can "add AI features." It is because the document is <em>structured</em>. A structured visual AST is something an agent can actually reason about. It can inspect the object tree, understand component semantics, rewrite labels, generate variants, rebalance layouts, apply themes, create chart scenes, and convert text prompts into structured compositions.</p>
+
+  <p>AI works much better on a structured visual AST than on raw pixels. That is a <em>huge</em> advantage.</p>
+
+  <h3>What agents can do</h3>
+
+  <table>
+    <tr><th>Agent task</th><th>Requires</th><th>SVG OS advantage</th></tr>
+    <tr><td>Rewrite all labels</td><td>Text node access</td><td>Nodes are typed, queryable, bindable</td></tr>
+    <tr><td>Generate 20 color variants</td><td>Theme token system</td><td>Themes are first-class, applied atomically</td></tr>
+    <tr><td>Rebalance a layout</td><td>Constraint system</td><td>Agent tweaks rules, solver recomputes</td></tr>
+    <tr><td>Create a chart from data</td><td>Data binding + components</td><td>Agent binds data to chart template</td></tr>
+    <tr><td>Check brand compliance</td><td>Semantic object types</td><td>Agent queries types, validates properties</td></tr>
+    <tr><td>Generate scene from prompt</td><td>Component library + layout rules</td><td>Agent composes known objects with constraints</td></tr>
+    <tr><td>Prepare export pack</td><td>Multi-format export</td><td>Agent triggers batch export with parameters</td></tr>
+  </table>
+
+  <h3>Multi-agent workflows</h3>
+
+  <p>The Elixir orchestration layer can coordinate multiple agents working on the same document:</p>
+
+  <div class="diagram">
+    <span class="diagram-label">Agent Coordination Pipeline</span>
+    <pre><code>
+  Agent 1: Layout           Agent 2: Content         Agent 3: QA
+  ──────────────           ──────────────           ─────────
+  Read constraints          Read data source         Read brand rules
+  Rebalance spacing         Generate labels          Check color contrast
+  Align to grid             Write descriptions       Validate text sizes
+  Resolve overlaps          Place images             Flag violations
+       │                         │                        │
+       └─────────────┬───────────┘                        │
+                     ▼                                    │
+              Merged Scene ────────────────────────▶ Approved Scene
+    </code></pre>
+  </div>
+
+  <div class="power">
+    <div class="power-label">Why Structure Wins</div>
+    <p>A Figma file is a proprietary binary. A Canva design is trapped in a walled garden. An Illustrator file needs a $600/year app to read. The SVG OS document is an open, structured, queryable, agent-readable graph. AI does not need "computer vision" to understand it — it reads the tree directly. That is a moat.</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!--  §18 — INKSCAPE EXTRACTION PLAN                                -->
+<!-- ============================================================ -->
+<section id="inkscape">
+  <h2>§18 — Inkscape Extraction Plan</h2>
+
+  <p class="drop-cap">Inkscape has three decades of accumulated knowledge about SVG geometry, document semantics, and vector operations. Some of it is invaluable. Some of it is desktop baggage that will sink you. The strategy is surgical: extract the mathematically hard, standards-hard layers. Throw away everything people actually touch. Rebuild the product as a browser-native runtime.</p>
+
+  <div class="vs">
+    <div class="vs-col">
+      <h4>Port / Reuse</h4>
+      <ul>
+        <li><strong>lib2geom</strong> — bezier math, path booleans, affine transforms, intersections, offsets, bounding boxes, curve simplification</li>
+        <li><strong>SVG document semantics</strong> — how the SVG spec maps to internal structure: groups, defs, gradients, markers, clipping, masking, styles, ID references</li>
+        <li><strong>Live Path Effect concepts</strong> — non-destructive parametric effects, editable source geometry, stackable transforms, effect params</li>
+        <li><strong>Import/export logic</strong> — SVG cleanup, style resolution, flattening for PDF/PNG, defs normalization</li>
+        <li><strong>Snapping math</strong> — geometric snap, node snap, guide/grid systems, precision transforms</li>
+      </ul>
+    </div>
+    <div class="vs-col">
+      <h4>Discard / Rebuild</h4>
+      <ul>
+        <li><strong>GTK UI</strong> — the entire desktop interface, dialogs, panels, menus, toolbar. Rebuild for browser.</li>
+        <li><strong>Desktop interaction code</strong> — drag handles, modal flows, desktop window management. Rebuild entirely.</li>
+        <li><strong>Old extension model</strong> — Python script extensions, INX descriptors. Replace with sandboxed browser plugin model.</li>
+        <li><strong>Rendering stack</strong> — Cairo/desktop redraw. Replace with SVG DOM + Canvas + WebGPU.</li>
+        <li><strong>Action/verb/dialog plumbing</strong> — desktop command infrastructure. Replace with web command palette.</li>
+        <li><strong>"Complete parity" ambitions</strong> — the path to bloat and death. Do not attempt.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="power danger">
+    <div class="power-label">The Trap</div>
+    <p>Do not port the GTK UI. Do not port the extension system. Do not try for feature parity. These are traps that will consume years of effort and produce a desktop clone nobody wants. The value of Inkscape is in its <em>knowledge</em>, not its <em>application shape</em>.</p>
+  </div>
+
+  <h3>Extraction phases</h3>
+
+  <table>
+    <tr><th>Phase</th><th>Goal</th><th>Deliverable</th></tr>
+    <tr>
+      <td><strong>0 — Audit</strong></td>
+      <td>Map the codebase into buckets</td>
+      <td>Categorization: geometry, SVG model, rendering, text, filters, extensions, UI, IO</td>
+    </tr>
+    <tr>
+      <td><strong>1 — Geometry + Doc Core</strong></td>
+      <td>Headless library, compile to WASM</td>
+      <td>Path ops, transforms, scene tree parse/serialize, style refs, snap math. No GUI deps. Deterministic tests.</td>
+    </tr>
+    <tr>
+      <td><strong>2 — Browser Editor Shell</strong></td>
+      <td>Entirely new UI</td>
+      <td>New event model, new tool system, new panels. Zero desktop baggage.</td>
+    </tr>
+    <tr>
+      <td><strong>3 — Structured Objects</strong></td>
+      <td>Object schemas + data layer</td>
+      <td>Typed objects, data bindings, constraints, template system.</td>
+    </tr>
+    <tr>
+      <td><strong>4 — Plugin SDK + Orchestration</strong></td>
+      <td>App ecosystem + collaboration</td>
+      <td>Extension runtime, multi-user sync, export pipelines, AI agent hooks.</td>
+    </tr>
+    <tr>
+      <td><strong>5 — 2.5D Layer</strong></td>
+      <td>Wow-factor demos</td>
+      <td>Extrusions, depth, camera, motion scenes, interactive web export.</td>
+    </tr>
+  </table>
+
+  <h3>The anti-bloat rule</h3>
+
+  <p>Only preserve layers that are <strong>mathematically hard</strong> or <strong>standards-hard</strong>. Rebuild everything people actually touch. Geometry is mathematically hard — keep it. SVG spec compliance is standards-hard — keep it. Desktop dialogs are neither — discard them.</p>
+</section>
+
+<!-- ============================================================ -->
+<!--  §19 — COMPETITIVE POSITIONING                                 -->
+<!-- ============================================================ -->
+<section id="positioning">
+  <h2>§19 — Competitive Positioning</h2>
+
+  <p class="drop-cap">Do not message this as "open-source Figma" or "Inkscape on the web." Those framings are traps — they invite feature-by-feature comparison against entrenched products and guarantee you lose on parity. Message it as what it is: a programmable graphics runtime. A design automation platform. A visual operating system for structured graphics. SVG as software.</p>
+
+  <h3>Against the field</h3>
+
+  <table>
+    <tr><th>Competitor</th><th>Their strength</th><th>SVG OS advantage</th></tr>
+    <tr><td><strong>Figma</strong></td><td>Collaboration, UI design</td><td>Structured graphics, data binding, automation, local-first, open</td></tr>
+    <tr><td><strong>Canva</strong></td><td>Templates, ease of use</td><td>Precision, programmability, custom components, no lock-in</td></tr>
+    <tr><td><strong>Illustrator</strong></td><td>Professional vector tools</td><td>Web-native, open-source, automation, multi-format publishing</td></tr>
+    <tr><td><strong>Lucidchart / draw.io</strong></td><td>Diagramming workflows</td><td>Richer visual grammar, pluggable object types, 2.5D, export quality</td></tr>
+    <tr><td><strong>Mermaid / D2</strong></td><td>Code-to-diagram</td><td>Visual editing + code, constraint engine, interactive output</td></tr>
+    <tr><td><strong>Graphite</strong></td><td>Open-source, Rust/WASM</td><td>Data binding, plugin ecosystem, Elixir orchestration, structured objects</td></tr>
+  </table>
+
+  <h3>Why hackers love this</h3>
+
+  <p>Because it turns design from a black box into a system you can reason about. Hackers like inspectable formats, composability, scripting, versionability, automation, reproducibility, pipelines, intermediate representations, and graph transforms. The SVG OS gives all of that to visual work.</p>
+
+  <p>Instead of "open Figma clone," it becomes:</p>
+
+  <ul>
+    <li><strong>Git-friendly visual docs</strong> — diff, branch, review, merge</li>
+    <li><strong>Programmable graphics compiler</strong> — input data, output artifacts</li>
+    <li><strong>Reusable scene components</strong> — import, compose, publish</li>
+    <li><strong>Data-driven visual apps</strong> — bind, repeat, export</li>
+    <li><strong>Browser-native asset runtime</strong> — no install, no plugin, no license</li>
+  </ul>
+
+  <p>It starts to feel like HTML for visual graphics, Blender nodes for 2D systems, React for vector scenes, CAD-lite for structured design, and a notebook for visual artifacts.</p>
+
+  <h3>The moat</h3>
+
+  <p>The moat is not "we have another vector editor." The moat is:</p>
+
+  <ul>
+    <li><strong>Structured visual IR</strong> — documents are queryable graphs, not opaque binaries</li>
+    <li><strong>Programmable object model</strong> — objects have types, methods, behaviors</li>
+    <li><strong>Data-bound graphics runtime</strong> — live connection to real data sources</li>
+    <li><strong>Extension marketplace</strong> — domain-specific apps on a shared substrate</li>
+    <li><strong>Local-first + cloud orchestration</strong> — your data, your control, with collaboration</li>
+    <li><strong>Visual-to-web-to-3D pipeline</strong> — one scene graph, multiple output dimensions</li>
+    <li><strong>AI-readable visual documents</strong> — agents operate on structure, not pixels</li>
+  </ul>
+
+  <div class="power">
+    <div class="power-label">The Tagline</div>
+    <p><strong>Programmable SVG OS</strong> — A local-first visual runtime for diagrams, graphics, apps, and data-bound scenes. Design, automate, script, and publish vector-native artifacts. SVG as software.</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!--  §20 — EXECUTION ROADMAP                                       -->
+<!-- ============================================================ -->
+<section id="roadmap">
+  <h2>§20 — Execution Roadmap</h2>
+
+  <p class="drop-cap">Do not start with "free draw anything." That is the path to an Illustrator clone you cannot finish. Start with structured mode. The MVP is structured vector scenes plus templates plus data binding plus export pipeline. Not a full illustration suite. Not full pen-tool parity. Not full typography. Not full filter authoring. Win on repeatable output, AI compatibility, structured graphics, and business value. Then expand.</p>
+
+  <h3>Phase sequence</h3>
+
+  <div class="diagram">
+    <span class="diagram-label">Build Order</span>
+    <pre><code>
+  Phase 1                Phase 2                Phase 3                Phase 4
+  FOUNDATION             RUNTIME                PRODUCT                SCALE
+  ────────────          ────────────           ────────────           ────────────
+  geom-core WASM         effects-core           editor-shell           orchestrator
+  svg-doc-core           layout-core            plugin-sdk             sync-service
+  render-svg MVP         runtime-core           Killer App A           collaboration
+  text-engine T1         data binding           (Visual Automation)    AI agents
+  basic canvas           text-engine T2         templates              render-webgpu
+                         constraints            export pipeline        effects-webgpu
+                         theme system           render-canvas          marketplace
+    </code></pre>
+  </div>
+
+  <h3>MVP feature set</h3>
+
+  <div class="vs">
+    <div class="vs-col">
+      <h4>Ship in MVP</h4>
+      <ul>
+        <li>Artboards / pages</li>
+        <li>Shapes, text, groups</li>
+        <li>Symbols / components</li>
+        <li>JSON / CSV data binding</li>
+        <li>Templates + repeat-grid</li>
+        <li>Export presets (PNG/PDF/SVG)</li>
+        <li>Basic path editing</li>
+        <li>A few killer effects</li>
+        <li>Brand / theme tokens</li>
+        <li>Share / publish / export</li>
+      </ul>
+    </div>
+    <div class="vs-col">
+      <h4>Defer to Later</h4>
+      <ul>
+        <li>Full text engine (Tier 2: HarfBuzz, bidi, Knuth-Plass)</li>
+        <li>Every SVG filter</li>
+        <li>Every node tool nuance</li>
+        <li>Every import format</li>
+        <li>Full pen-tool parity</li>
+        <li>Full plugin marketplace</li>
+        <li>Real-time collaboration</li>
+        <li>2.5D rendering</li>
+        <li>Animation timeline</li>
+        <li>Self-hosting option</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>What the MVP wins on</h3>
+
+  <table>
+    <tr><th>Dimension</th><th>How the MVP wins</th></tr>
+    <tr><td>Repeatable output</td><td>One template, 200 exports. No other design tool does this well.</td></tr>
+    <tr><td>AI compatibility</td><td>Agents can read, write, and modify the document tree directly.</td></tr>
+    <tr><td>Structured graphics</td><td>Objects have types, schemas, and semantic meaning. Not just shapes.</td></tr>
+    <tr><td>Business value</td><td>Sports graphics, branded assets, reports, certificates — immediate ROI.</td></tr>
+    <tr><td>Openness</td><td>SVG in, SVG out. No format lock-in. No vendor dependency. Git-friendly.</td></tr>
+  </table>
+
+  <div class="power zen">
+    <div class="power-label">The Clean Strategy</div>
+    <p>Extract Inkscape's hard-won geometry and document knowledge. Do not inherit its application shape. Rebuild the product as a browser-native runtime for structured graphics. Use Elixir for the orchestration brain. Use Neumenon formats for the wire, the agent codec, and the asset layer. Ship the Visual Automation Studio first. Let the platform grow from there.</p>
+  </div>
+
+  <div class="ticker" style="margin-top: 3rem; display: block; text-align: center;">
+    SVG is not a file format. It is a runtime substrate. Build on it.
+  </div>
+</section>
+
+</div>
+</body>
+</html>
