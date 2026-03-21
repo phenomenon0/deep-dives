@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>WebAssembly Deep Dive</title>
-<script src="https://d3js.org/d3.v7.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
@@ -566,1089 +565,36 @@
 
 <nav>
   <span class="nav-title">&gt;_ WASM</span>
-  <a href="#ch1">escape</a>
-  <a href="#ch2">stack machine</a>
-  <a href="#ch3">binary</a>
-  <a href="#ch4">memory</a>
-  <a href="#ch5">types</a>
-  <a href="#ch6">first module</a>
-  <a href="#ch7">control flow</a>
-  <a href="#ch8">tables</a>
-  <a href="#ch9">strings</a>
-  <a href="#ch10">compiler output</a>
-  <a href="#ch11">scanner</a>
-  <a href="#ch12">allocator</a>
-  <a href="#ch13">ship it</a>
+  <a href="#ch1">first module</a>
+  <a href="#ch2">instruction set</a>
+  <a href="#ch3">compiler output</a>
+  <a href="#ch4">template engine</a>
+  <a href="#ch5">ship it</a>
+  <a href="#ch6">compilation</a>
+  <a href="#ch7">who ships wasm</a>
+  <a href="#ch8">the bridge</a>
+  <a href="#ch9">beyond browser</a>
+  <a href="#ch10">what wasm changes</a>
 </nav>
 
 <div class="content">
 
 <div class="hero">
   <h1><span class="glitch" data-text="WEBASSEMBLY">WEBASSEMBLY</span></h1>
-  <div class="subtitle">Your browser learned a second instruction set. Not JavaScript. Not native. A portable binary that runs at near-native speed, sandboxed by design &mdash; and it's rewriting what the web means<span class="blink">_</span></div>
+  <div class="subtitle">Open a text editor. You&rsquo;re about to write bytecode &mdash; by hand, from scratch, one instruction at a time<span class="blink">_</span></div>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 1: THE ESCAPE FROM JAVASCRIPT                           -->
+<!-- CHAPTER 1: YOUR FIRST MODULE                                    -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <section id="ch1">
-<h2>01 &mdash; the escape from javascript</h2>
+<h2>01 &mdash; your first module by hand</h2>
 
-<p class="drop-cap">JavaScript was never designed to run a physics engine. It was built in ten days in 1995 to make buttons change color, and for two decades every attempt to make it fast has been an increasingly heroic act of engineering against its own nature. JIT compilers guess what types your variables are, speculate on which branches you&rsquo;ll take, and when they guess wrong they throw away the compiled code and start over. By 2010, browsers could run JavaScript 100x faster than they could in 2005. That still wasn&rsquo;t fast enough to render Photoshop.</p>
+<p class="drop-cap">WebAssembly is a binary instruction format that runs in every major browser at near-native speed. It is not JavaScript. It is not native code. It is a portable bytecode &mdash; a compact, typed, sandboxed instruction set that browsers compile to machine code in a single pass. The same <code>.wasm</code> file runs on x86 laptops, ARM phones, and server-side runtimes without recompilation. As of 2026, 97% of browsers support it, and it is a W3C Recommendation &mdash; the fourth language of the web alongside HTML, CSS, and JavaScript.</p>
 
-<p>The escape started with a compiler that shouldn&rsquo;t have worked. In 2010, Alon Zakai at Mozilla built Emscripten &mdash; a tool that took LLVM bitcode from C and C++ programs and compiled it into JavaScript. Not a special JavaScript. Regular JavaScript. The kind your browser already knew how to run. It was slow and the output was enormous, but it proved an idea that mattered: you could use the web as a compilation target.</p>
+<p>Most developers encounter Wasm through compilers &mdash; Emscripten, Rust&rsquo;s <code>wasm-pack</code>, or TinyGo. They never see the instructions. This article goes the other way. You are going to write WebAssembly by hand in WAT, the human-readable text format. You will learn the instruction set by using it, build a working template engine, and then see what happens when real teams &mdash; Figma, Adobe, Google &mdash; ship Wasm at scale.</p>
 
-<h3>The asm.js Hack</h3>
-
-<p>By 2013, Zakai and Luke Wagner at Mozilla had refined the idea into something that actually performed. They called it <strong>asm.js</strong> &mdash; a strict subset of JavaScript where every variable was explicitly typed using a hack so elegant it was almost offensive. You told the engine a variable was a 32-bit integer by bitwise-ORing it with zero:</p>
-
-<pre><span class="label">asm.js</span><code><span class="kw">function</span> <span class="fn">add</span>(a, b) {
-  a = a<span class="nm">|0</span>;            <span class="cm">// ← type annotation: a is i32</span>
-  b = b<span class="nm">|0</span>;            <span class="cm">// ← type annotation: b is i32</span>
-  <span class="kw">return</span> (a + b)<span class="nm">|0</span>;  <span class="cm">// ← return type: i32</span>
-}</code></pre>
-
-<p>The <code>|0</code> is a no-op at runtime &mdash; bitwise OR with zero doesn&rsquo;t change the value. But it signals to the engine: <em>this is an integer, don&rsquo;t guess, don&rsquo;t speculate, compile it straight to machine code.</em> Firefox&rsquo;s SpiderMonkey engine recognized the <code>"use asm"</code> pragma at the top of these modules and switched from its JIT pipeline to ahead-of-time compilation. No warmup. No deoptimization. No re-JIT.</p>
-
-<p>It worked. In August 2013, Epic demonstrated Unreal Engine 4 running at 60 fps in a Firefox tab &mdash; compiled from C++ through Emscripten into asm.js. Mozilla&rsquo;s benchmarks showed asm.js running within 1.5x of native C. On some tests, it beat Clang.</p>
-
-<h3>The Dead End Next Door</h3>
-
-<p>Google had been chasing the same problem from a different direction. Their answer was <strong>Native Client (NaCl)</strong>, launched in 2011 &mdash; a sandbox for running native x86 code inside Chrome. It was fast, genuinely fast, but it only worked in Chrome and only on x86. Portable NaCl (PNaCl) tried to fix the architecture lock-in by using LLVM bitcode as the distribution format, but no other browser vendor adopted it. By 2019, Google deprecated the entire project. NaCl proved that the performance was possible. It also proved that a single-vendor solution was a dead end.</p>
-
-<h3>The Convergence</h3>
-
-<p>asm.js had the right idea &mdash; a compilation target that works everywhere &mdash; but it was fighting against the very thing that made it portable. It was still JavaScript. Still UTF-8 text that had to be parsed character by character. A Unity game compiled to asm.js shipped 19 MB of JavaScript source code that took 20&ndash;40 seconds to parse on a mobile device. The performance was there once the code ran, but getting to first instruction was brutal.</p>
-
-<div class="diagram">
-<span class="diagram-label">The road to WebAssembly</span>
-<pre><code>  <span class="nm">2010</span>         <span class="nm">2011</span>         <span class="nm">2013</span>         <span class="nm">2013</span>          <span class="nm">2015</span>           <span class="nm">2017</span>
-    │            │            │            │             │              │
-    ○            ○            ○            ○             ○              ◉
-    │            │            │            │             │              │
- Emscripten    NaCl       asm.js       Unreal 4     W3C Wasm       MVP ships
- <span class="ty">Zakai</span>      <span class="ty">Chrome-only</span>  <span class="ty">Mozilla</span>    <span class="ty">60fps in</span>    <span class="ty">Community</span>    <span class="st">all 4 browsers</span>
- LLVM → JS   native x86  <span class="st">"use asm"</span>   <span class="st">a browser</span>    <span class="ty">Group</span>       <span class="st">same week</span>
-                          <span class="st">1.5× native</span>   <span class="st">tab</span>    <span class="ty">Moz+Goog+MS</span>
-                                                    <span class="ty">+Apple</span>
-    │            │            │            │             │              │
-    └────────────┴───── <span class="cm">Mozilla's path</span> ─────┴─────────────┴──────────────┘
-                 │                                       │
-                 └───── <span class="cm">Google's NaCl: deprecated 2019</span> ──┘</code></pre>
-</div>
-
-<p>In June 2015, something unprecedented happened. Mozilla, Google, Microsoft, and Apple &mdash; companies that agree on almost nothing &mdash; formed the WebAssembly Community Group at the W3C and began designing a binary instruction format together. Not JavaScript. Not native code. Something new: a portable, size-efficient bytecode with a formal semantics that any browser could compile to native machine code in a single pass.</p>
-
-<p>Twenty months later, in March 2017, WebAssembly shipped. Firefox 52 on March 7. Chrome 57 on March 10. Safari and Edge followed within months. By November 2017, all four major browsers supported it. It was the fastest cross-vendor consensus on a new web capability in the platform&rsquo;s history.</p>
-
-<h3>What Changed</h3>
-
-<p>The same C function that produced 73 characters of asm.js tricks now compiled to 41 bytes of binary &mdash; and those 41 bytes could be validated and compiled an order of magnitude faster than the JavaScript text could be parsed.</p>
-
-<div class="vs">
-<div class="vs-col">
-<h4>asm.js (text, 73 bytes)</h4>
-<pre><code><span class="kw">function</span> <span class="fn">add</span>(a,b){
-  a=a<span class="nm">|0</span>;b=b<span class="nm">|0</span>;
-  <span class="kw">return</span> (a+b)<span class="nm">|0</span>
-}</code></pre>
-<p style="font-size:0.82rem;color:var(--text-dim);">UTF-8 text. Lexed into tokens. Parsed into AST. Then compiled. Every character is a decision point for the parser.</p>
-</div>
-<div class="vs-col">
-<h4>WebAssembly (binary, 41 bytes)</h4>
-<div class="mem-row"><div class="mc g">00</div><div class="mc g">61</div><div class="mc g">73</div><div class="mc g">6D</div><div class="mc c">01</div><div class="mc c">00</div><div class="mc c">00</div><div class="mc c">00</div></div>
-<div class="mem-row"><div class="mc m">01</div><div class="mc m">07</div><div class="mc m">01</div><div class="mc m">60</div><div class="mc m">02</div><div class="mc m">7F</div><div class="mc m">7F</div><div class="mc m">01</div><div class="mc m">7F</div></div>
-<div class="mem-row"><div class="mc o">03</div><div class="mc o">02</div><div class="mc o">01</div><div class="mc o">00</div><div class="mc y">07</div><div class="mc y">07</div><div class="mc y">01</div><div class="mc y">03</div><div class="mc y">61</div><div class="mc y">64</div><div class="mc y">64</div><div class="mc y">00</div><div class="mc y">00</div></div>
-<div class="mem-row"><div class="mc b">0A</div><div class="mc b">09</div><div class="mc b">01</div><div class="mc b">07</div><div class="mc b">00</div><div class="mc b">20</div><div class="mc b">00</div><div class="mc b">20</div><div class="mc b">01</div><div class="mc b">6A</div><div class="mc b">0B</div></div>
-<p style="font-size:0.82rem;color:var(--text-dim);margin-top:0.4rem;"><span style="color:var(--green)">■</span> magic &nbsp; <span style="color:var(--cyan)">■</span> version &nbsp; <span style="color:var(--magenta)">■</span> types &nbsp; <span style="color:var(--orange)">■</span> funcs &nbsp; <span style="color:var(--yellow)">■</span> exports &nbsp; <span style="color:var(--blue)">■</span> code</p>
-</div>
-</div>
-
-<p>The real function body is five bytes: <code>20 00 20 01 6A</code> &mdash; <em>get local 0, get local 1, add</em>. No ambiguity. No AST. Each byte maps to exactly one instruction. The engine reads them left to right and emits native code as it goes.</p>
-
-<p>Figma was one of the first to make the switch. Their C++ design tool had been compiled to asm.js; moving to WebAssembly cut load time by more than 3x. The bottleneck had never been execution speed &mdash; it was the parse tax. Wasm binaries decode more than 20x faster than equivalent JavaScript parses, because there is nothing to parse. The binary format is the instruction stream.</p>
-
-<div class="power">
-<div class="power-label">The Parse Tax</div>
-<p>asm.js shipped as JavaScript text &mdash; megabytes of <code>a&nbsp;=&nbsp;a|0</code> that browsers parsed character by character before compiling a single instruction. A Unity game took 19 MB of asm.js source. Wasm&rsquo;s binary format for the same game: 6.3 MB &mdash; 3x smaller &mdash; and it validated in a single linear pass. No lexer, no parser, no AST. Firefox 58 could stream-compile Wasm at 30&ndash;60 MB/sec on desktop &mdash; faster than the network could deliver it.</p>
-</div>
-
-<h3>Four Promises</h3>
-
-<p>WebAssembly&rsquo;s design was guided by four goals that became its identity:</p>
-
-<div class="vs">
-<div class="vs-col" style="border-top: 2px solid var(--green);">
-<h4 style="color:var(--green);">Fast</h4>
-<p style="font-size:0.9rem;">Near-native speed through typed instructions and AOT compilation. No warmup, no speculative optimization, no deopt. The compiler knows every type before it emits a single instruction.</p>
-</div>
-<div class="vs-col" style="border-top: 2px solid var(--cyan);">
-<h4 style="color:var(--cyan);">Safe</h4>
-<p style="font-size:0.9rem;">Sandboxed linear memory, validated before execution. A module cannot read the browser&rsquo;s memory. It gets a flat byte array and every access is bounds-checked. Validation proves safety before a single instruction runs.</p>
-</div>
-</div>
-<div class="vs">
-<div class="vs-col" style="border-top: 2px solid var(--blue);">
-<h4 style="color:var(--blue);">Portable</h4>
-<p style="font-size:0.9rem;">Architecture-independent bytecode. The same <code>.wasm</code> file runs on x86 laptops, ARM phones, and RISC-V boards. Compile once, run anywhere the web reaches.</p>
-</div>
-<div class="vs-col" style="border-top: 2px solid var(--magenta);">
-<h4 style="color:var(--magenta);">Compact</h4>
-<p style="font-size:0.9rem;">Binary encoding with LEB128 variable-length integers and single-byte opcodes. 20&ndash;30% smaller than asm.js uncompressed, 10&ndash;20% smaller after gzip. But the real win is decode speed: an order of magnitude faster than parsing text.</p>
-</div>
-</div>
-
-<p>In December 2019, the W3C made it official: WebAssembly became a W3C Recommendation, the fourth language of the web alongside HTML, CSS, and JavaScript. Today it runs in 97% of browsers worldwide.</p>
-
-<p>But knowing what Wasm <em>promises</em> is different from knowing how it <em>works</em>. The binary encodes instructions for a machine that doesn&rsquo;t exist on any real chip &mdash; a stack machine with zero registers, structured control flow, and a type system that makes safety provable. That machine is where we go next.</p>
-
-</section>
-
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 2: THE STACK MACHINE                                    -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch2">
-<h2>02 &mdash; the stack machine</h2>
-
-<p class="drop-cap">Every processor you have ever used thinks in registers. x86 has <code>eax</code>, <code>ebx</code>, <code>ecx</code> &mdash; named slots that instructions read from and write to. ARM has <code>r0</code> through <code>r15</code>. RISC-V has 32 of them. WebAssembly has zero. It uses a stack: every instruction pops its operands from the top, computes, and pushes the result back. There are no names. There are no destinations. Position <em>is</em> identity.</p>
-
-<p>This sounds primitive. It is also the reason WebAssembly can be validated in a single pass, compiled as fast as it downloads, and proven safe before a single instruction executes.</p>
-
-<h3>How It Thinks</h3>
-
-<p>Consider the expression <code>(3 + 7) * 2</code>. On a register machine, you would write something like <code>mov eax, 3; add eax, 7; imul eax, 2</code> &mdash; explicitly naming which register holds each intermediate value. On the Wasm stack machine, you simply push operands and let each operator consume what it needs:</p>
-
-<div class="diagram">
-<span class="diagram-label">Stack trace: (3 + 7) &times; 2</span>
-<pre><code>  <span class="kw">Instruction</span>        <span class="ty">Stack (top &rarr;)</span>      <span class="cm">Effect</span>
-  ───────────        ──────────────      ──────
-  i32.const 3        <span class="st">[ 3 ]</span>               push 3
-  i32.const 7        <span class="st">[ 3, 7 ]</span>            push 7
-  i32.add            <span class="st">[ 10 ]</span>              pop 3 and 7, push 10
-  i32.const 2        <span class="st">[ 10, 2 ]</span>           push 2
-  i32.mul            <span class="st">[ 20 ]</span>              pop 10 and 2, push 20</code></pre>
-</div>
-
-<p>Five instructions. No register names. No <code>mov</code> to shuttle values between slots. The <code>i32.add</code> instruction does not say &ldquo;add eax and ebx.&rdquo; It says &ldquo;pop two values, add them, push the result.&rdquo; The compiler that emits this code never has to solve a register allocation problem, and the engine that compiles it to native code can map stack positions to real registers however it likes.</p>
-
-<p>Step through it yourself:</p>
-
-<div class="viz-container">
-<svg id="viz-stack" viewBox="0 0 780 340" role="img">
-  <title>Interactive stack machine execution trace</title>
-</svg>
-<div class="viz-controls">
-  <button id="viz-stack-step">Step</button>
-  <button id="viz-stack-play">Play</button>
-  <button id="viz-stack-reset" class="secondary">Reset</button>
-  <span id="viz-stack-status" style="color:var(--text-dim);">Hit Step to execute one instruction at a time</span>
-</div>
-</div>
-
-<h3>Registers vs. Stack</h3>
-
-<p>The natural question: if real CPUs use registers, why does Wasm use a stack? Three reasons.</p>
-
-<p><strong>Compactness.</strong> A register instruction needs to encode source and destination registers in every opcode: <code>add eax, ebx</code> encodes three things (operation, source, destination). A stack instruction encodes one: <code>i32.add</code>. The operands are implicit &mdash; they are wherever the top of the stack is. This is why Wasm bytecode is denser than register-based bytecodes like LLVM IR or Dalvik &mdash; fewer bits per instruction, smaller binaries over the wire.</p>
-
-<p><strong>Validation.</strong> On a register machine, the validator has to track which registers hold which types at every point in the program &mdash; a data-flow analysis that can be expensive. On a stack machine, the validator maintains a single type stack. At <code>i32.add</code>, it pops two types: if both are <code>i32</code>, the result is <code>i32</code>. If not, the module is rejected. One pass, linear time, no fixed-point iteration.</p>
-
-<p><strong>No overhead in practice.</strong> The browser&rsquo;s compiler maps stack positions to real CPU registers during compilation anyway. V8&rsquo;s Liftoff compiler does this in a single pass &mdash; it maintains a virtual stack that records which register (or spill slot) holds each Wasm stack value. The stack encoding costs nothing at runtime; it only exists in the binary format.</p>
-
-<div class="vs">
-<div class="vs-col">
-<h4>x86 register machine</h4>
-<pre><code><span class="kw">mov</span>  <span class="ty">eax</span>, <span class="nm">3</span>       <span class="cm">; eax = 3</span>
-<span class="kw">mov</span>  <span class="ty">ebx</span>, <span class="nm">7</span>       <span class="cm">; ebx = 7</span>
-<span class="kw">add</span>  <span class="ty">eax</span>, <span class="ty">ebx</span>     <span class="cm">; eax = eax + ebx = 10</span>
-<span class="kw">mov</span>  <span class="ty">ecx</span>, <span class="nm">2</span>       <span class="cm">; ecx = 2</span>
-<span class="kw">imul</span> <span class="ty">eax</span>, <span class="ty">ecx</span>     <span class="cm">; eax = eax * ecx = 20</span></code></pre>
-<p style="font-size:0.82rem;color:var(--text-dim);">Every instruction names its operands. 5 instructions, 3 registers, each encoding source + destination.</p>
-</div>
-<div class="vs-col">
-<h4>Wasm stack machine</h4>
-<pre><code><span class="kw">i32.const</span> <span class="nm">3</span>      <span class="cm">;; push 3</span>
-<span class="kw">i32.const</span> <span class="nm">7</span>      <span class="cm">;; push 7</span>
-<span class="kw">i32.add</span>           <span class="cm">;; pop 2, push sum</span>
-<span class="kw">i32.const</span> <span class="nm">2</span>      <span class="cm">;; push 2</span>
-<span class="kw">i32.mul</span>           <span class="cm">;; pop 2, push product</span></code></pre>
-<p style="font-size:0.82rem;color:var(--text-dim);">No operand names. Position on the stack IS the identity. 5 instructions, 0 registers, each encoding only the operation.</p>
-</div>
-</div>
-
-<h3>Structured Control Flow</h3>
-
-<p>Native code can jump anywhere. A <code>goto</code> in C can target any label. A <code>jmp</code> in x86 can land on any address. This flexibility is what makes return-oriented programming (ROP) attacks possible &mdash; attackers chain together fragments of existing code by hijacking jump targets.</p>
-
-<p>Wasm cannot jump anywhere. It has no <code>goto</code>. Instead, control flow is <em>structured</em> &mdash; built from nested blocks that the validator can reason about statically:</p>
-
-<div class="tabbed">
-<input type="radio" name="cf" id="cf-t1" class="t1" checked>
-<input type="radio" name="cf" id="cf-t2" class="t2">
-<input type="radio" name="cf" id="cf-t3" class="t3">
-<div class="tab-bar">
-  <label for="cf-t1">The Primitives</label>
-  <label for="cf-t2">C Source</label>
-  <label for="cf-t3">WAT Output</label>
-</div>
-<div class="tab-panel p1">
-<div style="padding:1rem 1.4rem;">
-<p style="font-size:0.9rem;margin-bottom:0.8rem;">Wasm has exactly four control flow constructs. No <code>goto</code>. No arbitrary jumps.</p>
-<table>
-<tr><th>Construct</th><th>Behavior</th></tr>
-<tr><td><code>block...end</code></td><td>A labeled scope. <code>br</code> jumps <em>forward</em> to the end.</td></tr>
-<tr><td><code>loop...end</code></td><td>A labeled scope. <code>br</code> jumps <em>backward</em> to the top.</td></tr>
-<tr><td><code>if...else...end</code></td><td>Pops an i32. Nonzero &rarr; then branch, zero &rarr; else branch.</td></tr>
-<tr><td><code>br N</code> / <code>br_if N</code></td><td>Branch to the Nth enclosing block. Not an address &mdash; a nesting depth.</td></tr>
-</table>
-<p style="font-size:0.9rem;margin-top:0.8rem;">Every branch target is a structurally enclosing scope. The validator proves, before execution, that control never reaches an unexpected instruction.</p>
-</div>
-</div>
-<div class="tab-panel p2">
-<pre><span class="label">C</span><code><span class="ty">int</span> <span class="fn">find_first_even</span>(<span class="ty">int</span>* arr, <span class="ty">int</span> len) {
-  <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i < len; i++) {
-    <span class="kw">if</span> (arr[i] % <span class="nm">2</span> == <span class="nm">0</span>)
-      <span class="kw">return</span> arr[i];    <span class="cm">// early exit</span>
-  }
-  <span class="kw">return</span> -<span class="nm">1</span>;
-}</code></pre>
-</div>
-<div class="tab-panel p3">
-<pre><span class="label">WAT</span><code>(<span class="kw">func</span> $find_first_even (<span class="kw">param</span> <span class="ty">$arr i32</span>) (<span class="kw">param</span> <span class="ty">$len i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
-  (<span class="kw">local</span> <span class="ty">$i i32</span>)
-  (<span class="kw">block</span> <span class="fn">$exit</span>                   <span class="cm">;; br 1 jumps here &darr;</span>
-    (<span class="kw">loop</span> <span class="fn">$loop</span>                  <span class="cm">;; br 0 jumps here &uarr;</span>
-      <span class="kw">local.get</span> $i
-      <span class="kw">local.get</span> $len
-      <span class="kw">i32.ge_s</span>
-      <span class="kw">br_if</span> <span class="fn">$exit</span>              <span class="cm">;; i >= len? break</span>
-
-      <span class="kw">local.get</span> $arr
-      <span class="kw">local.get</span> $i
-      <span class="kw">i32.const</span> <span class="nm">4</span>
-      <span class="kw">i32.mul</span>
-      <span class="kw">i32.add</span>
-      <span class="kw">i32.load</span>                 <span class="cm">;; arr[i]</span>
-      <span class="kw">i32.const</span> <span class="nm">2</span>
-      <span class="kw">i32.rem_u</span>
-      <span class="kw">i32.eqz</span>
-      (<span class="kw">if</span> (<span class="kw">then</span>
-        <span class="cm">;; found even &mdash; return it</span>
-        <span class="kw">local.get</span> $arr
-        <span class="kw">local.get</span> $i
-        <span class="kw">i32.const</span> <span class="nm">4</span>
-        <span class="kw">i32.mul</span>
-        <span class="kw">i32.add</span>
-        <span class="kw">i32.load</span>
-        <span class="kw">return</span>
-      ))
-
-      <span class="kw">local.get</span> $i
-      <span class="kw">i32.const</span> <span class="nm">1</span>
-      <span class="kw">i32.add</span>
-      <span class="kw">local.set</span> $i
-      <span class="kw">br</span> <span class="fn">$loop</span>                 <span class="cm">;; continue</span>
-    )
-  )
-  <span class="kw">i32.const</span> -<span class="nm">1</span>                  <span class="cm">;; not found</span>
-)</code></pre>
-</div>
-</div>
-
-<p>The key insight: <code>br 1</code> does not mean &ldquo;jump to address 0x4A2.&rdquo; It means &ldquo;jump to the end of the 1st enclosing block.&rdquo; The target is a nesting depth, not an address. You cannot construct a branch that escapes its enclosing scope, which means you cannot construct an ROP gadget chain. The control flow graph is a tree of nested scopes, never a spaghetti of arbitrary jumps.</p>
-
-<div class="power zen">
-<div class="power-label">Why No Goto?</div>
-<p>Native code&rsquo;s arbitrary jumps enable ROP attacks &mdash; attackers chain together fragments of existing code by hijacking return addresses. Hardware mitigations like Intel CET and ARM BTI add 5&ndash;15% overhead to enforce control flow integrity. Wasm gets the same property for free. Structured control flow means the validator can prove, in a single linear pass, that every branch lands on a valid target. The security is baked into the instruction set, not bolted on afterward.</p>
-</div>
-
-<h3>The Validation Pass</h3>
-
-<p>Every Wasm module is validated before a single instruction executes. The validator walks through the bytecode once, maintaining a type stack &mdash; a parallel stack that tracks not values but their types. At each instruction, it checks: does this operator expect what is currently on top?</p>
-
-<div class="diagram">
-<span class="diagram-label">Type checking in one pass</span>
-<pre><code>  <span class="kw">Instruction</span>        <span class="ty">Type Stack</span>       <span class="cm">Check</span>
-  ───────────        ──────────       ─────
-  i32.const 3        <span class="st">[i32]</span>            push i32 &mdash; <span class="st">ok</span>
-  i32.const 7        <span class="st">[i32, i32]</span>       push i32 &mdash; <span class="st">ok</span>
-  i32.add            <span class="st">[i32]</span>            expect [i32, i32], got [i32, i32] &mdash; <span class="st">ok</span>
-  i32.const 2        <span class="st">[i32, i32]</span>       push i32 &mdash; <span class="st">ok</span>
-  i32.mul            <span class="st">[i32]</span>            expect [i32, i32], got [i32, i32] &mdash; <span class="st">ok</span>
-
-  <span class="cm">&mdash; but what if someone injects a bad instruction? &mdash;</span>
-
-  i32.const 3        <span class="st">[i32]</span>            push i32 &mdash; <span class="st">ok</span>
-  f64.const 2.0      <span class="st">[i32, f64]</span>       push f64 &mdash; <span class="st">ok</span>
-  i32.add            <span class="pp">[ERROR]</span>          expect [i32, i32], got [i32, <span class="pp">f64</span>] &mdash; <span class="pp">REJECT</span></code></pre>
-</div>
-
-<p>The module is rejected before it ever runs. Not at the first bad instruction &mdash; before <em>any</em> instruction. The entire module either passes validation or is discarded as malformed. This is a security property that native code does not have and JavaScript cannot provide. A Wasm module that passes validation will never execute an undefined operation, never access an illegal type, never misalign the stack. The type system <em>is</em> the sandbox.</p>
-
-<p>We know how the machine thinks &mdash; it pushes, pops, and branches through nested scopes. But what does the file that carries these instructions actually look like? The next chapter cracks open a <code>.wasm</code> binary byte by byte.</p>
-
-</section>
-
-<script>
-// ── Chapter 2: Stack Machine Visualization ──
-(function() {
-  const svg = d3.select('#viz-stack');
-  const W = 780, H = 340;
-
-  const instructions = [
-    { op: 'i32.const 3', hex: '41 03', effect: 'push 3', push: [{ val: 3, type: 'i32' }], pop: 0 },
-    { op: 'i32.const 7', hex: '41 07', effect: 'push 7', push: [{ val: 7, type: 'i32' }], pop: 0 },
-    { op: 'i32.add',     hex: '6A',    effect: 'pop 3 and 7, push 10', push: [{ val: 10, type: 'i32' }], pop: 2 },
-    { op: 'i32.const 2', hex: '41 02', effect: 'push 2', push: [{ val: 2, type: 'i32' }], pop: 0 },
-    { op: 'i32.mul',     hex: '6C',    effect: 'pop 10 and 2, push 20', push: [{ val: 20, type: 'i32' }], pop: 2 },
-  ];
-
-  const typeColors = { i32: '#00ff88', i64: '#00ddff', f32: '#ff8800', f64: '#ff00aa' };
-  let step = -1;
-  let stack = [];
-  let timer = null;
-
-  const explains = [
-    'Hit <b>Step</b> to execute one instruction, or <b>Play</b> to watch the computation.',
-    '<code>i32.const 3</code> \u2014 Push the integer 3 onto the stack.',
-    '<code>i32.const 7</code> \u2014 Push 7. Two operands now waiting.',
-    '<code>i32.add</code> \u2014 Pop two values, add, push the result. No register names \u2014 the stack IS the workspace.',
-    '<code>i32.const 2</code> \u2014 Push 2. The sum (10) is still there beneath it.',
-    '<code>i32.mul</code> \u2014 Pop 10 and 2, multiply, push 20. Five instructions, one result.',
-  ];
-
-  function draw() {
-    svg.selectAll('*').remove();
-
-    // ── Instruction list (left) ──
-    const instX = 30, instY = 30, instH = 42;
-    svg.append('text').attr('x', instX).attr('y', instY - 10)
-      .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
-      .attr('font-size', '10px').attr('text-transform', 'uppercase')
-      .attr('letter-spacing', '0.1em').text('Instructions');
-
-    instructions.forEach((inst, i) => {
-      const y = instY + i * instH;
-      const isCurrent = i === step;
-
-      if (isCurrent) {
-        svg.append('rect')
-          .attr('x', instX - 8).attr('y', y - 4)
-          .attr('width', 280).attr('height', instH - 6)
-          .attr('rx', 4).attr('fill', 'rgba(255,221,0,0.1)')
-          .attr('stroke', '#ffdd00').attr('stroke-width', 1).attr('stroke-opacity', 0.4);
-      }
-
-      const past = i < step;
-      svg.append('text').attr('x', instX).attr('y', y + 18)
-        .attr('fill', isCurrent ? '#ffdd00' : past ? '#6a6a7e' : '#c8c8d4')
-        .attr('font-family', 'JetBrains Mono, monospace')
-        .attr('font-size', '14px').attr('font-weight', isCurrent ? '600' : '400')
-        .text(inst.op);
-
-      svg.append('text').attr('x', instX + 200).attr('y', y + 18)
-        .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
-        .attr('font-size', '11px').attr('opacity', 0.6)
-        .text(inst.hex);
-    });
-
-    // ── Divider ──
-    svg.append('line').attr('x1', 340).attr('y1', 15).attr('x2', 340).attr('y2', H - 40)
-      .attr('stroke', '#1e1e2e').attr('stroke-dasharray', '4,4');
-
-    // ── Stack (right) ──
-    const stackX = 500, stackBase = H - 60, boxW = 140, boxH = 42;
-    svg.append('text').attr('x', stackX).attr('y', 20)
-      .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
-      .attr('font-size', '10px').attr('text-transform', 'uppercase')
-      .attr('letter-spacing', '0.1em').text('Value Stack');
-
-    if (stack.length === 0 && step >= 0) {
-      svg.append('text').attr('x', stackX + boxW / 2).attr('y', stackBase - 10)
-        .attr('text-anchor', 'middle').attr('fill', '#6a6a7e')
-        .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', '12px')
-        .text('(empty)');
-    }
-
-    stack.forEach((item, i) => {
-      const y = stackBase - (i + 1) * (boxH + 4);
-      const color = typeColors[item.type] || '#c8c8d4';
-      const isTop = i === stack.length - 1;
-
-      svg.append('rect')
-        .attr('x', stackX - boxW / 2 + 70).attr('y', y)
-        .attr('width', boxW).attr('height', boxH)
-        .attr('rx', 4)
-        .attr('fill', color + '22')
-        .attr('stroke', color).attr('stroke-width', isTop ? 2 : 1)
-        .attr('stroke-opacity', isTop ? 1 : 0.5);
-
-      svg.append('text')
-        .attr('x', stackX + 70).attr('y', y + boxH / 2 + 5)
-        .attr('text-anchor', 'middle').attr('fill', color)
-        .attr('font-family', 'JetBrains Mono, monospace')
-        .attr('font-size', '18px').attr('font-weight', '600')
-        .text(item.val);
-
-      svg.append('text')
-        .attr('x', stackX + boxW / 2 + 65).attr('y', y + boxH - 6)
-        .attr('text-anchor', 'end').attr('fill', color)
-        .attr('font-family', 'JetBrains Mono, monospace')
-        .attr('font-size', '9px').attr('opacity', 0.6)
-        .text(item.type);
-    });
-
-    // ── Stack baseline ──
-    svg.append('line')
-      .attr('x1', stackX - boxW / 2 + 50).attr('y1', stackBase + 4)
-      .attr('x2', stackX + boxW / 2 + 90).attr('y2', stackBase + 4)
-      .attr('stroke', '#1e1e2e').attr('stroke-width', 1);
-  }
-
-  function advance() {
-    if (step >= instructions.length - 1) {
-      clearInterval(timer); timer = null;
-      return;
-    }
-    step++;
-    const inst = instructions[step];
-    for (let i = 0; i < inst.pop; i++) stack.pop();
-    inst.push.forEach(v => stack.push({ val: v.val, type: v.type }));
-    draw();
-    d3.select('#viz-stack-status').html(explains[step + 1] || '');
-  }
-
-  function reset() {
-    clearInterval(timer); timer = null;
-    step = -1;
-    stack = [];
-    draw();
-    d3.select('#viz-stack-status').html(explains[0]);
-  }
-
-  d3.select('#viz-stack-step').on('click', () => { clearInterval(timer); timer = null; advance(); });
-  d3.select('#viz-stack-play').on('click', () => {
-    if (timer) return;
-    if (step >= instructions.length - 1) reset();
-    timer = setInterval(advance, 800);
-  });
-  d3.select('#viz-stack-reset').on('click', reset);
-
-  draw();
-  d3.select('#viz-stack-status').html(explains[0]);
-})();
-</script>
-
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 3: THE BINARY FORMAT                                    -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch3">
-<h2>03 &mdash; the binary format</h2>
-
-<p class="drop-cap">A <code>.wasm</code> file is not source code. It is not an archive. It is a sequence of typed sections laid out in a fixed order, each one answering a single question about the module it describes. The format was designed with one obsession: a browser should be able to start compiling the first function while the last function is still downloading. No backtracking, no symbol resolution phase, no second pass. The binary <em>is</em> the compilation input.</p>
-
-<p>Every <code>.wasm</code> file begins the same way &mdash; four magic bytes followed by a version number:</p>
-
-<div class="diagram">
-<span class="diagram-label">The first 8 bytes</span>
-<pre><code>  00 61 73 6D   01 00 00 00
-  ─┬──────────   ─┬──────────
-   │              │
-   <span class="st">\0asm</span>          <span class="ty">version 1</span>
-
-  The magic number spells "asm" in ASCII,
-  preceded by a null byte. Every valid
-  .wasm file starts with these 8 bytes.</code></pre>
-</div>
-
-<p>After the header, sections appear in numerical order. Each section starts with a one-byte ID, followed by its length in bytes (encoded as a LEB128 integer), then its payload. The engine reads the ID, reads the length, and either processes the section or skips it entirely &mdash; jumping ahead by exactly <em>length</em> bytes to the next section.</p>
-
-<h3>The Twelve Sections</h3>
-
-<p>A Wasm module can contain up to twelve standard section types, plus any number of custom sections. They must appear in this order:</p>
-
-<table>
-<tr><th>ID</th><th>Section</th><th>What it answers</th></tr>
-<tr><td><span style="color:var(--magenta)">1</span></td><td>Type</td><td>What function signatures exist? <code>(i32, i32) &rarr; i32</code></td></tr>
-<tr><td><span style="color:var(--cyan)">2</span></td><td>Import</td><td>What does the module need from the host?</td></tr>
-<tr><td><span style="color:var(--orange)">3</span></td><td>Function</td><td>Which function uses which type signature?</td></tr>
-<tr><td><span style="color:var(--text-dim)">4</span></td><td>Table</td><td>What indirect call tables exist?</td></tr>
-<tr><td><span style="color:var(--green)">5</span></td><td>Memory</td><td>How much linear memory? (initial size, max)</td></tr>
-<tr><td><span style="color:var(--text-dim)">6</span></td><td>Global</td><td>What mutable/immutable globals exist?</td></tr>
-<tr><td><span style="color:var(--yellow)">7</span></td><td>Export</td><td>What does the module expose to the host?</td></tr>
-<tr><td><span style="color:var(--text-dim)">8</span></td><td>Start</td><td>Which function runs automatically on load?</td></tr>
-<tr><td><span style="color:var(--text-dim)">9</span></td><td>Element</td><td>What goes into the indirect call tables?</td></tr>
-<tr><td><span style="color:var(--blue)">10</span></td><td>Code</td><td>The actual function bodies &mdash; the bytecode.</td></tr>
-<tr><td><span style="color:var(--purple)">11</span></td><td>Data</td><td>What goes into linear memory at startup?</td></tr>
-<tr><td><span style="color:var(--text-dim)">12</span></td><td>DataCount</td><td>How many data segments? (for validation)</td></tr>
-</table>
-
-<p>The ordering rule is strict: section 1 before 2, 2 before 3, and so on. Custom sections (ID 0) can appear anywhere between standard sections &mdash; they carry names, debug info, or metadata that engines may ignore. This fixed ordering is what makes streaming compilation possible. By the time the engine reaches the Code section, it already knows every type signature, every import, and every memory declaration. It has everything it needs to compile function bodies in parallel.</p>
-
-<h3>X-Ray of a Binary</h3>
-
-<p>Here is the complete byte-level anatomy of a <code>.wasm</code> module containing a single function &mdash; the <code>add(i32, i32) &rarr; i32</code> from Chapter 1. Forty-one bytes, zero waste:</p>
-
-<div class="tabbed">
-<input type="radio" name="bin" id="bin-t1" class="t1" checked>
-<input type="radio" name="bin" id="bin-t2" class="t2">
-<input type="radio" name="bin" id="bin-t3" class="t3">
-<div class="tab-bar">
-  <label for="bin-t1">Hex Dump</label>
-  <label for="bin-t2">Decoded</label>
-  <label for="bin-t3">WAT</label>
-</div>
-<div class="tab-panel p1">
-<div style="padding:1.2rem 1.4rem;">
-<p style="font-size:0.82rem;color:var(--text-dim);margin-bottom:0.8rem;">Each byte is colored by the section it belongs to. Hover annotations below.</p>
-<div class="mem-row"><div class="mc g">00</div><div class="mc g">61</div><div class="mc g">73</div><div class="mc g">6D</div><div class="mc c">01</div><div class="mc c">00</div><div class="mc c">00</div><div class="mc c">00</div></div>
-<div class="mem-row"><div class="mc m">01</div><div class="mc m">07</div><div class="mc m">01</div><div class="mc m">60</div><div class="mc m">02</div><div class="mc m">7F</div><div class="mc m">7F</div><div class="mc m">01</div><div class="mc m">7F</div></div>
-<div class="mem-row"><div class="mc o">03</div><div class="mc o">02</div><div class="mc o">01</div><div class="mc o">00</div></div>
-<div class="mem-row"><div class="mc y">07</div><div class="mc y">07</div><div class="mc y">01</div><div class="mc y">03</div><div class="mc y">61</div><div class="mc y">64</div><div class="mc y">64</div><div class="mc y">00</div><div class="mc y">00</div></div>
-<div class="mem-row"><div class="mc b">0A</div><div class="mc b">09</div><div class="mc b">01</div><div class="mc b">07</div><div class="mc b">00</div><div class="mc b">20</div><div class="mc b">00</div><div class="mc b">20</div><div class="mc b">01</div><div class="mc b">6A</div><div class="mc b">0B</div></div>
-<p style="font-size:0.82rem;color:var(--text-dim);margin-top:0.6rem;"><span style="color:var(--green)">&#9632;</span> magic &nbsp; <span style="color:var(--cyan)">&#9632;</span> version &nbsp; <span style="color:var(--magenta)">&#9632;</span> type section &nbsp; <span style="color:var(--orange)">&#9632;</span> function section &nbsp; <span style="color:var(--yellow)">&#9632;</span> export section &nbsp; <span style="color:var(--blue)">&#9632;</span> code section</p>
-</div>
-</div>
-<div class="tab-panel p2">
-<pre><code><span class="cm">── Header ──</span>
-<span class="st">00 61 73 6D</span>  magic: \0asm
-<span class="ty">01 00 00 00</span>  version: 1
-
-<span class="cm">── Type Section (id=1, 7 bytes) ──</span>
-<span class="kw">01</span>           section id: Type
-<span class="kw">07</span>           section length: 7 bytes
-<span class="nm">01</span>           1 type entry
-<span class="nm">60</span>           func type marker
-<span class="nm">02 7F 7F</span>     2 params, both i32 (0x7F)
-<span class="nm">01 7F</span>        1 result, i32
-
-<span class="cm">── Function Section (id=3, 2 bytes) ──</span>
-<span class="pp">03</span>           section id: Function
-<span class="pp">02</span>           section length: 2 bytes
-<span class="nm">01</span>           1 function
-<span class="nm">00</span>           uses type index 0
-
-<span class="cm">── Export Section (id=7, 7 bytes) ──</span>
-<span class="fn">07</span>           section id: Export
-<span class="fn">07</span>           section length: 7 bytes
-<span class="nm">01</span>           1 export
-<span class="nm">03 61 64 64</span>  name: "add" (3 bytes, UTF-8)
-<span class="nm">00</span>           export kind: function
-<span class="nm">00</span>           function index: 0
-
-<span class="cm">── Code Section (id=10, 9 bytes) ──</span>
-<span class="ty">0A</span>           section id: Code
-<span class="ty">09</span>           section length: 9 bytes
-<span class="nm">01</span>           1 function body
-<span class="nm">07</span>           body size: 7 bytes
-<span class="nm">00</span>           0 local declarations
-<span class="kw">20 00</span>        local.get 0
-<span class="kw">20 01</span>        local.get 1
-<span class="kw">6A</span>           i32.add
-<span class="kw">0B</span>           end</code></pre>
-</div>
-<div class="tab-panel p3">
-<pre><span class="label">WAT</span><code>(<span class="kw">module</span>
-  (<span class="kw">func</span> <span class="fn">$add</span> (<span class="kw">param</span> <span class="ty">$a i32</span>) (<span class="kw">param</span> <span class="ty">$b i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
-    <span class="kw">local.get</span> $a
-    <span class="kw">local.get</span> $b
-    <span class="kw">i32.add</span>
-  )
-  (<span class="kw">export</span> <span class="st">"add"</span> (<span class="kw">func</span> <span class="fn">$add</span>))
-)</code></pre>
-</div>
-</div>
-
-<p>The actual function body &mdash; the part that does the work &mdash; is five bytes: <code>20 00 20 01 6A</code>. Everything else is metadata that tells the engine what the function expects, what it returns, and what name to give it. The Type section defines the signature once; the Function section says &ldquo;function 0 uses type 0&rdquo;; the Export section maps the name <code>"add"</code> to function index 0. No redundancy, no ambiguity.</p>
-
-<h3>LEB128: The Variable-Length Trick</h3>
-
-<p>Every integer in a <code>.wasm</code> file &mdash; section lengths, type indices, local counts, branch depths &mdash; is encoded as <strong>LEB128</strong> (Little-Endian Base 128). The idea is simple: use 7 bits of each byte for data, and the high bit as a continuation flag. Small numbers use fewer bytes:</p>
-
-<div class="diagram">
-<span class="diagram-label">LEB128 encoding</span>
-<pre><code>  <span class="ty">Value</span>     <span class="ty">Binary</span>                    <span class="ty">LEB128 bytes</span>     <span class="ty">Fixed i32</span>
-  ─────     ──────                    ────────────     ─────────
-  3         00000<span class="st">011</span>                   <span class="st">03</span>               03 00 00 00
-  127       <span class="st">1111111</span>                   <span class="st">7F</span>               7F 00 00 00
-  128       1<span class="st">0000000</span>                  <span class="st">80 01</span>            80 00 00 00
-  624485    <span class="st">0100110</span> <span class="st">0001000</span> <span class="st">1100101</span>  <span class="st">E5 8E 26</span>         E5 87 09 00
-
-  The high bit of each byte: <span class="nm">1</span> = more bytes follow, <span class="nm">0</span> = this is the last byte.
-  Data bits are read 7 at a time, least significant group first.</code></pre>
-</div>
-
-<p>The number 3 costs one byte instead of four. The number 128 costs two bytes instead of four. In a format where most integers are small &mdash; type indices, local counts, branch depths are almost always under 128 &mdash; this adds up. LEB128 is the same encoding that DWARF debug info uses, and it is a significant part of why Wasm binaries are 10&ndash;20% smaller than equivalent native executables.</p>
-
-<h3>Streaming Compilation</h3>
-
-<p>The section-based format is not just organized &mdash; it is organized for <em>speed</em>. Because every section header declares its length upfront, the engine can make decisions before it has seen all the data:</p>
-
-<div class="diagram">
-<span class="diagram-label">Compilation overlaps with download</span>
-<pre><code>  <span class="ty">Network</span>       ─── bytes arriving ──────────────────────────────────▶
-                ┌────────┬──────┬──────────────────────────────────┐
-                │ header │ type │          code section             │
-                │ + meta │ func │  fn 0  │  fn 1  │  fn 2  │ ...  │
-                └────────┴──────┴────┬───┴────┬───┴────┬───┴──────┘
-                                     │        │        │
-  <span class="st">Compile</span>                             ▼        ▼        ▼
-  <span class="st">threads</span>                          ┌──────┐ ┌──────┐ ┌──────┐
-                                   │ fn 0 │ │ fn 1 │ │ fn 2 │
-                                   │ <span class="st">→x86</span> │ │ <span class="st">→x86</span> │ │ <span class="st">→x86</span> │
-                                   └──────┘ └──────┘ └──────┘
-
-  By the time fn 2 arrives, fn 0 is already compiled.
-  Firefox achieves <span class="nm">30&ndash;60 MB/sec</span> compile throughput on desktop &mdash;
-  faster than most network connections can deliver the bytes.</code></pre>
-</div>
-
-<p>Each function body in the Code section declares its own length, so multiple compilation threads can split the work without waiting for each other. Firefox 58 introduced this streaming compilation in January 2018, achieving 30&ndash;60 MB/sec on desktop and roughly 8 MB/sec on mobile. That means for most internet connections, compilation finishes before the download does &mdash; the module is ready to execute the instant the last byte arrives.</p>
-
-<div class="power zen">
-<div class="power-label">Compile faster than you download</div>
-<p>On a 20 Mbps connection, you download at ~2.5 MB/sec. Firefox compiles Wasm at 30&ndash;60 MB/sec. The compiler is literally waiting for the network. Compilation is no longer on the critical path &mdash; download speed is. This is why the binary format&rsquo;s compactness matters twice: smaller files download faster <em>and</em> compile faster.</p>
-</div>
-
-<p>The binary format turns out to be a masterclass in cooperative design &mdash; every decision (fixed section order, length-prefixed payloads, LEB128 integers, independent function bodies) serves the same goal: get from first byte to first instruction as fast as physics allows. But the binary only tells the engine <em>what code exists</em>. Where that code stores its data &mdash; every pointer, every string, every heap allocation &mdash; lives in a single flat byte array called linear memory. That is the next layer down.</p>
-
-</section>
-
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 4: LINEAR MEMORY                                        -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch4">
-<h2>04 &mdash; linear memory</h2>
-
-<p class="drop-cap">Wasm programs do not have a heap allocator, a virtual address space, or memory protection in the OS sense. They have a flat byte array. One contiguous block of bytes, starting at offset zero, addressable with 32-bit indices. Every pointer in a compiled C program &mdash; every <code>malloc</code> result, every stack variable, every string literal &mdash; is just an integer index into this array. The <code>i32.load</code> instruction reads four bytes at a given offset. <code>i32.store</code> writes them. That is the entire memory model.</p>
-
-<p>This simplicity is both the performance story and the security story. The engine does not need to emulate page tables or translation lookaside buffers. A load is an array access. And because the array has a known size, the engine can prove that every access is in bounds &mdash; in some cases without executing a single check instruction.</p>
-
-<h3>Pages and Growing</h3>
-
-<p>Linear memory is declared in units of <strong>pages</strong>, each exactly 65,536 bytes (64 KB). A module declares an initial size and optionally a maximum:</p>
-
-<pre><span class="label">WAT</span><code>(<span class="kw">memory</span> <span class="nm">1</span> <span class="nm">10</span>)  <span class="cm">;; initial: 1 page (64 KB), max: 10 pages (640 KB)</span></code></pre>
-
-<p>At runtime, a module can request more memory via <code>memory.grow</code>:</p>
-
-<pre><span class="label">WAT</span><code><span class="kw">i32.const</span> <span class="nm">3</span>        <span class="cm">;; request 3 additional pages</span>
-<span class="kw">memory.grow</span>         <span class="cm">;; returns old size in pages (or -1 on failure)</span></code></pre>
-
-<p>The new pages are zero-initialized. The existing data is untouched. The base address does not change &mdash; the array simply gets longer. If the request would exceed the declared maximum or the engine&rsquo;s resource limits, <code>memory.grow</code> returns <code>-1</code> and the memory stays unchanged.</p>
-
-<div class="viz-container">
-<svg id="viz-mem" viewBox="0 0 780 280" role="img">
-  <title>Interactive linear memory visualization</title>
-</svg>
-<div class="viz-controls">
-  <button id="viz-mem-grow">memory.grow(1)</button>
-  <button id="viz-mem-store">i32.store [0x10]</button>
-  <button id="viz-mem-load">i32.load [0x10]</button>
-  <button id="viz-mem-reset" class="secondary">Reset</button>
-  <span id="viz-mem-status" style="color:var(--text-dim);">Click memory.grow to add a 64 KB page</span>
-</div>
-</div>
-
-<h3>The Guard Page Trick</h3>
-
-<p>Every memory access in Wasm must be bounds-checked &mdash; an out-of-bounds load or store must trap, not silently read garbage. The naive approach is to insert a comparison before every access: <code>if (offset + size > memory.length) trap()</code>. That is a branch on every load and store, and it is expensive.</p>
-
-<p>Every major engine uses a better approach: <strong>virtual memory guard pages</strong>. The engine asks the operating system to reserve a large virtual address range &mdash; typically 4 GB for a 32-bit Wasm memory plus some extra. The actual linear memory occupies the first N pages (backed by physical memory). Everything beyond that is left <em>unmapped</em>:</p>
-
-<div class="diagram">
-<span class="diagram-label">Virtual memory layout</span>
-<pre><code>  0                         N pages                        4 GB
-  ├─────────────────────────┼────────────────────────────────┤
-  │ <span class="st">   real memory (RW)     </span> │ <span class="pp">   unmapped guard region       </span> │
-  │ <span class="st">   linear memory data   </span> │ <span class="pp">   any access = hardware trap  </span> │
-  ├─────────────────────────┼────────────────────────────────┤
-  ▲                         ▲                                ▲
-  base pointer              current size             max virtual reservation
-
-  Out-of-bounds access hits unmapped memory &rarr; CPU raises fault
-  Runtime catches the fault &rarr; Wasm trap
-  Cost in the common case: <span class="st">zero instructions</span></code></pre>
-</div>
-
-<p>An out-of-bounds access hits the unmapped region, the CPU raises a hardware fault (SIGSEGV on Linux, access violation on Windows), and the Wasm runtime&rsquo;s signal handler catches it and converts it to a Wasm trap. In the common case &mdash; the access is in bounds &mdash; there is no check at all. No branch, no comparison, no overhead. The hardware does bounds checking for free.</p>
-
-<p>V8, SpiderMonkey, and Wasmtime all use this technique. It is why Wasm memory access is as fast as native pointer dereferencing, despite being sandboxed.</p>
-
-<h3>Memory Layout</h3>
-
-<p>When Emscripten compiles a C program to Wasm, it lays out the linear memory like a simplified version of a native process:</p>
-
-<div class="diagram">
-<span class="diagram-label">Emscripten linear memory layout</span>
-<pre><code>  Offset 0                                               memory size
-  ├──────────┬───────────────┬──────────────┬─────────────────┤
-  │ <span class="ty"> null  </span>  │ <span class="st"> static data </span>  │ <span class="pp">  heap &rarr;    </span>  │  <span class="fn">  &larr; stack   </span>  │
-  │ <span class="ty"> guard </span>  │ <span class="st"> (globals,   </span>  │ <span class="pp">  (malloc,   </span>  │  <span class="fn">  (locals,   </span>  │
-  │ <span class="ty"> page  </span>  │ <span class="st">  strings)   </span>  │ <span class="pp">   grows up) </span>  │  <span class="fn">   grows down)</span>  │
-  ├──────────┴───────────────┴──────────────┴─────────────────┤
-
-  <span class="ty">&#9632;</span> Offset 0 is intentionally wasted (null pointer guard)
-  <span class="st">&#9632;</span> Static data: string literals, global variables
-  <span class="pp">&#9632;</span> Heap: malloc/free, grows upward via memory.grow
-  <span class="fn">&#9632;</span> Stack: function locals, grows downward from top</code></pre>
-</div>
-
-<p>Offset 0 is left as a null pointer guard &mdash; accessing address 0 is always a trap. Static data (strings, global constants) sits just above that. The heap grows upward via <code>memory.grow</code>. The <em>shadow stack</em> lives at the top of memory and grows downward &mdash; this is not the Wasm operand stack from Chapter 2, but the C-style call stack that holds local variables too large for Wasm locals.</p>
-
-<p>Every <code>int*</code> in the C source becomes an <code>i32</code> in the Wasm output. Dereferencing that pointer becomes <code>i32.load</code> with the pointer value as the offset. Pointer arithmetic becomes <code>i32.add</code>. The compiler has flattened the entire abstraction of pointers and addresses into indices into a flat array. There is nothing else.</p>
-
-<div class="power">
-<div class="power-label">Why 64 KB Pages?</div>
-<p>Wasm pages are exactly 65,536 bytes. This is not arbitrary. Windows&rsquo; <code>VirtualAlloc</code> allocates in 64 KB granularity. ARM architectures optionally support 64 KB pages. And x86 uses 4 KB pages, so 64 KB is always an exact multiple. The 64 KB page size is the lowest common denominator that lets every OS map Wasm memory without waste or misalignment &mdash; one <code>memory.grow</code> call maps cleanly to one or more OS-level page operations on every platform.</p>
-</div>
-
-<h3>The Security Boundary</h3>
-
-<p>A Wasm module cannot read or write outside its linear memory. Period. There is no system call to map new address ranges. There is no way to dereference a pointer into the browser&rsquo;s own memory. A buffer overflow in a Wasm module corrupts <em>the module&rsquo;s own data</em> &mdash; it cannot escape the sandbox.</p>
-
-<p>This is fundamentally different from native code, where a buffer overflow can overwrite return addresses on the stack (enabling ROP attacks), corrupt adjacent heap allocations, or read sensitive data from other processes. In Wasm, the call stack (return addresses) is separate from linear memory and completely inaccessible to the program. The shadow stack in linear memory holds copies of local variables, but the actual return flow is managed by the engine and cannot be touched.</p>
-
-<p>For 32-bit Wasm (the current standard), linear memory is capped at 4 GB &mdash; the maximum addressable by <code>i32</code> indices. The Memory64 proposal extends this to <code>i64</code> addressing for applications that need more. But the principle stays the same: one flat array, one boundary, no escape.</p>
-
-<p>We have the execution model (stack machine), the file format (binary sections), and the data store (linear memory). What remains is the type system that ties them together &mdash; four numeric types, a handful of reference types, and a set of rules that make every operation provably correct before it runs.</p>
-
-</section>
-
-<script>
-// ── Chapter 4: Linear Memory Visualization ──
-(function() {
-  const svg = d3.select('#viz-mem');
-  const W = 780, H = 280;
-  const pageW = 120, pageH = 160, pageGap = 6;
-  const baseX = 40, baseY = 30;
-  const maxPages = 5;
-
-  let pages = 1;
-  let stored = false;
-  let loadedVal = null;
-
-  function draw() {
-    svg.selectAll('*').remove();
-
-    // Title
-    svg.append('text').attr('x', baseX).attr('y', baseY - 8)
-      .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
-      .attr('font-size', '10px').attr('letter-spacing', '0.1em')
-      .text('LINEAR MEMORY');
-
-    // Memory size label
-    svg.append('text').attr('x', W - 30).attr('y', baseY - 8)
-      .attr('text-anchor', 'end').attr('fill', '#00ff88')
-      .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', '12px')
-      .text(pages + ' page' + (pages > 1 ? 's' : '') + ' = ' + (pages * 64) + ' KB');
-
-    // Draw pages
-    for (let i = 0; i < maxPages; i++) {
-      const x = baseX + i * (pageW + pageGap);
-      const y = baseY;
-      const active = i < pages;
-
-      // Page rect
-      svg.append('rect')
-        .attr('x', x).attr('y', y)
-        .attr('width', pageW).attr('height', pageH)
-        .attr('rx', 4)
-        .attr('fill', active ? '#00ff8815' : '#12121a')
-        .attr('stroke', active ? '#00ff88' : '#1e1e2e')
-        .attr('stroke-width', active ? 1.5 : 1)
-        .attr('stroke-dasharray', active ? 'none' : '4,4');
-
-      // Page label
-      svg.append('text')
-        .attr('x', x + pageW / 2).attr('y', y + 18)
-        .attr('text-anchor', 'middle')
-        .attr('fill', active ? '#00ff88' : '#6a6a7e')
-        .attr('font-family', 'JetBrains Mono, monospace')
-        .attr('font-size', '10px')
-        .text(active ? 'Page ' + i : 'unmapped');
-
-      // Offset range
-      if (active) {
-        svg.append('text')
-          .attr('x', x + pageW / 2).attr('y', y + 35)
-          .attr('text-anchor', 'middle')
-          .attr('fill', '#6a6a7e')
-          .attr('font-family', 'JetBrains Mono, monospace')
-          .attr('font-size', '9px')
-          .text('0x' + (i * 0x10000).toString(16).toUpperCase() + '..0x' + ((i + 1) * 0x10000 - 1).toString(16).toUpperCase());
-      }
-
-      // Show stored data in page 0
-      if (active && i === 0 && stored) {
-        const cellY = y + 55;
-        // Highlight bytes at offset 0x10
-        for (let b = 0; b < 4; b++) {
-          svg.append('rect')
-            .attr('x', x + 10 + b * 26).attr('y', cellY)
-            .attr('width', 24).attr('height', 18)
-            .attr('rx', 2)
-            .attr('fill', '#ff880033')
-            .attr('stroke', '#ff8800').attr('stroke-width', 1);
-          svg.append('text')
-            .attr('x', x + 10 + b * 26 + 12).attr('y', cellY + 13)
-            .attr('text-anchor', 'middle')
-            .attr('fill', '#ff8800')
-            .attr('font-family', 'JetBrains Mono, monospace')
-            .attr('font-size', '9px').attr('font-weight', '600')
-            .text(['2A', '00', '00', '00'][b]);
-        }
-        svg.append('text')
-          .attr('x', x + 10).attr('y', cellY + 35)
-          .attr('fill', '#ff8800')
-          .attr('font-family', 'JetBrains Mono, monospace')
-          .attr('font-size', '9px')
-          .text('offset 0x10: 42');
-      }
-
-      // Show loaded value
-      if (active && i === 0 && loadedVal !== null) {
-        svg.append('text')
-          .attr('x', x + pageW / 2).attr('y', y + pageH - 15)
-          .attr('text-anchor', 'middle')
-          .attr('fill', '#00ddff')
-          .attr('font-family', 'JetBrains Mono, monospace')
-          .attr('font-size', '12px').attr('font-weight', '600')
-          .text('loaded: ' + loadedVal);
-      }
-    }
-
-    // Guard region label
-    if (pages < maxPages) {
-      const guardX = baseX + pages * (pageW + pageGap);
-      svg.append('text')
-        .attr('x', guardX + (maxPages - pages) * (pageW + pageGap) / 2)
-        .attr('y', baseY + pageH / 2 + 4)
-        .attr('text-anchor', 'middle')
-        .attr('fill', '#ff334466')
-        .attr('font-family', 'JetBrains Mono, monospace')
-        .attr('font-size', '11px')
-        .text('guard region (unmapped)');
-    }
-
-    // Boundary arrow
-    const boundaryX = baseX + pages * (pageW + pageGap) - pageGap / 2;
-    svg.append('line')
-      .attr('x1', boundaryX).attr('y1', baseY - 3)
-      .attr('x2', boundaryX).attr('y2', baseY + pageH + 3)
-      .attr('stroke', '#ff3344').attr('stroke-width', 2)
-      .attr('stroke-dasharray', '4,3');
-    svg.append('text')
-      .attr('x', boundaryX).attr('y', baseY + pageH + 20)
-      .attr('text-anchor', 'middle')
-      .attr('fill', '#ff3344')
-      .attr('font-family', 'JetBrains Mono, monospace')
-      .attr('font-size', '9px')
-      .text('bounds limit');
-
-    // Bottom legend
-    svg.append('text')
-      .attr('x', baseX).attr('y', H - 20)
-      .attr('fill', '#6a6a7e')
-      .attr('font-family', 'JetBrains Mono, monospace')
-      .attr('font-size', '10px')
-      .text('1 page = 65,536 bytes = 0x10000');
-  }
-
-  d3.select('#viz-mem-grow').on('click', function() {
-    if (pages >= maxPages) {
-      d3.select('#viz-mem-status').html('<span style="color:#ff3344">memory.grow failed — returned -1 (max reached)</span>');
-      return;
-    }
-    const old = pages;
-    pages++;
-    draw();
-    d3.select('#viz-mem-status').html('memory.grow(1) returned ' + old + ' (old size). Now ' + pages + ' pages (' + (pages * 64) + ' KB)');
-  });
-
-  d3.select('#viz-mem-store').on('click', function() {
-    stored = true;
-    loadedVal = null;
-    draw();
-    d3.select('#viz-mem-status').html('i32.store offset=0x10 value=42 — wrote 4 bytes (little-endian: 2A 00 00 00)');
-  });
-
-  d3.select('#viz-mem-load').on('click', function() {
-    if (!stored) {
-      loadedVal = 0;
-      draw();
-      d3.select('#viz-mem-status').html('i32.load offset=0x10 — read 0 (memory is zero-initialized)');
-    } else {
-      loadedVal = 42;
-      draw();
-      d3.select('#viz-mem-status').html('i32.load offset=0x10 — read 42 from the stored location');
-    }
-  });
-
-  d3.select('#viz-mem-reset').on('click', function() {
-    pages = 1; stored = false; loadedVal = null;
-    draw();
-    d3.select('#viz-mem-status').html('Click memory.grow to add a 64 KB page');
-  });
-
-  draw();
-})();
-</script>
-
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 5: TYPES AND INSTRUCTIONS                               -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch5">
-<h2>05 &mdash; types and instructions</h2>
-
-<p class="drop-cap">Wasm has four numeric types. Not four hundred. Not forty. Four: <code>i32</code>, <code>i64</code>, <code>f32</code>, <code>f64</code>. No strings. No structs. No booleans &mdash; a boolean is just an <code>i32</code> where 0 means false and anything else means true. This minimalism is not a limitation. It is the reason every operation is type-checkable in a single linear pass, every instruction has exactly one defined behavior on every input, and the entire machine is provably safe before it runs.</p>
-
-<h3>The Type Universe</h3>
-
-<div class="vs">
-<div class="vs-col" style="border-top: 2px solid var(--green);">
-<h4 style="color:var(--green);">Integers</h4>
-<table>
-<tr><th>Type</th><th>Size</th><th>Maps to</th></tr>
-<tr><td><code>i32</code></td><td>32 bits</td><td>Any 32-bit register (EAX, W0)</td></tr>
-<tr><td><code>i64</code></td><td>64 bits</td><td>Any 64-bit register (RAX, X0)</td></tr>
-</table>
-<p style="font-size:0.85rem;color:var(--text-dim);">No signed/unsigned distinction in the type &mdash; the same i32 can be treated as signed or unsigned depending on the instruction. <code>i32.div_s</code> divides signed; <code>i32.div_u</code> divides unsigned. The bits are the same.</p>
-</div>
-<div class="vs-col" style="border-top: 2px solid var(--orange);">
-<h4 style="color:var(--orange);">Floats</h4>
-<table>
-<tr><th>Type</th><th>Size</th><th>Maps to</th></tr>
-<tr><td><code>f32</code></td><td>32 bits</td><td>IEEE 754 single (XMM/NEON)</td></tr>
-<tr><td><code>f64</code></td><td>64 bits</td><td>IEEE 754 double (XMM/NEON)</td></tr>
-</table>
-<p style="font-size:0.85rem;color:var(--text-dim);">Fully IEEE 754 compliant. NaN propagation rules are specified exactly. <code>f64.sqrt</code> of a negative number returns NaN, always &mdash; no undefined behavior, no platform variation.</p>
-</div>
-</div>
-
-<p>Beyond the four numerics, Wasm also has <strong>reference types</strong>: <code>funcref</code> (a reference to a function, used for indirect calls) and <code>externref</code> (an opaque handle to a host object, like a JavaScript DOM node). The SIMD proposal adds <code>v128</code> &mdash; a 128-bit vector that holds four i32s, two i64s, four f32s, or two f64s simultaneously. And the GC proposal adds struct and array types for garbage-collected languages. But the four numeric types are the foundation. Everything else is built on top.</p>
-
-<h3>The Instruction Set</h3>
-
-<p>The post-SIMD Wasm spec has roughly 400 instructions. They group into five categories, and every single one declares its exact stack signature &mdash; what types it pops, what types it pushes:</p>
-
-<div class="tabbed">
-<input type="radio" name="insn" id="insn-t1" class="t1" checked>
-<input type="radio" name="insn" id="insn-t2" class="t2">
-<input type="radio" name="insn" id="insn-t3" class="t3">
-<input type="radio" name="insn" id="insn-t4" class="t4">
-<div class="tab-bar">
-  <label for="insn-t1">Arithmetic</label>
-  <label for="insn-t2">Comparison</label>
-  <label for="insn-t3">Memory</label>
-  <label for="insn-t4">Conversion</label>
-</div>
-<div class="tab-panel p1">
-<div style="padding:1rem 1.4rem;">
-<table>
-<tr><th>Instruction</th><th>Opcode</th><th>Stack Effect</th></tr>
-<tr><td><code>i32.add</code></td><td><span class="nm">0x6A</span></td><td>[i32 i32] &rarr; [i32]</td></tr>
-<tr><td><code>i32.sub</code></td><td><span class="nm">0x6B</span></td><td>[i32 i32] &rarr; [i32]</td></tr>
-<tr><td><code>i32.mul</code></td><td><span class="nm">0x6C</span></td><td>[i32 i32] &rarr; [i32]</td></tr>
-<tr><td><code>i32.div_s</code></td><td><span class="nm">0x6D</span></td><td>[i32 i32] &rarr; [i32] &nbsp; (traps on /0)</td></tr>
-<tr><td><code>i32.rem_u</code></td><td><span class="nm">0x70</span></td><td>[i32 i32] &rarr; [i32]</td></tr>
-<tr><td><code>i32.and</code></td><td><span class="nm">0x71</span></td><td>[i32 i32] &rarr; [i32]</td></tr>
-<tr><td><code>i32.or</code></td><td><span class="nm">0x72</span></td><td>[i32 i32] &rarr; [i32]</td></tr>
-<tr><td><code>i32.shl</code></td><td><span class="nm">0x74</span></td><td>[i32 i32] &rarr; [i32]</td></tr>
-<tr><td><code>i64.add</code></td><td><span class="nm">0x7C</span></td><td>[i64 i64] &rarr; [i64]</td></tr>
-<tr><td><code>f64.mul</code></td><td><span class="nm">0xA2</span></td><td>[f64 f64] &rarr; [f64]</td></tr>
-<tr><td><code>f64.sqrt</code></td><td><span class="nm">0x9F</span></td><td>[f64] &rarr; [f64]</td></tr>
-</table>
-</div>
-</div>
-<div class="tab-panel p2">
-<div style="padding:1rem 1.4rem;">
-<table>
-<tr><th>Instruction</th><th>Opcode</th><th>Stack Effect</th></tr>
-<tr><td><code>i32.eqz</code></td><td><span class="nm">0x45</span></td><td>[i32] &rarr; [i32] &nbsp; (1 if zero, else 0)</td></tr>
-<tr><td><code>i32.eq</code></td><td><span class="nm">0x46</span></td><td>[i32 i32] &rarr; [i32]</td></tr>
-<tr><td><code>i32.ne</code></td><td><span class="nm">0x47</span></td><td>[i32 i32] &rarr; [i32]</td></tr>
-<tr><td><code>i32.lt_s</code></td><td><span class="nm">0x48</span></td><td>[i32 i32] &rarr; [i32] &nbsp; (signed)</td></tr>
-<tr><td><code>i32.lt_u</code></td><td><span class="nm">0x49</span></td><td>[i32 i32] &rarr; [i32] &nbsp; (unsigned)</td></tr>
-<tr><td><code>i32.ge_s</code></td><td><span class="nm">0x4E</span></td><td>[i32 i32] &rarr; [i32]</td></tr>
-<tr><td><code>f64.eq</code></td><td><span class="nm">0x61</span></td><td>[f64 f64] &rarr; [i32]</td></tr>
-<tr><td><code>f64.lt</code></td><td><span class="nm">0x63</span></td><td>[f64 f64] &rarr; [i32]</td></tr>
-</table>
-<p style="font-size:0.85rem;color:var(--text-dim);margin-top:0.8rem;">All comparisons return <code>i32</code> (0 or 1). There is no boolean type &mdash; conditions are integers.</p>
-</div>
-</div>
-<div class="tab-panel p3">
-<div style="padding:1rem 1.4rem;">
-<table>
-<tr><th>Instruction</th><th>Opcode</th><th>Stack Effect</th></tr>
-<tr><td><code>i32.load</code></td><td><span class="nm">0x28</span></td><td>[i32] &rarr; [i32] &nbsp; (addr &rarr; value)</td></tr>
-<tr><td><code>i64.load</code></td><td><span class="nm">0x29</span></td><td>[i32] &rarr; [i64]</td></tr>
-<tr><td><code>f64.load</code></td><td><span class="nm">0x2B</span></td><td>[i32] &rarr; [f64]</td></tr>
-<tr><td><code>i32.store</code></td><td><span class="nm">0x36</span></td><td>[i32 i32] &rarr; [] &nbsp; (addr, value)</td></tr>
-<tr><td><code>i32.load8_s</code></td><td><span class="nm">0x2C</span></td><td>[i32] &rarr; [i32] &nbsp; (load byte, sign-extend)</td></tr>
-<tr><td><code>i32.load8_u</code></td><td><span class="nm">0x2D</span></td><td>[i32] &rarr; [i32] &nbsp; (load byte, zero-extend)</td></tr>
-<tr><td><code>i32.store8</code></td><td><span class="nm">0x3A</span></td><td>[i32 i32] &rarr; [] &nbsp; (store low byte)</td></tr>
-<tr><td><code>memory.grow</code></td><td><span class="nm">0x40</span></td><td>[i32] &rarr; [i32] &nbsp; (pages &rarr; old size)</td></tr>
-<tr><td><code>memory.size</code></td><td><span class="nm">0x3F</span></td><td>[] &rarr; [i32] &nbsp; (current pages)</td></tr>
-</table>
-<p style="font-size:0.85rem;color:var(--text-dim);margin-top:0.8rem;">Memory instructions include an alignment hint and an offset immediate. Misaligned access is <em>not</em> a trap &mdash; it just may be slower.</p>
-</div>
-</div>
-<div class="tab-panel p4">
-<div style="padding:1rem 1.4rem;">
-<table>
-<tr><th>Instruction</th><th>Opcode</th><th>Stack Effect</th></tr>
-<tr><td><code>i32.wrap_i64</code></td><td><span class="nm">0xA7</span></td><td>[i64] &rarr; [i32] &nbsp; (truncate to 32 bits)</td></tr>
-<tr><td><code>i64.extend_i32_s</code></td><td><span class="nm">0xAC</span></td><td>[i32] &rarr; [i64] &nbsp; (sign-extend)</td></tr>
-<tr><td><code>i64.extend_i32_u</code></td><td><span class="nm">0xAD</span></td><td>[i32] &rarr; [i64] &nbsp; (zero-extend)</td></tr>
-<tr><td><code>f64.convert_i32_s</code></td><td><span class="nm">0xB7</span></td><td>[i32] &rarr; [f64] &nbsp; (int to double)</td></tr>
-<tr><td><code>i32.trunc_f64_s</code></td><td><span class="nm">0xAA</span></td><td>[f64] &rarr; [i32] &nbsp; (traps on NaN/overflow)</td></tr>
-<tr><td><code>f64.promote_f32</code></td><td><span class="nm">0xBB</span></td><td>[f32] &rarr; [f64]</td></tr>
-<tr><td><code>f32.demote_f64</code></td><td><span class="nm">0xB6</span></td><td>[f64] &rarr; [f32]</td></tr>
-<tr><td><code>i32.reinterpret_f32</code></td><td><span class="nm">0xBC</span></td><td>[f32] &rarr; [i32] &nbsp; (same bits, different type)</td></tr>
-</table>
-<p style="font-size:0.85rem;color:var(--text-dim);margin-top:0.8rem;">Conversions that can fail (like truncating NaN or infinity to an integer) <em>trap</em> rather than produce garbage. There is a saturating variant (<code>i32.trunc_sat_f64_s</code>) for cases where you want clamping instead.</p>
-</div>
-</div>
-</div>
-
-<h3>No Undefined Behavior</h3>
-
-<p>In C, signed integer overflow is undefined behavior. The compiler can assume it never happens, and if it does, anything goes &mdash; nasal demons, time travel, whatever the optimizer felt like. In Wasm, every operation has exactly one defined result for every input:</p>
-
-<table>
-<tr><th>Operation</th><th>C behavior</th><th>Wasm behavior</th></tr>
-<tr><td>Signed overflow</td><td>Undefined</td><td>Wraps modulo 2<sup>32</sup> or 2<sup>64</sup>, always</td></tr>
-<tr><td>Division by zero</td><td>Undefined</td><td>Traps, always</td></tr>
-<tr><td>Integer &divide; that overflows</td><td>Undefined</td><td>Traps (e.g., <code>INT_MIN / -1</code>)</td></tr>
-<tr><td>NaN propagation</td><td>Implementation-defined</td><td>Specified: NaN payload is canonical or propagated</td></tr>
-<tr><td><code>sqrt(-1.0)</code></td><td>Domain error</td><td>Returns NaN, always</td></tr>
-<tr><td>Out-of-range shift</td><td>Undefined</td><td>Shift amount is masked to bit width</td></tr>
-<tr><td>Misaligned memory access</td><td>Undefined (on some archs)</td><td>Valid but possibly slower</td></tr>
-</table>
-
-<div class="power hack">
-<div class="power-label">No Undefined Behavior</div>
-<p>This is not C&rsquo;s &ldquo;trust the programmer.&rdquo; This is &ldquo;trust nobody, verify everything.&rdquo; A Wasm module that passes validation will never produce an undefined result. The type system and deterministic semantics together mean every module either validates and runs correctly, or is rejected before a single instruction executes. There is no third state.</p>
-</div>
-
-<p>The type system is small on purpose. Four numeric types, a handful of reference types, deterministic semantics for every operation. This is what makes single-pass validation possible, what makes the sandbox provable, and what makes compilation to native code straightforward &mdash; every Wasm instruction maps cleanly to one or two native instructions. Now it is time to stop reading about the machine and start writing for it.</p>
-
-</section>
-
-<div class="act-break">
-<div class="act-number">Part II</div>
-<div class="act-title">The Craft</div>
-<div class="act-subtitle">Writing WebAssembly by hand, one instruction at a time</div>
-</div>
-
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 6: YOUR FIRST MODULE                                    -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch6">
-<h2>06 &mdash; your first module by hand</h2>
-
-<p class="drop-cap">Open a text editor. Not a compiler. Not a build system. A text editor. You are going to write a WebAssembly module from scratch in WAT &mdash; the human-readable text format that maps one-to-one to the binary. Every parenthesis you type has a corresponding byte in the <code>.wasm</code> output. By the end of this chapter you will have a working module running in the browser, and you will have typed every instruction yourself.</p>
+<p>Open that text editor. Not a compiler. Not a build system. A text editor. You are going to write a WebAssembly module from scratch in WAT &mdash; the human-readable text format that maps one-to-one to the binary. Every parenthesis you type has a corresponding byte in the <code>.wasm</code> output. By the end of this chapter you will have a working module running in the browser, and you will have typed every instruction yourself.</p>
 
 <h3>The Skeleton</h3>
 
@@ -1724,49 +670,29 @@
 
 <p>You have just written a module with memory, data initialization, mutable state, and multiple exports &mdash; in plain text. The string lives in linear memory at offset 0. JavaScript reads it by creating a <code>Uint8Array</code> view over the shared <code>memory.buffer</code> and decoding the bytes as UTF-8. This is how every string crosses the Wasm/JS boundary: bytes in memory, a pointer, and a length.</p>
 
-<div class="power zen">
-<div class="power-label">WAT Is Not an Abstraction</div>
-<p>WAT is not a &ldquo;high-level&rdquo; representation of Wasm. It is the binary in text form. <code>wat2wasm</code> converts text to bytes; <code>wasm2wat</code> converts bytes back to text. The round-trip is lossless. Every instruction you write in WAT produces exactly one opcode. There is no optimizer between you and the machine.</p>
-</div>
-
-<p>You can write a module and run it. But the real craft is in control flow &mdash; how you express loops, conditionals, and early exits in a machine that has no <code>goto</code>, no <code>for</code>, and no <code>while</code>. That is where the tricks live.</p>
+<p>You can write a module and run it. The next chapter maps out the full vocabulary &mdash; control flow, indirect calls, and the string convention that every bridge depends on.</p>
 
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 7: CONTROL FLOW TRICKS                                  -->
+<!-- CHAPTER 2: THE INSTRUCTION SET                                  -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch7">
-<h2>07 &mdash; control flow tricks</h2>
+<section id="ch2">
+<h2>02 &mdash; the instruction set</h2>
 
-<p class="drop-cap">Wasm has three control flow constructs: <code>block</code>, <code>loop</code>, and <code>if</code>. That is all. No <code>for</code>. No <code>while</code>. No <code>switch</code>. No <code>goto</code>. Every structured loop, every conditional branch, every multi-way dispatch must be built from these three primitives and the <code>br</code> family of branch instructions. This sounds limiting. It is actually a design constraint that produces clean, verifiable code &mdash; once you learn the patterns.</p>
+<p class="drop-cap">Wasm has four value types (<code>i32</code>, <code>i64</code>, <code>f32</code>, <code>f64</code>), three control flow constructs (<code>block</code>, <code>loop</code>, <code>if</code>), and a stack-based execution model. That is the entire machine. No <code>for</code>. No <code>while</code>. No <code>switch</code>. No <code>goto</code>. Every structured loop, every conditional branch, every multi-way dispatch is built from these primitives and the <code>br</code> family of branch instructions. This chapter is a vocabulary tour &mdash; enough to read any WAT you encounter, not a manual for hand-writing every pattern.</p>
 
-<h3>Pattern 1: If / Else</h3>
+<h3>Control Flow: The While Loop</h3>
 
-<p>The simplest. <code>if</code> pops an <code>i32</code> from the stack. Nonzero executes the <code>then</code> branch; zero executes the <code>else</code> branch. Both branches must leave the stack in the same state.</p>
-
-<pre><span class="label">WAT</span><code><span class="cm">;; abs(x): return x >= 0 ? x : -x</span>
-(<span class="kw">func</span> <span class="fn">$abs</span> (<span class="kw">param</span> <span class="ty">$x i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
-  (<span class="kw">if</span> (<span class="kw">result</span> <span class="ty">i32</span>) (<span class="kw">i32.ge_s</span> (<span class="kw">local.get</span> $x) (<span class="kw">i32.const</span> <span class="nm">0</span>))
-    (<span class="kw">then</span> (<span class="kw">local.get</span> $x))
-    (<span class="kw">else</span> (<span class="kw">i32.sub</span> (<span class="kw">i32.const</span> <span class="nm">0</span>) (<span class="kw">local.get</span> $x)))
-  )
-)</code></pre>
-
-<p>The <code>(result i32)</code> on the <code>if</code> means both branches must push exactly one <code>i32</code>. This is how Wasm replaces the ternary operator &mdash; the <code>if</code> itself produces a value.</p>
-
-<h3>Pattern 2: While Loop</h3>
-
-<p>A <code>while</code> loop is a <code>block</code> containing a <code>loop</code>. The <code>block</code> provides the exit target (forward jump). The <code>loop</code> provides the continue target (backward jump). <code>br_if</code> to the block exits; <code>br</code> to the loop repeats:</p>
+<p>The most important pattern: a <code>block</code> containing a <code>loop</code>. The <code>block</code> provides the exit target (forward jump). The <code>loop</code> provides the continue target (backward jump). This one combination builds every loop you have ever written:</p>
 
 <pre><span class="label">WAT</span><code><span class="cm">;; while (i &lt; n) { total += arr[i]; i++; }</span>
 (<span class="kw">block</span> <span class="fn">$break</span>
   (<span class="kw">loop</span> <span class="fn">$continue</span>
-    <span class="cm">;; test: if i >= n, exit</span>
     <span class="kw">local.get</span> $i
     <span class="kw">local.get</span> $n
     <span class="kw">i32.ge_s</span>
-    <span class="kw">br_if</span> <span class="fn">$break</span>           <span class="cm">;; ← forward jump OUT of block</span>
+    <span class="kw">br_if</span> <span class="fn">$break</span>           <span class="cm">;; if i >= n, jump OUT</span>
 
     <span class="cm">;; body: total += arr[i]</span>
     <span class="kw">local.get</span> $total
@@ -1784,125 +710,20 @@
     <span class="kw">i32.const</span> <span class="nm">1</span>
     <span class="kw">i32.add</span>
     <span class="kw">local.set</span> $i
-
-    <span class="kw">br</span> <span class="fn">$continue</span>           <span class="cm">;; ← backward jump to TOP of loop</span>
+    <span class="kw">br</span> <span class="fn">$continue</span>           <span class="cm">;; jump to TOP of loop</span>
   )
 )</code></pre>
 
 <div class="power hack">
 <div class="power-label">The Block/Loop Trick</div>
-<p><code>br</code> to a <code>block</code> jumps <em>forward</em> (past the end). <code>br</code> to a <code>loop</code> jumps <em>backward</em> (to the top). Same instruction, opposite direction, depending on which construct it targets. This one rule is the key to every loop pattern in Wasm. The block is the exit door; the loop is the re-entry door.</p>
+<p><code>br</code> to a <code>block</code> jumps <em>forward</em> (past the end). <code>br</code> to a <code>loop</code> jumps <em>backward</em> (to the top). Same instruction, opposite direction, depending on which construct it targets. The block is the exit door; the loop is the re-entry door. Once you internalize this, you can read any WAT control flow.</p>
 </div>
 
-<h3>Pattern 3: Do-While</h3>
+<p>The other patterns follow the same logic. <code>if</code>/<code>else</code> pops an <code>i32</code> and branches on zero vs nonzero &mdash; both branches must leave the stack in the same state. A <code>do-while</code> is just a bare <code>loop</code> with <code>br_if</code> at the bottom. C&rsquo;s <code>switch</code> compiles to <code>br_table</code> &mdash; a jump table of nested blocks indexed by an integer. They all reduce to <code>block</code>, <code>loop</code>, and <code>br</code>.</p>
 
-<p>Even simpler &mdash; just a <code>loop</code> with a conditional branch at the bottom:</p>
+<h3>Indirect Calls: How Vtables Work</h3>
 
-<pre><span class="label">WAT</span><code><span class="cm">;; do { ... } while (i &lt; n)</span>
-(<span class="kw">loop</span> <span class="fn">$top</span>
-  <span class="cm">;; body here...</span>
-
-  <span class="kw">local.get</span> $i
-  <span class="kw">local.get</span> $n
-  <span class="kw">i32.lt_s</span>
-  <span class="kw">br_if</span> <span class="fn">$top</span>              <span class="cm">;; if i &lt; n, jump back to top</span>
-)</code></pre>
-
-<h3>Pattern 4: Early Return / Break</h3>
-
-<p>Nested blocks give you labeled break targets at any depth:</p>
-
-<pre><span class="label">WAT</span><code><span class="cm">;; find first even number in array, return it (or -1)</span>
-(<span class="kw">func</span> <span class="fn">$find_even</span> (<span class="kw">param</span> <span class="ty">$arr i32</span>) (<span class="kw">param</span> <span class="ty">$len i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
-  (<span class="kw">local</span> <span class="ty">$i i32</span>) (<span class="kw">local</span> <span class="ty">$val i32</span>)
-  (<span class="kw">block</span> <span class="fn">$done</span>
-    (<span class="kw">loop</span> <span class="fn">$next</span>
-      <span class="kw">local.get</span> $i
-      <span class="kw">local.get</span> $len
-      <span class="kw">i32.ge_s</span>
-      <span class="kw">br_if</span> <span class="fn">$done</span>
-
-      <span class="cm">;; val = arr[i]</span>
-      <span class="kw">local.get</span> $arr
-      <span class="kw">local.get</span> $i
-      <span class="kw">i32.const</span> <span class="nm">4</span>
-      <span class="kw">i32.mul</span>
-      <span class="kw">i32.add</span>
-      <span class="kw">i32.load</span>
-      <span class="kw">local.set</span> $val
-
-      <span class="cm">;; if val is even, return it</span>
-      <span class="kw">local.get</span> $val
-      <span class="kw">i32.const</span> <span class="nm">2</span>
-      <span class="kw">i32.rem_u</span>
-      <span class="kw">i32.eqz</span>
-      (<span class="kw">if</span> (<span class="kw">then</span>
-        <span class="kw">local.get</span> $val
-        <span class="kw">return</span>))             <span class="cm">;; ← early return with value</span>
-
-      <span class="kw">local.get</span> $i
-      <span class="kw">i32.const</span> <span class="nm">1</span>
-      <span class="kw">i32.add</span>
-      <span class="kw">local.set</span> $i
-      <span class="kw">br</span> <span class="fn">$next</span>
-    )
-  )
-  <span class="kw">i32.const</span> -<span class="nm">1</span>)            <span class="cm">;; not found</span></code></pre>
-
-<h3>Pattern 5: Switch via br_table</h3>
-
-<p>C&rsquo;s <code>switch</code> statement compiles to <code>br_table</code> &mdash; a jump table that branches based on an integer index:</p>
-
-<pre><span class="label">WAT</span><code><span class="cm">;; switch(op) { case 0: add; case 1: sub; case 2: mul; default: 0 }</span>
-(<span class="kw">block</span> <span class="fn">$default</span>
-  (<span class="kw">block</span> <span class="fn">$case2</span>
-    (<span class="kw">block</span> <span class="fn">$case1</span>
-      (<span class="kw">block</span> <span class="fn">$case0</span>
-        <span class="kw">local.get</span> $op
-        <span class="kw">br_table</span> <span class="fn">$case0 $case1 $case2 $default</span>)
-      <span class="cm">;; case 0: add</span>
-      <span class="kw">local.get</span> $a  <span class="kw">local.get</span> $b  <span class="kw">i32.add</span>
-      <span class="kw">return</span>)
-    <span class="cm">;; case 1: sub</span>
-    <span class="kw">local.get</span> $a  <span class="kw">local.get</span> $b  <span class="kw">i32.sub</span>
-    <span class="kw">return</span>)
-  <span class="cm">;; case 2: mul</span>
-  <span class="kw">local.get</span> $a  <span class="kw">local.get</span> $b  <span class="kw">i32.mul</span>
-  <span class="kw">return</span>)
-<span class="cm">;; default</span>
-<span class="kw">i32.const</span> <span class="nm">0</span>)</code></pre>
-
-<p><code>br_table</code> pops an <code>i32</code> index from the stack and jumps to the Nth label in the list. If the index is out of range, it jumps to the last label (the default). The nesting is inside-out &mdash; case 0 is the innermost block, the default is the outermost. This feels backward until you realize that <code>br</code> targets are counted by nesting depth: case 0 = depth 0, case 1 = depth 1, and so on.</p>
-
-<p>Five patterns. That is the complete vocabulary for all control flow in WebAssembly. Every <code>for</code>, <code>while</code>, <code>switch</code>, <code>break</code>, and <code>continue</code> you have ever written maps to some combination of <code>block</code>, <code>loop</code>, <code>if</code>, and <code>br</code>. The next chapter adds the other dimension of indirection: functions that call functions through tables.</p>
-
-</section>
-
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 8: FUNCTIONS AND TABLES                                 -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch8">
-<h2>08 &mdash; functions and tables</h2>
-
-<p class="drop-cap">In C, a function pointer is just an address. You can cast it, store it in an array, call it through a void pointer with the wrong arguments, and crash. In Wasm, there are no function pointers in memory. Functions live in a separate, type-checked table &mdash; and calling through that table validates the signature at runtime. This is how Wasm implements virtual dispatch, callbacks, and plugin systems without sacrificing the sandbox.</p>
-
-<h3>Direct Calls</h3>
-
-<p>A regular function call is straightforward. Push the arguments, call the function by index:</p>
-
-<pre><span class="label">WAT</span><code>(<span class="kw">func</span> <span class="fn">$square</span> (<span class="kw">param</span> <span class="ty">$x i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
-  <span class="kw">local.get</span> $x
-  <span class="kw">local.get</span> $x
-  <span class="kw">i32.mul</span>)
-
-(<span class="kw">func</span> <span class="fn">$sum_of_squares</span> (<span class="kw">param</span> <span class="ty">$a i32</span>) (<span class="kw">param</span> <span class="ty">$b i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
-  (<span class="kw">i32.add</span>
-    (<span class="kw">call</span> <span class="fn">$square</span> (<span class="kw">local.get</span> $a))
-    (<span class="kw">call</span> <span class="fn">$square</span> (<span class="kw">local.get</span> $b))))</code></pre>
-
-<h3>Indirect Calls and Tables</h3>
-
-<p>The interesting part is <code>call_indirect</code> &mdash; calling a function by index through a table. This is how C function pointers, C++ vtables, and Rust trait objects work in Wasm:</p>
+<p>Wasm has no function pointers in memory. Functions live in a separate, type-checked <strong>table</strong>. Calling through that table &mdash; <code>call_indirect</code> &mdash; validates the signature at runtime. This is how C++ vtables, Rust trait objects, and any function-pointer-based dispatch work in Wasm:</p>
 
 <pre><span class="label">WAT</span><code>(<span class="kw">module</span>
   (<span class="kw">type</span> <span class="fn">$op</span> (<span class="kw">func</span> (<span class="kw">param</span> <span class="ty">i32 i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)))
@@ -1911,150 +732,39 @@
   (<span class="kw">func</span> <span class="fn">$sub</span> (<span class="kw">type</span> <span class="fn">$op</span>) <span class="kw">local.get</span> <span class="nm">0</span> <span class="kw">local.get</span> <span class="nm">1</span> <span class="kw">i32.sub</span>)
   (<span class="kw">func</span> <span class="fn">$mul</span> (<span class="kw">type</span> <span class="fn">$op</span>) <span class="kw">local.get</span> <span class="nm">0</span> <span class="kw">local.get</span> <span class="nm">1</span> <span class="kw">i32.mul</span>)
 
-  <span class="cm">;; Table: 3 function slots</span>
   (<span class="kw">table</span> <span class="nm">3</span> <span class="ty">funcref</span>)
   (<span class="kw">elem</span> (<span class="kw">i32.const</span> <span class="nm">0</span>) <span class="fn">$add $sub $mul</span>)
 
-  <span class="cm">;; Dispatch: call function at table[op_index](a, b)</span>
   (<span class="kw">func</span> (<span class="kw">export</span> <span class="st">"calc"</span>) (<span class="kw">param</span> <span class="ty">$a i32</span>) (<span class="kw">param</span> <span class="ty">$b i32</span>) (<span class="kw">param</span> <span class="ty">$op i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
     <span class="kw">local.get</span> $a
     <span class="kw">local.get</span> $b
     <span class="kw">local.get</span> $op
-    <span class="kw">call_indirect</span> (<span class="kw">type</span> <span class="fn">$op</span>))      <span class="cm">;; type-checked at runtime!</span>
+    <span class="kw">call_indirect</span> (<span class="kw">type</span> <span class="fn">$op</span>))   <span class="cm">;; type-checked at runtime!</span>
 )</code></pre>
 
-<pre><span class="label">JavaScript</span><code><span class="kw">const</span> { instance } = <span class="kw">await</span> <span class="fn">WebAssembly.instantiateStreaming</span>(<span class="fn">fetch</span>(<span class="st">'calc.wasm'</span>));
-instance.exports.<span class="fn">calc</span>(<span class="nm">10</span>, <span class="nm">3</span>, <span class="nm">0</span>);  <span class="cm">// add(10, 3) = 13</span>
-instance.exports.<span class="fn">calc</span>(<span class="nm">10</span>, <span class="nm">3</span>, <span class="nm">1</span>);  <span class="cm">// sub(10, 3) = 7</span>
-instance.exports.<span class="fn">calc</span>(<span class="nm">10</span>, <span class="nm">3</span>, <span class="nm">2</span>);  <span class="cm">// mul(10, 3) = 30</span>
-instance.exports.<span class="fn">calc</span>(<span class="nm">10</span>, <span class="nm">3</span>, <span class="nm">9</span>);  <span class="cm">// TRAP! index 9 out of bounds</span></code></pre>
+<p><code>call_indirect</code> pops the table index from the stack, checks that the function at that index matches the declared type, and traps if either the index is out of bounds or the signature is wrong. In C, a bad function pointer is silent corruption. In Wasm, it is a guaranteed trap. When Emscripten compiles a C++ codebase with virtual methods, every virtual call goes through this mechanism &mdash; the vtable becomes a Wasm table, and each dispatch is type-checked.</p>
 
-<p><code>call_indirect</code> does two checks at runtime: is the index within the table bounds? Does the function at that index match the declared type signature? If either check fails, the module traps. This is the safety net that replaces C&rsquo;s unchecked function pointer &mdash; you get dynamic dispatch without the ability to call a function with the wrong argument types.</p>
+<h3>Strings: Pointer + Length</h3>
 
-<div class="power danger">
-<div class="power-label">call_indirect Order Gotcha</div>
-<p>The table index must be the <em>last</em> value on the stack &mdash; on top of the function arguments. In the flat form: <code>local.get $a</code>, <code>local.get $b</code>, <code>local.get $op</code>, <code>call_indirect</code>. In S-expression form: <code>(call_indirect (type $op) (local.get $a) (local.get $b) (local.get $op))</code>. Swap the order and the table index becomes a function argument. This is the most common <code>call_indirect</code> bug.</p>
-</div>
-
-<p>Direct calls, indirect calls, and tables cover all the ways code can invoke code in Wasm. But the most common thing code needs to work with is not other code &mdash; it is data. And the most painful data type in Wasm is the one that does not exist: the string.</p>
-
-</section>
-
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 9: STRINGS IN THE MACHINE                               -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch9">
-<h2>09 &mdash; strings in the machine</h2>
-
-<p class="drop-cap">Wasm has no string type. No <code>char</code>. No <code>String</code>. No <code>&amp;str</code>. A &ldquo;string&rdquo; in WebAssembly is a sequence of bytes sitting in linear memory, addressed by an <code>i32</code> pointer, with a length that you track yourself. Every operation you take for granted in a high-level language &mdash; concatenation, comparison, searching, slicing &mdash; must be built from <code>i32.load8_u</code>, <code>i32.store8</code>, and loop patterns. This chapter builds those primitives by hand.</p>
-
-<h3>Two Conventions</h3>
-
-<p>There are two ways to know where a string ends:</p>
+<p>Wasm has no string type. A &ldquo;string&rdquo; is a sequence of bytes in linear memory, addressed by an <code>i32</code> pointer, with a length you track yourself. Two conventions exist:</p>
 
 <div class="vs">
 <div class="vs-col">
 <h4>Null-Terminated (C style)</h4>
 <pre><code><span class="st">H e l l o \0</span>
 <span class="nm">48 65 6C 6C 6F 00</span></code></pre>
-<p style="font-size:0.85rem;color:var(--text-dim);">Length = scan until you hit 0x00. Simple but O(n) to find the length, and the string cannot contain null bytes.</p>
+<p style="font-size:0.85rem;color:var(--text-dim);">Scan until 0x00. O(n) to find length. Cannot contain null bytes.</p>
 </div>
 <div class="vs-col">
 <h4>Length-Prefixed (Wasm/Rust style)</h4>
 <pre><code><span class="ty">ptr=100, len=5</span>
 <span class="st">H  e  l  l  o</span>
 <span class="nm">48 65 6C 6C 6F</span></code></pre>
-<p style="font-size:0.85rem;color:var(--text-dim);">Length is known upfront. O(1) length check. Can contain any byte, including 0x00. This is what Rust, Go, and most Wasm tooling use.</p>
+<p style="font-size:0.85rem;color:var(--text-dim);">Length known upfront. O(1). Can contain any byte. This is what Rust, Go, and most Wasm tooling use.</p>
 </div>
 </div>
 
-<p>For our handwritten Wasm, we will use <strong>pointer + length</strong>. Two <code>i32</code> values: where the bytes start, and how many there are.</p>
-
-<h3>strlen: Measuring a Null-Terminated String</h3>
-
-<pre><span class="label">WAT</span><code><span class="cm">;; strlen(ptr) &rarr; length (scans for \0)</span>
-(<span class="kw">func</span> <span class="fn">$strlen</span> (<span class="kw">param</span> <span class="ty">$ptr i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
-  (<span class="kw">local</span> <span class="ty">$start i32</span>)
-  <span class="kw">local.get</span> $ptr
-  <span class="kw">local.set</span> $start
-  (<span class="kw">block</span> <span class="fn">$done</span>
-    (<span class="kw">loop</span> <span class="fn">$next</span>
-      <span class="kw">local.get</span> $ptr
-      <span class="kw">i32.load8_u</span>             <span class="cm">;; load one byte</span>
-      <span class="kw">i32.eqz</span>
-      <span class="kw">br_if</span> <span class="fn">$done</span>             <span class="cm">;; if byte == 0, done</span>
-      <span class="kw">local.get</span> $ptr
-      <span class="kw">i32.const</span> <span class="nm">1</span>
-      <span class="kw">i32.add</span>
-      <span class="kw">local.set</span> $ptr           <span class="cm">;; ptr++</span>
-      <span class="kw">br</span> <span class="fn">$next</span>))
-  <span class="kw">local.get</span> $ptr
-  <span class="kw">local.get</span> $start
-  <span class="kw">i32.sub</span>)                    <span class="cm">;; return ptr - start</span></code></pre>
-
-<p>One byte at a time: <code>i32.load8_u</code> reads a single unsigned byte from memory. The loop increments the pointer until it finds <code>0x00</code>. The length is the difference between the final pointer and the start.</p>
-
-<h3>memcpy: Copying Bytes</h3>
-
-<pre><span class="label">WAT</span><code><span class="cm">;; memcpy(dst, src, len) &mdash; copy len bytes from src to dst</span>
-(<span class="kw">func</span> <span class="fn">$memcpy</span> (<span class="kw">param</span> <span class="ty">$dst i32</span>) (<span class="kw">param</span> <span class="ty">$src i32</span>) (<span class="kw">param</span> <span class="ty">$len i32</span>)
-  (<span class="kw">local</span> <span class="ty">$i i32</span>)
-  (<span class="kw">block</span> <span class="fn">$done</span>
-    (<span class="kw">loop</span> <span class="fn">$next</span>
-      <span class="kw">local.get</span> $i
-      <span class="kw">local.get</span> $len
-      <span class="kw">i32.ge_u</span>
-      <span class="kw">br_if</span> <span class="fn">$done</span>
-
-      <span class="cm">;; dst[i] = src[i]</span>
-      <span class="kw">local.get</span> $dst
-      <span class="kw">local.get</span> $i
-      <span class="kw">i32.add</span>                  <span class="cm">;; dst + i</span>
-      <span class="kw">local.get</span> $src
-      <span class="kw">local.get</span> $i
-      <span class="kw">i32.add</span>                  <span class="cm">;; src + i</span>
-      <span class="kw">i32.load8_u</span>              <span class="cm">;; load byte from src</span>
-      <span class="kw">i32.store8</span>               <span class="cm">;; store byte to dst</span>
-
-      <span class="kw">local.get</span> $i
-      <span class="kw">i32.const</span> <span class="nm">1</span>
-      <span class="kw">i32.add</span>
-      <span class="kw">local.set</span> $i
-      <span class="kw">br</span> <span class="fn">$next</span>)))</code></pre>
-
-<h3>strcmp: Comparing Strings</h3>
-
-<pre><span class="label">WAT</span><code><span class="cm">;; strcmp(a_ptr, a_len, b_ptr, b_len) &rarr; 1 if equal, 0 if not</span>
-(<span class="kw">func</span> <span class="fn">$strcmp</span> (<span class="kw">param</span> <span class="ty">$a i32</span>) (<span class="kw">param</span> <span class="ty">$a_len i32</span>)
-              (<span class="kw">param</span> <span class="ty">$b i32</span>) (<span class="kw">param</span> <span class="ty">$b_len i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
-  (<span class="kw">local</span> <span class="ty">$i i32</span>)
-  <span class="cm">;; different lengths &rarr; not equal</span>
-  <span class="kw">local.get</span> $a_len
-  <span class="kw">local.get</span> $b_len
-  <span class="kw">i32.ne</span>
-  (<span class="kw">if</span> (<span class="kw">then</span> (<span class="kw">return</span> (<span class="kw">i32.const</span> <span class="nm">0</span>))))
-  <span class="cm">;; compare byte by byte</span>
-  (<span class="kw">block</span> <span class="fn">$done</span>
-    (<span class="kw">loop</span> <span class="fn">$next</span>
-      <span class="kw">local.get</span> $i
-      <span class="kw">local.get</span> $a_len
-      <span class="kw">i32.ge_u</span>
-      <span class="kw">br_if</span> <span class="fn">$done</span>
-      <span class="cm">;; if a[i] != b[i], return 0</span>
-      (<span class="kw">i32.ne</span>
-        (<span class="kw">i32.load8_u</span> (<span class="kw">i32.add</span> (<span class="kw">local.get</span> $a) (<span class="kw">local.get</span> $i)))
-        (<span class="kw">i32.load8_u</span> (<span class="kw">i32.add</span> (<span class="kw">local.get</span> $b) (<span class="kw">local.get</span> $i))))
-      (<span class="kw">if</span> (<span class="kw">then</span> (<span class="kw">return</span> (<span class="kw">i32.const</span> <span class="nm">0</span>))))
-      <span class="kw">local.get</span> $i
-      <span class="kw">i32.const</span> <span class="nm">1</span>
-      <span class="kw">i32.add</span>
-      <span class="kw">local.set</span> $i
-      <span class="kw">br</span> <span class="fn">$next</span>))
-  <span class="kw">i32.const</span> <span class="nm">1</span>)              <span class="cm">;; all bytes matched</span></code></pre>
-
-<h3>The JS Bridge for Strings</h3>
-
-<p>To pass a string from JavaScript into these functions, you write the bytes into linear memory and pass the pointer and length:</p>
+<p>Every string that crosses the JS/Wasm boundary goes through the same dance: JavaScript writes bytes into linear memory with <code>TextEncoder</code>, passes a pointer and a length to the Wasm function, and reads the result back with <code>TextDecoder</code>. The bridge looks like this:</p>
 
 <pre><span class="label">JavaScript</span><code><span class="kw">function</span> <span class="fn">writeString</span>(instance, str, offset) {
   <span class="kw">const</span> mem = <span class="kw">new</span> <span class="ty">Uint8Array</span>(instance.exports.memory.buffer);
@@ -2068,55 +778,63 @@ instance.exports.<span class="fn">calc</span>(<span class="nm">10</span>, <span 
   <span class="kw">return</span> <span class="kw">new</span> <span class="ty">TextDecoder</span>().<span class="fn">decode</span>(mem);
 }</code></pre>
 
-<p>These two functions &mdash; <code>writeString</code> and <code>readString</code> &mdash; are the entire bridge between JavaScript&rsquo;s string world and Wasm&rsquo;s byte world. <code>TextEncoder</code> converts a JavaScript string to UTF-8 bytes. <code>TextDecoder</code> converts bytes back. Everything in between is pointer arithmetic and byte manipulation.</p>
-
 <div class="power">
 <div class="power-label">The String Tax</div>
-<p>Every string that crosses the JS/Wasm boundary is copied. JavaScript strings are UTF-16 internally; Wasm works with raw bytes (usually UTF-8). The <code>TextEncoder</code>/<code>TextDecoder</code> calls do the conversion and the copy. For short strings this is negligible. For megabytes of text, batch your crossings &mdash; pass a pointer to the entire buffer, not individual strings.</p>
+<p>Every string crossing is a copy. JavaScript strings are UTF-16 internally; Wasm works with raw bytes (usually UTF-8). <code>TextEncoder</code>/<code>TextDecoder</code> do the conversion. For short strings, negligible. For megabytes of text, batch your crossings &mdash; pass one pointer to the entire buffer, not individual strings. This is the same tradeoff Figma and Photoshop navigate in production.</p>
 </div>
 
-<p>We have <code>strlen</code>, <code>memcpy</code>, <code>strcmp</code>, and a JS bridge for reading and writing strings. These are the primitives. The next chapter shows what compilers do with them &mdash; and how to read the output to spot what they get wrong.</p>
+<p>You now know the vocabulary: four types, three control flow constructs, function tables, and the pointer-and-length convention that every bridge depends on. But you will rarely write WAT by hand. Real teams compile C++ and Rust to Wasm. The power move is reading what those compilers produce &mdash; and knowing when they got it wrong.</p>
 
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 10: READING COMPILER OUTPUT                             -->
+<!-- CHAPTER 3: READING COMPILER OUTPUT                              -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch10">
-<h2>10 &mdash; reading compiler output</h2>
+<section id="ch3">
+<h2>03 &mdash; reading compiler output</h2>
 
-<p class="drop-cap">You know how to write Wasm. Now learn to <em>read</em> what your compiler writes. The single most useful tool in the WebAssembly ecosystem is <code>wasm2wat</code> &mdash; the disassembler that converts any <code>.wasm</code> binary back into the text format you have been writing by hand. Every optimization insight, every bloat diagnosis, every &ldquo;why is this function slow?&rdquo; investigation starts with <code>wasm2wat</code>.</p>
+<p class="drop-cap">You know how to write Wasm. Now learn to <em>read</em> what your compiler writes. The single most useful tool in the WebAssembly ecosystem is <code>wasm2wat</code> &mdash; the disassembler that converts any <code>.wasm</code> binary back into the text format you have been writing by hand. Every optimization insight, every bloat diagnosis, every &ldquo;why is my module 300 KB?&rdquo; investigation starts with <code>wasm2wat</code>.</p>
 
 <h3>The Disassembly Loop</h3>
 
-<pre><span class="label">Shell</span><code><span class="cm"># 1. Compile your code</span>
-<span class="fn">emcc</span> -O3 hot_loop.c -o hot_loop.wasm
+<p>Take a small Rust function, compile it, and look at what comes out:</p>
 
-<span class="cm"># 2. Disassemble to readable WAT</span>
-<span class="fn">wasm2wat</span> hot_loop.wasm -f -o hot_loop.wat   <span class="cm"># -f folds expressions</span>
+<pre><span class="label">Rust</span><code><span class="pp">#[no_mangle]</span>
+<span class="kw">pub extern</span> <span class="st">"C"</span> <span class="kw">fn</span> <span class="fn">sum_squares</span>(a: <span class="ty">i32</span>, b: <span class="ty">i32</span>) -> <span class="ty">i32</span> {
+    a * a + b * b
+}</code></pre>
 
-<span class="cm"># 3. Read the WAT. Spot the bloat.</span>
+<pre><span class="label">Shell</span><code><span class="fn">cargo</span> build --target wasm32-unknown-unknown --release
+<span class="fn">wasm2wat</span> target/wasm32-unknown-unknown/release/demo.wasm -f</code></pre>
 
-<span class="cm"># 4. Run Binaryen's optimizer</span>
-<span class="fn">wasm-opt</span> -O3 hot_loop.wasm -o hot_loop_opt.wasm
+<p>The disassembled output shows exactly the instructions the compiler chose:</p>
 
-<span class="cm"># 5. Compare</span>
-<span class="fn">wasm2wat</span> hot_loop_opt.wasm -f -o hot_loop_opt.wat
-<span class="fn">diff</span> hot_loop.wat hot_loop_opt.wat</code></pre>
+<pre><span class="label">WAT (disassembled)</span><code>(<span class="kw">func</span> <span class="fn">$sum_squares</span> (<span class="kw">param</span> <span class="ty">$a i32</span>) (<span class="kw">param</span> <span class="ty">$b i32</span>) (<span class="kw">result</span> <span class="ty">i32</span>)
+  (<span class="kw">i32.add</span>
+    (<span class="kw">i32.mul</span> (<span class="kw">local.get</span> $a) (<span class="kw">local.get</span> $a))
+    (<span class="kw">i32.mul</span> (<span class="kw">local.get</span> $b) (<span class="kw">local.get</span> $b))))</code></pre>
+
+<p>Clean. A human would write the same thing. But increase the complexity &mdash; add a loop, some conditionals, a heap allocation &mdash; and the compiler starts leaving artifacts.</p>
 
 <h3>What to Look For</h3>
 
-<p>When you open a disassembled <code>.wat</code> file, three patterns signal compiler waste:</p>
+<p><strong>Unnecessary locals.</strong> LLVM converts every SSA register to a Wasm local. A function with 5 variables might declare 12 locals &mdash; the extras are temporaries that could have stayed on the stack. Look for <code>(local $tmpN i32)</code> declarations that appear only in a <code>local.set</code> immediately followed by a <code>local.get</code>. Those are round-trips the stack could have handled directly.</p>
 
-<p><strong>Unnecessary locals.</strong> LLVM converts every SSA register to a Wasm local. A function with 5 variables might declare 12 locals &mdash; the extras are temporaries that could have stayed on the stack. Look for <code>(local $tmpN i32)</code> declarations that appear only in a <code>local.set</code> immediately followed by a <code>local.get</code>. Those are round-trips through a local that the stack could have handled directly.</p>
+<p><strong>Redundant local.set/get pairs.</strong> The pattern <code>local.set $x</code> &rarr; <code>local.get $x</code> (with nothing in between) means the compiler stored a value and immediately loaded it back. A human would leave the value on the stack.</p>
 
-<p><strong>Redundant local.set/get pairs.</strong> The pattern <code>local.set $x</code> → <code>local.get $x</code> (with nothing in between) means the compiler stored a value and immediately loaded it back. A human would leave the value on the stack. <code>wasm-opt</code>&rsquo;s SimplifyLocals pass catches many of these, but not all.</p>
-
-<p><strong>Multiply where shift works.</strong> <code>i32.mul (i32.const 4)</code> can always be replaced with <code>i32.shl (i32.const 2)</code>. Compilers usually catch this, but when the multiply is embedded in a complex address calculation, they sometimes miss it.</p>
+<p><strong>Dead code from monomorphization.</strong> Rust generics create specialized copies for each concrete type. If you use <code>Vec&lt;u8&gt;</code> and <code>Vec&lt;u32&gt;</code>, you get two copies of every <code>Vec</code> method. Some of those copies may be unused after inlining &mdash; but the compiler does not always remove them.</p>
 
 <h3>wasm-opt: The Second Compiler</h3>
 
 <p>Binaryen&rsquo;s <code>wasm-opt</code> is a Wasm-to-Wasm optimizer. It runs <em>after</em> your compiler and applies passes that LLVM does not understand because they are Wasm-specific: dead local elimination, block merging, stack expression folding, and local coalescing. Running <code>wasm-opt -O3</code> on a compiler-produced binary typically shaves off 10&ndash;20%.</p>
+
+<pre><span class="label">Shell</span><code><span class="cm"># Always run wasm-opt as the final build step</span>
+<span class="fn">wasm-opt</span> -O3 output.wasm -o output.opt.wasm
+
+<span class="cm"># Compare</span>
+<span class="fn">wasm2wat</span> output.wasm -f -o before.wat
+<span class="fn">wasm2wat</span> output.opt.wasm -f -o after.wat
+<span class="fn">diff</span> before.wat after.wat</code></pre>
 
 <table>
 <tr><th>Pass</th><th>What it does</th></tr>
@@ -2129,33 +847,31 @@ instance.exports.<span class="fn">calc</span>(<span class="nm">10</span>, <span 
 
 <div class="power wild">
 <div class="power-label">The Optimization Budget</div>
-<p>Don&rsquo;t hand-optimize everything. The compiler is right 95% of the time. The remaining 5% is in your hot loop &mdash; the inner loop that runs a million times per frame. Use <code>wasm2wat</code> to read that specific function. If the compiler introduced unnecessary locals or missed a stack folding opportunity, fix that one function. Leave the rest alone. Maintainability costs more than the microseconds you would save.</p>
+<p>Don&rsquo;t hand-optimize everything. The compiler is right 95% of the time. The remaining 5% is in your hot loop. Use <code>wasm2wat</code> to read that specific function. If the compiler introduced unnecessary locals or missed a stack folding opportunity, fix that one function. Leave the rest alone.</p>
 </div>
 
-<p>Five chapters of craft: writing modules, control flow patterns, function tables, string handling, and reading compiler output. You now know enough to write Wasm, read Wasm, and debug Wasm. Time to put it all together and build something real.</p>
+<p>Three chapters of craft: writing modules, knowing the vocabulary, reading compiler output. Time to build something.</p>
 
 </section>
 
 <div class="act-break">
-<div class="act-number">Part III</div>
-<div class="act-title">Build: A Template Engine</div>
-<div class="act-subtitle">Strings, memory, and the JS bridge &mdash; learned by building something you can ship</div>
+<div class="act-number">Part II</div>
+<div class="act-title">The Build</div>
+<div class="act-subtitle">A template engine in handwritten WAT &mdash; from scanner to shipped artifact</div>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 11: THE SCANNER                                         -->
+<!-- CHAPTER 4: BUILDING A TEMPLATE ENGINE                           -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch11">
-<h2>11 &mdash; the scanner</h2>
+<section id="ch4">
+<h2>04 &mdash; building a template engine</h2>
 
-<p class="drop-cap">We are going to build a template engine in pure handwritten WAT. It takes a template like <code>"Hello, {{name}}! You have {{count}} messages."</code> and a set of key-value substitutions, and produces the rendered output. No Rust. No Emscripten. Just WAT, a text editor, and <code>wat2wasm</code>. The engine will run in the browser via the JavaScript bridge we built in Chapter 9.</p>
+<p class="drop-cap">We are going to build a template engine in pure handwritten WAT. It takes a template like <code>"Hello, {{name}}! You have {{count}} messages."</code> and a set of key-value substitutions, and produces the rendered output. No Rust. No Emscripten. Just WAT, a text editor, and <code>wat2wasm</code>. The engine will run in the browser via the string bridge from Chapter 2.</p>
 
-<h3>The Plan</h3>
-
-<p>The template engine has three phases:</p>
+<h3>The Architecture</h3>
 
 <div class="diagram">
-<span class="diagram-label">Template engine architecture</span>
+<span class="diagram-label">Template engine pipeline</span>
 <pre><code>  <span class="ty">Input</span>: <span class="st">"Hello, {{name}}!"</span>  +  { name: <span class="st">"World"</span> }
          │
          ▼
@@ -2165,7 +881,7 @@ instance.exports.<span class="fn">calc</span>(<span class="nm">10</span>, <span 
          │
          ▼
   <span class="fn">2. Substitute</span> — for each variable key,
-         look up the value in the data
+         look up the value via JS import
          copy the value bytes to the output buffer
          │
          ▼
@@ -2175,295 +891,533 @@ instance.exports.<span class="fn">calc</span>(<span class="nm">10</span>, <span 
   <span class="ty">Output</span>: <span class="st">"Hello, World!"</span></code></pre>
 </div>
 
-<h3>Memory Layout</h3>
-
-<p>We need to lay out our linear memory carefully. The template, the variable data, and the output buffer all live in the same flat array:</p>
+<p>The template, the variable data, and the output buffer all live in the same flat linear memory. The Wasm module does what it is good at: scanning bytes fast. The variable lookup is imported from JavaScript &mdash; let the host handle the hash map.</p>
 
 <div class="diagram">
 <span class="diagram-label">Linear memory map</span>
 <pre><code>  Offset     Region            Size       Purpose
   ───────    ───────           ────       ───────
   0x0000     template input    4 KB       the template string
-  0x1000     variable keys     2 KB       packed key strings (ptr+len pairs)
+  0x1000     variable keys     2 KB       packed key strings
   0x1800     variable values   2 KB       packed value strings
-  0x2000     output buffer     8 KB       the rendered result
-  0x4000     bump pointer      &rarr;         allocation frontier
-
-  All offsets are fixed. Simple and predictable.</code></pre>
+  0x2000     output buffer     8 KB       the rendered result</code></pre>
 </div>
 
-<h3>The Scanner Function</h3>
+<h3>The Scanner</h3>
 
-<p>The scanner walks the template byte by byte. When it sees <code>{{</code> (two consecutive <code>0x7B</code> bytes), it switches from &ldquo;copy literal&rdquo; mode to &ldquo;read key&rdquo; mode. When it sees <code>}}</code> (two <code>0x7D</code> bytes), it looks up the key and copies the corresponding value to the output:</p>
+<p>The scanner reads one byte at a time. Literal bytes go straight to the output. When it sees <code>{{</code> (two <code>0x7B</code> bytes), it switches to &ldquo;read key&rdquo; mode. When it sees <code>}}</code>, it calls the imported <code>$lookup</code> function and emits the value. Here is the core:</p>
 
 <pre><span class="label">WAT</span><code>(<span class="kw">module</span>
-  (<span class="kw">memory</span> (<span class="kw">export</span> <span class="st">"memory"</span>) <span class="nm">1</span>)  <span class="cm">;; 64 KB</span>
+  (<span class="kw">memory</span> (<span class="kw">export</span> <span class="st">"memory"</span>) <span class="nm">1</span>)
+  (<span class="kw">global</span> <span class="fn">$out_ptr</span> (<span class="kw">mut</span> <span class="ty">i32</span>) (<span class="kw">i32.const</span> <span class="nm">0x2000</span>))
 
-  <span class="cm">;; Globals for output buffer tracking</span>
-  (<span class="kw">global</span> <span class="fn">$out_ptr</span> (<span class="kw">mut</span> <span class="ty">i32</span>) (<span class="kw">i32.const</span> <span class="nm">0x2000</span>))  <span class="cm">;; output write head</span>
-
-  <span class="cm">;; emit_byte: write one byte to the output buffer</span>
+  <span class="cm">;; emit one byte to the output buffer</span>
   (<span class="kw">func</span> <span class="fn">$emit_byte</span> (<span class="kw">param</span> <span class="ty">$b i32</span>)
-    <span class="kw">global.get</span> $out_ptr
-    <span class="kw">local.get</span> $b
-    <span class="kw">i32.store8</span>
-    <span class="kw">global.get</span> $out_ptr
-    <span class="kw">i32.const</span> <span class="nm">1</span>
-    <span class="kw">i32.add</span>
-    <span class="kw">global.set</span> $out_ptr)
+    <span class="kw">global.get</span> $out_ptr  <span class="kw">local.get</span> $b  <span class="kw">i32.store8</span>
+    <span class="kw">global.get</span> $out_ptr  <span class="kw">i32.const</span> <span class="nm">1</span>  <span class="kw">i32.add</span>  <span class="kw">global.set</span> $out_ptr)
 
-  <span class="cm">;; emit_bytes: copy len bytes from src to output</span>
+  <span class="cm">;; copy len bytes from src to output</span>
   (<span class="kw">func</span> <span class="fn">$emit_bytes</span> (<span class="kw">param</span> <span class="ty">$src i32</span>) (<span class="kw">param</span> <span class="ty">$len i32</span>)
     (<span class="kw">local</span> <span class="ty">$i i32</span>)
-    (<span class="kw">block</span> <span class="fn">$done</span>
-      (<span class="kw">loop</span> <span class="fn">$next</span>
-        <span class="kw">local.get</span> $i
-        <span class="kw">local.get</span> $len
-        <span class="kw">i32.ge_u</span>
-        <span class="kw">br_if</span> <span class="fn">$done</span>
-        (<span class="kw">call</span> <span class="fn">$emit_byte</span>
-          (<span class="kw">i32.load8_u</span> (<span class="kw">i32.add</span> (<span class="kw">local.get</span> $src) (<span class="kw">local.get</span> $i))))
-        <span class="kw">local.get</span> $i
-        <span class="kw">i32.const</span> <span class="nm">1</span>
-        <span class="kw">i32.add</span>
-        <span class="kw">local.set</span> $i
-        <span class="kw">br</span> <span class="fn">$next</span>)))
+    (<span class="kw">block</span> <span class="fn">$done</span> (<span class="kw">loop</span> <span class="fn">$next</span>
+      <span class="kw">local.get</span> $i  <span class="kw">local.get</span> $len  <span class="kw">i32.ge_u</span>  <span class="kw">br_if</span> <span class="fn">$done</span>
+      (<span class="kw">call</span> <span class="fn">$emit_byte</span>
+        (<span class="kw">i32.load8_u</span> (<span class="kw">i32.add</span> (<span class="kw">local.get</span> $src) (<span class="kw">local.get</span> $i))))
+      <span class="kw">local.get</span> $i  <span class="kw">i32.const</span> <span class="nm">1</span>  <span class="kw">i32.add</span>  <span class="kw">local.set</span> $i
+      <span class="kw">br</span> <span class="fn">$next</span>)))
 
-  <span class="cm">;; render: scan template, substitute variables, return (ptr, len)</span>
+  <span class="cm">;; the main render loop</span>
   (<span class="kw">func</span> (<span class="kw">export</span> <span class="st">"render"</span>) (<span class="kw">param</span> <span class="ty">$tpl_ptr i32</span>) (<span class="kw">param</span> <span class="ty">$tpl_len i32</span>)
-                           (<span class="kw">result</span> <span class="ty">i32 i32</span>)  <span class="cm">;; returns (ptr, len)</span>
-    (<span class="kw">local</span> <span class="ty">$i i32</span>) (<span class="kw">local</span> <span class="ty">$ch i32</span>) (<span class="kw">local</span> <span class="ty">$next_ch i32</span>)
-    (<span class="kw">local</span> <span class="ty">$key_start i32</span>)
-    <span class="cm">;; reset output pointer</span>
-    <span class="kw">i32.const</span> <span class="nm">0x2000</span>
-    <span class="kw">global.set</span> $out_ptr
+                           (<span class="kw">result</span> <span class="ty">i32 i32</span>)
+    (<span class="kw">local</span> <span class="ty">$i i32</span>) (<span class="kw">local</span> <span class="ty">$ch i32</span>) (<span class="kw">local</span> <span class="ty">$key_start i32</span>)
+    <span class="kw">i32.const</span> <span class="nm">0x2000</span>  <span class="kw">global.set</span> $out_ptr  <span class="cm">;; reset output</span>
 
-    (<span class="kw">block</span> <span class="fn">$end</span>
-      (<span class="kw">loop</span> <span class="fn">$scan</span>
-        <span class="cm">;; bounds check</span>
-        <span class="kw">local.get</span> $i
-        <span class="kw">local.get</span> $tpl_len
-        <span class="kw">i32.ge_u</span>
-        <span class="kw">br_if</span> <span class="fn">$end</span>
+    (<span class="kw">block</span> <span class="fn">$end</span> (<span class="kw">loop</span> <span class="fn">$scan</span>
+      <span class="kw">local.get</span> $i  <span class="kw">local.get</span> $tpl_len  <span class="kw">i32.ge_u</span>  <span class="kw">br_if</span> <span class="fn">$end</span>
+      (<span class="kw">i32.load8_u</span> (<span class="kw">i32.add</span> (<span class="kw">local.get</span> $tpl_ptr) (<span class="kw">local.get</span> $i)))
+      <span class="kw">local.set</span> $ch
 
-        <span class="cm">;; read current byte</span>
-        <span class="kw">local.get</span> $tpl_ptr
-        <span class="kw">local.get</span> $i
-        <span class="kw">i32.add</span>
-        <span class="kw">i32.load8_u</span>
-        <span class="kw">local.set</span> $ch
-
-        <span class="cm">;; check for {{ (0x7B 0x7B)</span>
-        <span class="kw">local.get</span> $ch
-        <span class="kw">i32.const</span> <span class="nm">0x7B</span>  <span class="cm">;; '{'</span>
-        <span class="kw">i32.eq</span>
+      <span class="cm">;; check for {{ (0x7B 0x7B)</span>
+      <span class="kw">local.get</span> $ch  <span class="kw">i32.const</span> <span class="nm">0x7B</span>  <span class="kw">i32.eq</span>
+      (<span class="kw">if</span> (<span class="kw">then</span>
+        (<span class="kw">i32.load8_u</span> (<span class="kw">i32.add</span> (<span class="kw">i32.add</span>
+          (<span class="kw">local.get</span> $tpl_ptr) (<span class="kw">local.get</span> $i)) (<span class="kw">i32.const</span> <span class="nm">1</span>)))
+        <span class="kw">i32.const</span> <span class="nm">0x7B</span>  <span class="kw">i32.eq</span>
         (<span class="kw">if</span> (<span class="kw">then</span>
-          <span class="cm">;; peek next byte</span>
-          <span class="kw">local.get</span> $tpl_ptr
-          <span class="kw">local.get</span> $i
-          <span class="kw">i32.add</span>
-          <span class="kw">i32.const</span> <span class="nm">1</span>
-          <span class="kw">i32.add</span>
-          <span class="kw">i32.load8_u</span>
-          <span class="kw">local.set</span> $next_ch
-          <span class="kw">local.get</span> $next_ch
-          <span class="kw">i32.const</span> <span class="nm">0x7B</span>
-          <span class="kw">i32.eq</span>
-          (<span class="kw">if</span> (<span class="kw">then</span>
-            <span class="cm">;; found {{ — skip past it, record key start</span>
-            <span class="kw">local.get</span> $i
-            <span class="kw">i32.const</span> <span class="nm">2</span>
-            <span class="kw">i32.add</span>
-            <span class="kw">local.set</span> $i
-            <span class="kw">local.get</span> $tpl_ptr
-            <span class="kw">local.get</span> $i
-            <span class="kw">i32.add</span>
-            <span class="kw">local.set</span> $key_start
+          <span class="cm">;; found {{ — skip 2 bytes, record key start</span>
+          <span class="kw">local.get</span> $i  <span class="kw">i32.const</span> <span class="nm">2</span>  <span class="kw">i32.add</span>  <span class="kw">local.set</span> $i
+          (<span class="kw">i32.add</span> (<span class="kw">local.get</span> $tpl_ptr) (<span class="kw">local.get</span> $i))
+          <span class="kw">local.set</span> $key_start
 
-            <span class="cm">;; scan for }} (0x7D 0x7D)</span>
-            (<span class="kw">block</span> <span class="fn">$found_close</span>
-              (<span class="kw">loop</span> <span class="fn">$scan_key</span>
-                <span class="kw">local.get</span> $tpl_ptr
-                <span class="kw">local.get</span> $i
-                <span class="kw">i32.add</span>
-                <span class="kw">i32.load8_u</span>
-                <span class="kw">i32.const</span> <span class="nm">0x7D</span>  <span class="cm">;; '}'</span>
-                <span class="kw">i32.eq</span>
-                (<span class="kw">if</span> (<span class="kw">then</span>
-                  <span class="kw">local.get</span> $tpl_ptr
-                  <span class="kw">local.get</span> $i
-                  <span class="kw">i32.add</span>
-                  <span class="kw">i32.const</span> <span class="nm">1</span>
-                  <span class="kw">i32.add</span>
-                  <span class="kw">i32.load8_u</span>
-                  <span class="kw">i32.const</span> <span class="nm">0x7D</span>
-                  <span class="kw">i32.eq</span>
-                  <span class="kw">br_if</span> <span class="fn">$found_close</span>))
-                <span class="kw">local.get</span> $i
-                <span class="kw">i32.const</span> <span class="nm">1</span>
-                <span class="kw">i32.add</span>
-                <span class="kw">local.set</span> $i
-                <span class="kw">br</span> <span class="fn">$scan_key</span>))
+          <span class="cm">;; scan for }} (0x7D 0x7D)</span>
+          (<span class="kw">block</span> <span class="fn">$found</span> (<span class="kw">loop</span> <span class="fn">$sk</span>
+            (<span class="kw">i32.load8_u</span> (<span class="kw">i32.add</span>
+              (<span class="kw">local.get</span> $tpl_ptr) (<span class="kw">local.get</span> $i)))
+            <span class="kw">i32.const</span> <span class="nm">0x7D</span>  <span class="kw">i32.eq</span>
+            (<span class="kw">if</span> (<span class="kw">then</span>
+              (<span class="kw">i32.load8_u</span> (<span class="kw">i32.add</span> (<span class="kw">i32.add</span>
+                (<span class="kw">local.get</span> $tpl_ptr) (<span class="kw">local.get</span> $i)) (<span class="kw">i32.const</span> <span class="nm">1</span>)))
+              <span class="kw">i32.const</span> <span class="nm">0x7D</span>  <span class="kw">i32.eq</span>
+              <span class="kw">br_if</span> <span class="fn">$found</span>))
+            <span class="kw">local.get</span> $i  <span class="kw">i32.const</span> <span class="nm">1</span>  <span class="kw">i32.add</span>  <span class="kw">local.set</span> $i
+            <span class="kw">br</span> <span class="fn">$sk</span>))
 
-            <span class="cm">;; key is from $key_start to tpl_ptr+$i</span>
-            <span class="cm">;; call imported lookup function</span>
-            <span class="kw">local.get</span> $key_start
-            <span class="kw">local.get</span> $tpl_ptr
-            <span class="kw">local.get</span> $i
-            <span class="kw">i32.add</span>
-            <span class="kw">local.get</span> $key_start
-            <span class="kw">i32.sub</span>                <span class="cm">;; key length</span>
-            <span class="kw">call</span> <span class="fn">$lookup</span>           <span class="cm">;; → (value_ptr, value_len)</span>
-            <span class="kw">call</span> <span class="fn">$emit_bytes</span>
+          <span class="cm">;; lookup key → emit value</span>
+          <span class="kw">local.get</span> $key_start
+          (<span class="kw">i32.sub</span> (<span class="kw">i32.add</span> (<span class="kw">local.get</span> $tpl_ptr) (<span class="kw">local.get</span> $i))
+                   (<span class="kw">local.get</span> $key_start))
+          <span class="kw">call</span> <span class="fn">$lookup</span>
+          <span class="kw">call</span> <span class="fn">$emit_bytes</span>
+          <span class="kw">local.get</span> $i  <span class="kw">i32.const</span> <span class="nm">2</span>  <span class="kw">i32.add</span>  <span class="kw">local.set</span> $i
+          <span class="kw">br</span> <span class="fn">$scan</span>))))
 
-            <span class="cm">;; skip past }}</span>
-            <span class="kw">local.get</span> $i
-            <span class="kw">i32.const</span> <span class="nm">2</span>
-            <span class="kw">i32.add</span>
-            <span class="kw">local.set</span> $i
-            <span class="kw">br</span> <span class="fn">$scan</span>
-          ))
-        ))
+      <span class="cm">;; regular byte — emit it</span>
+      (<span class="kw">call</span> <span class="fn">$emit_byte</span> (<span class="kw">local.get</span> $ch))
+      <span class="kw">local.get</span> $i  <span class="kw">i32.const</span> <span class="nm">1</span>  <span class="kw">i32.add</span>  <span class="kw">local.set</span> $i
+      <span class="kw">br</span> <span class="fn">$scan</span>))
 
-        <span class="cm">;; regular byte — emit it</span>
-        (<span class="kw">call</span> <span class="fn">$emit_byte</span> (<span class="kw">local.get</span> $ch))
-        <span class="kw">local.get</span> $i
-        <span class="kw">i32.const</span> <span class="nm">1</span>
-        <span class="kw">i32.add</span>
-        <span class="kw">local.set</span> $i
-        <span class="kw">br</span> <span class="fn">$scan</span>))
-
-    <span class="cm">;; return (output_ptr, output_len)</span>
     <span class="kw">i32.const</span> <span class="nm">0x2000</span>
-    <span class="kw">global.get</span> $out_ptr
-    <span class="kw">i32.const</span> <span class="nm">0x2000</span>
-    <span class="kw">i32.sub</span>)
+    (<span class="kw">i32.sub</span> (<span class="kw">global.get</span> $out_ptr) (<span class="kw">i32.const</span> <span class="nm">0x2000</span>)))
 
-  <span class="cm">;; lookup: imported from JS — finds a variable value by key</span>
   (<span class="kw">import</span> <span class="st">"env"</span> <span class="st">"lookup"</span>
     (<span class="kw">func</span> <span class="fn">$lookup</span> (<span class="kw">param</span> <span class="ty">i32 i32</span>) (<span class="kw">result</span> <span class="ty">i32 i32</span>)))
 )</code></pre>
 
-<p>The scanner is the heart of the engine. It reads one byte at a time. Literal bytes go straight to the output via <code>$emit_byte</code>. When it finds <code>{{</code>, it scans ahead for <code>}}</code>, extracts the key, calls the imported <code>$lookup</code> function (provided by JavaScript), and emits the returned value bytes. The entire thing is a state machine built from <code>block</code>, <code>loop</code>, and <code>br_if</code> &mdash; the same patterns from Chapter 7.</p>
+<p>The entire engine is a state machine built from <code>block</code>, <code>loop</code>, and <code>br_if</code> &mdash; the same patterns from Chapter 2. The <code>$lookup</code> import delegates variable resolution to JavaScript, keeping the module focused on what Wasm does well: scanning bytes in linear memory.</p>
 
-<p>Notice the <code>$lookup</code> import. The Wasm module does not store the variable data &mdash; it asks JavaScript to find the value for a given key. This keeps the memory layout simple and lets JavaScript handle the hash map. The module does what it is good at: scanning bytes fast.</p>
+<h3>Wiring It Up</h3>
 
-</section>
-
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 12: THE ALLOCATOR                                       -->
-<!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch12">
-<h2>12 &mdash; wiring it up</h2>
-
-<p class="drop-cap">The scanner is pure Wasm. The variable lookup is pure JavaScript. Now we connect them. The JavaScript side has three jobs: write the template into Wasm memory, provide the <code>lookup</code> import function, and read the rendered output back. Here is the complete host code:</p>
+<p>The JavaScript side writes the template into memory, provides the <code>lookup</code> function, and reads the rendered output back:</p>
 
 <pre><span class="label">JavaScript</span><code><span class="kw">const</span> encoder = <span class="kw">new</span> <span class="ty">TextEncoder</span>();
 <span class="kw">const</span> decoder = <span class="kw">new</span> <span class="ty">TextDecoder</span>();
-
-<span class="cm">// The template and variables</span>
 <span class="kw">const</span> template = <span class="st">"Hello, {{name}}! You have {{count}} new messages."</span>;
 <span class="kw">const</span> vars = { name: <span class="st">"Alice"</span>, count: <span class="st">"3"</span> };
 
-<span class="cm">// Import object: provide the lookup function</span>
 <span class="kw">const</span> importObj = {
   env: {
     <span class="fn">lookup</span>(key_ptr, key_len) {
-      <span class="cm">// Read the key from Wasm memory</span>
       <span class="kw">const</span> mem = <span class="kw">new</span> <span class="ty">Uint8Array</span>(instance.exports.memory.buffer);
       <span class="kw">const</span> key = decoder.<span class="fn">decode</span>(mem.<span class="fn">subarray</span>(key_ptr, key_ptr + key_len));
-
-      <span class="cm">// Look up the value</span>
-      <span class="kw">const</span> value = vars[key] || <span class="st">""</span>;
-      <span class="kw">const</span> encoded = encoder.<span class="fn">encode</span>(value);
-
-      <span class="cm">// Write the value into Wasm memory at a scratch area</span>
-      <span class="kw">const</span> val_ptr = <span class="nm">0x1800</span>;  <span class="cm">// variable values region</span>
-      mem.<span class="fn">set</span>(encoded, val_ptr);
-
-      <span class="cm">// Return (ptr, len) — multi-value return!</span>
-      <span class="kw">return</span> [val_ptr, encoded.length];
+      <span class="kw">const</span> encoded = encoder.<span class="fn">encode</span>(vars[key] || <span class="st">""</span>);
+      mem.<span class="fn">set</span>(encoded, <span class="nm">0x1800</span>);
+      <span class="kw">return</span> [<span class="nm">0x1800</span>, encoded.length];
     }
   }
 };
 
-<span class="cm">// Load and run</span>
 <span class="kw">const</span> { instance } = <span class="kw">await</span> <span class="fn">WebAssembly.instantiateStreaming</span>(
   <span class="fn">fetch</span>(<span class="st">'template.wasm'</span>), importObj
 );
 
-<span class="cm">// Write template into Wasm memory</span>
 <span class="kw">const</span> tpl_bytes = encoder.<span class="fn">encode</span>(template);
 <span class="kw">const</span> mem = <span class="kw">new</span> <span class="ty">Uint8Array</span>(instance.exports.memory.buffer);
-mem.<span class="fn">set</span>(tpl_bytes, <span class="nm">0</span>);  <span class="cm">// template region starts at 0</span>
+mem.<span class="fn">set</span>(tpl_bytes, <span class="nm">0</span>);
 
-<span class="cm">// Call render</span>
 <span class="kw">const</span> [out_ptr, out_len] = instance.exports.<span class="fn">render</span>(<span class="nm">0</span>, tpl_bytes.length);
-
-<span class="cm">// Read the result</span>
 <span class="kw">const</span> result = decoder.<span class="fn">decode</span>(mem.<span class="fn">subarray</span>(out_ptr, out_ptr + out_len));
 <span class="fn">console.log</span>(result);
 <span class="cm">// → "Hello, Alice! You have 3 new messages."</span></code></pre>
 
-<p>That is the entire application. The Wasm module scans bytes. The JavaScript host resolves variables. The rendered string comes back as bytes in shared linear memory. Every concept from the last eleven chapters is in play: stack operations, control flow with <code>block</code>/<code>loop</code>/<code>br_if</code>, memory loads and stores, function imports/exports, and the <code>TextEncoder</code>/<code>TextDecoder</code> string bridge.</p>
+<p>Every concept from the first four chapters is in play: module structure, control flow with <code>block</code>/<code>loop</code>/<code>br_if</code>, memory loads and stores, function imports, and the <code>TextEncoder</code>/<code>TextDecoder</code> bridge. The Wasm module scans bytes. JavaScript resolves variables. The rendered string comes back as bytes in shared linear memory.</p>
 
-<h3>What We Built</h3>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 5: SHIP IT                                              -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch5">
+<h2>05 &mdash; ship it</h2>
+
+<p class="drop-cap">The template engine works. It runs in a browser tab. The module is roughly 200 bytes after assembly. Let&rsquo;s ship it.</p>
+
+<pre><span class="label">Shell</span><code><span class="fn">wat2wasm</span> template.wat -o template.wasm
+<span class="fn">wasm-opt</span> -O3 template.wasm -o template.opt.wasm
+<span class="fn">ls</span> -la template.opt.wasm   <span class="cm"># ~180 bytes</span></code></pre>
+
+<p>Run <code>wasm-opt -O3</code> as a habit. Even on handwritten WAT, it may catch a redundant local or merge a block. On a real application compiled from Rust or C, it is 10&ndash;20% off the binary size.</p>
+
+<h3>Serving It</h3>
+
+<p>The <code>.wasm</code> file needs the right MIME type: <code>application/wasm</code>. Without it, <code>instantiateStreaming</code> rejects the response. If your server does not set it, fall back to the buffer path:</p>
+
+<pre><span class="label">JavaScript</span><code><span class="cm">// Streaming (preferred — compiles as it downloads)</span>
+<span class="kw">const</span> { instance } = <span class="kw">await</span> <span class="fn">WebAssembly.instantiateStreaming</span>(
+  <span class="fn">fetch</span>(<span class="st">'template.wasm'</span>), importObj
+);
+
+<span class="cm">// Buffer fallback (if Content-Type is wrong)</span>
+<span class="kw">const</span> bytes = <span class="kw">await</span> (<span class="kw">await</span> <span class="fn">fetch</span>(<span class="st">'template.wasm'</span>)).<span class="fn">arrayBuffer</span>();
+<span class="kw">const</span> { instance } = <span class="kw">await</span> <span class="fn">WebAssembly.instantiate</span>(bytes, importObj);</code></pre>
+
+<p>For caching, Wasm modules work like any static asset. The browser also caches the compiled native code &mdash; <code>instantiateStreaming</code> from a cached response skips both download <em>and</em> compilation on repeat visits.</p>
+
+<h3>From Learning to Production</h3>
+
+<p>Hand-writing WAT was for learning &mdash; the way studying assembly helps you write better C. You now understand the machine: the stack, the memory model, the type system, the bridge. You know what a Wasm module actually <em>is</em> under the hood.</p>
+
+<p>Real teams do not hand-write WAT. They compile existing C++, Rust, and Go codebases through Emscripten, <code>wasm-pack</code>, and TinyGo. The reason this works &mdash; and the reason some languages work far better than others &mdash; comes down to a single tradeoff that the next chapter explains.</p>
+
+</section>
+
+<div class="act-break">
+<div class="act-number">Part III</div>
+<div class="act-title">Wasm in the Wild</div>
+<div class="act-subtitle">Real projects, real tradeoffs, real domains</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 6: THE COMPILATION TRADEOFF                             -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch6">
+<h2>06 &mdash; the compilation tradeoff</h2>
+
+<p class="drop-cap">C, C++, and Rust dominate production WebAssembly. Not because they have better compilers, but because they manage their own memory. This is the single most important structural fact about Wasm, and it explains why some codebases migrate to the browser in weeks while others cannot migrate at all.</p>
+
+<h3>Why Memory Ownership Matters</h3>
+
+<p>Wasm&rsquo;s linear memory is a contiguous byte array &mdash; a flat slab that the module reads and writes through <code>i32</code> indices. C&rsquo;s <code>malloc</code> and <code>free</code> operate on a contiguous byte array. They are the same model. When Emscripten compiles a C program to Wasm, <code>malloc</code> just manages Wasm&rsquo;s linear memory. The heap IS the linear memory. No translation needed.</p>
+
+<p>Rust&rsquo;s ownership model is even cleaner. The compiler tracks lifetimes at compile time, inserts <code>drop</code> calls statically, and never needs a runtime allocator for stack-allocated values. A Rust function that takes a <code>&amp;[u8]</code> slice compiles to a pointer and a length in Wasm &mdash; the exact representation you used in Chapter 2. The language&rsquo;s memory model maps one-to-one onto the target.</p>
+
+<h3>The GC Tax</h3>
+
+<p>Garbage-collected languages face a different problem. Java, Go, Python, Kotlin, and Dart all need a garbage collector &mdash; a runtime component that walks the heap, tracks object references, and reclaims unused memory. In native execution, that GC is provided by the language runtime and integrated with the OS. In Wasm, there is no GC. The language has to ship its own.</p>
+
+<div class="diagram">
+<span class="diagram-label">The GC problem</span>
+<pre><code>  <span class="ty">C/C++/Rust → Wasm</span>                    <span class="fn">Go/Java/Python → Wasm</span>
+  ──────────────────                    ────────────────────────
+
+  ┌──── .wasm module ────┐              ┌──── .wasm module ──────────┐
+  │                       │              │ ┌────────────────────────┐ │
+  │  your code            │              │ │  GC runtime            │ │
+  │  malloc/free          │              │ │  (mark-sweep, threads, │ │
+  │  linear memory = heap │              │ │   scheduler)           │ │
+  │                       │              │ └────────────────────────┘ │
+  │  <span class="st">~200 bytes to ~KB</span>    │              │  your code                 │
+  └───────────────────────┘              │  linear memory = managed   │
+                                         │                            │
+                                         │  <span class="cm">~2+ MB minimum</span>            │
+                                         └────────────────────────────┘</code></pre>
+</div>
+
+<p>Go&rsquo;s standard Wasm target ships the entire Go runtime: goroutine scheduler, garbage collector, reflection system. Result: <strong>2.1 MB</strong> for &ldquo;Hello World.&rdquo; TinyGo strips this to 15&ndash;50 KB by using LLVM and a simpler GC, but it sacrifices standard library coverage &mdash; <code>reflect</code>, <code>net/http</code>, and <code>cgo</code> are missing or partial.</p>
+
+<p>The GC also creates a performance cliff. A GC running inside Wasm linear memory cannot see the browser&rsquo;s own garbage collector. If your Wasm module creates an object that holds a reference to a JavaScript object, neither GC can see the full picture. Cross-boundary reference cycles become memory leaks.</p>
+
+<h3>The Pipelines</h3>
+
+<div class="diagram">
+<span class="diagram-label">How code becomes .wasm</span>
+<pre><code>  <span class="ty">Emscripten</span>  (C/C++)
+  your_code.cpp → Clang → LLVM IR → LLVM wasm backend → <span class="st">.wasm</span> + .js glue
+  <span class="cm">The .js glue sets up memory, wires libc, provides a virtual filesystem.</span>
+  <span class="cm">-O3 -s STANDALONE_WASM strips the glue for pure compute modules.</span>
+
+  <span class="ty">wasm-pack</span>  (Rust)
+  your_code.rs → rustc → LLVM IR → LLVM wasm backend → <span class="st">.wasm</span> + bindgen shim
+  <span class="cm">wasm-bindgen generates TypeScript-friendly bindings for strings,</span>
+  <span class="cm">structs, and Result types. #[no_std] strips to ~200 bytes.</span>
+
+  <span class="ty">TinyGo</span>  (Go)
+  your_code.go → TinyGo → LLVM IR → LLVM wasm backend → <span class="st">.wasm</span>
+  <span class="cm">Simpler GC, no goroutine scheduler. 15-50 KB for small programs.</span>
+  <span class="cm">Partial standard library. Not a drop-in replacement for go build.</span></code></pre>
+</div>
+
+<p>All three end at the same LLVM backend. The divergence is in what they ship <em>alongside</em> the compiled code. C++ and Rust ship essentially nothing &mdash; their runtime is the compiled code itself. Go ships a garbage collector. Java ships a garbage collector <em>and</em> a class loader. Python ships an interpreter.</p>
 
 <table>
-<tr><th>Component</th><th>Where</th><th>Chapter</th></tr>
-<tr><td>Stack machine execution model</td><td>every instruction</td><td>Ch 02</td></tr>
-<tr><td>Linear memory for strings</td><td>template + output buffers</td><td>Ch 04, 09</td></tr>
-<tr><td>Block/loop/br_if scanner</td><td>the <code>render</code> function</td><td>Ch 07</td></tr>
-<tr><td>Imported function (<code>$lookup</code>)</td><td>JS provides variable resolution</td><td>Ch 08</td></tr>
-<tr><td>Byte-by-byte string handling</td><td><code>emit_byte</code>, <code>emit_bytes</code></td><td>Ch 09</td></tr>
-<tr><td>TextEncoder/TextDecoder bridge</td><td>JS reads/writes Wasm memory</td><td>Ch 09</td></tr>
+<tr><th>Language</th><th>add(i32, i32)</th><th>Hello World</th><th>Why</th></tr>
+<tr><td><span style="color:var(--green)">Rust (no_std)</span></td><td>~200 bytes</td><td>~1.5 KB</td><td>No runtime. malloc/free in linear memory.</td></tr>
+<tr><td><span style="color:var(--orange)">C++ (Emscripten)</span></td><td>~800 bytes</td><td>~150 KB</td><td>libc ships printf, locale, I/O code.</td></tr>
+<tr><td><span style="color:var(--magenta)">TinyGo</span></td><td>~8 KB</td><td>~15 KB</td><td>Minimal GC. No goroutines.</td></tr>
+<tr><td><span style="color:var(--red)">Go (standard)</span></td><td>~2.1 MB</td><td>~2.1 MB</td><td>Full runtime: GC + scheduler + reflect.</td></tr>
 </table>
 
-<div class="power">
-<div class="power-label">Why This Matters</div>
-<p>This template engine is small &mdash; maybe 200 bytes of Wasm after assembly. But the <em>patterns</em> are the same ones Figma uses for its rendering engine, the same ones ffmpeg.wasm uses for video processing, the same ones Cloudflare uses for edge compute. The scale changes. The architecture does not: Wasm scans and transforms bytes in linear memory. JavaScript handles I/O and high-level data structures. The bridge is <code>TextEncoder</code>, a pointer, and a length.</p>
+<p>This is not a toolchain comparison chart. It is a structural constraint. Languages that manage their own memory map cleanly to Wasm&rsquo;s model. Languages that need a GC fight the model. This is why the largest, most successful Wasm deployments in production are overwhelmingly C++ and Rust codebases.</p>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 7: WHO ACTUALLY SHIPS WASM                              -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch7">
+<h2>07 &mdash; who actually ships wasm</h2>
+
+<p class="drop-cap">The compilation tradeoff is not theory. Real teams with real codebases made the decision to compile to Wasm, and the results range from &ldquo;we saved the company&rdquo; to &ldquo;we shipped the impossible.&rdquo; Six case studies. Each one: what language, what toolchain, what the tradeoff was, what they gained.</p>
+
+<h3>Figma: The C++ Rendering Engine</h3>
+
+<p>Figma&rsquo;s 2D rendering engine is written in C++. Not the UI &mdash; the actual canvas rendering: vector operations, boolean geometry, gradient rasterization. When Figma launched, the engine compiled to asm.js (Emscripten&rsquo;s pre-Wasm output). When browser Wasm support landed in 2017, they migrated and measured a <strong>3x improvement in load time</strong>.</p>
+
+<p>The architecture is split: C++ owns the canvas, JavaScript owns the UI and network layer. Pixel data lives in Wasm linear memory. The C++ engine rasterizes frames into a buffer, and JavaScript blits the result to a <code>&lt;canvas&gt;</code> element via <code>putImageData</code>. For multi-user editing, Figma uses <code>SharedArrayBuffer</code> to share the linear memory between the main thread and Web Workers &mdash; parallel tile rendering without copying pixel buffers.</p>
+
+<p>The key insight: Figma did not choose Wasm because it was new. They chose C++ because JavaScript was too slow for 2D rendering at interactive framerates, and Wasm was the path to running C++ in a browser tab. Over 150,000 daily users of the web version never install a native app.</p>
+
+<h3>AutoCAD: 35 Years of C++ in a Browser</h3>
+
+<p>AutoCAD&rsquo;s codebase is over 35 years old. Millions of lines of C++. The DWG file format, the geometry kernel, the rendering pipeline &mdash; all C++, all battle-tested, all deeply intertwined. When Autodesk launched AutoCAD Web in 2018, they compiled the existing C++ engine to Wasm via Emscripten.</p>
+
+<p>The alternative was a rewrite. Translating decades of computational geometry, constraint solvers, and rendering code into JavaScript &mdash; with full DWG format support &mdash; would have taken years and introduced regressions in an engineering tool where sub-millimeter precision matters. Emscripten let them compile the same codebase that runs on desktop. The browser became another platform target, not a separate product.</p>
+
+<p>The tradeoff was binary size. The full AutoCAD Wasm bundle is large &mdash; tens of megabytes &mdash; but that is tens of megabytes of geometry kernel and CAD logic, not runtime overhead. The code is the same code that runs natively. The Wasm tax is near zero.</p>
+
+<h3>Doom 3: The Full Game</h3>
+
+<p>In 2023, Gabriel Cuvillier compiled the id Tech 4 engine &mdash; Doom 3&rsquo;s C++ game engine &mdash; to Wasm through Emscripten. Roughly 500,000 lines of C++ compiled with zero game-logic changes. The renderer, the physics, the AI, the audio mixer &mdash; all running in a browser tab at 60fps.</p>
+
+<p>This is the purest demonstration of the compilation tradeoff. id Tech 4 manages its own memory entirely &mdash; custom allocators, memory pools, manual lifetime management. It maps to Wasm linear memory with no friction. The Emscripten layer provides OpenGL-to-WebGL translation and input event forwarding. The game does not know it is running in a browser.</p>
+
+<p>The takeaway is not &ldquo;you can play Doom in a browser.&rdquo; It is that a half-million-line C++ codebase with custom memory management, real-time rendering requirements, and decades of optimization can target Wasm without a rewrite. If your codebase manages its own memory, Wasm is a viable target.</p>
+
+<h3>Google Sheets: WasmGC Changes the Equation</h3>
+
+<p>Google Sheets took a different path. The calculation engine was JavaScript &mdash; and it was the bottleneck. Google migrated it to a Kotlin codebase compiled to <strong>WasmGC</strong>, the Wasm proposal that lets the browser&rsquo;s garbage collector manage Wasm objects directly. No custom GC shipped inside the module. No 2 MB runtime floor.</p>
+
+<p>The result: <strong>2x faster recalculation</strong> on complex spreadsheets. This was one of the first major WasmGC production deployments. It demonstrates that the GC tax from Chapter 6 is not permanent &mdash; WasmGC is the escape valve. But it requires browser support (Chrome 119+, Firefox 120+, shipped late 2023) and language toolchain adoption. Kotlin/Wasm targets WasmGC today. Dart targets it for Flutter Web. Go and Python do not &mdash; yet.</p>
+
+<h3>Photoshop: Creative Filters at Native Speed</h3>
+
+<p>Adobe brought Photoshop to the web starting in 2021. The core of Photoshop &mdash; the rendering pipeline, the filter engine, the color science &mdash; is C++ compiled via Emscripten. The UI is Web Components and Lit, running in JavaScript. The boundary between them is the bridge: pixel buffers flowing from the JavaScript UI layer into the C++ processing layer.</p>
+
+<p>Adobe did not ship the entire desktop Photoshop on day one. They started with core editing tools and progressively added features &mdash; layers, selection tools, generative fill. Each feature was already implemented in C++. The work was not implementing the feature in a new language; it was wiring the existing C++ implementation to the browser&rsquo;s input/output surfaces.</p>
+
+<p>For compute-heavy operations like Content-Aware Fill, the C++ code runs in a Web Worker with <code>SharedArrayBuffer</code>, keeping the UI thread responsive. The filter pipeline crosses the Wasm/JS bridge once per operation &mdash; passing an image buffer pointer in, getting a processed buffer pointer back. The per-pixel work stays entirely inside Wasm.</p>
+
+<h3>Lichess: Stockfish in Every Browser Tab</h3>
+
+<p>Lichess, the open-source chess platform, compiles Stockfish &mdash; the strongest open-source chess engine &mdash; to Wasm. When you analyze a game on lichess.org, the analysis runs on <em>your</em> machine, in <em>your</em> browser tab. No server round-trip. No GPU. Stockfish&rsquo;s alpha-beta search tree runs entirely in Wasm at roughly 50 million nodes per second &mdash; about half of native speed, but more than enough for real-time analysis.</p>
+
+<p>The economics matter. Lichess is a non-profit. Server-side analysis for millions of games per day would require massive compute infrastructure. By compiling Stockfish to Wasm, the analysis cost is zero &mdash; the client pays with their own CPU. Every user gets unlimited analysis. The chess engine is C++ with manual memory management (transposition tables, move lists, evaluation caches). It maps to Wasm linear memory cleanly.</p>
+
+<p>Lichess also demonstrates a deployment nuance: they ship multiple Wasm builds. A <code>SharedArrayBuffer</code> build uses Web Workers for multi-threaded search on browsers that support it. A single-threaded fallback runs everywhere else. The same C++ engine, two compilation targets, automatic detection.</p>
+
+<div class="power zen">
+<div class="power-label">The Pattern</div>
+<p>Six teams. Six products. All C++ or Kotlin compiled to Wasm &mdash; not rewritten in a new language. The rendering engine stays in C++. The chess engine stays in C++. The calculation engine moves to Kotlin. The browser is a deployment target, not a development environment. Wasm is the bridge between &ldquo;we have millions of lines of code&rdquo; and &ldquo;it needs to run everywhere.&rdquo;</p>
 </div>
 
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<!-- CHAPTER 13: SHIP IT                                             -->
+<!-- CHAPTER 8: THE BRIDGE                                           -->
 <!-- ═══════════════════════════════════════════════════════════════ -->
-<section id="ch13">
-<h2>13 &mdash; ship it</h2>
+<section id="ch8">
+<h2>08 &mdash; the bridge</h2>
 
-<p class="drop-cap">The template engine works. It runs in a browser tab. But WebAssembly does not stop at the browser. The same <code>.wasm</code> binary can run on a server, in a CLI tool, or at the edge &mdash; without changing a single byte. This chapter takes the module we built and deploys it three ways.</p>
+<p class="drop-cap">Every product in the previous chapter faces the same engineering problem: moving data between Wasm and the host. The Wasm module owns linear memory. The JavaScript host owns the DOM, the network, and the Canvas API. The bridge between them is where performance is won or lost.</p>
 
-<h3>Way 1: The Browser</h3>
+<h3>The Call Overhead Model</h3>
 
-<p>You already did this. <code>instantiateStreaming</code>, an import object, and the result comes back as bytes in shared memory. The module is 200 bytes. It loads instantly. It runs in any browser that supports WebAssembly &mdash; which is 97% of browsers worldwide.</p>
+<p>A JavaScript &rarr; Wasm function call costs roughly <strong>10&ndash;15 nanoseconds</strong> in V8 and SpiderMonkey. One call is free. The cost becomes visible at scale:</p>
 
-<h3>Way 2: WASI on the Command Line</h3>
+<table>
+<tr><th>Scenario</th><th>Calls/frame</th><th>Overhead at 60fps</th><th>Verdict</th></tr>
+<tr><td>One render call</td><td>1</td><td>~15 ns</td><td><span style="color:var(--green)">negligible</span></td></tr>
+<tr><td>Per-pixel callback</td><td>1,920,000</td><td>~29 ms</td><td><span style="color:var(--red)">kills your frame budget</span></td></tr>
+<tr><td>Batched image pass</td><td>1</td><td>~15 ns</td><td><span style="color:var(--green)">the right approach</span></td></tr>
+</table>
 
-<p>The same module can run outside the browser using a WASI runtime like Wasmtime or Wasmer. WASI provides capability-based access to the filesystem, standard I/O, and the clock &mdash; but only what you explicitly grant. The module starts with zero permissions.</p>
+<p>The rule: <strong>cross the bridge once with a lot of data, not many times with a little data.</strong> This is exactly how the case studies from Chapter 7 work.</p>
 
-<pre><span class="label">Shell</span><code><span class="cm"># Run the template engine via Wasmtime</span>
-<span class="fn">wasmtime</span> template.wasm --invoke render
+<h3>How Figma Crosses the Bridge</h3>
 
-<span class="cm"># Or via Wasmer</span>
-<span class="fn">wasmer</span> run template.wasm --invoke render</code></pre>
+<p>Figma&rsquo;s C++ rendering engine rasterizes an entire tile into a pixel buffer in linear memory. JavaScript reads the result as a <code>Uint8Array</code> view and draws it to a <code>&lt;canvas&gt;</code> with <code>putImageData</code>. One call in, one read out. The per-pixel rendering loop runs entirely inside Wasm:</p>
 
-<p>For a CLI version, you would add WASI imports for reading stdin and writing stdout, replacing the JavaScript bridge with WASI&rsquo;s file descriptor API. The scanner logic stays identical. The byte-level code does not change &mdash; only the I/O boundary.</p>
+<pre><span class="label">JavaScript</span><code><span class="cm">// Figma's pattern: pass a buffer pointer, not individual pixels</span>
+<span class="kw">const</span> bufferPtr = instance.exports.<span class="fn">render_tile</span>(tileX, tileY, width, height);
 
-<h3>Way 3: Edge Compute</h3>
+<span class="kw">const</span> pixels = <span class="kw">new</span> <span class="ty">Uint8ClampedArray</span>(
+  instance.exports.memory.buffer, bufferPtr, width * height * <span class="nm">4</span>
+);
+<span class="kw">const</span> imageData = <span class="kw">new</span> <span class="ty">ImageData</span>(pixels, width, height);
+ctx.<span class="fn">putImageData</span>(imageData, tileX, tileY);</code></pre>
 
-<p>Cloudflare Workers, Fastly Compute, and Fermyon Spin all run Wasm at the edge. Your template engine becomes an HTTP handler: receive a request with a template and variables as JSON, render the output in Wasm, return the result. Cold start: sub-millisecond. Memory overhead: kilobytes. The same 200-byte module that ran in your browser tab now runs in 300 cities.</p>
+<p>Photoshop&rsquo;s filter pipeline works the same way. A Content-Aware Fill operation receives an image buffer pointer, processes the entire image inside the C++ Wasm module, and returns a pointer to the result. The bridge is crossed once per operation, not once per pixel.</p>
 
-<h3>Where Wasm Goes Next</h3>
+<h3>SharedArrayBuffer: Zero-Copy Sharing</h3>
 
-<p>The Component Model and WIT (Wasm Interface Types) are turning modules into composable building blocks. A Rust image resizer, a Python ML classifier, and your handwritten WAT template engine can be wired together without sharing memory or agreeing on a calling convention &mdash; WIT handles the type translation at the boundary.</p>
+<p>For multi-threaded rendering, Figma and Photoshop use <code>SharedArrayBuffer</code> to share Wasm linear memory between the main thread and Web Workers. No copying &mdash; the worker writes directly to the same memory the main thread reads from:</p>
 
-<p>WasmGC lets garbage-collected languages (Kotlin, Dart, Java) run efficiently without shipping their own GC. WASI 0.3 adds native <code>async</code>/<code>await</code> for non-blocking I/O. And the AI ecosystem &mdash; ONNX Runtime, TensorFlow.js, MediaPipe, web-llm &mdash; has converged on Wasm as the portable floor with hardware accelerators (WebGPU, WebNN, CUDA) as the performance ceiling.</p>
+<pre><span class="label">JavaScript</span><code><span class="kw">const</span> memory = <span class="kw">new</span> <span class="ty">WebAssembly.Memory</span>({
+  initial: <span class="nm">256</span>,     <span class="cm">// 16 MB</span>
+  maximum: <span class="nm">512</span>,     <span class="cm">// 32 MB</span>
+  shared: <span class="nm">true</span>      <span class="cm">// backed by SharedArrayBuffer</span>
+});
 
-<div class="power">
-<div class="power-label">The Floor, Not the Ceiling</div>
-<p>WebAssembly is not the fastest runtime. It never will be. The matmul belongs to the GPU. The video decode belongs to the hardware codec. The regex belongs to a hand-tuned native library. But Wasm is the only runtime that works <em>everywhere</em>, isolates <em>everything</em>, and composes with <em>any accelerator</em> the host provides. Write it once in WAT. Assemble it with <code>wat2wasm</code>. Run it in a browser, on a server, at the edge, or inside a plugin sandbox. One binary. Every platform. Zero trust required.</p>
+<span class="cm">// Pass the same memory to both the main module and the worker module.</span>
+<span class="cm">// Both threads see the same bytes. Atomics coordinate access.</span></code></pre>
+
+<p>This requires <code>Cross-Origin-Opener-Policy: same-origin</code> and <code>Cross-Origin-Embedder-Policy: require-corp</code> HTTP headers. The security headers are non-negotiable &mdash; they exist because <code>SharedArrayBuffer</code> was the vector for Spectre-class timing attacks. Lichess ships two builds: a multi-threaded <code>SharedArrayBuffer</code> build for browsers that support it, and a single-threaded fallback for those that don&rsquo;t.</p>
+
+<h3>Struct Layouts in Memory</h3>
+
+<p>When passing complex data, you define a memory layout and pack fields at known offsets. There is no automatic serialization &mdash; you are the serializer:</p>
+
+<div class="diagram">
+<span class="diagram-label">Struct layout: Particle (20 bytes)</span>
+<pre><code>  Offset   Field       Type     Size
+  ──────   ─────       ────     ────
+  +0       x           f32      4 bytes
+  +4       y           f32      4 bytes
+  +8       vx          f32      4 bytes
+  +12      vy          f32      4 bytes
+  +16      life        i32      4 bytes
+
+  <span class="cm">1000 particles = 20,000 bytes starting at base_ptr</span>
+  <span class="cm">particle[i].vy = f32.load(base_ptr + i * 20 + 12)</span></code></pre>
 </div>
+
+<p>This is exactly how C structs are laid out in memory. No JSON parsing. No object allocation. The JavaScript side writes fields at offsets; the Wasm side reads them with <code>f32.load</code>. For Figma&rsquo;s vector objects, Photoshop&rsquo;s layer metadata, or a game engine&rsquo;s entity list, this is the only pattern that keeps the frame budget.</p>
+
+<h3>Automation: wasm-bindgen</h3>
+
+<p>If you use Rust, <code>wasm-bindgen</code> automates the bridge. It generates JavaScript shims that handle string conversion, struct serialization, and <code>Result</code> type translation:</p>
+
+<pre><span class="label">Rust</span><code><span class="kw">use</span> wasm_bindgen::prelude::*;
+
+<span class="pp">#[wasm_bindgen]</span>
+<span class="kw">pub fn</span> <span class="fn">greet</span>(name: &amp;<span class="ty">str</span>) -> <span class="ty">String</span> {
+    <span class="fn">format!</span>(<span class="st">"Hello, {}!"</span>, name)
+}</code></pre>
+
+<p>Under the hood, the generated code does the same pointer-and-length dance from Chapter 2. <code>wasm-bindgen</code> just writes it for you.</p>
+
+<div class="power wild">
+<div class="power-label">When to Stay in JavaScript</div>
+<p>Not everything belongs in Wasm. DOM manipulation, network requests, and string-heavy business logic are faster in JavaScript because they avoid the bridge entirely. Wasm wins when the work is compute-bound: image processing, physics simulation, audio synthesis, compression, parsing binary formats. The bridge cost is not per-byte &mdash; it is per-crossing. If the compute-to-crossing ratio is low, JavaScript is faster.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 9: BEYOND THE BROWSER                                   -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch9">
+<h2>09 &mdash; beyond the browser</h2>
+
+<p class="drop-cap">The same <code>.wasm</code> binary that runs in a browser tab can run on a server, inside a CLI tool, or at the edge. Outside the browser, the host is not JavaScript &mdash; it is <strong>WASI</strong>, the WebAssembly System Interface. WASI gives Wasm modules access to files, network sockets, clocks, and random numbers, but only the capabilities you explicitly grant. A module starts with zero permissions. Every capability is an allowlist.</p>
+
+<p>Traditional programs inherit the full permissions of the user who runs them. A Python package you <code>pip install</code> can read your SSH keys and exfiltrate them. WASI inverts this. A Wasm module must be <em>given</em> each capability at instantiation: <code>wasmtime --dir=/data/input app.wasm</code> grants access to one directory. No flags means no filesystem access at all. Permissions are added, not removed.</p>
+
+<h3>Who Is Running Wasm Outside the Browser</h3>
+
+<p><strong>Cloudflare Workers</strong> runs over a million Wasm-capable workers across 300+ cities. Cold start: sub-millisecond. Memory overhead per isolate: kilobytes, not the 5+ MB of a V8 isolate. This is the economic argument &mdash; on a machine running 10,000 tenants, the difference between Wasm and a container is the difference between one server and a fleet. Cloudflare uses their own runtime to execute Wasm modules as HTTP handlers.</p>
+
+<p><strong>Fastly Compute</strong> is Wasm-native. Every request handler is a compiled Wasm module running on Wasmtime. The platform supports Rust, Go (via TinyGo), and JavaScript (compiled to Wasm through their JS SDK). Startup time is under 50 microseconds &mdash; fast enough that they spin up a fresh instance per request and tear it down after.</p>
+
+<p><strong>Shopify Functions</strong> lets merchants write custom business logic &mdash; discount rules, shipping calculations, payment validation &mdash; that runs as Wasm modules inside Shopify&rsquo;s infrastructure. The security model is the point: merchant code runs in a sandbox with no filesystem access, no network access, and strict compute limits. It cannot escape to other tenants&rsquo; data.</p>
+
+<p><strong>Fermyon Spin</strong> is a full application framework built on Wasmtime. You write request handlers in Rust, Go, Python, or JavaScript, compile to Wasm, and deploy. Spin handles routing, key-value storage, and outbound HTTP. The component model lets you compose handlers written in different languages into a single application.</p>
+
+<h3>Docker + Wasm</h3>
+
+<p>Docker Desktop added Wasm support in 2022 through <code>runwasi</code>, a containerd shim that runs Wasm modules alongside traditional Linux containers. The interface is familiar:</p>
+
+<pre><span class="label">Shell</span><code><span class="fn">docker</span> run --runtime=io.containerd.wasmedge.v1 \
+  --platform=wasi/wasm \
+  my-wasm-app:latest</code></pre>
+
+<p>A Wasm &ldquo;container&rdquo; does not include a Linux filesystem, a kernel interface, or a package manager. It is a <code>.wasm</code> binary with WASI capabilities. Cold start: microseconds. Image size: kilobytes to low megabytes. The tradeoff is that your code must compile to Wasm &mdash; you cannot run arbitrary Linux binaries.</p>
+
+<h3>The Component Model</h3>
+
+<p>The Component Model and WIT (Wasm Interface Types) are turning modules into composable building blocks. A Rust image resizer, a Kotlin ML classifier, and a Go request handler can be wired together without sharing memory or agreeing on a calling convention. Each component has its own linear memory. They communicate through WIT-defined interfaces with automatic type translation.</p>
+
+<div class="diagram">
+<span class="diagram-label">Component composition</span>
+<pre><code>  ┌─────────────────┐     ┌──────────────────┐     ┌────────────────┐
+  │   <span class="st">Rust module</span>    │     │  <span class="fn">Kotlin module</span>   │     │  <span class="ty">Go module</span>     │
+  │  image-resize    │     │  ml-classify     │     │  http-handler  │
+  └───────┬──────────┘     └───────┬──────────┘     └───────┬────────┘
+          │                        │                        │
+          └────────────────────────┴────────────────────────┘
+                                   │
+                            <span class="kw">WIT interface</span>
+                     <span class="cm">types translated at boundaries</span>
+                     <span class="cm">separate linear memories</span>
+                     <span class="cm">security boundaries between components</span></code></pre>
+</div>
+
+<p>A string in Rust becomes a string in Kotlin becomes a pointer-and-length in Go &mdash; the Component Model handles the conversion. This is the path to a universal plugin system: compose modules written in any language, running in any host, with isolation between them. Fermyon Spin, Wasmtime, and WAMR all support components today.</p>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 10: WHAT WASM CHANGES                                   -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch10">
+<h2>10 &mdash; what wasm changes</h2>
+
+<p class="drop-cap">WebAssembly shipped as an MVP in 2017 with four value types and no threads. Eight years later, the spec has grown proposals like rings on a tree &mdash; each one extending the machine in a specific direction. Three matter most.</p>
+
+<h3>WasmGC: The GC Tax Goes Away</h3>
+
+<p>Before WasmGC, garbage-collected languages had to ship their own GC inside the Wasm module &mdash; megabytes of runtime code managing memory inside linear memory, blind to the browser&rsquo;s own collector. WasmGC (shipped in Chrome 119, Firefox 120, late 2023) adds struct and array types that the host engine manages directly. The module declares types; the engine allocates, traces, and collects them.</p>
+
+<div class="diagram">
+<span class="diagram-label">WasmGC vs. linear memory GC</span>
+<pre><code>  <span class="ty">Before WasmGC</span>                          <span class="fn">With WasmGC</span>
+  ──────────────                          ──────────
+
+  ┌──── Wasm module ────┐                ┌──── Wasm module ────┐
+  │ ┌──────────────────┐ │                │                      │
+  │ │  custom GC code  │ │                │  <span class="st">(no GC code)</span>        │
+  │ │  (mark &amp; sweep)  │ │                │  struct/array types  │
+  │ └──────────────────┘ │                │  managed by host     │
+  │ ┌──────────────────┐ │                └──────────┬───────────┘
+  │ │  linear memory   │ │                           │
+  │ │  (manual heap)   │ │                  ┌────────▼────────┐
+  │ └──────────────────┘ │                  │  <span class="fn">Browser&rsquo;s GC</span>   │
+  └──────────────────────┘                  │  V8 / SM / JSC  │
+                                            └─────────────────┘
+  <span class="cm">Duplicated work,</span>                        <span class="cm">Shared GC,</span>
+  <span class="cm">large binaries,</span>                         <span class="cm">smaller binaries,</span>
+  <span class="cm">can&rsquo;t collect cycles</span>                    <span class="cm">full cycle collection</span>
+  <span class="cm">with JS objects</span>                         <span class="cm">across JS &amp; Wasm</span></code></pre>
+</div>
+
+<p>Google Sheets proved the model works at scale: Kotlin compiled to WasmGC, 2x faster recalculation, no shipped GC runtime. Kotlin/Wasm and Dart target WasmGC today. Go and Python do not yet &mdash; but when they do, the 2.1 MB floor for Go&rsquo;s standard Wasm target becomes a rounding error.</p>
+
+<h3>SIMD and Memory64</h3>
+
+<p>The fixed-width SIMD proposal (128-bit <code>v128</code>) shipped in 2023. <strong>Relaxed SIMD</strong> goes further: it trades cross-platform determinism for speed, letting engines use platform-specific instructions like x86 <code>vfmadd</code> and ARM <code>fmla</code>. For audio processing, image filters, and ML inference, the 10&ndash;30% speedup is worth the non-deterministic low bits. Stockfish&rsquo;s Wasm build uses SIMD to accelerate position evaluation.</p>
+
+<p><strong>Memory64</strong> extends addressing from <code>i32</code> (4 GB maximum) to <code>i64</code>, enabling modules that work with large datasets: genomics pipelines, video editors, scientific simulations. The API is identical; only the pointer width changes. Wasmtime and V8 have experimental support.</p>
+
+<h3>The AI Stack</h3>
+
+<p>The ML ecosystem has quietly converged on Wasm as its portable floor. ONNX Runtime compiles to Wasm for browser inference. TensorFlow.js uses Wasm as its CPU backend. MediaPipe runs pose detection through Wasm. <code>web-llm</code> loads quantized LLMs in the browser using Wasm for tokenization and WebGPU for matrix math.</p>
+
+<p>The pattern is consistent: Wasm handles orchestration (tokenization, pre/post-processing, scheduling) while hardware accelerators handle the heavy compute. Wasm is the glue runtime &mdash; portable, sandboxed, and fast enough for everything that is not a matrix multiply.</p>
+
+<div class="diagram">
+<span class="diagram-label">The AI inference stack in the browser</span>
+<pre><code>  ┌────────────────────────────────────────────────────────┐
+  │  <span class="ty">Application</span>  (React, Vue, vanilla JS)                 │
+  ├────────────────────────────────────────────────────────┤
+  │  <span class="fn">Wasm Runtime</span>  (tokenizer, scheduler, pre/post)        │
+  │    — portable, sandboxed, ~native speed               │
+  ├───────────────────────┬────────────────────────────────┤
+  │  <span class="st">WebGPU</span>               │  <span class="pp">WebNN</span>                        │
+  │  matrix math,         │  native ML accelerators        │
+  │  attention kernels    │  (NPU, GPU, DSP)               │
+  ├───────────────────────┴────────────────────────────────┤
+  │  <span class="cm">Hardware</span>  (GPU / NPU / CPU)                           │
+  └────────────────────────────────────────────────────────┘</code></pre>
+</div>
+
+<h3>What You Can Build Now</h3>
+
+<p>You started this article writing bytecode in a text editor. You built a template engine from raw WAT instructions. Then you saw what happens when real teams apply the same principles at scale: Figma&rsquo;s C++ rendering engine serving millions of designers, Photoshop&rsquo;s filter pipeline running at near-native speed in a browser tab, Stockfish analyzing chess positions on the client at 50 million nodes per second, Google Sheets recalculating faster through WasmGC.</p>
+
+<p>The foundation is the same in every case. A typed, sandboxed bytecode. A bridge pattern for moving data between the module and the host. A compilation pipeline that takes an existing codebase and targets a new platform without a rewrite.</p>
+
+<p>If you have a C++ library you want to run in the browser &mdash; Emscripten. If you are writing new compute-heavy code &mdash; Rust with <code>wasm-pack</code>. If you need to run untrusted code safely &mdash; WASI with capability-based permissions. If you need GC language support &mdash; WasmGC with Kotlin or Dart.</p>
+
+<p>The instruction set is small. The reach is not. Now build something.</p>
 
 </section>
 

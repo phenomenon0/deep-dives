@@ -454,6 +454,27 @@
     margin-bottom: 0.3rem;
   }
 
+  /* === RUN BUTTON + OUTPUT === */
+  .run-btn {
+    position: absolute; top: 0.3rem; right: 3rem;
+    background: var(--green); color: var(--bg);
+    border: none; border-radius: 3px; cursor: pointer;
+    font: 600 10px 'JetBrains Mono', monospace; padding: 2px 8px;
+    opacity: 0.6; transition: opacity 0.2s;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    z-index: 2;
+  }
+  .run-btn:hover { opacity: 1; }
+  .run-btn.running { opacity: 0.4; cursor: wait; }
+  .run-output {
+    background: #050508; border: 1px solid var(--border);
+    border-top: none; border-radius: 0 0 6px 6px;
+    padding: 0.8rem 1rem; margin-top: -1px;
+    font: 13px/1.5 'JetBrains Mono', monospace; color: var(--green);
+    white-space: pre-wrap; max-height: 200px; overflow-y: auto;
+  }
+  .run-output.error { color: var(--red); }
+
   @media (max-width: 700px) {
     .vs { grid-template-columns: 1fr; }
     .hero h1 { font-size: 2rem; }
@@ -674,9 +695,23 @@
   Worst case expansion: ~1% (one control byte per 128 literals)</code></pre>
 </div>
 
-<h3>C Implementation</h3>
+<h3>Implementation</h3>
 
-<pre><code><span class="pp">#include</span> <span class="st">&lt;stdint.h&gt;</span>
+<div class="lang-tabs">
+  <input type="radio" name="tabs-rle" id="rle-c" class="tc" checked>
+  <input type="radio" name="tabs-rle" id="rle-py" class="tpy">
+  <input type="radio" name="tabs-rle" id="rle-ts" class="tts">
+  <input type="radio" name="tabs-rle" id="rle-go" class="tgo">
+  <input type="radio" name="tabs-rle" id="rle-rs" class="trs">
+  <div class="tab-bar">
+    <label for="rle-c">C</label>
+    <label for="rle-py">Python</label>
+    <label for="rle-ts">TypeScript</label>
+    <label for="rle-go">Go</label>
+    <label for="rle-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+    <pre><code><span class="pp">#include</span> <span class="st">&lt;stdint.h&gt;</span>
 <span class="pp">#include</span> <span class="st">&lt;string.h&gt;</span>
 
 <span class="cm">// Simple RLE encoder: (count, byte) pairs</span>
@@ -710,6 +745,100 @@
     <span class="kw">return</span> out;
 }
 <span class="label">C &mdash; basic RLE</span></code></pre>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">def</span> <span class="fn">rle_encode</span>(data: <span class="ty">bytes</span>) -&gt; <span class="ty">bytes</span>:
+    out = <span class="fn">bytearray</span>()
+    i = <span class="nm">0</span>
+    <span class="kw">while</span> i &lt; <span class="fn">len</span>(data):
+        val = data[i]
+        run = <span class="nm">1</span>
+        <span class="kw">while</span> i + run &lt; <span class="fn">len</span>(data) <span class="kw">and</span> data[i + run] == val <span class="kw">and</span> run &lt; <span class="nm">255</span>:
+            run += <span class="nm">1</span>
+        out.<span class="fn">extend</span>([run, val])
+        i += run
+    <span class="kw">return</span> <span class="fn">bytes</span>(out)
+
+<span class="kw">def</span> <span class="fn">rle_decode</span>(data: <span class="ty">bytes</span>) -&gt; <span class="ty">bytes</span>:
+    out = <span class="fn">bytearray</span>()
+    <span class="kw">for</span> i <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">0</span>, <span class="fn">len</span>(data), <span class="nm">2</span>):
+        out.<span class="fn">extend</span>([data[i + <span class="nm">1</span>]] * data[i])
+    <span class="kw">return</span> <span class="fn">bytes</span>(out)
+
+d = <span class="st">b'\x41'</span> * <span class="nm">100</span> + <span class="st">b'\x42'</span> * <span class="nm">50</span> + <span class="st">b'\x43'</span> * <span class="nm">25</span>
+enc = <span class="fn">rle_encode</span>(d)
+<span class="fn">print</span>(f<span class="st">'{len(d)} bytes &rarr; {len(enc)} bytes ({len(d)/len(enc):.0f}x)'</span>)<span class="label">python</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="kw">function</span> <span class="fn">rleEncode</span>(data: <span class="ty">Uint8Array</span>): <span class="ty">Uint8Array</span> {
+  <span class="kw">const</span> out: <span class="ty">number</span>[] = [];
+  <span class="kw">let</span> i = <span class="nm">0</span>;
+  <span class="kw">while</span> (i &lt; data.length) {
+    <span class="kw">const</span> val = data[i];
+    <span class="kw">let</span> run = <span class="nm">1</span>;
+    <span class="kw">while</span> (i + run &lt; data.length &amp;&amp; data[i + run] === val &amp;&amp; run &lt; <span class="nm">255</span>) run++;
+    out.<span class="fn">push</span>(run, val);
+    i += run;
+  }
+  <span class="kw">return</span> <span class="kw">new</span> <span class="ty">Uint8Array</span>(out);
+}
+
+<span class="kw">function</span> <span class="fn">rleDecode</span>(data: <span class="ty">Uint8Array</span>): <span class="ty">Uint8Array</span> {
+  <span class="kw">const</span> out: <span class="ty">number</span>[] = [];
+  <span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">0</span>; i &lt; data.length; i += <span class="nm">2</span>)
+    <span class="kw">for</span> (<span class="kw">let</span> j = <span class="nm">0</span>; j &lt; data[i]; j++) out.<span class="fn">push</span>(data[i + <span class="nm">1</span>]);
+  <span class="kw">return</span> <span class="kw">new</span> <span class="ty">Uint8Array</span>(out);
+}<span class="label">typescript</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="kw">func</span> <span class="fn">rleEncode</span>(data []<span class="ty">byte</span>) []<span class="ty">byte</span> {
+    <span class="kw">var</span> out []<span class="ty">byte</span>
+    <span class="kw">for</span> i := <span class="nm">0</span>; i &lt; <span class="fn">len</span>(data); {
+        val := data[i]
+        run := <span class="nm">1</span>
+        <span class="kw">for</span> i+run &lt; <span class="fn">len</span>(data) &amp;&amp; data[i+run] == val &amp;&amp; run &lt; <span class="nm">255</span> {
+            run++
+        }
+        out = <span class="fn">append</span>(out, <span class="fn">byte</span>(run), val)
+        i += run
+    }
+    <span class="kw">return</span> out
+}
+
+<span class="kw">func</span> <span class="fn">rleDecode</span>(data []<span class="ty">byte</span>) []<span class="ty">byte</span> {
+    <span class="kw">var</span> out []<span class="ty">byte</span>
+    <span class="kw">for</span> i := <span class="nm">0</span>; i+<span class="nm">1</span> &lt; <span class="fn">len</span>(data); i += <span class="nm">2</span> {
+        <span class="kw">for</span> j := <span class="nm">0</span>; j &lt; <span class="fn">int</span>(data[i]); j++ {
+            out = <span class="fn">append</span>(out, data[i+<span class="nm">1</span>])
+        }
+    }
+    <span class="kw">return</span> out
+}<span class="label">go</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="kw">fn</span> <span class="fn">rle_encode</span>(data: &amp;[<span class="ty">u8</span>]) -&gt; <span class="ty">Vec</span>&lt;<span class="ty">u8</span>&gt; {
+    <span class="kw">let mut</span> out = <span class="ty">Vec</span>::<span class="fn">new</span>();
+    <span class="kw">let mut</span> i = <span class="nm">0</span>;
+    <span class="kw">while</span> i &lt; data.<span class="fn">len</span>() {
+        <span class="kw">let</span> val = data[i];
+        <span class="kw">let mut</span> run = <span class="nm">1</span><span class="ty">usize</span>;
+        <span class="kw">while</span> i + run &lt; data.<span class="fn">len</span>() &amp;&amp; data[i + run] == val &amp;&amp; run &lt; <span class="nm">255</span> {
+            run += <span class="nm">1</span>;
+        }
+        out.<span class="fn">push</span>(run <span class="kw">as</span> <span class="ty">u8</span>);
+        out.<span class="fn">push</span>(val);
+        i += run;
+    }
+    out
+}
+
+<span class="kw">fn</span> <span class="fn">rle_decode</span>(data: &amp;[<span class="ty">u8</span>]) -&gt; <span class="ty">Vec</span>&lt;<span class="ty">u8</span>&gt; {
+    data.<span class="fn">chunks_exact</span>(<span class="nm">2</span>)
+        .<span class="fn">flat_map</span>(|c| std::iter::<span class="fn">repeat</span>(c[<span class="nm">1</span>]).<span class="fn">take</span>(c[<span class="nm">0</span>] <span class="kw">as</span> <span class="ty">usize</span>))
+        .<span class="fn">collect</span>()
+}<span class="label">rust</span></code></pre>
+  </div>
+</div>
 
 <h4>Byte Stream Transformation</h4>
 
@@ -832,9 +961,50 @@
 <p>No Huffman code is a prefix of any other. <code>0</code> is A, so nothing else starts with <code>0</code>. <code>10</code> is R, so nothing else starts with <code>10</code>. This means you can decode left-to-right without lookahead. Read bits, walk the tree, emit a symbol when you hit a leaf, restart at root. No delimiters. No ambiguity.</p>
 </div>
 
-<h3>C Implementation</h3>
+<h3>Implementation</h3>
 
-<pre><code><span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+
+<h3>Canonical Huffman Codes</h3>
+
+<p>In practice, nobody transmits the actual tree. <strong>Canonical Huffman</strong> reconstructs the codes deterministically given only the code lengths. Sort symbols by length (breaking ties alphabetically), then assign codes sequentially. DEFLATE, JPEG, and most real formats use this.</p>
+
+<div class="diagram">
+<span class="diagram-label">Canonical Huffman</span>
+<pre><code>  Given code lengths from the ABRACADABRA tree:
+    A: 1 bit   B: 3 bits   C: 4 bits   D: 4 bits   R: 2 bits
+
+  Sort by length, then alphabetically:
+    A (1)  -> 0
+    R (2)  -> 10           (prev code + 1, left-shifted)
+    B (3)  -> 110          (prev code + 1, left-shifted)
+    C (4)  -> 1110         (prev code + 1, left-shifted)
+    D (4)  -> 1111         (prev code + 1, same length)
+
+  To transmit the "tree," send only: [1, 3, 4, 4, 2]
+  5 bytes instead of the full tree structure.
+  Decoder rebuilds exact same codes.</code></pre>
+</div>
+
+<div class="power hack">
+<div class="power-label">Hack: Why Huffman Is Not Optimal</div>
+<p>Huffman must use an integer number of bits per symbol. If a symbol's ideal cost is 2.3 bits, Huffman rounds to 2 or 3. This wastes up to 1 bit per symbol. For small alphabets with skewed distributions, the waste adds up. Arithmetic coding and its modern successor tANS assign fractional bits. We will meet tANS in the Zstandard chapter.</p>
+</div>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-huffman" id="huff-c" class="tc" checked>
+  <input type="radio" name="tabs-huffman" id="huff-py" class="tpy">
+  <input type="radio" name="tabs-huffman" id="huff-ts" class="tts">
+  <input type="radio" name="tabs-huffman" id="huff-go" class="tgo">
+  <input type="radio" name="tabs-huffman" id="huff-rs" class="trs">
+  <div class="tab-bar">
+    <label for="huff-c">C</label>
+    <label for="huff-py">Python</label>
+    <label for="huff-ts">TypeScript</label>
+    <label for="huff-go">Go</label>
+    <label for="huff-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+    <pre><code><span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
 <span class="pp">#include</span> <span class="st">&lt;stdlib.h&gt;</span>
 <span class="pp">#include</span> <span class="st">&lt;string.h&gt;</span>
 <span class="pp">#include</span> <span class="st">&lt;stdint.h&gt;</span>
@@ -902,43 +1072,6 @@
     <span class="fn">huffman_codes</span>(tree, tree[node].right, codes, code &lt;&lt; <span class="nm">1</span> | <span class="nm">1</span>, depth+<span class="nm">1</span>);
 }
 <span class="label">C &mdash; Huffman tree</span></code></pre>
-
-<h3>Canonical Huffman Codes</h3>
-
-<p>In practice, nobody transmits the actual tree. <strong>Canonical Huffman</strong> reconstructs the codes deterministically given only the code lengths. Sort symbols by length (breaking ties alphabetically), then assign codes sequentially. DEFLATE, JPEG, and most real formats use this.</p>
-
-<div class="diagram">
-<span class="diagram-label">Canonical Huffman</span>
-<pre><code>  Given code lengths from the ABRACADABRA tree:
-    A: 1 bit   B: 3 bits   C: 4 bits   D: 4 bits   R: 2 bits
-
-  Sort by length, then alphabetically:
-    A (1)  -> 0
-    R (2)  -> 10           (prev code + 1, left-shifted)
-    B (3)  -> 110          (prev code + 1, left-shifted)
-    C (4)  -> 1110         (prev code + 1, left-shifted)
-    D (4)  -> 1111         (prev code + 1, same length)
-
-  To transmit the "tree," send only: [1, 3, 4, 4, 2]
-  5 bytes instead of the full tree structure.
-  Decoder rebuilds exact same codes.</code></pre>
-</div>
-
-<div class="power hack">
-<div class="power-label">Hack: Why Huffman Is Not Optimal</div>
-<p>Huffman must use an integer number of bits per symbol. If a symbol's ideal cost is 2.3 bits, Huffman rounds to 2 or 3. This wastes up to 1 bit per symbol. For small alphabets with skewed distributions, the waste adds up. Arithmetic coding and its modern successor tANS assign fractional bits. We will meet tANS in the Zstandard chapter.</p>
-</div>
-
-<div class="lang-tabs">
-  <input type="radio" name="tabs-huffman" id="huff-py" class="tpy" checked>
-  <input type="radio" name="tabs-huffman" id="huff-ts" class="tts">
-  <input type="radio" name="tabs-huffman" id="huff-go" class="tgo">
-  <input type="radio" name="tabs-huffman" id="huff-rs" class="trs">
-  <div class="tab-bar">
-    <label for="huff-py">Python</label>
-    <label for="huff-ts">TypeScript</label>
-    <label for="huff-go">Go</label>
-    <label for="huff-rs">Rust</label>
   </div>
   <div class="tab-content py">
     <pre><code><span class="kw">import</span> heapq
@@ -1067,7 +1200,21 @@
 
 <p>If you read the <a href="buffer-hacking.html" style="color: var(--cyan);">Buffer Hacking</a> deep dive, you already know ring buffers. The LZ77 sliding window is exactly that &mdash; a fixed-size ring buffer where old data falls off as new data arrives. Window sizes range from 32KB (classic DEFLATE) to 8MB (zstd) to 4GB (modern variants).</p>
 
-<pre><code><span class="pp">#define</span> WINDOW_BITS <span class="nm">15</span>
+<div class="lang-tabs">
+  <input type="radio" name="tabs-lz77" id="lz77-c" class="tc" checked>
+  <input type="radio" name="tabs-lz77" id="lz77-py" class="tpy">
+  <input type="radio" name="tabs-lz77" id="lz77-ts" class="tts">
+  <input type="radio" name="tabs-lz77" id="lz77-go" class="tgo">
+  <input type="radio" name="tabs-lz77" id="lz77-rs" class="trs">
+  <div class="tab-bar">
+    <label for="lz77-c">C</label>
+    <label for="lz77-py">Python</label>
+    <label for="lz77-ts">TypeScript</label>
+    <label for="lz77-go">Go</label>
+    <label for="lz77-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+    <pre><code><span class="pp">#define</span> WINDOW_BITS <span class="nm">15</span>
 <span class="pp">#define</span> WINDOW_SIZE (<span class="nm">1</span> &lt;&lt; WINDOW_BITS)  <span class="cm">// 32768</span>
 <span class="pp">#define</span> WINDOW_MASK (WINDOW_SIZE - <span class="nm">1</span>)   <span class="cm">// 0x7FFF</span>
 
@@ -1104,6 +1251,113 @@
     <span class="kw">return</span> *best_len &gt;= <span class="nm">3</span>;
 }
 <span class="label">C &mdash; LZ77 core</span></code></pre>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">def</span> <span class="fn">lz77_compress</span>(data: <span class="ty">bytes</span>, window: <span class="ty">int</span> = <span class="nm">32768</span>, max_match: <span class="ty">int</span> = <span class="nm">258</span>):
+    <span class="st">"""Yield (offset, length, next_byte) tuples."""</span>
+    i = <span class="nm">0</span>
+    <span class="kw">while</span> i &lt; <span class="fn">len</span>(data):
+        best_off, best_len = <span class="nm">0</span>, <span class="nm">0</span>
+        start = <span class="fn">max</span>(<span class="nm">0</span>, i - window)
+        <span class="kw">for</span> off <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">1</span>, i - start + <span class="nm">1</span>):
+            m = <span class="nm">0</span>
+            <span class="kw">while</span> i + m &lt; <span class="fn">len</span>(data) <span class="kw">and</span> m &lt; max_match:
+                <span class="kw">if</span> data[i + m] != data[i - off + (m % off)]:
+                    <span class="kw">break</span>
+                m += <span class="nm">1</span>
+            <span class="kw">if</span> m &gt; best_len <span class="kw">and</span> m &gt;= <span class="nm">3</span>:
+                best_off, best_len = off, m
+        <span class="kw">if</span> best_len &gt;= <span class="nm">3</span>:
+            <span class="kw">yield</span> (best_off, best_len)
+            i += best_len
+        <span class="kw">else</span>:
+            <span class="kw">yield</span> (<span class="nm">0</span>, data[i])  <span class="cm"># literal</span>
+            i += <span class="nm">1</span>
+
+<span class="kw">for</span> token <span class="kw">in</span> <span class="fn">lz77_compress</span>(<span class="st">b'ABRACADABRACADABRA'</span>):
+    <span class="fn">print</span>(token)<span class="label">python</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="kw">type</span> <span class="ty">Token</span> = { offset: <span class="ty">number</span>; length: <span class="ty">number</span> } | { literal: <span class="ty">number</span> };
+
+<span class="kw">function</span> <span class="fn">lz77Compress</span>(data: <span class="ty">Uint8Array</span>, windowBits = <span class="nm">15</span>): <span class="ty">Token</span>[] {
+  <span class="kw">const</span> windowSize = <span class="nm">1</span> &lt;&lt; windowBits;
+  <span class="kw">const</span> tokens: <span class="ty">Token</span>[] = [];
+  <span class="kw">let</span> i = <span class="nm">0</span>;
+  <span class="kw">while</span> (i &lt; data.length) {
+    <span class="kw">let</span> bestOff = <span class="nm">0</span>, bestLen = <span class="nm">0</span>;
+    <span class="kw">const</span> start = Math.<span class="fn">max</span>(<span class="nm">0</span>, i - windowSize);
+    <span class="kw">for</span> (<span class="kw">let</span> off = <span class="nm">1</span>; off &lt;= i - start; off++) {
+      <span class="kw">let</span> m = <span class="nm">0</span>;
+      <span class="kw">while</span> (i + m &lt; data.length &amp;&amp; m &lt; <span class="nm">258</span>
+             &amp;&amp; data[i + m] === data[i - off + (m % off)]) m++;
+      <span class="kw">if</span> (m &gt; bestLen &amp;&amp; m &gt;= <span class="nm">3</span>) { bestOff = off; bestLen = m; }
+    }
+    <span class="kw">if</span> (bestLen &gt;= <span class="nm">3</span>) { tokens.<span class="fn">push</span>({ offset: bestOff, length: bestLen }); i += bestLen; }
+    <span class="kw">else</span> { tokens.<span class="fn">push</span>({ literal: data[i] }); i++; }
+  }
+  <span class="kw">return</span> tokens;
+}<span class="label">typescript</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="kw">type</span> <span class="ty">Token</span> <span class="kw">struct</span> {
+    Offset, Length <span class="ty">int</span>
+    Literal        <span class="ty">byte</span>
+    IsMatch        <span class="ty">bool</span>
+}
+
+<span class="kw">func</span> <span class="fn">lz77Compress</span>(data []<span class="ty">byte</span>, windowBits <span class="ty">int</span>) []<span class="ty">Token</span> {
+    windowSize := <span class="nm">1</span> &lt;&lt; windowBits
+    <span class="kw">var</span> tokens []<span class="ty">Token</span>
+    <span class="kw">for</span> i := <span class="nm">0</span>; i &lt; <span class="fn">len</span>(data); {
+        bestOff, bestLen := <span class="nm">0</span>, <span class="nm">0</span>
+        start := i - windowSize
+        <span class="kw">if</span> start &lt; <span class="nm">0</span> { start = <span class="nm">0</span> }
+        <span class="kw">for</span> off := <span class="nm">1</span>; off &lt;= i-start; off++ {
+            m := <span class="nm">0</span>
+            <span class="kw">for</span> i+m &lt; <span class="fn">len</span>(data) &amp;&amp; m &lt; <span class="nm">258</span> &amp;&amp;
+                data[i+m] == data[i-off+(m%off)] { m++ }
+            <span class="kw">if</span> m &gt; bestLen &amp;&amp; m &gt;= <span class="nm">3</span> { bestOff, bestLen = off, m }
+        }
+        <span class="kw">if</span> bestLen &gt;= <span class="nm">3</span> {
+            tokens = <span class="fn">append</span>(tokens, <span class="ty">Token</span>{Offset: bestOff, Length: bestLen, IsMatch: <span class="kw">true</span>})
+            i += bestLen
+        } <span class="kw">else</span> {
+            tokens = <span class="fn">append</span>(tokens, <span class="ty">Token</span>{Literal: data[i]})
+            i++
+        }
+    }
+    <span class="kw">return</span> tokens
+}<span class="label">go</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="kw">enum</span> <span class="ty">Token</span> { Match { offset: <span class="ty">usize</span>, length: <span class="ty">usize</span> }, Literal(<span class="ty">u8</span>) }
+
+<span class="kw">fn</span> <span class="fn">lz77_compress</span>(data: &amp;[<span class="ty">u8</span>], window_bits: <span class="ty">u32</span>) -&gt; <span class="ty">Vec</span>&lt;<span class="ty">Token</span>&gt; {
+    <span class="kw">let</span> window_size = <span class="nm">1</span> &lt;&lt; window_bits;
+    <span class="kw">let mut</span> tokens = <span class="ty">Vec</span>::<span class="fn">new</span>();
+    <span class="kw">let mut</span> i = <span class="nm">0</span>;
+    <span class="kw">while</span> i &lt; data.<span class="fn">len</span>() {
+        <span class="kw">let</span> (<span class="kw">mut</span> best_off, <span class="kw">mut</span> best_len) = (<span class="nm">0</span>, <span class="nm">0</span>);
+        <span class="kw">let</span> start = i.<span class="fn">saturating_sub</span>(window_size);
+        <span class="kw">for</span> off <span class="kw">in</span> <span class="nm">1</span>..=(i - start) {
+            <span class="kw">let mut</span> m = <span class="nm">0</span>;
+            <span class="kw">while</span> i + m &lt; data.<span class="fn">len</span>() &amp;&amp; m &lt; <span class="nm">258</span>
+                &amp;&amp; data[i + m] == data[i - off + (m % off)] { m += <span class="nm">1</span>; }
+            <span class="kw">if</span> m &gt; best_len &amp;&amp; m &gt;= <span class="nm">3</span> { best_off = off; best_len = m; }
+        }
+        <span class="kw">if</span> best_len &gt;= <span class="nm">3</span> {
+            tokens.<span class="fn">push</span>(<span class="ty">Token</span>::Match { offset: best_off, length: best_len });
+            i += best_len;
+        } <span class="kw">else</span> {
+            tokens.<span class="fn">push</span>(<span class="ty">Token</span>::Literal(data[i]));
+            i += <span class="nm">1</span>;
+        }
+    }
+    tokens
+}<span class="label">rust</span></code></pre>
+  </div>
+</div>
 
 <div class="power zen">
 <div class="power-label">Zen: Why LZ77 Was Revolutionary</div>
@@ -1459,7 +1713,21 @@ compressed := encoder.<span class="fn">EncodeAll</span>(data, <span class="kw">n
   Length = 15 + sum of additional bytes.</code></pre>
 </div>
 
-<pre><code><span class="cm">// LZ4 decoder core -- the entire hot loop</span>
+<div class="lang-tabs">
+  <input type="radio" name="tabs-lz4dec" id="lz4d-c" class="tc" checked>
+  <input type="radio" name="tabs-lz4dec" id="lz4d-py" class="tpy">
+  <input type="radio" name="tabs-lz4dec" id="lz4d-ts" class="tts">
+  <input type="radio" name="tabs-lz4dec" id="lz4d-go" class="tgo">
+  <input type="radio" name="tabs-lz4dec" id="lz4d-rs" class="trs">
+  <div class="tab-bar">
+    <label for="lz4d-c">C</label>
+    <label for="lz4d-py">Python</label>
+    <label for="lz4d-ts">TypeScript</label>
+    <label for="lz4d-go">Go</label>
+    <label for="lz4d-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+    <pre><code><span class="cm">// LZ4 decoder core -- the entire hot loop</span>
 <span class="kw">while</span> (ip &lt; iend) {
     <span class="ty">uint8_t</span> token = *ip++;
 
@@ -1492,6 +1760,110 @@ compressed := encoder.<span class="fn">EncodeAll</span>(data, <span class="kw">n
     op += match_len;
 }
 <span class="label">C &mdash; LZ4 decoder</span></code></pre>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">def</span> <span class="fn">lz4_decode</span>(src: <span class="ty">bytes</span>, orig_size: <span class="ty">int</span>) -&gt; <span class="ty">bytearray</span>:
+    out = <span class="fn">bytearray</span>()
+    ip = <span class="nm">0</span>
+    <span class="kw">while</span> ip &lt; <span class="fn">len</span>(src):
+        token = src[ip]; ip += <span class="nm">1</span>
+        <span class="cm"># 1. Literals</span>
+        lit_len = token &gt;&gt; <span class="nm">4</span>
+        <span class="kw">if</span> lit_len == <span class="nm">15</span>:
+            <span class="kw">while</span> src[ip] == <span class="nm">255</span>: lit_len += <span class="nm">255</span>; ip += <span class="nm">1</span>
+            lit_len += src[ip]; ip += <span class="nm">1</span>
+        out.<span class="fn">extend</span>(src[ip:ip + lit_len]); ip += lit_len
+        <span class="kw">if</span> ip &gt;= <span class="fn">len</span>(src): <span class="kw">break</span>
+        <span class="cm"># 2. Offset</span>
+        offset = src[ip] | (src[ip + <span class="nm">1</span>] &lt;&lt; <span class="nm">8</span>); ip += <span class="nm">2</span>
+        <span class="cm"># 3. Match</span>
+        match_len = (token &amp; <span class="nm">0x0F</span>) + <span class="nm">4</span>
+        <span class="kw">if</span> match_len == <span class="nm">19</span>:
+            <span class="kw">while</span> src[ip] == <span class="nm">255</span>: match_len += <span class="nm">255</span>; ip += <span class="nm">1</span>
+            match_len += src[ip]; ip += <span class="nm">1</span>
+        <span class="cm"># Copy byte-by-byte (handles overlapping matches)</span>
+        pos = <span class="fn">len</span>(out) - offset
+        <span class="kw">for</span> _ <span class="kw">in</span> <span class="fn">range</span>(match_len):
+            out.<span class="fn">append</span>(out[pos]); pos += <span class="nm">1</span>
+    <span class="kw">return</span> out<span class="label">python</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="kw">function</span> <span class="fn">lz4Decode</span>(src: <span class="ty">Uint8Array</span>, origSize: <span class="ty">number</span>): <span class="ty">Uint8Array</span> {
+  <span class="kw">const</span> out = <span class="kw">new</span> <span class="ty">Uint8Array</span>(origSize);
+  <span class="kw">let</span> ip = <span class="nm">0</span>, op = <span class="nm">0</span>;
+  <span class="kw">while</span> (ip &lt; src.length) {
+    <span class="kw">const</span> token = src[ip++];
+    <span class="kw">let</span> litLen = token &gt;&gt; <span class="nm">4</span>;
+    <span class="kw">if</span> (litLen === <span class="nm">15</span>) { <span class="kw">let</span> s; <span class="kw">do</span> { s = src[ip++]; litLen += s; } <span class="kw">while</span> (s === <span class="nm">255</span>); }
+    out.<span class="fn">set</span>(src.<span class="fn">subarray</span>(ip, ip + litLen), op);
+    ip += litLen; op += litLen;
+    <span class="kw">if</span> (ip &gt;= src.length) <span class="kw">break</span>;
+    <span class="kw">const</span> offset = src[ip] | (src[ip + <span class="nm">1</span>] &lt;&lt; <span class="nm">8</span>); ip += <span class="nm">2</span>;
+    <span class="kw">let</span> matchLen = (token &amp; <span class="nm">0x0F</span>) + <span class="nm">4</span>;
+    <span class="kw">if</span> (matchLen === <span class="nm">19</span>) { <span class="kw">let</span> s; <span class="kw">do</span> { s = src[ip++]; matchLen += s; } <span class="kw">while</span> (s === <span class="nm">255</span>); }
+    <span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">0</span>; i &lt; matchLen; i++) out[op + i] = out[op - offset + i];
+    op += matchLen;
+  }
+  <span class="kw">return</span> out.<span class="fn">subarray</span>(<span class="nm">0</span>, op);
+}<span class="label">typescript</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="kw">func</span> <span class="fn">lz4Decode</span>(src []<span class="ty">byte</span>, origSize <span class="ty">int</span>) []<span class="ty">byte</span> {
+    out := <span class="fn">make</span>([]<span class="ty">byte</span>, <span class="nm">0</span>, origSize)
+    ip := <span class="nm">0</span>
+    <span class="kw">for</span> ip &lt; <span class="fn">len</span>(src) {
+        token := src[ip]; ip++
+        <span class="cm">// 1. Literals</span>
+        litLen := <span class="fn">int</span>(token &gt;&gt; <span class="nm">4</span>)
+        <span class="kw">if</span> litLen == <span class="nm">15</span> {
+            <span class="kw">for</span> src[ip] == <span class="nm">255</span> { litLen += <span class="nm">255</span>; ip++ }
+            litLen += <span class="fn">int</span>(src[ip]); ip++
+        }
+        out = <span class="fn">append</span>(out, src[ip:ip+litLen]...)
+        ip += litLen
+        <span class="kw">if</span> ip &gt;= <span class="fn">len</span>(src) { <span class="kw">break</span> }
+        <span class="cm">// 2. Offset</span>
+        offset := <span class="fn">int</span>(src[ip]) | <span class="fn">int</span>(src[ip+<span class="nm">1</span>])&lt;&lt;<span class="nm">8</span>; ip += <span class="nm">2</span>
+        <span class="cm">// 3. Match (byte-by-byte for overlap safety)</span>
+        matchLen := <span class="fn">int</span>(token&amp;<span class="nm">0x0F</span>) + <span class="nm">4</span>
+        <span class="kw">if</span> matchLen == <span class="nm">19</span> {
+            <span class="kw">for</span> src[ip] == <span class="nm">255</span> { matchLen += <span class="nm">255</span>; ip++ }
+            matchLen += <span class="fn">int</span>(src[ip]); ip++
+        }
+        pos := <span class="fn">len</span>(out) - offset
+        <span class="kw">for</span> i := <span class="nm">0</span>; i &lt; matchLen; i++ {
+            out = <span class="fn">append</span>(out, out[pos+i])
+        }
+    }
+    <span class="kw">return</span> out
+}<span class="label">go</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="kw">fn</span> <span class="fn">lz4_decode</span>(src: &amp;[<span class="ty">u8</span>], orig_size: <span class="ty">usize</span>) -&gt; <span class="ty">Vec</span>&lt;<span class="ty">u8</span>&gt; {
+    <span class="kw">let mut</span> out = <span class="ty">Vec</span>::<span class="fn">with_capacity</span>(orig_size);
+    <span class="kw">let mut</span> ip = <span class="nm">0</span>;
+    <span class="kw">while</span> ip &lt; src.<span class="fn">len</span>() {
+        <span class="kw">let</span> token = src[ip]; ip += <span class="nm">1</span>;
+        <span class="kw">let mut</span> lit_len = (token &gt;&gt; <span class="nm">4</span>) <span class="kw">as</span> <span class="ty">usize</span>;
+        <span class="kw">if</span> lit_len == <span class="nm">15</span> {
+            <span class="kw">while</span> src[ip] == <span class="nm">255</span> { lit_len += <span class="nm">255</span>; ip += <span class="nm">1</span>; }
+            lit_len += src[ip] <span class="kw">as</span> <span class="ty">usize</span>; ip += <span class="nm">1</span>;
+        }
+        out.<span class="fn">extend_from_slice</span>(&amp;src[ip..ip + lit_len]); ip += lit_len;
+        <span class="kw">if</span> ip &gt;= src.<span class="fn">len</span>() { <span class="kw">break</span>; }
+        <span class="kw">let</span> offset = (src[ip] <span class="kw">as</span> <span class="ty">usize</span>) | ((src[ip + <span class="nm">1</span>] <span class="kw">as</span> <span class="ty">usize</span>) &lt;&lt; <span class="nm">8</span>); ip += <span class="nm">2</span>;
+        <span class="kw">let mut</span> match_len = (token &amp; <span class="nm">0x0F</span>) <span class="kw">as</span> <span class="ty">usize</span> + <span class="nm">4</span>;
+        <span class="kw">if</span> match_len == <span class="nm">19</span> {
+            <span class="kw">while</span> src[ip] == <span class="nm">255</span> { match_len += <span class="nm">255</span>; ip += <span class="nm">1</span>; }
+            match_len += src[ip] <span class="kw">as</span> <span class="ty">usize</span>; ip += <span class="nm">1</span>;
+        }
+        <span class="kw">let</span> pos = out.<span class="fn">len</span>() - offset;
+        <span class="kw">for</span> i <span class="kw">in</span> <span class="nm">0</span>..match_len { out.<span class="fn">push</span>(out[pos + i]); }
+    }
+    out
+}<span class="label">rust</span></code></pre>
+  </div>
+</div>
 
 <div class="power">
 <div class="power-label">Shard: CompressLZ4 = 0x02</div>
@@ -2397,5 +2769,251 @@ bad = <span class="fn">bytes</span>(itertools.<span class="fn">islice</span>(ite
 <p style="text-align:center;color:var(--text-dim);margin-top:4rem;font-style:italic;">Every byte you save is a byte the bus does not have to move, the disk does not have to store, and the network does not have to transmit. Compression is not an optimization &mdash; it is a multiplier on everything else you build.</p>
 
 </div>
+
+<script>
+(function() {
+  'use strict';
+
+  // === LANGUAGE DETECTION ===
+  function detectLang(codeEl, pre) {
+    // From tab-content class
+    const tc = pre.closest('.tab-content');
+    if (tc) {
+      if (tc.classList.contains('c')) return 'c';
+      if (tc.classList.contains('py')) return 'python';
+      if (tc.classList.contains('ts')) return 'typescript';
+      if (tc.classList.contains('go')) return 'go';
+      if (tc.classList.contains('rs')) return 'rust';
+    }
+    // From label span
+    const label = pre.querySelector('.label');
+    if (label) {
+      const t = label.textContent.toLowerCase();
+      if (t.includes('python')) return 'python';
+      if (t.includes('typescript') || t === 'ts') return 'typescript';
+      if (t.includes('rust') || t === 'rs') return 'rust';
+      if (t.includes('go') || t === 'go') return 'go';
+      if (t.match(/^c(\s|$)/i) || t.includes('c —') || t.includes('c –')) return 'c';
+    }
+    // From try-this (usually python one-liners)
+    if (pre.closest('.try-this')) {
+      const code = codeEl.textContent;
+      if (code.startsWith('python3') || code.includes('import ')) return 'python';
+    }
+    return null;
+  }
+
+  // === RUNNABLE CHECK ===
+  function isRunnable(pre, codeEl, lang) {
+    if (!lang) return false;
+    // C/Go/Rust are not runnable in-browser
+    if (lang === 'c' || lang === 'go' || lang === 'rust') return false;
+    // Skip diagrams
+    if (pre.closest('.diagram')) return false;
+    // Try-this blocks are always runnable
+    if (pre.closest('.try-this')) return true;
+    // Tab content is always runnable
+    if (pre.closest('.tab-content')) return true;
+    // Standalone with label containing a lang name + has function/print
+    const code = codeEl.textContent;
+    if (pre.querySelector('.label')) {
+      if (code.match(/\b(def |fn |func |function |int main|void |printf|println|print\(|console\.log|fmt\.)/)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // === EXTRACT PLAIN TEXT FROM CODE ELEMENT ===
+  function getCode(codeEl) {
+    // Clone and remove label spans before extracting text
+    const clone = codeEl.cloneNode(true);
+    clone.querySelectorAll('.label').forEach(el => el.remove());
+    return clone.textContent;
+  }
+
+  // === OUTPUT PANEL ===
+  function getOrCreateOutput(pre) {
+    let out = pre.nextElementSibling;
+    if (out && out.classList.contains('run-output')) return out;
+    out = document.createElement('div');
+    out.className = 'run-output';
+    pre.insertAdjacentElement('afterend', out);
+    return out;
+  }
+
+  // === PYTHON RUNNER (Pyodide) ===
+  let pyodideReady = null;
+  async function loadPyodide_() {
+    if (pyodideReady) return pyodideReady;
+    pyodideReady = (async () => {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/pyodide/v0.27.4/full/pyodide.js';
+      document.head.appendChild(script);
+      await new Promise((res, rej) => { script.onload = res; script.onerror = rej; });
+      return await loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.27.4/full/' });
+    })();
+    return pyodideReady;
+  }
+
+  async function runPython(code, out) {
+    out.textContent = 'Loading Python runtime...';
+    out.classList.remove('error');
+    try {
+      const py = await loadPyodide_();
+      // Redirect stdout
+      py.runPython(`import sys, io; sys.stdout = io.StringIO()`);
+      py.runPython(code);
+      const stdout = py.runPython('sys.stdout.getvalue()');
+      out.textContent = stdout || '(no output)';
+    } catch (e) {
+      out.textContent = String(e.message || e);
+      out.classList.add('error');
+    }
+  }
+
+  // === PYTHON ONE-LINER RUNNER ===
+  async function runPythonOneLiner(code, out) {
+    // Handle "python3 -c '...'" style
+    const m = code.match(/^python3?\s+-c\s+["']([\s\S]+)["']\s*$/);
+    if (m) return runPython(m[1], out);
+    // Handle "python3 -c '...' | ..." — just run the python part
+    const m2 = code.match(/^python3?\s+-c\s+["']([\s\S]+?)["']/);
+    if (m2) return runPython(m2[1], out);
+    return runPython(code, out);
+  }
+
+  // === JS/TS RUNNER ===
+  function stripTS(code) {
+    // Remove TS type annotations for browser eval
+    return code
+      .replace(/:\s*(?:string|number|boolean|void|any|never|unknown|undefined|null|bigint|symbol)\b(\[\])?/g, '')
+      .replace(/:\s*(?:Record|Map|Set|Array|Promise|Partial|Required|Readonly)<[^>]+>/g, '')
+      .replace(/<(?:string|number|boolean|void|any|never|unknown|T|U|K|V)(?:\[\])?(?:\s*,\s*(?:string|number|boolean|void|any|never|unknown|T|U|K|V)(?:\[\])?)*>/g, '')
+      .replace(/\bas\s+\w+/g, '')
+      .replace(/^\s*(?:export|import)\s+type\s+.*$/gm, '')
+      .replace(/^\s*interface\s+\w+\s*\{[\s\S]*?\n\}/gm, '')
+      .replace(/^\s*type\s+\w+\s*=.*$/gm, '');
+  }
+
+  async function runJS(code, out) {
+    out.classList.remove('error');
+    const logs = [];
+    const origLog = console.log;
+    const origWarn = console.warn;
+    const origError = console.error;
+    console.log = (...args) => logs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' '));
+    console.warn = console.log;
+    console.error = (...args) => logs.push('ERROR: ' + args.map(String).join(' '));
+    try {
+      const cleaned = stripTS(code);
+      const fn = new Function(cleaned);
+      const result = fn();
+      if (result instanceof Promise) await result;
+      out.textContent = logs.join('\n') || '(no output)';
+    } catch (e) {
+      out.textContent = logs.join('\n') + (logs.length ? '\n' : '') + String(e);
+      out.classList.add('error');
+    } finally {
+      console.log = origLog;
+      console.warn = origWarn;
+      console.error = origError;
+    }
+  }
+
+  // === SNIPPET ID GENERATION ===
+  function snippetId(codeEl, pre) {
+    if (codeEl.dataset.snippetId) return codeEl.dataset.snippetId;
+    // Derive prefix from filename
+    const path = location.pathname;
+    const fname = path.split('/').pop().replace(/-deep-dive\.html$/, '').replace(/\.html$/, '');
+    const prefix = fname.substring(0, 5);
+
+    const tc = pre.closest('.tab-content');
+    if (tc) {
+      // Tab content: use tab group name + lang class
+      const tabs = tc.closest('.lang-tabs');
+      const radio = tabs ? tabs.querySelector('input[type="radio"]') : null;
+      const groupName = radio ? radio.name.replace('tabs-', '') : 'unknown';
+      const langClass = ['c','py','ts','go','rs'].find(c => tc.classList.contains(c)) || 'x';
+      const id = prefix + '-' + groupName + '-' + langClass;
+      codeEl.dataset.snippetId = id;
+      return id;
+    }
+
+    // Standalone: use label text slug
+    const label = pre.querySelector('.label');
+    if (label) {
+      const slug = label.textContent.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').substring(0, 20);
+      const id = prefix + '-' + slug;
+      codeEl.dataset.snippetId = id;
+      return id;
+    }
+
+    const id = prefix + '-anon-' + Math.random().toString(36).substring(2, 8);
+    codeEl.dataset.snippetId = id;
+    return id;
+  }
+
+  // === BUTTON INJECTION ===
+  document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('pre > code, pre code').forEach(function(codeEl) {
+      const pre = codeEl.closest('pre');
+      if (!pre) return;
+      const lang = detectLang(codeEl, pre);
+      if (!isRunnable(pre, codeEl, lang)) return;
+
+      const btn = document.createElement('button');
+      btn.className = 'run-btn';
+      btn.textContent = '\u25B6 Run';
+      btn.title = 'Run this code';
+      // Position inside tab-content pre
+      pre.style.position = 'relative';
+      pre.appendChild(btn);
+
+      btn.addEventListener('click', async function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (btn.classList.contains('running')) return;
+        btn.classList.add('running');
+        btn.textContent = '\u25B6 ...';
+
+        // For tab-content, put output after the lang-tabs container
+        let outputAnchor = pre;
+        const tabContent = pre.closest('.tab-content');
+        if (tabContent) {
+          outputAnchor = tabContent.closest('.lang-tabs');
+        }
+        const out = getOrCreateOutput(outputAnchor);
+        out.style.display = 'block';
+
+        const code = getCode(codeEl);
+        try {
+          switch (lang) {
+            case 'python':
+              if (pre.closest('.try-this') && code.match(/^python3?\s/)) {
+                await runPythonOneLiner(code, out);
+              } else {
+                await runPython(code, out);
+              }
+              break;
+            case 'typescript':
+            case 'javascript':
+              await runJS(code, out);
+              break;
+          }
+        } catch (e) {
+          out.textContent = String(e);
+          out.classList.add('error');
+        }
+
+        btn.classList.remove('running');
+        btn.textContent = '\u25B6 Run';
+      });
+    });
+  });
+})();
+</script>
+
 </body>
 </html>

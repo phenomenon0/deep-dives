@@ -1,0 +1,2829 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cryptography Deep Dive</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+    --white: #e8e8f0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 2rem;
+    display: flex;
+    gap: 1.2rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.2s, text-shadow 0.2s;
+    padding: 0.3rem 0;
+  }
+  nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+  nav .nav-title {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 1rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.3);
+  }
+
+  .content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+  }
+
+  .hero {
+    text-align: center;
+    padding: 4rem 0 5rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4rem;
+    position: relative;
+  }
+  .hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3.2rem;
+    font-weight: 600;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+  }
+  .hero .subtitle {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 500px;
+    margin: 0 auto;
+  }
+  .hero .blink {
+    display: inline-block;
+    animation: blink 1s step-end infinite;
+    color: var(--green);
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  section { margin-bottom: 5rem; padding-top: 1rem; }
+  h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: var(--green);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: 0.02em;
+  }
+  h3 {
+    font-size: 1.25rem;
+    color: var(--cyan);
+    margin: 2.5rem 0 1rem;
+    font-weight: 600;
+  }
+  h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 2rem 0 0.8rem;
+  }
+  p { margin-bottom: 1rem; }
+
+  .drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4rem;
+    line-height: 0.8;
+    padding: 0.1em 0.15em 0 0;
+    color: var(--green);
+    font-weight: 600;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+  }
+
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    padding: 0.12em 0.4em;
+    border-radius: 3px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem 1.4rem;
+    overflow-x: auto;
+    margin: 1.2rem 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px;
+    line-height: 1.55;
+    position: relative;
+  }
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+  }
+  .cm { color: var(--text-dim); }
+  .kw { color: var(--magenta); }
+  .ty { color: var(--cyan); }
+  .st { color: var(--green); }
+  .nm { color: var(--yellow); }
+  .fn { color: var(--blue); }
+  .pp { color: var(--orange); }
+  .label {
+    position: absolute;
+    top: 0.3rem; right: 0.7rem;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    opacity: 0.5;
+  }
+
+  .diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+  }
+  .diagram pre {
+    background: none; border: none; padding: 0; margin: 0;
+    font-size: 13px; line-height: 1.45; color: var(--text);
+  }
+  .diagram pre code { color: var(--text); }
+  .diagram-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--green-dim);
+    margin-bottom: 0.8rem;
+    display: block;
+  }
+
+  .power {
+    background: var(--bg-card);
+    border-left: 3px solid var(--green);
+    padding: 1.2rem 1.4rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .power-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.3rem;
+  }
+  .power p { margin-bottom: 0; font-size: 0.95rem; }
+  .power.danger { border-left-color: var(--red); }
+  .power.danger .power-label { color: var(--red); }
+  .power.hack { border-left-color: var(--magenta); }
+  .power.hack .power-label { color: var(--magenta); }
+  .power.wild { border-left-color: var(--orange); }
+  .power.wild .power-label { color: var(--orange); }
+  .power.zen { border-left-color: var(--cyan); }
+  .power.zen .power-label { color: var(--cyan); }
+
+  .mem-row { display: flex; gap: 1px; margin: 0.4rem 0; flex-wrap: wrap; }
+  .mc {
+    width: 30px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px; font-weight: 600; border-radius: 2px;
+  }
+  .mc.g { background: var(--green); color: var(--bg); }
+  .mc.c { background: var(--cyan); color: var(--bg); }
+  .mc.m { background: var(--magenta); color: var(--bg); }
+  .mc.o { background: var(--orange); color: var(--bg); }
+  .mc.r { background: var(--red); color: var(--bg); }
+  .mc.y { background: var(--yellow); color: var(--bg); }
+  .mc.b { background: var(--blue); color: var(--bg); }
+  .mc.d { background: var(--text-dim); color: var(--bg); opacity: 0.3; }
+  .mc.e { background: transparent; border: 1px dashed var(--border); color: var(--text-dim); }
+  .mc.w { background: var(--white); color: var(--bg); }
+  .mc.p { background: var(--purple); color: #fff; }
+  .mc.wide { width: 50px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.88rem;
+  }
+  th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    text-align: left;
+    padding: 0.5rem 0.7rem;
+    border-bottom: 2px solid var(--border);
+  }
+  td {
+    padding: 0.45rem 0.7rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:hover { background: rgba(0,255,136,0.02); }
+
+  details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1rem 0;
+    overflow: hidden;
+  }
+  details summary {
+    padding: 0.7rem 1.1rem;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--green);
+    user-select: none;
+    transition: background 0.2s;
+  }
+  details summary:hover { background: rgba(0,255,136,0.04); }
+  details[open] summary { border-bottom: 1px solid var(--border); }
+  details .det { padding: 1.1rem; }
+  details pre { margin: 0.8rem 0; }
+
+  .vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .vs-col {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.1rem;
+  }
+  .vs-col h4 { margin-top: 0; }
+
+  .glitch { position: relative; display: inline-block; }
+  .glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+  .glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 2s infinite linear alternate-reverse;
+    clip-path: inset(0 0 65% 0);
+  }
+  .glitch::after {
+    color: var(--magenta);
+    animation: glitch-2 3s infinite linear alternate-reverse;
+    clip-path: inset(65% 0 0 0);
+  }
+  @keyframes glitch-1 {
+    0%, 95% { transform: translateX(0); }
+    96% { transform: translateX(-2px); }
+    97% { transform: translateX(2px); }
+    98% { transform: translateX(-1px); }
+    100% { transform: translateX(0); }
+  }
+  @keyframes glitch-2 {
+    0%, 93% { transform: translateX(0); }
+    94% { transform: translateX(2px); }
+    96% { transform: translateX(-2px); }
+    98% { transform: translateX(1px); }
+    100% { transform: translateX(0); }
+  }
+
+  .ticker {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--green);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    display: inline-block;
+    text-shadow: 0 0 6px rgba(0,255,136,0.3);
+  }
+
+  .lang-tabs {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1.2rem 0;
+    overflow: hidden;
+  }
+  .lang-tabs input[type="radio"] { display: none; }
+  .lang-tabs label {
+    display: inline-block;
+    padding: 0.5rem 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .lang-tabs label:hover { color: var(--green); }
+  .lang-tabs .tab-bar {
+    border-bottom: 1px solid var(--border);
+    padding: 0 0.5rem;
+  }
+  .lang-tabs .tab-content { display: none; }
+  .lang-tabs .tab-content pre { margin: 0; border: none; border-radius: 0; }
+
+  .lang-tabs input.tc:checked ~ .tab-content.c,
+  .lang-tabs input.tpy:checked ~ .tab-content.py,
+  .lang-tabs input.tts:checked ~ .tab-content.ts,
+  .lang-tabs input.tgo:checked ~ .tab-content.go,
+  .lang-tabs input.trs:checked ~ .tab-content.rs { display: block; }
+
+  .lang-tabs input:nth-of-type(1):checked ~ .tab-bar label:nth-child(1),
+  .lang-tabs input:nth-of-type(2):checked ~ .tab-bar label:nth-child(2),
+  .lang-tabs input:nth-of-type(3):checked ~ .tab-bar label:nth-child(3),
+  .lang-tabs input:nth-of-type(4):checked ~ .tab-bar label:nth-child(4),
+  .lang-tabs input:nth-of-type(5):checked ~ .tab-bar label:nth-child(5) {
+    color: var(--green);
+    background: rgba(0,255,136,0.06);
+    border-bottom: 2px solid var(--green);
+  }
+
+  .try-this {
+    background: rgba(0, 255, 136, 0.04);
+    border-left: 3px solid var(--green-dim);
+    padding: 1rem 1.2rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .try-this .try-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.5rem;
+  }
+  .try-this pre {
+    margin: 0.5rem 0 0;
+    font-size: 12.5px;
+  }
+  .try-this p { font-size: 0.9rem; margin-bottom: 0.5rem; }
+
+  .lang-note {
+    background: var(--bg-card);
+    border-left: 3px solid var(--blue);
+    padding: 1rem 1.2rem;
+    margin: 1.2rem 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 0.9rem;
+  }
+  .lang-note .lang-note-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--blue);
+    margin-bottom: 0.3rem;
+  }
+
+  .run-btn {
+    position: absolute; top: 0.3rem; right: 3rem;
+    background: var(--green); color: var(--bg);
+    border: none; border-radius: 3px; cursor: pointer;
+    font: 600 10px 'JetBrains Mono', monospace; padding: 2px 8px;
+    opacity: 0.6; transition: opacity 0.2s;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    z-index: 2;
+  }
+  .run-btn:hover { opacity: 1; }
+  .run-btn.running { opacity: 0.4; cursor: wait; }
+  .run-output {
+    background: #050508; border: 1px solid var(--border);
+    border-top: none; border-radius: 0 0 6px 6px;
+    padding: 0.8rem 1rem; margin-top: -1px;
+    font: 13px/1.5 'JetBrains Mono', monospace; color: var(--green);
+    white-space: pre-wrap; max-height: 200px; overflow-y: auto;
+  }
+  .run-output.error { color: var(--red); }
+
+  @media (max-width: 700px) {
+    .vs { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2rem; }
+    .content { padding: 4rem 1rem 4rem; }
+    nav { font-size: 10px; gap: 0.8rem; padding: 0.4rem 1rem; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="nav-title">&gt;_ CRYPTO</span>
+  <a href="#ch1">padlock</a>
+  <a href="#ch2">hashing</a>
+  <a href="#ch3">hmac</a>
+  <a href="#ch4">symmetric</a>
+  <a href="#ch5">key-exchange</a>
+  <a href="#ch6">asymmetric</a>
+  <a href="#ch7">tls</a>
+  <a href="#ch8">signal</a>
+  <a href="#ch9">passwords</a>
+  <a href="#ch10">randomness</a>
+  <a href="#ch11">side-channels</a>
+  <a href="#ch12">breaks</a>
+  <a href="#ch13">libraries</a>
+  <a href="#ch14">messenger</a>
+</nav>
+
+<div class="content">
+
+<div class="hero">
+  <h1><span class="glitch" data-text="CRYPTOGRAPHY">CRYPTOGRAPHY</span></h1>
+  <div class="subtitle">Building an encrypted messenger, one primitive at a time<span class="blink">_</span></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 1: THE PADLOCK MYTH                                    -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch1">
+<h2>01 &mdash; The Padlock Myth</h2>
+
+<p class="drop-cap">"Just encrypt it" might be the most dangerous phrase in all of software engineering. It sounds responsible. It sounds like you have a plan. In practice it is a hand-wave over an ocean of decisions, any one of which can sink your ship. What algorithm? What mode? What key size? How do you generate the key? How do you exchange it? How do you authenticate the other end? How do you rotate keys after compromise? Every padlock icon in your browser is the visible tip of an iceberg of interlocking protocols, each one designed to cover the failure modes of the one below it.</p>
+
+<p>We are going to build an encrypted messenger in this deep dive &mdash; not a toy one, a real one, with the same primitives Signal uses. But we are going to do it one layer at a time, and at every layer we are going to ask: what goes wrong if we skip this?</p>
+
+<h3>The Threat Model</h3>
+
+<p>Before you write a single line of crypto code, you need to know what you are defending against. Our messenger faces four distinct adversaries:</p>
+
+<div class="diagram">
+<span class="diagram-label">Attack surface of a messaging app</span>
+<pre><code>
+  <span class="ty">Alice</span>                          <span class="ty">Bob</span>
+    |                                |
+    |  <span class="cm">[plaintext on device]</span>        |  <span class="cm">[plaintext on device]</span>
+    |                                |
+    +------- <span class="kw">NETWORK</span> ---------------+
+    |    ^                     ^     |
+    |    |  <span class="st">Eve</span> (eavesdropper)  |     |
+    |    |  reads every byte   |     |
+    |    +---------------------+     |
+    |              |                 |
+    |         <span class="pp">Mallory</span> (MITM)         |
+    |    intercepts &amp; modifies       |
+    |              |                 |
+    |         <span class="fn">SERVER</span>                  |
+    |    stores &amp; forwards msgs      |
+    |    <span class="cm">(could be compromised)</span>      |
+    |              |                 |
+    |         <span class="magenta">METADATA</span>                |
+    |    who talks to whom, when     |
+    |    message sizes, frequency    |
+    |                                |
+</code></pre>
+</div>
+
+<p><strong>Eve</strong> sits on the Wi-Fi at a coffee shop and captures every packet. <strong>Mallory</strong> runs a rogue access point and actively rewrites traffic in flight. The <strong>server</strong> is honest-but-curious: it faithfully delivers messages but might be compelled to hand over everything it stores. And <strong>metadata</strong> &mdash; who talked to whom, when, how often, how much &mdash; is the attack surface most messengers ignore entirely.</p>
+
+<h3>Kerckhoffs' Principle</h3>
+
+<p>In 1883, a Dutch linguist named Auguste Kerckhoffs published six design principles for military ciphers. Only one survived intact into the modern era: <em>the system must be secure even if everything except the key is public knowledge</em>. The algorithm, the protocol, the source code &mdash; assume the adversary has all of it. The only secret is the key.</p>
+
+<p>This is why "security through obscurity" is a punchline in cryptography. If your system breaks the moment someone reverse-engineers your binary, it was never secure. AES has been public since 1998. The entire world has been trying to break it for nearly three decades. That is exactly why we trust it.</p>
+
+<h3>Don't Roll Your Own</h3>
+
+<p>If the whole point is to use well-vetted primitives, why study the internals at all? Because choosing is harder than it looks. AES-CBC or AES-GCM? HMAC-then-encrypt or encrypt-then-MAC? RSA-2048 or X25519? SHA-256 or BLAKE3? Every choice has tradeoffs in performance, security margin, and failure modes. The goal of this deep dive is not to make you implement AES from scratch &mdash; it is to make you dangerous enough to choose correctly and recognize when something is wrong.</p>
+
+<div class="power">
+<div class="power-label">The Messenger Threat Model</div>
+<p><strong>Confidentiality</strong> &mdash; nobody reads it except the intended recipient. <strong>Integrity</strong> &mdash; nobody alters it in transit. <strong>Authenticity</strong> &mdash; it really came from who it claims. <strong>Forward secrecy</strong> &mdash; compromise today does not decrypt yesterday's messages. These four properties are the contract our messenger must uphold.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 2: HASHING                                             -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch2">
+<h2>02 &mdash; Hashing</h2>
+
+<p class="drop-cap">Every message in our messenger needs a fingerprint &mdash; a short, fixed-size digest that uniquely identifies its contents. Change a single character in a gigabyte-long message and the fingerprint changes completely. This is what hash functions give us: a deterministic, one-way compression of arbitrary data into a fixed number of bits.</p>
+
+<h3>SHA-256: The Workhorse</h3>
+
+<p>SHA-256 belongs to the SHA-2 family, designed by the NSA and published by NIST in 2001. It uses the <strong>Merkle-Damg&aring;rd construction</strong>: the input is padded to a multiple of 512 bits, then processed one block at a time. Each block goes through 64 rounds of a compression function that mixes the input with an internal state of eight 32-bit words. The final state is the 256-bit hash.</p>
+
+<p>Each round applies a combination of bitwise rotations, XOR, AND, and modular addition &mdash; operations that are cheap on any CPU but collectively create an avalanche of diffusion. After 64 rounds, every bit of the output depends on every bit of the input.</p>
+
+<h3>Three Security Properties</h3>
+
+<table>
+<tr>
+  <th>Property</th>
+  <th>Meaning</th>
+  <th>Bound for SHA-256</th>
+</tr>
+<tr>
+  <td><strong>Collision resistance</strong></td>
+  <td>Cannot find any two inputs that produce the same hash</td>
+  <td>~2<sup>128</sup> work (birthday bound)</td>
+</tr>
+<tr>
+  <td><strong>Preimage resistance</strong></td>
+  <td>Given a hash, cannot find any input that produces it</td>
+  <td>~2<sup>256</sup> work</td>
+</tr>
+<tr>
+  <td><strong>Second preimage resistance</strong></td>
+  <td>Given input m<sub>1</sub>, cannot find m<sub>2</sub> &ne; m<sub>1</sub> with the same hash</td>
+  <td>~2<sup>256</sup> work</td>
+</tr>
+</table>
+
+<p>The birthday bound deserves explanation. If a hash has <em>n</em> possible outputs, you need roughly &radic;<em>n</em> random inputs before a collision becomes likely &mdash; the same math behind the birthday paradox. For 256-bit output, &radic;2<sup>256</sup> = 2<sup>128</sup>. That is still astronomically large, but it is why we don't use 128-bit hashes for collision resistance.</p>
+
+<h3>The Avalanche Effect</h3>
+
+<p>A good hash function exhibits <em>strict avalanche</em>: flip one input bit and each output bit has a 50% chance of flipping. This is not a nice-to-have &mdash; it is the property that makes the hash unpredictable. If changing "a" to "b" only changed a few output bits, an attacker could work backwards from the hash to the input one bit at a time.</p>
+
+<h4>SHA-256 in Five Languages</h4>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-hash" id="hash-c" class="tc" checked>
+  <input type="radio" name="tabs-hash" id="hash-py" class="tpy">
+  <input type="radio" name="tabs-hash" id="hash-ts" class="tts">
+  <input type="radio" name="tabs-hash" id="hash-go" class="tgo">
+  <input type="radio" name="tabs-hash" id="hash-rs" class="trs">
+  <div class="tab-bar">
+    <label for="hash-c">C</label>
+    <label for="hash-py">Python</label>
+    <label for="hash-ts">TypeScript</label>
+    <label for="hash-go">Go</label>
+    <label for="hash-rs">Rust</label>
+  </div>
+  <div class="tab-content c"><pre><code><span class="label">C / OpenSSL</span>
+<span class="pp">#include</span> <span class="st">&lt;openssl/sha.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;string.h&gt;</span>
+
+<span class="ty">int</span> <span class="fn">main</span>(<span class="ty">void</span>) {
+    <span class="kw">const</span> <span class="ty">char</span> *msg = <span class="st">"hello, messenger"</span>;
+    <span class="ty">unsigned char</span> digest[SHA256_DIGEST_LENGTH];
+    <span class="fn">SHA256</span>((<span class="ty">unsigned char</span> *)msg, <span class="fn">strlen</span>(msg), digest);
+
+    <span class="fn">printf</span>(<span class="st">"SHA-256: "</span>);
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i &lt; SHA256_DIGEST_LENGTH; i++)
+        <span class="fn">printf</span>(<span class="st">"%02x"</span>, digest[i]);
+    <span class="fn">printf</span>(<span class="st">"\n"</span>);
+    <span class="kw">return</span> <span class="nm">0</span>;
+}</code></pre></div>
+  <div class="tab-content py"><pre><code><span class="label">Python</span>
+<span class="kw">import</span> hashlib
+
+h = hashlib.<span class="fn">sha256</span>(<span class="st">b"hello, messenger"</span>).<span class="fn">hexdigest</span>()
+<span class="fn">print</span>(<span class="st">f"SHA-256: </span>{h}<span class="st">"</span>)</code></pre></div>
+  <div class="tab-content ts"><pre><code><span class="label">TypeScript</span>
+<span class="kw">const</span> msg = <span class="kw">new</span> <span class="ty">TextEncoder</span>().<span class="fn">encode</span>(<span class="st">"hello, messenger"</span>);
+<span class="kw">const</span> buf = <span class="kw">await</span> crypto.subtle.<span class="fn">digest</span>(<span class="st">"SHA-256"</span>, msg);
+<span class="kw">const</span> hex = [...<span class="kw">new</span> <span class="ty">Uint8Array</span>(buf)]
+  .<span class="fn">map</span>(b =&gt; b.<span class="fn">toString</span>(<span class="nm">16</span>).<span class="fn">padStart</span>(<span class="nm">2</span>, <span class="st">"0"</span>))
+  .<span class="fn">join</span>(<span class="st">""</span>);
+console.<span class="fn">log</span>(<span class="st">`SHA-256: </span>${hex}<span class="st">`</span>);</code></pre></div>
+  <div class="tab-content go"><pre><code><span class="label">Go</span>
+<span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"crypto/sha256"</span>
+    <span class="st">"fmt"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    h := sha256.<span class="fn">Sum256</span>([]<span class="ty">byte</span>(<span class="st">"hello, messenger"</span>))
+    fmt.<span class="fn">Printf</span>(<span class="st">"SHA-256: %x\n"</span>, h)
+}</code></pre></div>
+  <div class="tab-content rs"><pre><code><span class="label">Rust</span>
+<span class="kw">use</span> sha2::{Sha256, Digest};
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> <span class="kw">mut</span> hasher = Sha256::<span class="fn">new</span>();
+    hasher.<span class="fn">update</span>(<span class="st">b"hello, messenger"</span>);
+    <span class="kw">let</span> result = hasher.<span class="fn">finalize</span>();
+    <span class="fn">println!</span>(<span class="st">"SHA-256: {:x}"</span>, result);
+}</code></pre></div>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This &mdash; Avalanche Effect</div>
+<p>Hash two strings that differ by a single character and compare the outputs. Notice how completely different they are.</p>
+<pre><code><span class="label">Python</span>
+<span class="kw">import</span> hashlib
+
+a = hashlib.<span class="fn">sha256</span>(<span class="st">b"hello"</span>).<span class="fn">hexdigest</span>()
+b = hashlib.<span class="fn">sha256</span>(<span class="st">b"hellp"</span>).<span class="fn">hexdigest</span>()
+
+<span class="fn">print</span>(<span class="st">f"hello: </span>{a}<span class="st">"</span>)
+<span class="fn">print</span>(<span class="st">f"hellp: </span>{b}<span class="st">"</span>)
+
+diff = <span class="fn">sum</span>(<span class="nm">1</span> <span class="kw">for</span> x, y <span class="kw">in</span> <span class="fn">zip</span>(a, b) <span class="kw">if</span> x != y)
+<span class="fn">print</span>(<span class="st">f"Differing hex chars: </span>{diff}<span class="st">/64"</span>)</code></pre>
+</div>
+
+<div class="power">
+<div class="power-label">Avalanche</div>
+<p>Flip one bit in the input and roughly 50% of the 256 output bits change. This is what makes a good hash function &mdash; there is no correlation between similar inputs and their hashes, so you cannot "hill-climb" your way from a hash back to its input.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 3: HMAC AND INTEGRITY                                  -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch3">
+<h2>03 &mdash; HMAC and Integrity</h2>
+
+<p class="drop-cap">Was this message tampered with? A plain hash cannot answer that question. If Alice sends a message and its SHA-256 hash, an attacker can intercept both, modify the message, recompute the hash, and forward the pair. Bob would verify the hash, find it matches, and trust a message Alice never sent. The hash proves the message wasn't <em>corrupted</em> in transit. It says nothing about whether it was <em>deliberately altered</em>.</p>
+
+<p>To prove integrity, Alice and Bob need a <em>shared secret</em>. If Alice computes the hash using a key that only she and Bob know, the attacker cannot forge a valid hash for a modified message without the key. This is a <strong>Message Authentication Code</strong> &mdash; a MAC.</p>
+
+<h3>Length Extension Attacks</h3>
+
+<p>The naive approach is to compute <code>SHA-256(key || message)</code>. This is broken. Because SHA-256 uses Merkle-Damg&aring;rd construction, the internal state after processing <code>key || message</code> is exactly the hash output. An attacker who knows the hash (but not the key) can resume hashing from that state and append arbitrary data. The result is a valid hash for <code>key || message || padding || attacker_data</code> &mdash; without ever knowing the key.</p>
+
+<h3>HMAC Construction</h3>
+
+<p>HMAC fixes this with two nested hashes and XOR-padded keys:</p>
+
+<pre><code>HMAC(K, m) = H((K <span class="kw">&oplus;</span> opad) <span class="kw">||</span> H((K <span class="kw">&oplus;</span> ipad) <span class="kw">||</span> m))</code></pre>
+
+<p>Where <code>ipad</code> is the byte <code>0x36</code> repeated to the block size, and <code>opad</code> is <code>0x5c</code> repeated. The inner hash produces an intermediate digest. The outer hash processes that digest with a differently-padded key. This double wrapping defeats length extension because the attacker never sees the intermediate state of the outer hash.</p>
+
+<div class="diagram">
+<span class="diagram-label">HMAC-SHA256 construction</span>
+<pre><code>
+                    <span class="ty">Key K</span>
+                   /     \
+                  /       \
+         K <span class="kw">&oplus;</span> ipad      K <span class="kw">&oplus;</span> opad
+             |               |
+             v               |
+      +-------------+        |
+      | H( ipad_key |        |
+      |   || msg )  |        |
+      +------+------+        |
+             |                |
+             v                v
+         <span class="st">inner_hash</span>    +---------------+
+             |        | H( opad_key   |
+             +-------&gt;|  || inner )   |
+                      +-------+-------+
+                              |
+                              v
+                        <span class="fn">HMAC tag</span>
+</code></pre>
+</div>
+
+<h3>Timing Attacks on MAC Verification</h3>
+
+<p>Suppose Bob verifies the MAC by comparing byte-by-byte with early exit &mdash; the standard <code>==</code> operator in most languages. If the first byte is wrong, the comparison returns <code>false</code> immediately. If the first byte is right but the second is wrong, it takes slightly longer. An attacker can exploit this: try all 256 values for byte 0, measure response times, pick the one that took longest (the correct one), then move to byte 1. After 256 &times; 32 = 8,192 attempts, the attacker has forged a valid MAC without knowing the key.</p>
+
+<p>The fix is <strong>constant-time comparison</strong>: iterate over every byte, XOR corresponding bytes together, OR all the XOR results into an accumulator, and check the accumulator at the end. The comparison takes the same amount of time regardless of how many bytes match.</p>
+
+<h4>HMAC-SHA256 in Five Languages</h4>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-hmac" id="hmac-c" class="tc" checked>
+  <input type="radio" name="tabs-hmac" id="hmac-py" class="tpy">
+  <input type="radio" name="tabs-hmac" id="hmac-ts" class="tts">
+  <input type="radio" name="tabs-hmac" id="hmac-go" class="tgo">
+  <input type="radio" name="tabs-hmac" id="hmac-rs" class="trs">
+  <div class="tab-bar">
+    <label for="hmac-c">C</label>
+    <label for="hmac-py">Python</label>
+    <label for="hmac-ts">TypeScript</label>
+    <label for="hmac-go">Go</label>
+    <label for="hmac-rs">Rust</label>
+  </div>
+  <div class="tab-content c"><pre><code><span class="label">C / OpenSSL</span>
+<span class="pp">#include</span> <span class="st">&lt;openssl/hmac.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;string.h&gt;</span>
+
+<span class="ty">int</span> <span class="fn">main</span>(<span class="ty">void</span>) {
+    <span class="kw">const</span> <span class="ty">char</span> *key = <span class="st">"secret-key"</span>;
+    <span class="kw">const</span> <span class="ty">char</span> *msg = <span class="st">"hello"</span>;
+    <span class="ty">unsigned char</span> result[<span class="nm">32</span>];
+    <span class="ty">unsigned int</span> len = <span class="nm">32</span>;
+
+    <span class="fn">HMAC</span>(EVP_sha256(),
+         key, <span class="fn">strlen</span>(key),
+         (<span class="ty">unsigned char</span> *)msg, <span class="fn">strlen</span>(msg),
+         result, &amp;len);
+
+    <span class="fn">printf</span>(<span class="st">"HMAC: "</span>);
+    <span class="kw">for</span> (<span class="ty">unsigned int</span> i = <span class="nm">0</span>; i &lt; len; i++)
+        <span class="fn">printf</span>(<span class="st">"%02x"</span>, result[i]);
+    <span class="fn">printf</span>(<span class="st">"\n"</span>);
+    <span class="kw">return</span> <span class="nm">0</span>;
+}</code></pre></div>
+  <div class="tab-content py"><pre><code><span class="label">Python</span>
+<span class="kw">import</span> hmac, hashlib
+
+tag = hmac.<span class="fn">new</span>(<span class="st">b"secret-key"</span>, <span class="st">b"hello"</span>, hashlib.sha256).<span class="fn">hexdigest</span>()
+<span class="fn">print</span>(<span class="st">f"HMAC: </span>{tag}<span class="st">"</span>)</code></pre></div>
+  <div class="tab-content ts"><pre><code><span class="label">TypeScript</span>
+<span class="kw">const</span> enc = <span class="kw">new</span> <span class="ty">TextEncoder</span>();
+<span class="kw">const</span> keyData = enc.<span class="fn">encode</span>(<span class="st">"secret-key"</span>);
+<span class="kw">const</span> msg = enc.<span class="fn">encode</span>(<span class="st">"hello"</span>);
+
+<span class="kw">const</span> key = <span class="kw">await</span> crypto.subtle.<span class="fn">importKey</span>(
+  <span class="st">"raw"</span>, keyData, { name: <span class="st">"HMAC"</span>, hash: <span class="st">"SHA-256"</span> },
+  <span class="nm">false</span>, [<span class="st">"sign"</span>]
+);
+<span class="kw">const</span> sig = <span class="kw">await</span> crypto.subtle.<span class="fn">sign</span>(<span class="st">"HMAC"</span>, key, msg);
+<span class="kw">const</span> hex = [...<span class="kw">new</span> <span class="ty">Uint8Array</span>(sig)]
+  .<span class="fn">map</span>(b =&gt; b.<span class="fn">toString</span>(<span class="nm">16</span>).<span class="fn">padStart</span>(<span class="nm">2</span>, <span class="st">"0"</span>))
+  .<span class="fn">join</span>(<span class="st">""</span>);
+console.<span class="fn">log</span>(<span class="st">`HMAC: </span>${hex}<span class="st">`</span>);</code></pre></div>
+  <div class="tab-content go"><pre><code><span class="label">Go</span>
+<span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"crypto/hmac"</span>
+    <span class="st">"crypto/sha256"</span>
+    <span class="st">"fmt"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    mac := hmac.<span class="fn">New</span>(sha256.New, []<span class="ty">byte</span>(<span class="st">"secret-key"</span>))
+    mac.<span class="fn">Write</span>([]<span class="ty">byte</span>(<span class="st">"hello"</span>))
+    fmt.<span class="fn">Printf</span>(<span class="st">"HMAC: %x\n"</span>, mac.<span class="fn">Sum</span>(<span class="kw">nil</span>))
+}</code></pre></div>
+  <div class="tab-content rs"><pre><code><span class="label">Rust</span>
+<span class="kw">use</span> hmac::{Hmac, Mac};
+<span class="kw">use</span> sha2::Sha256;
+
+<span class="kw">type</span> <span class="ty">HmacSha256</span> = Hmac&lt;Sha256&gt;;
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> <span class="kw">mut</span> mac = <span class="ty">HmacSha256</span>::<span class="fn">new_from_slice</span>(<span class="st">b"secret-key"</span>)
+        .<span class="fn">expect</span>(<span class="st">"any key size works"</span>);
+    mac.<span class="fn">update</span>(<span class="st">b"hello"</span>);
+    <span class="kw">let</span> result = mac.<span class="fn">finalize</span>();
+    <span class="fn">println!</span>(<span class="st">"HMAC: {:x}"</span>, result.<span class="fn">into_bytes</span>());
+}</code></pre></div>
+</div>
+
+<div class="power danger">
+<div class="power-label">Timing Side Channel</div>
+<p>A naive MAC check that returns <code>false</code> on the first wrong byte tells the attacker exactly which byte to fix next. With 32 bytes and 256 possible values per byte, that is 8,192 guesses instead of 2<sup>256</sup>. Always use constant-time comparison: <code>crypto.subtle.timingSafeEqual</code> in Node, <code>hmac.compare_digest</code> in Python, <code>crypto/subtle.ConstantTimeCompare</code> in Go.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 4: SYMMETRIC ENCRYPTION                                -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch4">
+<h2>04 &mdash; Symmetric Encryption</h2>
+
+<p class="drop-cap">Now we encrypt the message body. This is the core of what makes our messages unreadable to eavesdroppers: a symmetric cipher that scrambles plaintext into ciphertext using a shared key. The same key encrypts and decrypts &mdash; hence "symmetric." The hard part is not the encryption itself but the mode of operation that wraps it.</p>
+
+<h3>AES: The Block Cipher</h3>
+
+<p>AES (Advanced Encryption Standard) operates on 128-bit blocks. It takes a 128, 192, or 256-bit key and applies a series of transformations in rounds &mdash; 10 rounds for AES-128, 14 for AES-256. Each round performs four operations on a 4&times;4 matrix of bytes called the <em>state</em>:</p>
+
+<div class="diagram">
+<span class="diagram-label">AES single round</span>
+<pre><code>
+  <span class="ty">State</span> (4&times;4 bytes)
+       |
+       v
+  <span class="fn">SubBytes</span>      <span class="cm">S-box substitution: each byte mapped through</span>
+       |        <span class="cm">a fixed lookup table (Rijndael S-box)</span>
+       v
+  <span class="fn">ShiftRows</span>    <span class="cm">Rotate each row by 0,1,2,3 positions</span>
+       |
+       v
+  <span class="fn">MixColumns</span>   <span class="cm">Multiply each column by a fixed matrix</span>
+       |        <span class="cm">in GF(2^8) &mdash; Galois field arithmetic</span>
+       v
+  <span class="fn">AddRoundKey</span>  <span class="cm">XOR the state with the round key</span>
+       |
+       v
+  <span class="ty">Next round...</span>
+</code></pre>
+</div>
+
+<p><strong>SubBytes</strong> provides confusion &mdash; a nonlinear substitution that destroys algebraic structure. <strong>ShiftRows</strong> and <strong>MixColumns</strong> provide diffusion &mdash; spreading each input byte's influence across the entire state. <strong>AddRoundKey</strong> mixes in the key material. After 10&ndash;14 rounds, every output bit depends on every input bit and every key bit.</p>
+
+<h3>The ECB Penguin</h3>
+
+<p>AES encrypts one 128-bit block at a time. The simplest way to encrypt a long message is ECB (Electronic Codebook): split the message into blocks, encrypt each one independently. This is catastrophically broken for anything with structure. Encrypt the pixels of Tux the Linux penguin with ECB mode and the silhouette is still perfectly visible &mdash; because identical plaintext blocks produce identical ciphertext blocks. Patterns in the input are preserved in the output.</p>
+
+<h3>Modes of Operation</h3>
+
+<div class="diagram">
+<span class="diagram-label">ECB vs CBC vs CTR</span>
+<pre><code>
+  <span class="kw">ECB</span> &mdash; Electronic Codebook (BROKEN for structured data)
+
+  P1 ──&gt; [AES] ──&gt; C1     P2 ──&gt; [AES] ──&gt; C2     P3 ──&gt; [AES] ──&gt; C3
+          key               key               key
+  <span class="cm">Same plaintext blocks → same ciphertext blocks</span>
+
+  ──────────────────────────────────────────────────────────
+
+  <span class="fn">CBC</span> &mdash; Cipher Block Chaining
+
+  IV ──┐
+       v
+  P1 <span class="kw">&oplus;</span> ──&gt; [AES] ──&gt; C1 ──┐
+              key           v
+                       P2 <span class="kw">&oplus;</span> ──&gt; [AES] ──&gt; C2 ──┐
+                                    key           v
+                                             P3 <span class="kw">&oplus;</span> ──&gt; [AES] ──&gt; C3
+                                                          key
+  <span class="cm">Each block depends on all previous blocks. Sequential only.</span>
+
+  ──────────────────────────────────────────────────────────
+
+  <span class="st">CTR</span> &mdash; Counter Mode
+
+  Nonce|0 ──&gt; [AES] ──&gt; <span class="kw">&oplus;</span> P1 ──&gt; C1
+                key
+
+  Nonce|1 ──&gt; [AES] ──&gt; <span class="kw">&oplus;</span> P2 ──&gt; C2
+                key
+
+  Nonce|2 ──&gt; [AES] ──&gt; <span class="kw">&oplus;</span> P3 ──&gt; C3
+                key
+  <span class="cm">Parallelizable. No padding. Block cipher → stream cipher.</span>
+</code></pre>
+</div>
+
+<p><strong>CBC</strong> (Cipher Block Chaining) fixes ECB by XORing each plaintext block with the previous ciphertext block before encryption. This hides patterns but makes encryption sequential and requires padding &mdash; which opens the door to <em>padding oracle attacks</em> (Vaudenay, 2002).</p>
+
+<p><strong>CTR</strong> (Counter Mode) takes a different approach entirely: encrypt a nonce concatenated with a counter, then XOR the result with the plaintext. This turns the block cipher into a stream cipher. It is parallelizable, needs no padding, and is the foundation of GCM.</p>
+
+<h3>GCM: Encrypt and Authenticate</h3>
+
+<p><strong>AES-GCM</strong> (Galois/Counter Mode) combines CTR-mode encryption with a GHASH authentication tag computed over the ciphertext and any associated data. One pass gives you both confidentiality and integrity. This is what our messenger uses.</p>
+
+<p>Why not just use AES-CBC and add HMAC separately? You can &mdash; it is called encrypt-then-MAC &mdash; but you must get the composition right. Encrypt-<em>and</em>-MAC (SSH's original approach) and MAC-then-encrypt (TLS before 1.3) are both vulnerable to subtle attacks. GCM handles both in a single, well-analyzed construction with no room for composition errors.</p>
+
+<h4>AES-256-GCM in Five Languages</h4>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-aes" id="aes-c" class="tc" checked>
+  <input type="radio" name="tabs-aes" id="aes-py" class="tpy">
+  <input type="radio" name="tabs-aes" id="aes-ts" class="tts">
+  <input type="radio" name="tabs-aes" id="aes-go" class="tgo">
+  <input type="radio" name="tabs-aes" id="aes-rs" class="trs">
+  <div class="tab-bar">
+    <label for="aes-c">C</label>
+    <label for="aes-py">Python</label>
+    <label for="aes-ts">TypeScript</label>
+    <label for="aes-go">Go</label>
+    <label for="aes-rs">Rust</label>
+  </div>
+  <div class="tab-content c"><pre><code><span class="label">C / OpenSSL</span>
+<span class="pp">#include</span> <span class="st">&lt;openssl/evp.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;openssl/rand.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;string.h&gt;</span>
+
+<span class="ty">int</span> <span class="fn">main</span>(<span class="ty">void</span>) {
+    <span class="ty">unsigned char</span> key[<span class="nm">32</span>], iv[<span class="nm">12</span>], tag[<span class="nm">16</span>];
+    <span class="fn">RAND_bytes</span>(key, <span class="nm">32</span>);
+    <span class="fn">RAND_bytes</span>(iv, <span class="nm">12</span>);
+
+    <span class="kw">const</span> <span class="ty">char</span> *msg = <span class="st">"attack at dawn"</span>;
+    <span class="ty">int</span> len = <span class="fn">strlen</span>(msg);
+    <span class="ty">unsigned char</span> ct[<span class="nm">128</span>], pt[<span class="nm">128</span>];
+    <span class="ty">int</span> outlen;
+
+    <span class="cm">/* Encrypt */</span>
+    <span class="ty">EVP_CIPHER_CTX</span> *ctx = <span class="fn">EVP_CIPHER_CTX_new</span>();
+    <span class="fn">EVP_EncryptInit_ex</span>(ctx, <span class="fn">EVP_aes_256_gcm</span>(), <span class="kw">NULL</span>, key, iv);
+    <span class="fn">EVP_EncryptUpdate</span>(ctx, ct, &amp;outlen, (<span class="ty">unsigned char</span> *)msg, len);
+    <span class="fn">EVP_EncryptFinal_ex</span>(ctx, ct + outlen, &amp;outlen);
+    <span class="fn">EVP_CIPHER_CTX_ctrl</span>(ctx, EVP_CTRL_GCM_GET_TAG, <span class="nm">16</span>, tag);
+    <span class="fn">EVP_CIPHER_CTX_free</span>(ctx);
+
+    <span class="fn">printf</span>(<span class="st">"Encrypted %d bytes\n"</span>, len);
+
+    <span class="cm">/* Decrypt */</span>
+    ctx = <span class="fn">EVP_CIPHER_CTX_new</span>();
+    <span class="fn">EVP_DecryptInit_ex</span>(ctx, <span class="fn">EVP_aes_256_gcm</span>(), <span class="kw">NULL</span>, key, iv);
+    <span class="fn">EVP_DecryptUpdate</span>(ctx, pt, &amp;outlen, ct, len);
+    <span class="fn">EVP_CIPHER_CTX_ctrl</span>(ctx, EVP_CTRL_GCM_SET_TAG, <span class="nm">16</span>, tag);
+    <span class="ty">int</span> ok = <span class="fn">EVP_DecryptFinal_ex</span>(ctx, pt + outlen, &amp;outlen);
+    <span class="fn">EVP_CIPHER_CTX_free</span>(ctx);
+
+    pt[len] = <span class="nm">0</span>;
+    <span class="fn">printf</span>(<span class="st">"Decrypted: %s (auth: %s)\n"</span>, pt, ok ? <span class="st">"OK"</span> : <span class="st">"FAIL"</span>);
+    <span class="kw">return</span> <span class="nm">0</span>;
+}</code></pre></div>
+  <div class="tab-content py"><pre><code><span class="label">Python</span>
+<span class="kw">import</span> os
+
+<span class="cm"># XOR cipher demo &mdash; illustrates the principle.</span>
+<span class="cm"># Real code uses: from cryptography.hazmat.primitives.ciphers.aead import AESGCM</span>
+
+<span class="kw">def</span> <span class="fn">xor_bytes</span>(data, key):
+    <span class="st">"""Repeat-key XOR &mdash; NOT secure, for demonstration only."""</span>
+    <span class="kw">return</span> <span class="fn">bytes</span>(b ^ key[i % <span class="fn">len</span>(key)] <span class="kw">for</span> i, b <span class="kw">in</span> <span class="fn">enumerate</span>(data))
+
+key = os.<span class="fn">urandom</span>(<span class="nm">32</span>)
+msg = <span class="st">b"attack at dawn"</span>
+
+ct = <span class="fn">xor_bytes</span>(msg, key)
+<span class="fn">print</span>(<span class="st">f"Ciphertext: </span>{ct.hex()}<span class="st">"</span>)
+
+pt = <span class="fn">xor_bytes</span>(ct, key)
+<span class="fn">print</span>(<span class="st">f"Decrypted:  </span>{pt.decode()}<span class="st">"</span>)
+
+<span class="cm"># Demonstrate wrong key fails</span>
+wrong = os.<span class="fn">urandom</span>(<span class="nm">32</span>)
+bad = <span class="fn">xor_bytes</span>(ct, wrong)
+<span class="fn">print</span>(<span class="st">f"Wrong key:  </span>{bad}<span class="st"> (garbage)"</span>)</code></pre></div>
+  <div class="tab-content ts"><pre><code><span class="label">TypeScript</span>
+<span class="cm">// AES-256-GCM via Web Crypto API &mdash; works in any browser</span>
+<span class="kw">const</span> key = <span class="kw">await</span> crypto.subtle.<span class="fn">generateKey</span>(
+  { name: <span class="st">"AES-GCM"</span>, length: <span class="nm">256</span> }, <span class="nm">true</span>, [<span class="st">"encrypt"</span>, <span class="st">"decrypt"</span>]
+);
+<span class="kw">const</span> iv = crypto.<span class="fn">getRandomValues</span>(<span class="kw">new</span> <span class="ty">Uint8Array</span>(<span class="nm">12</span>));
+<span class="kw">const</span> msg = <span class="kw">new</span> <span class="ty">TextEncoder</span>().<span class="fn">encode</span>(<span class="st">"attack at dawn"</span>);
+
+<span class="cm">// Encrypt</span>
+<span class="kw">const</span> ct = <span class="kw">await</span> crypto.subtle.<span class="fn">encrypt</span>(
+  { name: <span class="st">"AES-GCM"</span>, iv }, key, msg
+);
+console.<span class="fn">log</span>(<span class="st">"Ciphertext:"</span>, <span class="kw">new</span> <span class="ty">Uint8Array</span>(ct).length, <span class="st">"bytes"</span>);
+
+<span class="cm">// Decrypt</span>
+<span class="kw">const</span> pt = <span class="kw">await</span> crypto.subtle.<span class="fn">decrypt</span>(
+  { name: <span class="st">"AES-GCM"</span>, iv }, key, ct
+);
+console.<span class="fn">log</span>(<span class="st">"Decrypted:"</span>, <span class="kw">new</span> <span class="ty">TextDecoder</span>().<span class="fn">decode</span>(pt));</code></pre></div>
+  <div class="tab-content go"><pre><code><span class="label">Go</span>
+<span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"crypto/aes"</span>
+    <span class="st">"crypto/cipher"</span>
+    <span class="st">"crypto/rand"</span>
+    <span class="st">"fmt"</span>
+    <span class="st">"io"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    key := <span class="fn">make</span>([]<span class="ty">byte</span>, <span class="nm">32</span>)
+    io.<span class="fn">ReadFull</span>(rand.Reader, key)
+
+    block, _ := aes.<span class="fn">NewCipher</span>(key)
+    gcm, _ := cipher.<span class="fn">NewGCM</span>(block)
+
+    nonce := <span class="fn">make</span>([]<span class="ty">byte</span>, gcm.<span class="fn">NonceSize</span>())
+    io.<span class="fn">ReadFull</span>(rand.Reader, nonce)
+
+    msg := []<span class="ty">byte</span>(<span class="st">"attack at dawn"</span>)
+    ct := gcm.<span class="fn">Seal</span>(<span class="kw">nil</span>, nonce, msg, <span class="kw">nil</span>)
+    fmt.<span class="fn">Printf</span>(<span class="st">"Ciphertext: %d bytes\n"</span>, <span class="fn">len</span>(ct))
+
+    pt, err := gcm.<span class="fn">Open</span>(<span class="kw">nil</span>, nonce, ct, <span class="kw">nil</span>)
+    <span class="kw">if</span> err != <span class="kw">nil</span> {
+        <span class="fn">panic</span>(err)
+    }
+    fmt.<span class="fn">Printf</span>(<span class="st">"Decrypted: %s\n"</span>, pt)
+}</code></pre></div>
+  <div class="tab-content rs"><pre><code><span class="label">Rust</span>
+<span class="kw">use</span> aes_gcm::{Aes256Gcm, KeyInit, Nonce};
+<span class="kw">use</span> aes_gcm::aead::Aead;
+<span class="kw">use</span> rand::RngCore;
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> <span class="kw">mut</span> key_bytes = [<span class="nm">0u8</span>; <span class="nm">32</span>];
+    rand::thread_rng().<span class="fn">fill_bytes</span>(&amp;<span class="kw">mut</span> key_bytes);
+    <span class="kw">let</span> cipher = Aes256Gcm::<span class="fn">new</span>(&amp;key_bytes.<span class="fn">into</span>());
+
+    <span class="kw">let</span> <span class="kw">mut</span> nonce_bytes = [<span class="nm">0u8</span>; <span class="nm">12</span>];
+    rand::thread_rng().<span class="fn">fill_bytes</span>(&amp;<span class="kw">mut</span> nonce_bytes);
+    <span class="kw">let</span> nonce = Nonce::<span class="fn">from_slice</span>(&amp;nonce_bytes);
+
+    <span class="kw">let</span> ct = cipher.<span class="fn">encrypt</span>(nonce, <span class="st">b"attack at dawn"</span>.<span class="fn">as_ref</span>())
+        .<span class="fn">expect</span>(<span class="st">"encrypt failed"</span>);
+    <span class="fn">println!</span>(<span class="st">"Ciphertext: {} bytes"</span>, ct.<span class="fn">len</span>());
+
+    <span class="kw">let</span> pt = cipher.<span class="fn">decrypt</span>(nonce, ct.<span class="fn">as_ref</span>())
+        .<span class="fn">expect</span>(<span class="st">"decrypt failed"</span>);
+    <span class="fn">println!</span>(<span class="st">"Decrypted: {}"</span>, String::<span class="fn">from_utf8_lossy</span>(&amp;pt));
+}</code></pre></div>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This &mdash; Encrypt, Decrypt, Tamper</div>
+<p>Encrypt a message, decrypt it successfully, then try decrypting with the wrong key to see it fail.</p>
+<pre><code><span class="label">Python</span>
+<span class="kw">import</span> os
+
+<span class="kw">def</span> <span class="fn">xor_bytes</span>(data, key):
+    <span class="kw">return</span> <span class="fn">bytes</span>(b ^ key[i % <span class="fn">len</span>(key)] <span class="kw">for</span> i, b <span class="kw">in</span> <span class="fn">enumerate</span>(data))
+
+key = os.<span class="fn">urandom</span>(<span class="nm">32</span>)
+msg = <span class="st">b"secret plans"</span>
+
+<span class="cm"># Encrypt</span>
+ct = <span class="fn">xor_bytes</span>(msg, key)
+<span class="fn">print</span>(<span class="st">f"Ciphertext: </span>{ct.hex()}<span class="st">"</span>)
+
+<span class="cm"># Decrypt with correct key</span>
+<span class="fn">print</span>(<span class="st">f"Correct key: </span>{<span class="fn">xor_bytes</span>(ct, key)}<span class="st">"</span>)
+
+<span class="cm"># Decrypt with wrong key</span>
+wrong = os.<span class="fn">urandom</span>(<span class="nm">32</span>)
+<span class="fn">print</span>(<span class="st">f"Wrong key:   </span>{<span class="fn">xor_bytes</span>(ct, wrong)}<span class="st">"</span>)</code></pre>
+</div>
+
+<div class="power">
+<div class="power-label">Why GCM</div>
+<p>Authenticated encryption means you cannot flip bits in the ciphertext without detection. AES-CBC without a MAC allows bit-flipping attacks &mdash; an attacker who knows the plaintext structure can XOR specific bits in a ciphertext block to alter the corresponding plaintext bits in the next block. GCM catches any tampering via its GHASH authentication tag.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 5: THE KEY PROBLEM                                     -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch5">
+<h2>05 &mdash; The Key Problem</h2>
+
+<p class="drop-cap">How do two strangers share a secret? Alice and Bob have never met. Eve watches every byte on the wire. If Alice picks a key and sends it to Bob, Eve intercepts it and the game is over. If Bob picks one and sends it to Alice, same problem. It seems impossible &mdash; any key transmitted in the clear is compromised the instant it leaves the sender. And yet in 1976, Whitfield Diffie and Martin Hellman published a protocol that solves this problem completely.</p>
+
+<h3>Diffie-Hellman with Concrete Numbers</h3>
+
+<p>Let us work through DH with numbers small enough to verify by hand. Alice and Bob publicly agree on a prime <code>p = 23</code> and a generator <code>g = 5</code>. These values are not secret.</p>
+
+<div class="diagram">
+<span class="diagram-label">Diffie-Hellman key exchange (p=23, g=5)</span>
+<pre><code>
+  <span class="ty">Alice</span>                                          <span class="ty">Bob</span>
+  picks secret  a = <span class="nm">6</span>                              picks secret  b = <span class="nm">15</span>
+  computes      A = 5<sup>6</sup> mod 23                     computes      B = 5<sup>15</sup> mod 23
+                A = 15625 mod 23                                B = 30517578125 mod 23
+                <span class="fn">A = 8</span>                                         <span class="fn">B = 19</span>
+
+                    ────── <span class="fn">A = 8</span> ──────&gt;
+                    &lt;───── <span class="fn">B = 19</span> ─────
+
+  shared = B<sup>a</sup> mod 23                             shared = A<sup>b</sup> mod 23
+         = 19<sup>6</sup> mod 23                                    = 8<sup>15</sup> mod 23
+         = 47045881 mod 23                                = 35184372088832 mod 23
+         = <span class="st">2</span>                                            = <span class="st">2</span>
+
+                        <span class="st">Same secret: 2</span>
+</code></pre>
+</div>
+
+<p>Eve saw A=8 and B=19 fly across the wire. She knows p=23 and g=5. To compute the shared secret, she would need to find <em>a</em> such that 5<sup><em>a</em></sup> mod 23 = 8, or <em>b</em> such that 5<sup><em>b</em></sup> mod 23 = 19. With p=23 she could just try all values, but when p is a 2048-bit prime, there is no known algorithm that solves this efficiently.</p>
+
+<h3>Why Discrete Log Is Hard</h3>
+
+<p>Computing g<sup>a</sup> mod p is fast &mdash; repeated squaring does it in O(log a) multiplications. But given the result g<sup>a</sup> mod p and the values g and p, finding a is the <strong>discrete logarithm problem</strong>. For carefully chosen primes, the best known algorithms (General Number Field Sieve) require sub-exponential time &mdash; fast enough to make 1024-bit primes nervous, but 2048-bit primes remain out of reach.</p>
+
+<p>This is the core asymmetry that all public-key cryptography exploits: a mathematical operation that is cheap in one direction and prohibitively expensive in reverse.</p>
+
+<h3>The Man-in-the-Middle Problem</h3>
+
+<p>DH as described above has a fatal flaw: it provides no authentication. Mallory can intercept the exchange and perform DH independently with both sides.</p>
+
+<div class="diagram">
+<span class="diagram-label">MITM attack on unauthenticated DH</span>
+<pre><code>
+  <span class="ty">Alice</span>              <span class="pp">Mallory</span>                <span class="ty">Bob</span>
+     |                  |                     |
+     |── A = g<sup>a</sup> ──&gt;    |                     |
+     |                  |──── M<sub>b</sub> = g<sup>m</sup> ──────&gt;  |
+     |                  |                     |
+     |                  |  &lt;──── B = g<sup>b</sup> ──── |
+     |  &lt;── M<sub>a</sub> = g<sup>m'</sup> ──|                     |
+     |                  |                     |
+
+  Alice thinks          Mallory has           Bob thinks
+  shared = M<sub>a</sub><sup>a</sup>         two secrets:          shared = M<sub>b</sub><sup>b</sup>
+                        with Alice: A<sup>m'</sup>
+                        with Bob:   B<sup>m</sup>
+
+  <span class="cm">Mallory decrypts Alice's msgs, re-encrypts for Bob, and vice versa.</span>
+  <span class="cm">Neither Alice nor Bob detects anything wrong.</span>
+</code></pre>
+</div>
+
+<p>This is why DH alone is not enough. You need to <em>authenticate</em> the public values &mdash; via digital signatures, certificates, or a pre-shared trust relationship. In our messenger, this will come from long-term identity keys (chapter 6) and the Signal protocol's triple-DH handshake (chapter 8).</p>
+
+<h3>ECDH and X25519</h3>
+
+<p>Classical DH uses modular exponentiation with massive primes. Elliptic Curve Diffie-Hellman (ECDH) does the same thing on an elliptic curve, where "exponentiation" becomes scalar multiplication of a curve point. The discrete log problem on well-chosen curves is <em>harder per bit</em> than in modular arithmetic, so 256-bit curve keys offer comparable security to 3072-bit DH primes.</p>
+
+<p><strong>X25519</strong> is the specific ECDH instantiation our messenger will use. Designed by Daniel J. Bernstein, it uses Curve25519 &mdash; a Montgomery curve over a 255-bit prime field. The implementation is inherently constant-time (no secret-dependent branches), immune to invalid-curve attacks, and produces 32-byte public keys and 32-byte shared secrets. It is the default key exchange in Signal, WireGuard, TLS 1.3, and SSH.</p>
+
+<h4>DH Key Exchange Demo</h4>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-dh" id="dh-c" class="tc" checked>
+  <input type="radio" name="tabs-dh" id="dh-py" class="tpy">
+  <input type="radio" name="tabs-dh" id="dh-ts" class="tts">
+  <input type="radio" name="tabs-dh" id="dh-go" class="tgo">
+  <input type="radio" name="tabs-dh" id="dh-rs" class="trs">
+  <div class="tab-bar">
+    <label for="dh-c">C</label>
+    <label for="dh-py">Python</label>
+    <label for="dh-ts">TypeScript</label>
+    <label for="dh-go">Go</label>
+    <label for="dh-rs">Rust</label>
+  </div>
+  <div class="tab-content c"><pre><code><span class="label">C</span>
+<span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdlib.h&gt;</span>
+
+<span class="cm">/* Modular exponentiation: base^exp mod m */</span>
+<span class="ty">long long</span> <span class="fn">mod_pow</span>(<span class="ty">long long</span> base, <span class="ty">long long</span> exp, <span class="ty">long long</span> m) {
+    <span class="ty">long long</span> result = <span class="nm">1</span>;
+    base %= m;
+    <span class="kw">while</span> (exp &gt; <span class="nm">0</span>) {
+        <span class="kw">if</span> (exp &amp; <span class="nm">1</span>) result = (result * base) % m;
+        exp &gt;&gt;= <span class="nm">1</span>;
+        base = (base * base) % m;
+    }
+    <span class="kw">return</span> result;
+}
+
+<span class="ty">int</span> <span class="fn">main</span>(<span class="ty">void</span>) {
+    <span class="ty">long long</span> p = <span class="nm">23</span>, g = <span class="nm">5</span>;
+    <span class="ty">long long</span> a = <span class="nm">6</span>, b = <span class="nm">15</span>;  <span class="cm">/* secret exponents */</span>
+
+    <span class="ty">long long</span> A = <span class="fn">mod_pow</span>(g, a, p);  <span class="cm">/* Alice's public value */</span>
+    <span class="ty">long long</span> B = <span class="fn">mod_pow</span>(g, b, p);  <span class="cm">/* Bob's public value   */</span>
+
+    <span class="ty">long long</span> s_alice = <span class="fn">mod_pow</span>(B, a, p);
+    <span class="ty">long long</span> s_bob   = <span class="fn">mod_pow</span>(A, b, p);
+
+    <span class="fn">printf</span>(<span class="st">"A=%lld  B=%lld\n"</span>, A, B);
+    <span class="fn">printf</span>(<span class="st">"Alice's shared: %lld\n"</span>, s_alice);
+    <span class="fn">printf</span>(<span class="st">"Bob's shared:   %lld\n"</span>, s_bob);
+    <span class="fn">printf</span>(<span class="st">"Match: %s\n"</span>, s_alice == s_bob ? <span class="st">"YES"</span> : <span class="st">"NO"</span>);
+    <span class="kw">return</span> <span class="nm">0</span>;
+}</code></pre></div>
+  <div class="tab-content py"><pre><code><span class="label">Python</span>
+<span class="cm"># Diffie-Hellman with small primes (educational demo)</span>
+p, g = <span class="nm">23</span>, <span class="nm">5</span>
+
+<span class="cm"># Alice picks secret a, Bob picks secret b</span>
+a, b = <span class="nm">6</span>, <span class="nm">15</span>
+
+A = <span class="fn">pow</span>(g, a, p)   <span class="cm"># Alice's public value</span>
+B = <span class="fn">pow</span>(g, b, p)   <span class="cm"># Bob's public value</span>
+
+<span class="cm"># Both compute the same shared secret</span>
+s_alice = <span class="fn">pow</span>(B, a, p)
+s_bob   = <span class="fn">pow</span>(A, b, p)
+
+<span class="fn">print</span>(<span class="st">f"Public:  A=</span>{A}<span class="st">  B=</span>{B}<span class="st">"</span>)
+<span class="fn">print</span>(<span class="st">f"Alice's shared: </span>{s_alice}<span class="st">"</span>)
+<span class="fn">print</span>(<span class="st">f"Bob's shared:   </span>{s_bob}<span class="st">"</span>)
+<span class="fn">print</span>(<span class="st">f"Match: </span>{s_alice == s_bob}<span class="st">"</span>)</code></pre></div>
+  <div class="tab-content ts"><pre><code><span class="label">TypeScript</span>
+<span class="cm">// Diffie-Hellman with small primes (educational demo)</span>
+<span class="kw">function</span> <span class="fn">modPow</span>(base: <span class="ty">bigint</span>, exp: <span class="ty">bigint</span>, m: <span class="ty">bigint</span>): <span class="ty">bigint</span> {
+  <span class="kw">let</span> result = <span class="nm">1n</span>;
+  base = base % m;
+  <span class="kw">while</span> (exp &gt; <span class="nm">0n</span>) {
+    <span class="kw">if</span> (exp % <span class="nm">2n</span> === <span class="nm">1n</span>) result = (result * base) % m;
+    exp = exp / <span class="nm">2n</span>;
+    base = (base * base) % m;
+  }
+  <span class="kw">return</span> result;
+}
+
+<span class="kw">const</span> p = <span class="nm">23n</span>, g = <span class="nm">5n</span>;
+<span class="kw">const</span> a = <span class="nm">6n</span>, b = <span class="nm">15n</span>;
+
+<span class="kw">const</span> A = <span class="fn">modPow</span>(g, a, p);
+<span class="kw">const</span> B = <span class="fn">modPow</span>(g, b, p);
+
+<span class="kw">const</span> sAlice = <span class="fn">modPow</span>(B, a, p);
+<span class="kw">const</span> sBob   = <span class="fn">modPow</span>(A, b, p);
+
+console.<span class="fn">log</span>(<span class="st">`Public:  A=</span>${A}<span class="st">  B=</span>${B}<span class="st">`</span>);
+console.<span class="fn">log</span>(<span class="st">`Alice: </span>${sAlice}<span class="st">  Bob: </span>${sBob}<span class="st">  Match: </span>${sAlice === sBob}<span class="st">`</span>);</code></pre></div>
+  <div class="tab-content go"><pre><code><span class="label">Go</span>
+<span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"fmt"</span>
+    <span class="st">"math/big"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    p := big.<span class="fn">NewInt</span>(<span class="nm">23</span>)
+    g := big.<span class="fn">NewInt</span>(<span class="nm">5</span>)
+    a := big.<span class="fn">NewInt</span>(<span class="nm">6</span>)
+    b := big.<span class="fn">NewInt</span>(<span class="nm">15</span>)
+
+    A := <span class="kw">new</span>(big.Int).<span class="fn">Exp</span>(g, a, p)
+    B := <span class="kw">new</span>(big.Int).<span class="fn">Exp</span>(g, b, p)
+
+    sAlice := <span class="kw">new</span>(big.Int).<span class="fn">Exp</span>(B, a, p)
+    sBob := <span class="kw">new</span>(big.Int).<span class="fn">Exp</span>(A, b, p)
+
+    fmt.<span class="fn">Printf</span>(<span class="st">"Public: A=%s  B=%s\n"</span>, A, B)
+    fmt.<span class="fn">Printf</span>(<span class="st">"Alice: %s  Bob: %s  Match: %v\n"</span>,
+        sAlice, sBob, sAlice.<span class="fn">Cmp</span>(sBob) == <span class="nm">0</span>)
+}</code></pre></div>
+  <div class="tab-content rs"><pre><code><span class="label">Rust</span>
+<span class="kw">fn</span> <span class="fn">mod_pow</span>(base: <span class="ty">u64</span>, exp: <span class="ty">u64</span>, m: <span class="ty">u64</span>) -&gt; <span class="ty">u64</span> {
+    <span class="kw">let</span> <span class="kw">mut</span> result: <span class="ty">u128</span> = <span class="nm">1</span>;
+    <span class="kw">let</span> <span class="kw">mut</span> base = (base <span class="kw">as</span> <span class="ty">u128</span>) % (m <span class="kw">as</span> <span class="ty">u128</span>);
+    <span class="kw">let</span> <span class="kw">mut</span> exp = exp;
+    <span class="kw">let</span> m = m <span class="kw">as</span> <span class="ty">u128</span>;
+    <span class="kw">while</span> exp &gt; <span class="nm">0</span> {
+        <span class="kw">if</span> exp &amp; <span class="nm">1</span> == <span class="nm">1</span> { result = (result * base) % m; }
+        exp &gt;&gt;= <span class="nm">1</span>;
+        base = (base * base) % m;
+    }
+    result <span class="kw">as</span> <span class="ty">u64</span>
+}
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> (p, g) = (<span class="nm">23</span>, <span class="nm">5</span>);
+    <span class="kw">let</span> (a, b) = (<span class="nm">6</span>, <span class="nm">15</span>);
+
+    <span class="kw">let</span> big_a = <span class="fn">mod_pow</span>(g, a, p);
+    <span class="kw">let</span> big_b = <span class="fn">mod_pow</span>(g, b, p);
+
+    <span class="kw">let</span> s_alice = <span class="fn">mod_pow</span>(big_b, a, p);
+    <span class="kw">let</span> s_bob   = <span class="fn">mod_pow</span>(big_a, b, p);
+
+    <span class="fn">println!</span>(<span class="st">"Public: A={}  B={}"</span>, big_a, big_b);
+    <span class="fn">println!</span>(<span class="st">"Alice: {}  Bob: {}  Match: {}"</span>,
+        s_alice, s_bob, s_alice == s_bob);
+}</code></pre></div>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This &mdash; DH with Different Secrets</div>
+<p>Change the secret values <code>a</code> and <code>b</code> and verify that both sides still compute the same shared secret every time.</p>
+<pre><code><span class="label">Python</span>
+<span class="kw">import</span> random
+
+p, g = <span class="nm">23</span>, <span class="nm">5</span>
+
+<span class="kw">for</span> _ <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">5</span>):
+    a = random.<span class="fn">randint</span>(<span class="nm">2</span>, p - <span class="nm">2</span>)
+    b = random.<span class="fn">randint</span>(<span class="nm">2</span>, p - <span class="nm">2</span>)
+    A = <span class="fn">pow</span>(g, a, p)
+    B = <span class="fn">pow</span>(g, b, p)
+    s1 = <span class="fn">pow</span>(B, a, p)
+    s2 = <span class="fn">pow</span>(A, b, p)
+    <span class="fn">print</span>(<span class="st">f"a=</span>{a:<span class="nm">2</span>}<span class="st"> b=</span>{b:<span class="nm">2</span>}<span class="st">  A=</span>{A:<span class="nm">2</span>}<span class="st"> B=</span>{B:<span class="nm">2</span>}<span class="st">  shared=</span>{s1:<span class="nm">2</span>}<span class="st">  match=</span>{s1 == s2}<span class="st">"</span>)</code></pre>
+</div>
+
+<div class="power zen">
+<div class="power-label">X25519</div>
+<p>32-byte keys. Constant-time implementation &mdash; no secret-dependent branches or memory lookups. No weak subgroups to check for. Designed by Daniel J. Bernstein. Used in Signal, WireGuard, TLS 1.3, and SSH. This is the curve our messenger uses for every key exchange.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 6: ASYMMETRIC CRYPTO                                   -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch6">
+<h2>06 &mdash; Asymmetric Crypto</h2>
+
+<p class="drop-cap">Symmetric encryption keeps messages secret, but it cannot answer a harder question: <em>who sent this?</em> If Alice and Bob share a key, either of them could have produced any given ciphertext. Our messenger needs a mechanism where Alice can prove she authored a message in a way that anyone can verify but nobody can forge. This is the domain of asymmetric cryptography &mdash; public keys and digital signatures.</p>
+
+<h3>RSA: The Original</h3>
+
+<p>RSA (1977) works on a simple number-theoretic insight. Pick two large primes <strong>p</strong> and <strong>q</strong>. Compute <code>n = p &times; q</code> and <code>&phi; = (p&minus;1)(q&minus;1)</code>. Choose a public exponent <code>e</code> (almost always 65537) and compute the private exponent <code>d = e<sup>&minus;1</sup> mod &phi;</code>. To encrypt: <code>c = m<sup>e</sup> mod n</code>. To decrypt: <code>m = c<sup>d</sup> mod n</code>. The security rests on the hardness of factoring <code>n</code> back into <code>p</code> and <code>q</code>.</p>
+
+<p>RSA works, but it is <em>slow</em>. A 2048-bit RSA signature requires modular exponentiation on 2048-bit integers &mdash; roughly 1ms on modern hardware. Ed25519 achieves the same security level with 256-bit elliptic curve operations in about 0.05ms &mdash; a 20&times; speedup with smaller keys.</p>
+
+<div class="diagram">
+<span class="diagram-label">RSA key generation and encryption</span>
+<pre><code>
+  <span class="cm">1. Key Generation</span>
+  <span class="ty">p</span> = large prime          <span class="ty">q</span> = large prime
+  <span class="kw">n</span> = p &times; q                <span class="kw">&phi;</span> = (p-1)(q-1)
+  <span class="ty">e</span> = 65537 (public)       <span class="ty">d</span> = e<sup>-1</sup> mod &phi; (private)
+
+  <span class="cm">2. Encrypt (public key = {e, n})</span>
+  ciphertext = message<sup><span class="ty">e</span></sup> mod <span class="kw">n</span>
+
+  <span class="cm">3. Decrypt (private key = {d, n})</span>
+  message = ciphertext<sup><span class="ty">d</span></sup> mod <span class="kw">n</span>
+
+  <span class="cm">Security: factoring n into p &times; q is computationally infeasible</span>
+  <span class="cm">RSA-2048 &asymp; 112-bit security    RSA-4096 &asymp; 128-bit security</span>
+</code></pre>
+</div>
+
+<h3>Ed25519: The Modern Standard</h3>
+
+<p>Ed25519 is an Edwards-curve signature scheme over the finite field <code>GF(2<sup>255</sup>&minus;19)</code>. The key pair is a 32-byte private seed and a 32-byte public key. Signatures are 64 bytes. What makes Ed25519 special is that the signing nonce is <em>deterministic</em> &mdash; it is derived from the private key and the message via a hash. There is no random number involved in signing.</p>
+
+<p>This eliminates an entire class of catastrophic bugs. When ECDSA relies on a random nonce <code>k</code>, reusing that nonce even once leaks the private key.</p>
+
+<div class="diagram">
+<span class="diagram-label">Ed25519 sign and verify</span>
+<pre><code>
+  <span class="cm">Signing (deterministic nonce &mdash; no randomness needed)</span>
+
+  <span class="ty">seed</span> (32 bytes) &rarr; SHA-512 &rarr; <span class="ty">a</span> (scalar) + <span class="ty">prefix</span>
+  <span class="kw">nonce r</span> = SHA-512(<span class="ty">prefix</span> || message)          <span class="cm">&larr; deterministic!</span>
+  <span class="kw">R</span> = r &times; B                                      <span class="cm">(base point multiplication)</span>
+  <span class="kw">S</span> = r + SHA-512(<span class="kw">R</span> || <span class="ty">pubkey</span> || message) &times; <span class="ty">a</span>  <span class="cm">(mod group order)</span>
+  signature = (<span class="kw">R</span>, <span class="kw">S</span>)  &mdash; 64 bytes
+
+  <span class="cm">Verification</span>
+  Check: <span class="kw">S</span> &times; B == <span class="kw">R</span> + SHA-512(<span class="kw">R</span> || <span class="ty">pubkey</span> || message) &times; <span class="ty">pubkey</span>
+</code></pre>
+</div>
+
+<h3>The Sony PS3 Disaster</h3>
+
+<p>In 2010, the fail0verflow team demonstrated that Sony used a <em>fixed</em> random number <code>k</code> for every ECDSA signature on PS3 game binaries. In ECDSA, the signature component <code>s = k<sup>&minus;1</sup>(z + r&middot;d) mod n</code>. With the same <code>k</code> used for two different messages, you get two equations with two unknowns (<code>k</code> and <code>d</code>) &mdash; trivially solvable. Sony's private signing key was extracted in minutes. Ed25519 makes this bug <em>structurally impossible</em> because there is no random nonce to reuse.</p>
+
+<h3>Authenticating Key Exchange</h3>
+
+<p>Recall from Chapter 5 that unauthenticated Diffie-Hellman is vulnerable to man-in-the-middle attacks. The fix: sign your ephemeral DH public key with your long-term identity key. When Alice sends her ephemeral X25519 key to Bob, she also sends an Ed25519 signature over it. Mallory cannot forge this signature because she does not have Alice's private identity key.</p>
+
+<h4>Ed25519 Sign &amp; Verify</h4>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-sign" id="sign-c" class="tc" checked>
+  <input type="radio" name="tabs-sign" id="sign-py" class="tpy">
+  <input type="radio" name="tabs-sign" id="sign-ts" class="tts">
+  <input type="radio" name="tabs-sign" id="sign-go" class="tgo">
+  <input type="radio" name="tabs-sign" id="sign-rs" class="trs">
+  <div class="tab-bar">
+    <label for="sign-c">C</label>
+    <label for="sign-py">Python</label>
+    <label for="sign-ts">TypeScript</label>
+    <label for="sign-go">Go</label>
+    <label for="sign-rs">Rust</label>
+  </div>
+  <div class="tab-content c"><pre><code><span class="label">C / libsodium</span>
+<span class="pp">#include</span> <span class="st">&lt;sodium.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+
+<span class="ty">int</span> <span class="fn">main</span>(<span class="ty">void</span>) {
+    <span class="kw">if</span> (<span class="fn">sodium_init</span>() &lt; <span class="nm">0</span>) <span class="kw">return</span> <span class="nm">1</span>;
+
+    <span class="ty">unsigned char</span> pk[<span class="nm">crypto_sign_PUBLICKEYBYTES</span>];
+    <span class="ty">unsigned char</span> sk[<span class="nm">crypto_sign_SECRETKEYBYTES</span>];
+    <span class="fn">crypto_sign_keypair</span>(pk, sk);
+
+    <span class="ty">const unsigned char</span> msg[] = <span class="st">"authenticate me"</span>;
+    <span class="ty">unsigned char</span> sig[<span class="nm">crypto_sign_BYTES</span>];
+    <span class="fn">crypto_sign_detached</span>(sig, <span class="nm">NULL</span>, msg, <span class="fn">sizeof</span>(msg) - <span class="nm">1</span>, sk);
+
+    <span class="kw">if</span> (<span class="fn">crypto_sign_verify_detached</span>(sig, msg, <span class="fn">sizeof</span>(msg) - <span class="nm">1</span>, pk) == <span class="nm">0</span>)
+        <span class="fn">printf</span>(<span class="st">"Signature valid\n"</span>);
+    <span class="kw">else</span>
+        <span class="fn">printf</span>(<span class="st">"Signature INVALID\n"</span>);
+    <span class="kw">return</span> <span class="nm">0</span>;
+}</code></pre></div>
+  <div class="tab-content py"><pre><code><span class="label">Python</span>
+<span class="kw">import</span> hmac, hashlib, secrets
+
+<span class="cm"># Conceptual demo using HMAC as a signing stand-in.</span>
+<span class="cm"># Real code uses ed25519 (e.g. PyNaCl or cryptography lib).</span>
+
+secret_key = secrets.<span class="fn">token_bytes</span>(<span class="nm">32</span>)
+message = <span class="st">b"authenticate me"</span>
+
+<span class="cm"># "Sign" &mdash; in real Ed25519 this is a curve operation</span>
+signature = hmac.new(secret_key, message, hashlib.sha512).<span class="fn">digest</span>()
+<span class="fn">print</span>(<span class="st">f"Signature: </span>{signature[:<span class="nm">16</span>].hex()}<span class="st">..."</span>)
+
+<span class="cm"># "Verify"</span>
+expected = hmac.new(secret_key, message, hashlib.sha512).<span class="fn">digest</span>()
+valid = hmac.<span class="fn">compare_digest</span>(signature, expected)
+<span class="fn">print</span>(<span class="st">f"Valid: </span>{valid}<span class="st">"</span>)
+
+<span class="cm"># Tampered message fails</span>
+bad = hmac.new(secret_key, <span class="st">b"tampered"</span>, hashlib.sha512).<span class="fn">digest</span>()
+<span class="fn">print</span>(<span class="st">f"Tampered valid: </span>{hmac.<span class="fn">compare_digest</span>(signature, bad)}<span class="st">"</span>)</code></pre></div>
+  <div class="tab-content ts"><pre><code><span class="label">TypeScript</span>
+<span class="cm">// Browser-compatible demo using HMAC as a signing concept.</span>
+<span class="cm">// Real Ed25519: use crypto.subtle or a library like @noble/ed25519</span>
+
+<span class="kw">const</span> key = <span class="kw">await</span> crypto.subtle.<span class="fn">generateKey</span>(
+  { <span class="st">"name"</span>: <span class="st">"HMAC"</span>, <span class="st">"hash"</span>: <span class="st">"SHA-512"</span> },
+  <span class="nm">false</span>, [<span class="st">"sign"</span>, <span class="st">"verify"</span>]
+);
+
+<span class="kw">const</span> msg = <span class="kw">new</span> <span class="ty">TextEncoder</span>().<span class="fn">encode</span>(<span class="st">"authenticate me"</span>);
+<span class="kw">const</span> sig = <span class="kw">await</span> crypto.subtle.<span class="fn">sign</span>(<span class="st">"HMAC"</span>, key, msg);
+
+<span class="kw">const</span> valid = <span class="kw">await</span> crypto.subtle.<span class="fn">verify</span>(<span class="st">"HMAC"</span>, key, sig, msg);
+console.<span class="fn">log</span>(<span class="st">`Signature valid: </span>${valid}<span class="st">`</span>);
+
+<span class="kw">const</span> tampered = <span class="kw">new</span> <span class="ty">TextEncoder</span>().<span class="fn">encode</span>(<span class="st">"tampered"</span>);
+<span class="kw">const</span> bad = <span class="kw">await</span> crypto.subtle.<span class="fn">verify</span>(<span class="st">"HMAC"</span>, key, sig, tampered);
+console.<span class="fn">log</span>(<span class="st">`Tampered valid: </span>${bad}<span class="st">`</span>);</code></pre></div>
+  <div class="tab-content go"><pre><code><span class="label">Go</span>
+<span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"crypto/ed25519"</span>
+    <span class="st">"fmt"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    pub, priv, _ := ed25519.<span class="fn">GenerateKey</span>(<span class="nm">nil</span>)
+    msg := []<span class="ty">byte</span>(<span class="st">"authenticate me"</span>)
+
+    sig := ed25519.<span class="fn">Sign</span>(priv, msg)
+    fmt.<span class="fn">Printf</span>(<span class="st">"Signature: %x...\n"</span>, sig[:<span class="nm">16</span>])
+
+    valid := ed25519.<span class="fn">Verify</span>(pub, msg, sig)
+    fmt.<span class="fn">Println</span>(<span class="st">"Valid:"</span>, valid)
+
+    tampered := []<span class="ty">byte</span>(<span class="st">"tampered"</span>)
+    fmt.<span class="fn">Println</span>(<span class="st">"Tampered valid:"</span>, ed25519.<span class="fn">Verify</span>(pub, tampered, sig))
+}</code></pre></div>
+  <div class="tab-content rs"><pre><code><span class="label">Rust / ed25519-dalek</span>
+<span class="kw">use</span> ed25519_dalek::{<span class="ty">Signer</span>, <span class="ty">SigningKey</span>, <span class="ty">Verifier</span>};
+<span class="kw">use</span> rand::rngs::<span class="ty">OsRng</span>;
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> signing_key = <span class="ty">SigningKey</span>::<span class="fn">generate</span>(&amp;<span class="kw">mut</span> <span class="ty">OsRng</span>);
+    <span class="kw">let</span> verifying_key = signing_key.<span class="fn">verifying_key</span>();
+    <span class="kw">let</span> msg = <span class="st">b"authenticate me"</span>;
+
+    <span class="kw">let</span> sig = signing_key.<span class="fn">sign</span>(msg);
+    <span class="fn">println!</span>(<span class="st">"Signature: {:?}"</span>, &amp;sig.<span class="fn">to_bytes</span>()[..<span class="nm">16</span>]);
+
+    <span class="kw">assert!</span>(verifying_key.<span class="fn">verify</span>(msg, &amp;sig).<span class="fn">is_ok</span>());
+    <span class="fn">println!</span>(<span class="st">"Valid: true"</span>);
+
+    <span class="kw">let</span> bad = verifying_key.<span class="fn">verify</span>(<span class="st">b"tampered"</span>, &amp;sig);
+    <span class="fn">println!</span>(<span class="st">"Tampered valid: {}"</span>, bad.<span class="fn">is_ok</span>());
+}</code></pre></div>
+</div>
+
+<div class="power">
+<div class="power-label">Why Ed25519 Won</div>
+<p>Deterministic signatures eliminate nonce-reuse catastrophes like the Sony PS3 attack. Signing takes ~68&micro;s, verification ~160&micro;s on modern hardware. Keys are 32 bytes (vs RSA's 256+ bytes). The algorithm was designed for constant-time implementation &mdash; no secret-dependent branches or memory lookups. It is used in Signal, WireGuard, SSH, and TLS 1.3.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 7: TLS HANDSHAKE                                       -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch7">
+<h2>07 &mdash; The TLS Handshake</h2>
+
+<p class="drop-cap">Every time you open our messenger, before a single message byte is exchanged, a precise ceremony occurs: the TLS handshake. It negotiates a cipher suite, authenticates the server, and derives encryption keys &mdash; all in a single round trip. TLS 1.3 stripped the protocol down to its essential bones, removing decades of accumulated complexity and vulnerability.</p>
+
+<h3>TLS 1.3: One Round Trip</h3>
+
+<div class="diagram">
+<span class="diagram-label">TLS 1.3 handshake (1-RTT)</span>
+<pre><code>
+  <span class="ty">Client</span>                                        <span class="ty">Server</span>
+    &boxv;                                              &boxv;
+    &boxv;&mdash;&mdash; <span class="kw">ClientHello</span> &mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&rarr;  &boxv;
+    &boxv;   cipher suites + key_share (X25519)       &boxv;
+    &boxv;                                              &boxv;
+    &boxv;  &larr;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash; <span class="kw">ServerHello</span> &mdash;&mdash;&boxv;
+    &boxv;   chosen suite + key_share                  &boxv;
+    &boxv;                                              &boxv;
+    &boxv;   <span class="cm">══ encrypted with handshake keys ══</span>     &boxv;
+    &boxv;                                              &boxv;
+    &boxv;  &larr;&mdash;&mdash; <span class="st">EncryptedExtensions</span> &mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&boxv;
+    &boxv;  &larr;&mdash;&mdash; <span class="st">Certificate</span> (X.509 chain) &mdash;&mdash;&boxv;
+    &boxv;  &larr;&mdash;&mdash; <span class="st">CertificateVerify</span> (signature) &mdash;&boxv;
+    &boxv;  &larr;&mdash;&mdash; <span class="st">Finished</span> (HMAC) &mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&boxv;
+    &boxv;                                              &boxv;
+    &boxv;&mdash;&mdash; <span class="st">Finished</span> (HMAC) &mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&rarr;  &boxv;
+    &boxv;                                              &boxv;
+    &boxv;   <span class="cm">══ switch to application keys ══</span>       &boxv;
+    &boxv;                                              &boxv;
+    &boxv;&larr;&mdash;&mdash;&mdash;&mdash; <span class="fn">Application Data</span> &mdash;&mdash;&mdash;&mdash;&mdash;&rarr;&boxv;
+</code></pre>
+</div>
+
+<p>The key innovation in TLS 1.3: the client sends its X25519 public key <em>in the first message</em>. The server responds with its own key share, and from that point forward the connection is encrypted. In TLS 1.2, two round trips were required before encryption could begin.</p>
+
+<h3>What TLS 1.3 Removed</h3>
+
+<p>TLS 1.3 deleted RSA key exchange entirely. In TLS 1.2, the client could encrypt the pre-master secret under the server's RSA public key. This provided no forward secrecy &mdash; compromising the server's private key would retroactively decrypt every recorded session. TLS 1.3 mandates ephemeral Diffie-Hellman (X25519 or P-256) for every connection.</p>
+
+<p>Also removed: CBC-mode ciphers, RC4, SHA-1, arbitrary cipher suite negotiation, renegotiation, compression (CRIME attack). Every cipher suite in TLS 1.3 uses AEAD &mdash; either AES-128-GCM, AES-256-GCM, or ChaCha20-Poly1305.</p>
+
+<h3>The Certificate Chain</h3>
+
+<p>The server proves its identity with an X.509 certificate chain: <strong>Root CA</strong> &rarr; <strong>Intermediate CA</strong> &rarr; <strong>Leaf certificate</strong>. Root CAs are trusted by your operating system (roughly 100-150 root certificates). The CertificateVerify message contains a signature over the entire handshake transcript, proving the server actually possesses the private key corresponding to the certificate.</p>
+
+<p>Let's Encrypt (launched 2015) made free, automated certificates ubiquitous. Before it, TLS adoption was limited by certificate cost and complexity. Today, over 80% of web traffic is encrypted.</p>
+
+<h3>0-RTT: Speed at a Cost</h3>
+
+<p>TLS 1.3 supports <strong>0-RTT early data</strong>: if the client has a pre-shared key (PSK) from a previous session, it can send application data in the very first flight &mdash; zero round trips of latency. The tradeoff is real: 0-RTT data is vulnerable to <em>replay attacks</em>. An attacker who records the first flight can replay it, causing the server to process the request again. Servers must ensure that 0-RTT requests are idempotent (safe to replay).</p>
+
+<p class="xref">Cross-reference: see the <em>Network Deep Dive</em> for TCP handshake details and how TLS interleaves with it.</p>
+
+<div class="power zen">
+<div class="power-label">Certificate Transparency</div>
+<p>Certificate Transparency (CT) is a system of public, append-only logs that record every TLS certificate issued by participating CAs. If a rogue or compromised CA issues a certificate for your domain, the CT logs will catch it. Since 2018, Google Chrome requires CT compliance for all newly-issued certificates. This turned certificate mis-issuance from an invisible attack into a publicly auditable event.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 8: THE SIGNAL PROTOCOL                                 -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch8">
+<h2>08 &mdash; The Signal Protocol</h2>
+
+<p class="drop-cap">This is the crown jewel &mdash; the actual end-to-end encryption protocol our messenger uses. TLS protects the connection from your device to the server, but Signal Protocol ensures that even the server cannot read your messages. It solves two problems simultaneously: how to establish a shared secret with someone who is currently <em>offline</em>, and how to ensure that compromising a key today cannot decrypt messages from the past or the future.</p>
+
+<h3>The Async Problem</h3>
+
+<p>Diffie-Hellman requires both parties to be online at the same time to exchange ephemeral keys. But Bob might be asleep when Alice wants to send her first message. The solution is <strong>X3DH</strong> &mdash; Extended Triple Diffie-Hellman.</p>
+
+<h3>X3DH: Key Exchange with Offline Parties</h3>
+
+<p>Bob pre-publishes a <em>key bundle</em> to the server:</p>
+
+<ul>
+<li><strong>Identity key IK<sub>B</sub></strong> &mdash; long-term Ed25519/X25519 key pair</li>
+<li><strong>Signed prekey SPK<sub>B</sub></strong> &mdash; medium-term key, rotated weekly, signed by IK<sub>B</sub></li>
+<li><strong>One-time prekeys OPK<sub>B</sub></strong> &mdash; a batch of single-use keys (deleted after use)</li>
+</ul>
+
+<p>When Alice wants to message Bob, she fetches his bundle and computes:</p>
+
+<div class="diagram">
+<span class="diagram-label">X3DH &mdash; four DH computations</span>
+<pre><code>
+  <span class="ty">Alice</span>                                          <span class="ty">Bob (offline)</span>
+  <span class="kw">IK_A</span> (identity)                                <span class="kw">IK_B</span> (identity)
+  <span class="kw">EK_A</span> (ephemeral, fresh)                        <span class="kw">SPK_B</span> (signed prekey)
+                                                  <span class="kw">OPK_B</span> (one-time prekey)
+
+  <span class="fn">DH1</span> = DH(<span class="kw">IK_A</span>,  <span class="kw">SPK_B</span>)    <span class="cm">&larr; authentication (Alice's identity)</span>
+  <span class="fn">DH2</span> = DH(<span class="kw">EK_A</span>,  <span class="kw">IK_B</span>)     <span class="cm">&larr; forward secrecy</span>
+  <span class="fn">DH3</span> = DH(<span class="kw">EK_A</span>,  <span class="kw">SPK_B</span>)    <span class="cm">&larr; ties ephemeral to signed prekey</span>
+  <span class="fn">DH4</span> = DH(<span class="kw">EK_A</span>,  <span class="kw">OPK_B</span>)    <span class="cm">&larr; one-time prekey (optional, extra security)</span>
+
+  <span class="ty">master_secret</span> = KDF( DH1 || DH2 || DH3 || DH4 )
+</code></pre>
+</div>
+
+<p>Alice sends her identity key, ephemeral key, and the identifier of which one-time prekey she used. When Bob comes online, he performs the same four DH computations (with the roles reversed) and derives the same master secret. The server never learns the secret &mdash; it only relayed public keys.</p>
+
+<h3>The Double Ratchet</h3>
+
+<p>X3DH establishes the initial shared secret. The <strong>Double Ratchet</strong> algorithm takes over for all subsequent messages. It interleaves two ratchets:</p>
+
+<p><strong>Symmetric ratchet (KDF chain):</strong> Each message derives its encryption key from a chain key. After derivation, the chain key is ratcheted forward and the message key is deleted. This means past message keys are unrecoverable from current state.</p>
+
+<p><strong>DH ratchet:</strong> Periodically, when the conversation direction switches (Alice sends, then Bob replies), a new DH key exchange occurs. This produces a fresh root key and resets the chain. An attacker who somehow obtained the current state is locked out after the next DH ratchet step &mdash; they do not know the new DH private key.</p>
+
+<div class="diagram">
+<span class="diagram-label">Double Ratchet chain progression</span>
+<pre><code>
+  <span class="ty">Root Chain</span>         <span class="ty">Sending Chain</span>        <span class="ty">Messages</span>
+
+  root_key_0
+    &boxv;
+    &boxur;&mdash; DH ratchet &mdash;&rarr; chain_key_0
+    &boxv;                      &boxv;&mdash;&rarr; <span class="fn">msg_key_0</span> &rarr; <span class="st">encrypt msg #0</span>  <span class="cm">(deleted)</span>
+    &boxv;                      &boxv;&mdash;&rarr; <span class="fn">msg_key_1</span> &rarr; <span class="st">encrypt msg #1</span>  <span class="cm">(deleted)</span>
+    &boxv;                      &boxv;&mdash;&rarr; <span class="fn">msg_key_2</span> &rarr; <span class="st">encrypt msg #2</span>  <span class="cm">(deleted)</span>
+  root_key_1
+    &boxv;
+    &boxur;&mdash; DH ratchet &mdash;&rarr; chain_key_1       <span class="cm">(new DH key pair)</span>
+    &boxv;                      &boxv;&mdash;&rarr; <span class="fn">msg_key_3</span> &rarr; <span class="st">encrypt msg #3</span>  <span class="cm">(deleted)</span>
+    &boxv;                      &boxv;&mdash;&rarr; <span class="fn">msg_key_4</span> &rarr; <span class="st">encrypt msg #4</span>  <span class="cm">(deleted)</span>
+  root_key_2
+    &boxv;  ...
+</code></pre>
+</div>
+
+<div class="power">
+<div class="power-label">Forward Secrecy</div>
+<p>Compromise today cannot decrypt yesterday. Each message key is used exactly once and then deleted. Even if an attacker steals your phone right now, messages from last week are mathematically unrecoverable &mdash; the keys that encrypted them no longer exist anywhere in the universe.</p>
+</div>
+
+<div class="power hack">
+<div class="power-label">Post-Compromise Security</div>
+<p>If your key is stolen, the very next time both parties exchange a DH ratchet message, the attacker is locked out. The new DH key pair generates a shared secret the attacker cannot compute. No other widely deployed protocol has this property. It means a compromise is <em>self-healing</em> &mdash; the damage is confined to the window between compromise and the next ratchet step.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 9: PASSWORD STORAGE                                    -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch9">
+<h2>09 &mdash; Password Storage</h2>
+
+<p class="drop-cap">Our messenger needs a login system. The cryptographic question is deceptively simple: how do you store passwords so that a database breach does not compromise every account? The answer involves deliberately making computation <em>expensive</em> &mdash; the exact opposite of what we normally want from software.</p>
+
+<h3>Why Fast Hashes Are Catastrophic</h3>
+
+<p>An NVIDIA RTX 4090 computes approximately <strong>160 billion MD5 hashes per second</strong> and <strong>10 billion SHA-256 hashes per second</strong>. A six-character alphanumeric password has roughly 2 billion possibilities. At 160 billion per second, MD5 cracks it in <em>12 milliseconds</em>. Even an 8-character password falls in under a minute.</p>
+
+<h3>Rainbow Tables</h3>
+
+<p>Rainbow tables are precomputed hash-to-password lookup tables. A 1TB rainbow table covers virtually all passwords under 8 characters for unsalted MD5. The attack is a single disk read per password. The defense is <strong>salting</strong>: prepend a random 16&ndash;32 byte value to the password before hashing. Each user gets a unique salt, stored alongside the hash. Rainbow tables become useless because they would need a separate precomputed table per salt.</p>
+
+<h3>The Three Contenders</h3>
+
+<p><strong>bcrypt</strong> (1999): Based on Blowfish, with a tunable cost factor. Cost 12 means 2<sup>12</sup> = 4096 iterations of the key setup &mdash; roughly 250ms per hash. The 72-byte password limit is a known quirk. Salt is embedded in the output string (<code>$2b$12$...</code>). Gold standard for two decades.</p>
+
+<p><strong>scrypt</strong> (2009): Memory-hard &mdash; requires <code>N &times; r &times; 128</code> bytes of RAM. With <code>N=2<sup>14</sup>, r=8, p=1</code>, that is 16MB per hash computation. ASICs cannot be cost-effective because they need expensive memory, not just transistors.</p>
+
+<p><strong>Argon2id</strong> (2015): Winner of the Password Hashing Competition. Combines Argon2d (data-dependent memory access &mdash; better GPU resistance) with Argon2i (data-independent access &mdash; better side-channel resistance). Recommended parameters: memory=64MB, iterations=3, parallelism=4.</p>
+
+<table>
+<tr>
+  <th>Algorithm</th>
+  <th>RTX 4090 Throughput</th>
+  <th>8-char password</th>
+</tr>
+<tr>
+  <td>MD5</td>
+  <td>~160 billion/s</td>
+  <td>milliseconds</td>
+</tr>
+<tr>
+  <td>SHA-256</td>
+  <td>~10 billion/s</td>
+  <td>seconds</td>
+</tr>
+<tr>
+  <td>bcrypt (cost=12)</td>
+  <td>~30 thousand/s</td>
+  <td>centuries</td>
+</tr>
+<tr>
+  <td>scrypt (N=2<sup>14</sup>)</td>
+  <td>~5 thousand/s</td>
+  <td>millennia</td>
+</tr>
+<tr>
+  <td>Argon2id (64MB)</td>
+  <td>~10/s</td>
+  <td>heat death of universe</td>
+</tr>
+</table>
+
+<h4>Password Hashing in Five Languages</h4>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-pwhash" id="pwhash-c" class="tc" checked>
+  <input type="radio" name="tabs-pwhash" id="pwhash-py" class="tpy">
+  <input type="radio" name="tabs-pwhash" id="pwhash-ts" class="tts">
+  <input type="radio" name="tabs-pwhash" id="pwhash-go" class="tgo">
+  <input type="radio" name="tabs-pwhash" id="pwhash-rs" class="trs">
+  <div class="tab-bar">
+    <label for="pwhash-c">C</label>
+    <label for="pwhash-py">Python</label>
+    <label for="pwhash-ts">TypeScript</label>
+    <label for="pwhash-go">Go</label>
+    <label for="pwhash-rs">Rust</label>
+  </div>
+  <div class="tab-content c"><pre><code><span class="label">C / libsodium</span>
+<span class="pp">#include</span> <span class="st">&lt;sodium.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;string.h&gt;</span>
+
+<span class="ty">int</span> <span class="fn">main</span>(<span class="ty">void</span>) {
+    <span class="kw">if</span> (<span class="fn">sodium_init</span>() &lt; <span class="nm">0</span>) <span class="kw">return</span> <span class="nm">1</span>;
+
+    <span class="kw">const char</span> *password = <span class="st">"correct horse battery staple"</span>;
+    <span class="ty">char</span> hash[<span class="nm">crypto_pwhash_STRBYTES</span>];
+
+    <span class="cm">/* Hash with Argon2id */</span>
+    <span class="kw">if</span> (<span class="fn">crypto_pwhash_str</span>(hash, password, <span class="fn">strlen</span>(password),
+            <span class="nm">crypto_pwhash_OPSLIMIT_MODERATE</span>,
+            <span class="nm">crypto_pwhash_MEMLIMIT_MODERATE</span>) != <span class="nm">0</span>) {
+        <span class="fn">printf</span>(<span class="st">"out of memory\n"</span>);
+        <span class="kw">return</span> <span class="nm">1</span>;
+    }
+    <span class="fn">printf</span>(<span class="st">"Hash: %s\n"</span>, hash);
+
+    <span class="cm">/* Verify */</span>
+    <span class="kw">if</span> (<span class="fn">crypto_pwhash_str_verify</span>(hash, password,
+            <span class="fn">strlen</span>(password)) == <span class="nm">0</span>)
+        <span class="fn">printf</span>(<span class="st">"Password correct\n"</span>);
+    <span class="kw">else</span>
+        <span class="fn">printf</span>(<span class="st">"Password WRONG\n"</span>);
+    <span class="kw">return</span> <span class="nm">0</span>;
+}</code></pre></div>
+  <div class="tab-content py"><pre><code><span class="label">Python</span>
+<span class="kw">import</span> hashlib, secrets
+
+<span class="cm"># PBKDF2 &mdash; available in Pyodide. Production code should use Argon2.</span>
+password = <span class="st">b"correct horse battery staple"</span>
+salt = secrets.<span class="fn">token_bytes</span>(<span class="nm">16</span>)
+
+<span class="cm"># Hash with 600,000 iterations of PBKDF2-SHA256</span>
+dk = hashlib.<span class="fn">pbkdf2_hmac</span>(<span class="st">"sha256"</span>, password, salt, <span class="nm">600_000</span>)
+<span class="fn">print</span>(<span class="st">f"Salt:  </span>{salt.hex()}<span class="st">"</span>)
+<span class="fn">print</span>(<span class="st">f"Hash:  </span>{dk.hex()}<span class="st">"</span>)
+
+<span class="cm"># Verify &mdash; recompute with same salt</span>
+dk2 = hashlib.<span class="fn">pbkdf2_hmac</span>(<span class="st">"sha256"</span>, password, salt, <span class="nm">600_000</span>)
+<span class="fn">print</span>(<span class="st">f"Match: </span>{dk == dk2}<span class="st">"</span>)
+
+<span class="cm"># Wrong password fails</span>
+dk3 = hashlib.<span class="fn">pbkdf2_hmac</span>(<span class="st">"sha256"</span>, <span class="st">b"wrong"</span>, salt, <span class="nm">600_000</span>)
+<span class="fn">print</span>(<span class="st">f"Wrong: </span>{dk == dk3}<span class="st">"</span>)</code></pre></div>
+  <div class="tab-content ts"><pre><code><span class="label">TypeScript</span>
+<span class="cm">// PBKDF2 via Web Crypto API (works in all browsers)</span>
+
+<span class="kw">const</span> enc = <span class="kw">new</span> <span class="ty">TextEncoder</span>();
+<span class="kw">const</span> password = enc.<span class="fn">encode</span>(<span class="st">"correct horse battery staple"</span>);
+<span class="kw">const</span> salt = crypto.<span class="fn">getRandomValues</span>(<span class="kw">new</span> <span class="ty">Uint8Array</span>(<span class="nm">16</span>));
+
+<span class="kw">const</span> keyMaterial = <span class="kw">await</span> crypto.subtle.<span class="fn">importKey</span>(
+  <span class="st">"raw"</span>, password, <span class="st">"PBKDF2"</span>, <span class="nm">false</span>, [<span class="st">"deriveBits"</span>]
+);
+
+<span class="kw">const</span> hash = <span class="kw">await</span> crypto.subtle.<span class="fn">deriveBits</span>(
+  { <span class="st">"name"</span>: <span class="st">"PBKDF2"</span>, <span class="st">"salt"</span>: salt, <span class="st">"iterations"</span>: <span class="nm">600000</span>, <span class="st">"hash"</span>: <span class="st">"SHA-256"</span> },
+  keyMaterial, <span class="nm">256</span>
+);
+
+<span class="kw">const</span> hex = <span class="ty">Array</span>.<span class="fn">from</span>(<span class="kw">new</span> <span class="ty">Uint8Array</span>(hash),
+  b =&gt; b.<span class="fn">toString</span>(<span class="nm">16</span>).<span class="fn">padStart</span>(<span class="nm">2</span>, <span class="st">"0"</span>)).<span class="fn">join</span>(<span class="st">""</span>);
+console.<span class="fn">log</span>(<span class="st">`Hash: </span>${hex}<span class="st">`</span>);</code></pre></div>
+  <div class="tab-content go"><pre><code><span class="label">Go</span>
+<span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"fmt"</span>
+    <span class="st">"golang.org/x/crypto/bcrypt"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    password := []<span class="ty">byte</span>(<span class="st">"correct horse battery staple"</span>)
+
+    hash, err := bcrypt.<span class="fn">GenerateFromPassword</span>(password, <span class="nm">12</span>)
+    <span class="kw">if</span> err != <span class="nm">nil</span> { <span class="fn">panic</span>(err) }
+    fmt.<span class="fn">Printf</span>(<span class="st">"Hash: %s\n"</span>, hash)
+
+    <span class="cm">// Verify correct password</span>
+    err = bcrypt.<span class="fn">CompareHashAndPassword</span>(hash, password)
+    fmt.<span class="fn">Println</span>(<span class="st">"Correct:"</span>, err == <span class="nm">nil</span>)
+
+    <span class="cm">// Wrong password</span>
+    err = bcrypt.<span class="fn">CompareHashAndPassword</span>(hash, []<span class="ty">byte</span>(<span class="st">"wrong"</span>))
+    fmt.<span class="fn">Println</span>(<span class="st">"Wrong:"</span>, err == <span class="nm">nil</span>)
+}</code></pre></div>
+  <div class="tab-content rs"><pre><code><span class="label">Rust / argon2</span>
+<span class="kw">use</span> argon2::{
+    password_hash::{<span class="ty">SaltString</span>, <span class="ty">PasswordHasher</span>, <span class="ty">PasswordVerifier</span>},
+    <span class="ty">Argon2</span>,
+};
+<span class="kw">use</span> rand::rngs::<span class="ty">OsRng</span>;
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> password = <span class="st">b"correct horse battery staple"</span>;
+    <span class="kw">let</span> salt = <span class="ty">SaltString</span>::<span class="fn">generate</span>(&amp;<span class="kw">mut</span> <span class="ty">OsRng</span>);
+    <span class="kw">let</span> argon2 = <span class="ty">Argon2</span>::<span class="fn">default</span>();
+
+    <span class="kw">let</span> hash = argon2.<span class="fn">hash_password</span>(password, &amp;salt)
+        .<span class="fn">expect</span>(<span class="st">"hash failed"</span>);
+    <span class="fn">println!</span>(<span class="st">"Hash: {}"</span>, hash);
+
+    <span class="cm">// Verify correct password</span>
+    <span class="kw">assert!</span>(argon2.<span class="fn">verify_password</span>(password, &amp;hash).<span class="fn">is_ok</span>());
+    <span class="fn">println!</span>(<span class="st">"Correct: true"</span>);
+
+    <span class="cm">// Wrong password</span>
+    <span class="kw">let</span> wrong = argon2.<span class="fn">verify_password</span>(<span class="st">b"wrong"</span>, &amp;hash);
+    <span class="fn">println!</span>(<span class="st">"Wrong: {}"</span>, wrong.<span class="fn">is_ok</span>());
+}</code></pre></div>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This &mdash; Password Hash Timing</div>
+<p>Hash a password and verify it. Notice the correct password succeeds, the wrong password fails, and both take roughly the same time (constant-time comparison prevents timing attacks).</p>
+<pre><code><span class="label">Python</span>
+<span class="kw">import</span> hashlib, secrets, time
+
+password = <span class="st">b"hunter2"</span>
+salt = secrets.<span class="fn">token_bytes</span>(<span class="nm">16</span>)
+
+t0 = time.<span class="fn">monotonic</span>()
+dk = hashlib.<span class="fn">pbkdf2_hmac</span>(<span class="st">"sha256"</span>, password, salt, <span class="nm">600_000</span>)
+t1 = time.<span class="fn">monotonic</span>()
+<span class="fn">print</span>(<span class="st">f"Hash time: </span>{(t1-t0)*<span class="nm">1000</span>:<span class="nm">.1f</span>}<span class="st">ms"</span>)
+
+<span class="cm"># Correct password</span>
+dk2 = hashlib.<span class="fn">pbkdf2_hmac</span>(<span class="st">"sha256"</span>, password, salt, <span class="nm">600_000</span>)
+<span class="fn">print</span>(<span class="st">f"Correct: </span>{dk == dk2}<span class="st">"</span>)
+
+<span class="cm"># Wrong password</span>
+dk3 = hashlib.<span class="fn">pbkdf2_hmac</span>(<span class="st">"sha256"</span>, <span class="st">b"wrong"</span>, salt, <span class="nm">600_000</span>)
+<span class="fn">print</span>(<span class="st">f"Wrong:   </span>{dk == dk3}<span class="st">"</span>)</code></pre>
+</div>
+
+<div class="power danger">
+<div class="power-label">GPU Speed</div>
+<p>MD5: 160 billion hashes/second. SHA-256: 10 billion/s. bcrypt (cost=12): 30 thousand/s. Argon2id (64MB): 10/s. The gap between a &ldquo;fast hash&rdquo; and a &ldquo;password hash&rdquo; is <strong>nine orders of magnitude</strong>. This is why the algorithm matters more than the password length.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 10: RANDOMNESS                                         -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch10">
+<h2>10 &mdash; Randomness</h2>
+
+<p class="drop-cap">Every key in our messenger, every nonce, every salt, every ephemeral DH parameter &mdash; all of it starts as random bytes. Cryptographic security is only as strong as the randomness that generated the keys. Get this wrong and everything built on top collapses, no matter how strong the algorithms are.</p>
+
+<h3>Math.random() Is Not Random</h3>
+
+<p><code>Math.random()</code> in JavaScript (and equivalents in other languages like C's <code>rand()</code>) is a <em>pseudorandom number generator</em> (PRNG). It is deterministic: given the same seed, it produces the same sequence every time. If an attacker can predict or reconstruct the seed &mdash; often derived from the system clock at startup &mdash; they can predict every &ldquo;random&rdquo; number your program will ever produce. Never use it for cryptography.</p>
+
+<h3>CSPRNG: The Right Tool</h3>
+
+<p>A <strong>Cryptographically Secure PRNG</strong> (CSPRNG) generates bytes that are computationally indistinguishable from true randomness. Even if an attacker observes a million consecutive output bytes, they cannot predict the next byte with probability better than 1/256. Every operating system provides one:</p>
+
+<ul>
+<li><strong>Linux:</strong> <code>getrandom(2)</code> syscall, <code>/dev/urandom</code></li>
+<li><strong>macOS:</strong> <code>arc4random_buf()</code>, <code>/dev/urandom</code></li>
+<li><strong>Windows:</strong> <code>BCryptGenRandom()</code></li>
+</ul>
+
+<h3>The /dev/urandom Myth</h3>
+
+<p>For years, a persistent myth claimed that <code>/dev/random</code> was &ldquo;more secure&rdquo; than <code>/dev/urandom</code> because it blocks when the kernel entropy pool is &ldquo;low.&rdquo; The reality: <code>/dev/urandom</code> is fine for all cryptographic purposes once the system has booted and gathered initial entropy. The Linux kernel's CSPRNG (ChaCha20-based since 2016) does not degrade when the &ldquo;entropy estimate&rdquo; drops. Even the Linux man page was corrected. Linus Torvalds called <code>/dev/random</code>&rsquo;s blocking behavior &ldquo;essentially useless.&rdquo;</p>
+
+<h3>Entropy Sources</h3>
+
+<div class="diagram">
+<span class="diagram-label">Entropy sources to key generation pipeline</span>
+<pre><code>
+  <span class="cm">Hardware entropy sources</span>
+  <span class="ty">Interrupt timing</span>  &mdash;&boxh;&boxh;&boxdr;
+  <span class="ty">Disk seek jitter</span>  &mdash;&boxh;&boxh;&boxcr;&mdash;&rarr;  <span class="kw">Kernel Entropy Pool</span>
+  <span class="ty">Mouse / keyboard</span> &mdash;&boxh;&boxh;&boxcr;           &boxv;
+  <span class="ty">RDRAND (CPU)</span>     &mdash;&boxh;&boxh;&boxcr;           &boxv;
+  <span class="ty">CPU jitter</span>       &mdash;&boxh;&boxh;&boxur;           &boxv;
+                                     &darr;
+                              <span class="fn">ChaCha20 CSPRNG</span>
+                                     &boxv;
+                        &boxdr;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&boxcr;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&boxdr;
+                        &darr;             &darr;             &darr;
+                 <span class="st">getrandom(2)</span>  <span class="st">/dev/urandom</span>  <span class="st">arc4random</span>
+                        &darr;             &darr;             &darr;
+                    <span class="ty">AES keys</span>    <span class="ty">DH secrets</span>   <span class="ty">Nonces &amp; salts</span>
+</code></pre>
+</div>
+
+<p>Modern CPUs include hardware random number generators. Intel's <code>RDRAND</code> instruction and AMD's equivalent feed entropy into the kernel pool. The kernel mixes these with other sources &mdash; interrupt timing, disk seek jitter, user input events &mdash; to prevent any single compromised source from controlling the output.</p>
+
+<h3>The Dual EC Backdoor</h3>
+
+<p>In 2006, NIST standardized Dual_EC_DRBG as a random number generator. Cryptographers immediately noticed something suspicious: the standard included two elliptic curve points, <code>P</code> and <code>Q</code>, with no explanation of how <code>Q</code> was chosen. If someone knew the discrete logarithm relationship between <code>P</code> and <code>Q</code>, they could predict the generator's output from a small sample.</p>
+
+<p>In 2013, Snowden documents confirmed that the NSA had paid RSA Security $10 million to make Dual_EC_DRBG the default in their BSAFE library. The algorithm was a backdoor. NIST withdrew the standard in 2014. This remains the most significant known case of a deliberately weakened cryptographic standard.</p>
+
+<h4>Secure Random Bytes in Five Languages</h4>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-rng" id="rng-c" class="tc" checked>
+  <input type="radio" name="tabs-rng" id="rng-py" class="tpy">
+  <input type="radio" name="tabs-rng" id="rng-ts" class="tts">
+  <input type="radio" name="tabs-rng" id="rng-go" class="tgo">
+  <input type="radio" name="tabs-rng" id="rng-rs" class="trs">
+  <div class="tab-bar">
+    <label for="rng-c">C</label>
+    <label for="rng-py">Python</label>
+    <label for="rng-ts">TypeScript</label>
+    <label for="rng-go">Go</label>
+    <label for="rng-rs">Rust</label>
+  </div>
+  <div class="tab-content c"><pre><code><span class="label">C / libsodium</span>
+<span class="pp">#include</span> <span class="st">&lt;sodium.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+
+<span class="ty">int</span> <span class="fn">main</span>(<span class="ty">void</span>) {
+    <span class="kw">if</span> (<span class="fn">sodium_init</span>() &lt; <span class="nm">0</span>) <span class="kw">return</span> <span class="nm">1</span>;
+
+    <span class="ty">unsigned char</span> key[<span class="nm">32</span>];
+    <span class="fn">randombytes_buf</span>(key, <span class="kw">sizeof</span>(key));
+
+    <span class="fn">printf</span>(<span class="st">"Random key: "</span>);
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i &lt; <span class="nm">32</span>; i++)
+        <span class="fn">printf</span>(<span class="st">"%02x"</span>, key[i]);
+    <span class="fn">printf</span>(<span class="st">"\n"</span>);
+    <span class="kw">return</span> <span class="nm">0</span>;
+}</code></pre></div>
+  <div class="tab-content py"><pre><code><span class="label">Python</span>
+<span class="kw">import</span> secrets
+
+key = secrets.<span class="fn">token_hex</span>(<span class="nm">32</span>)
+<span class="fn">print</span>(<span class="st">f"Random key: </span>{key}<span class="st">"</span>)
+
+<span class="cm"># Generate 5 keys &mdash; each one is completely independent</span>
+<span class="kw">for</span> i <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">5</span>):
+    k = secrets.<span class="fn">token_hex</span>(<span class="nm">32</span>)
+    <span class="fn">print</span>(<span class="st">f"Key </span>{i}<span class="st">: </span>{k[:<span class="nm">16</span>]}<span class="st">..."</span>)</code></pre></div>
+  <div class="tab-content ts"><pre><code><span class="label">TypeScript</span>
+<span class="kw">const</span> buf = crypto.<span class="fn">getRandomValues</span>(<span class="kw">new</span> <span class="ty">Uint8Array</span>(<span class="nm">32</span>));
+<span class="kw">const</span> hex = <span class="ty">Array</span>.<span class="fn">from</span>(buf, b =&gt; b.<span class="fn">toString</span>(<span class="nm">16</span>).<span class="fn">padStart</span>(<span class="nm">2</span>, <span class="st">"0"</span>)).<span class="fn">join</span>(<span class="st">""</span>);
+console.<span class="fn">log</span>(<span class="st">`Random key: </span>${hex}<span class="st">`</span>);
+
+<span class="cm">// Generate 5 keys</span>
+<span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">0</span>; i &lt; <span class="nm">5</span>; i++) {
+    <span class="kw">const</span> k = crypto.<span class="fn">getRandomValues</span>(<span class="kw">new</span> <span class="ty">Uint8Array</span>(<span class="nm">32</span>));
+    <span class="kw">const</span> h = <span class="ty">Array</span>.<span class="fn">from</span>(k, b =&gt; b.<span class="fn">toString</span>(<span class="nm">16</span>).<span class="fn">padStart</span>(<span class="nm">2</span>, <span class="st">"0"</span>)).<span class="fn">join</span>(<span class="st">""</span>);
+    console.<span class="fn">log</span>(<span class="st">`Key </span>${i}<span class="st">: </span>${h.<span class="fn">slice</span>(<span class="nm">0</span>, <span class="nm">16</span>)}<span class="st">...`</span>);
+}</code></pre></div>
+  <div class="tab-content go"><pre><code><span class="label">Go</span>
+<span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"crypto/rand"</span>
+    <span class="st">"fmt"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    key := <span class="fn">make</span>([]<span class="ty">byte</span>, <span class="nm">32</span>)
+    _, err := rand.<span class="fn">Read</span>(key)
+    <span class="kw">if</span> err != <span class="nm">nil</span> { <span class="fn">panic</span>(err) }
+
+    fmt.<span class="fn">Printf</span>(<span class="st">"Random key: %x\n"</span>, key)
+
+    <span class="cm">// Generate 5 keys</span>
+    <span class="kw">for</span> i := <span class="nm">0</span>; i &lt; <span class="nm">5</span>; i++ {
+        k := <span class="fn">make</span>([]<span class="ty">byte</span>, <span class="nm">32</span>)
+        rand.<span class="fn">Read</span>(k)
+        fmt.<span class="fn">Printf</span>(<span class="st">"Key %d: %x...\n"</span>, i, k[:<span class="nm">8</span>])
+    }
+}</code></pre></div>
+  <div class="tab-content rs"><pre><code><span class="label">Rust</span>
+<span class="kw">use</span> rand::<span class="ty">RngCore</span>;
+<span class="kw">use</span> rand::rngs::<span class="ty">OsRng</span>;
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let mut</span> key = [<span class="nm">0u8</span>; <span class="nm">32</span>];
+    <span class="ty">OsRng</span>.<span class="fn">fill_bytes</span>(&amp;<span class="kw">mut</span> key);
+
+    <span class="fn">print!</span>(<span class="st">"Random key: "</span>);
+    <span class="kw">for</span> b <span class="kw">in</span> &amp;key { <span class="fn">print!</span>(<span class="st">"{:02x}"</span>, b); }
+    <span class="fn">println!</span>();
+
+    <span class="cm">// Generate 5 keys</span>
+    <span class="kw">for</span> i <span class="kw">in</span> <span class="nm">0</span>..<span class="nm">5</span> {
+        <span class="kw">let mut</span> k = [<span class="nm">0u8</span>; <span class="nm">32</span>];
+        <span class="ty">OsRng</span>.<span class="fn">fill_bytes</span>(&amp;<span class="kw">mut</span> k);
+        <span class="fn">print!</span>(<span class="st">"Key {}: "</span>, i);
+        <span class="kw">for</span> b <span class="kw">in</span> &amp;k[..<span class="nm">8</span>] { <span class="fn">print!</span>(<span class="st">"{:02x}"</span>, b); }
+        <span class="fn">println!</span>(<span class="st">"..."</span>);
+    }
+}</code></pre></div>
+</div>
+
+<p class="xref">Cross-reference: see the <em>Syscalls Deep Dive</em> for how <code>getrandom(2)</code> works at the kernel level.</p>
+
+<div class="power wild">
+<div class="power-label">Dual EC DRBG</div>
+<p>In 2013, Snowden documents confirmed the NSA paid RSA Security $10 million to make Dual_EC_DRBG the default in their BSAFE library. The algorithm contained a backdoor: a point <code>Q</code> whose discrete log relationship to the generator <code>P</code> would let anyone who knew it predict the &ldquo;random&rdquo; output. NIST withdrew the standard in 2014. The lesson: random number generators are the most security-critical component in any cryptosystem, and even standards bodies can be compromised.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 11: SIDE CHANNELS                                      -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch11">
+<h2>11 &mdash; Side Channels</h2>
+
+<p class="drop-cap">The bugs crypto can&rsquo;t fix. Every algorithm we have studied so far is mathematically sound &mdash; AES has no practical algebraic weakness, Ed25519 relies on a hard discrete-log problem, Argon2id saturates memory bandwidth. None of that matters when the physics of the machine leaks the secret through a side door. A side-channel attack does not break the math. It watches the <em>computer doing the math</em> and extracts the key from timing, power draw, cache behavior, or electromagnetic radiation.</p>
+
+<h3>Timing Attacks</h3>
+
+<p>The classic example: verifying a MAC byte-by-byte with an early exit.</p>
+
+<div class="diagram">
+<span class="diagram-label">Timing attack on MAC comparison</span>
+<pre><code>
+  <span class="ty">Naive comparison</span>: <span class="kw">if</span> (mac[i] != expected[i]) <span class="kw">return</span> <span class="pp">false</span>;
+
+  Byte 0 wrong  &rarr;  return in  <span class="nm">1&mu;s</span>
+  Byte 0 right, byte 1 wrong  &rarr;  return in  <span class="nm">2&mu;s</span>
+  Byte 0-1 right, byte 2 wrong  &rarr;  return in  <span class="nm">3&mu;s</span>
+  ...
+  All 31 right, byte 31 wrong  &rarr;  return in  <span class="nm">32&mu;s</span>
+
+  Attacker strategy:
+  <span class="cm">For each byte position (0..31):</span>
+  <span class="cm">  Try all 256 values, pick the one with longest response time</span>
+  <span class="cm">  &rarr; that value is correct for this position</span>
+
+  Total guesses: <span class="nm">256</span> &times; <span class="nm">32</span> = <span class="green">8,192</span>
+  Instead of:    <span class="nm">2<sup>256</sup></span> &asymp; <span class="red">10<sup>77</sup></span>
+</code></pre>
+</div>
+
+<p>A 32-byte MAC should require 2<sup>256</sup> brute-force attempts. With a timing side channel, the attacker needs only 8,192 carefully measured requests. The fix is <strong>constant-time comparison</strong>: XOR every byte pair, OR the results together, and check the final accumulator. Every input takes the same number of cycles regardless of where the first mismatch occurs.</p>
+
+<h3>Cache Timing on AES</h3>
+
+<p>In 2005, Daniel Bernstein demonstrated that AES implementations using lookup tables (T-tables) leak key bits through CPU cache access patterns. AES computes <code>T[key_byte &oplus; plaintext_byte]</code> &mdash; if that table index is already in cache, the lookup is fast (~1ns); if it must be fetched from memory, it is slow (~100ns). By measuring encryption time across many plaintexts, an attacker can determine which table entries were accessed and recover <code>key_byte &oplus; plaintext_byte</code>. Since the attacker controls the plaintext, they recover the key byte directly.</p>
+
+<p>Modern processors include <strong>AES-NI</strong> &mdash; dedicated hardware instructions (<code>aesenc</code>, <code>aesenclast</code>) that perform AES rounds without any table lookups. No tables means no cache-timing signal. This is why every modern crypto library uses AES-NI when available.</p>
+
+<h3>Power Analysis</h3>
+
+<p><strong>Simple Power Analysis (SPA)</strong> targets RSA&rsquo;s square-and-multiply algorithm. During modular exponentiation, the processor squares for every bit of the private key and additionally multiplies for every &lsquo;1&rsquo; bit. Squaring and multiplying draw different amounts of current. An oscilloscope on the power rail reads the private key bit by bit from the power trace.</p>
+
+<p><strong>Differential Power Analysis (DPA)</strong> is more sophisticated: it collects thousands of power traces, aligns them statistically, and extracts key bits that individual traces would not reveal. Smart cards and embedded HSMs must use constant-power implementations or random blinding to defend against DPA.</p>
+
+<h3>Spectre</h3>
+
+<div class="diagram">
+<span class="diagram-label">Spectre (variant 1) speculative execution flow</span>
+<pre><code>
+  <span class="kw">if</span> (x &lt; array1_size) {          <span class="cm">// branch prediction says: TRUE</span>
+      y = array2[array1[x] * <span class="nm">256</span>]; <span class="cm">// speculatively executed</span>
+  }
+
+  <span class="ty">CPU Pipeline</span>:
+  &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;     &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;     &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;
+  &boxv; Branch predict &boxv; &rarr;  &boxv; <span class="pp">Speculative read</span>  &boxv; &rarr;  &boxv; <span class="fn">Cache polluted</span> &boxv;
+  &boxv; <span class="st">"x is in bounds"</span>&boxv;     &boxv; array1[x] fetched   &boxv;     &boxv; array2 line now &boxv;
+  &boxul;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxur;     &boxv; even if x is OOB    &boxv;     &boxv; in L1 cache     &boxv;
+                          &boxul;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxur;     &boxul;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxur;
+                                    &darr;                           &darr;
+                          &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;     &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;
+                          &boxv; <span class="red">Branch rolls back</span>  &boxv;     &boxv; <span class="red">Cache persists!</span> &boxv;
+                          &boxv; architectural state &boxv;     &boxv; attacker probes  &boxv;
+                          &boxv; restored            &boxv;     &boxv; timing to read   &boxv;
+                          &boxul;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxur;     &boxv; the secret byte  &boxv;
+                                                          &boxul;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxur;
+</code></pre>
+</div>
+
+<p><strong>Spectre</strong> (CVE-2017-5753) exploits CPU speculative execution. The processor guesses a branch outcome, executes instructions speculatively, and rolls back if the guess was wrong. But the cache side-effects of the speculative execution are <em>not</em> rolled back. An attacker arranges for a bounds check to be mispredicted, causing a speculative out-of-bounds read. The secret data touches the cache, and a subsequent timing measurement extracts it. Every major CPU vendor &mdash; Intel, AMD, ARM &mdash; was affected.</p>
+
+<h3>Rowhammer</h3>
+
+<p>Repeatedly accessing one DRAM row causes electrical disturbance in adjacent rows, flipping bits in memory the attacker does not own. This has been used to escalate privileges, escape VMs, and forge RSA keys. It is not strictly a crypto attack, but it demonstrates that <em>hardware itself</em> is an attack surface &mdash; the DRAM physics violate the isolation guarantees that all software security depends on.</p>
+
+<div class="power danger">
+<div class="power-label">Constant Time is Hard</div>
+<p>Compilers will optimize away your constant-time code. A comparison loop with no early exit? The compiler might add one. A conditional move instead of a branch? The compiler might turn it back into a branch for &ldquo;efficiency.&rdquo; You need compiler barriers (<code>volatile</code> reads), platform-specific intrinsics, or hand-written assembly to guarantee constant-time execution. Even then, the CPU&rsquo;s microarchitecture might introduce variable timing through port contention, power throttling, or speculative execution. This is why crypto libraries employ specialists who verify constant-time behavior with tools like <code>ctgrind</code> and <code>dudect</code>.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 12: REAL-WORLD BREAKS                                   -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch12">
+<h2>12 &mdash; Real-World Breaks</h2>
+
+<p class="drop-cap">When theory meets deployment. Four bugs that burned the internet &mdash; and none of them broke the math. SHA-256 is fine. AES is fine. RSA is fine. Every single one of these vulnerabilities was an implementation error: a missing bounds check, a duplicate line, a bad random number generator, a padding design flaw.</p>
+
+<h3>Heartbleed (CVE-2014-0160)</h3>
+
+<p>Disclosed April 7, 2014. OpenSSL&rsquo;s TLS Heartbeat extension is a keep-alive mechanism: the client sends a payload and the server echoes it back. The protocol message contains a <em>length field</em> and the <em>actual payload</em>. The bug: OpenSSL used the <strong>claimed length</strong> (attacker-controlled) to decide how many bytes to copy back, without checking whether the actual payload was that long.</p>
+
+<div class="diagram">
+<span class="diagram-label">Heartbleed &mdash; buffer over-read</span>
+<pre><code>
+  <span class="ty">Client</span> sends:
+  &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;
+  &boxv; type: heartbeat_request       &boxv;
+  &boxv; payload_length: <span class="red">65535</span> (claimed) &boxv;
+  &boxv; payload: <span class="st">"hi"</span> (actual: <span class="nm">2</span> bytes) &boxv;
+  &boxul;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxur;
+
+  <span class="ty">Server</span> responds with:
+  <span class="fn">memcpy</span>(bp, pl, payload);  <span class="cm">// payload = 65535, not 2!</span>
+
+  &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;&boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;
+  &boxv; <span class="st">"hi"</span>      &boxv;&boxv; <span class="red">64KB of adjacent server memory</span>  &boxv;
+  &boxv; (2 bytes) &boxv;&boxv; private keys, session cookies,   &boxv;
+  &boxv;           &boxv;&boxv; passwords, other users' data ... &boxv;
+  &boxul;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxur;&boxul;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxur;
+</code></pre>
+</div>
+
+<p>Up to 64KB of server memory per request &mdash; containing private keys, session cookies, passwords, and other users&rsquo; data. 17% of all TLS-enabled websites were affected. The bug had been in production since March 2012, over two years before discovery. The fix was a single bounds check: verify that the actual payload length matches the claimed length before calling <code>memcpy</code>.</p>
+
+<h3>POODLE (CVE-2014-3566)</h3>
+
+<p>October 2014. SSLv3&rsquo;s CBC mode used <em>non-deterministic padding</em>: the padding bytes could be anything (only the last byte, indicating the padding length, was checked). This created a <strong>padding oracle</strong>. An attacker manipulates the IV to align a target byte at a block boundary, then checks whether the server accepts or rejects the padding. Each server response leaks one bit of information about the plaintext.</p>
+
+<p>256 requests to decrypt one byte. For a 16-byte session cookie: 4,096 requests. Trivial for an attacker on the same network. POODLE killed SSLv3 for good &mdash; the protocol was already 15 years old and had no reason to still be in use, but backward compatibility kept it alive.</p>
+
+<h3>Goto Fail (CVE-2014-1266)</h3>
+
+<p>February 2014. Apple&rsquo;s SecureTransport SSL/TLS library contained a duplicate <code>goto fail;</code> line:</p>
+
+<pre><code><span class="label">C &mdash; Apple SecureTransport (the bug)</span>
+<span class="kw">if</span> ((err = <span class="fn">SSLHashSHA1.update</span>(&amp;hashCtx, &amp;signedParams)) != <span class="nm">0</span>)
+    <span class="kw">goto</span> fail;
+    <span class="kw">goto</span> fail;  <span class="cm">// &larr; DUPLICATE: always executes, skips verification</span>
+
+<span class="cm">// This code is NEVER reached:</span>
+<span class="kw">if</span> ((err = <span class="fn">SSLHashSHA1.final</span>(&amp;hashCtx, &amp;hashOut)) != <span class="nm">0</span>)
+    <span class="kw">goto</span> fail;
+
+err = <span class="fn">sslRawVerify</span>(...);  <span class="cm">// &larr; signature verification, never runs</span></code></pre>
+
+<p>The second <code>goto fail</code> was not inside the <code>if</code> block &mdash; it always executed unconditionally, jumping past the signature verification. Any man-in-the-middle could present a fraudulent certificate and it would be accepted. A single copy-paste error made HTTPS meaningless on every Apple device running iOS 7 and OS X 10.9.</p>
+
+<h3>ROCA (CVE-2017-15361)</h3>
+
+<p>October 2017. Infineon&rsquo;s RSA key generation on TPM chips and smartcards used a flawed algorithm. Instead of generating random primes, it produced primes of the form <code>p = k &times; M + (65537<sup>a</sup> mod M)</code>, where M is the product of the first <em>n</em> small primes. This structure makes factoring vastly easier than for truly random primes.</p>
+
+<ul>
+<li><strong>512-bit keys</strong>: factorable in seconds</li>
+<li><strong>1024-bit keys</strong>: factorable in hours</li>
+<li><strong>2048-bit keys</strong>: factorable in days to weeks</li>
+</ul>
+
+<p>Impact: 750,000 Estonian national ID cards recalled. YubiKey 4 devices affected. Various government and corporate TPM chips compromised. The flaw was in the <em>key generation</em>, not in RSA itself &mdash; the algorithm is fine when given properly random primes.</p>
+
+<div class="power danger">
+<div class="power-label">The Common Thread</div>
+<p>None of these four bugs broke the underlying mathematics. SHA-256 is still unbroken. AES is still unbroken. RSA with random primes is still unbroken. Every single vulnerability was an engineering failure: a missing bounds check (Heartbleed), a padding design flaw (POODLE), a duplicate line of code (Goto Fail), a weak random number generator (ROCA). The math is the easy part. The implementation is where everything burns.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 13: CRYPTO IN YOUR STACK                                -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch13">
+<h2>13 &mdash; Crypto in Your Stack</h2>
+
+<p class="drop-cap">We have studied the internals of every major cryptographic primitive. Now forget all of it &mdash; or rather, use it only to <em>evaluate</em> libraries, never to <em>reimplement</em> them. The golden rule of applied cryptography: <strong>never implement crypto primitives yourself</strong>. Use audited, battle-tested libraries maintained by specialists who understand side channels, constant-time code, and the thousand ways a correct algorithm becomes a broken implementation.</p>
+
+<h3>The Recommended Libraries</h3>
+
+<p><strong>C: libsodium</strong> &mdash; by Daniel J. Bernstein and collaborators. High-level API, misuse-resistant design. <code>crypto_secretbox_easy()</code> for authenticated encryption (XSalsa20-Poly1305), <code>crypto_box_easy()</code> for public-key authenticated encryption (X25519 + XSalsa20 + Poly1305), <code>crypto_sign_ed25519()</code> for signatures, <code>crypto_pwhash()</code> for Argon2id password hashing, <code>randombytes_buf()</code> for CSPRNG.</p>
+
+<p><strong>Python: <code>cryptography</code></strong> &mdash; by the Python Cryptographic Authority (PyCA). <code>Fernet</code> for simple encrypt/decrypt (AES-CBC + HMAC), <code>AESGCM</code> for low-level AES-GCM, the standard library&rsquo;s <code>hashlib</code> for SHA-256, <code>secrets</code> module for CSPRNG (in stdlib since Python 3.6), and <code>PyNaCl</code> for libsodium bindings.</p>
+
+<p><strong>TypeScript / Node: Web Crypto API</strong> &mdash; built into every modern browser and Node.js. <code>crypto.subtle.encrypt({name: "AES-GCM"}, ...)</code>, <code>crypto.subtle.digest("SHA-256", ...)</code>, <code>crypto.subtle.generateKey(...)</code>, <code>crypto.subtle.sign(...)</code>, <code>crypto.getRandomValues()</code>. For NaCl-style APIs: the <code>tweetnacl</code> npm package.</p>
+
+<p><strong>Go: standard library</strong> &mdash; <code>crypto/aes</code> + <code>crypto/cipher</code> (NewGCM) for AES-GCM, <code>crypto/ed25519</code> for signatures, <code>crypto/sha256</code> for hashing, <code>golang.org/x/crypto/nacl/box</code> for NaCl box, <code>crypto/rand</code> for CSPRNG.</p>
+
+<p><strong>Rust: <code>ring</code></strong> &mdash; by Brian Smith, forked from BoringSSL. <code>ring::aead</code> for AES-GCM and ChaCha20-Poly1305, <code>ring::agreement</code> for X25519 ECDH, <code>ring::signature</code> for Ed25519, <code>ring::rand::SystemRandom</code> for CSPRNG. Alternatives from the RustCrypto project: <code>aes-gcm</code>, <code>ed25519-dalek</code>, <code>argon2</code> crates.</p>
+
+<h3>Encrypt a Message</h3>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-libs" id="libs-c" class="tc" checked>
+  <input type="radio" name="tabs-libs" id="libs-py" class="tpy">
+  <input type="radio" name="tabs-libs" id="libs-ts" class="tts">
+  <input type="radio" name="tabs-libs" id="libs-go" class="tgo">
+  <input type="radio" name="tabs-libs" id="libs-rs" class="trs">
+  <div class="tab-bar">
+    <label for="libs-c">C</label>
+    <label for="libs-py">Python</label>
+    <label for="libs-ts">TypeScript</label>
+    <label for="libs-go">Go</label>
+    <label for="libs-rs">Rust</label>
+  </div>
+  <div class="tab-content c"><pre><code><span class="label">C &mdash; libsodium</span>
+<span class="pp">#include</span> <span class="st">&lt;sodium.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;string.h&gt;</span>
+
+<span class="ty">int</span> <span class="fn">main</span>(<span class="ty">void</span>) {
+    <span class="kw">if</span> (<span class="fn">sodium_init</span>() &lt; <span class="nm">0</span>) <span class="kw">return</span> <span class="nm">1</span>;
+
+    <span class="cm">// Generate a random 256-bit key</span>
+    <span class="ty">unsigned char</span> key[<span class="ty">crypto_secretbox_KEYBYTES</span>];
+    <span class="fn">crypto_secretbox_keygen</span>(key);
+
+    <span class="cm">// Encrypt</span>
+    <span class="ty">const char</span> *msg = <span class="st">"attack at dawn"</span>;
+    <span class="ty">unsigned char</span> nonce[<span class="ty">crypto_secretbox_NONCEBYTES</span>];
+    <span class="fn">randombytes_buf</span>(nonce, <span class="kw">sizeof</span>(nonce));
+
+    <span class="ty">size_t</span> mlen = <span class="fn">strlen</span>(msg);
+    <span class="ty">size_t</span> clen = <span class="ty">crypto_secretbox_MACBYTES</span> + mlen;
+    <span class="ty">unsigned char</span> ciphertext[clen];
+
+    <span class="fn">crypto_secretbox_easy</span>(ciphertext, (<span class="ty">const unsigned char</span> *)msg,
+                          mlen, nonce, key);
+    <span class="fn">printf</span>(<span class="st">"Encrypted %zu bytes\n"</span>, clen);
+
+    <span class="cm">// Decrypt</span>
+    <span class="ty">unsigned char</span> decrypted[mlen + <span class="nm">1</span>];
+    <span class="kw">if</span> (<span class="fn">crypto_secretbox_open_easy</span>(decrypted, ciphertext,
+                                  clen, nonce, key) != <span class="nm">0</span>) {
+        <span class="fn">printf</span>(<span class="st">"Decryption failed! Tampered?\n"</span>);
+        <span class="kw">return</span> <span class="nm">1</span>;
+    }
+    decrypted[mlen] = <span class="st">'\0'</span>;
+    <span class="fn">printf</span>(<span class="st">"Decrypted: %s\n"</span>, decrypted);
+    <span class="kw">return</span> <span class="nm">0</span>;
+}</code></pre></div>
+  <div class="tab-content py"><pre><code><span class="label">Python &mdash; PBKDF2 demo (Pyodide-compatible)</span>
+<span class="kw">import</span> hashlib, os, struct
+
+<span class="cm"># In production, use: from cryptography.hazmat.primitives.ciphers.aead import AESGCM</span>
+<span class="cm"># This demo uses PBKDF2 + XOR to work in Pyodide (no C extensions)</span>
+
+<span class="kw">def</span> <span class="fn">derive_stream</span>(key: <span class="ty">bytes</span>, nonce: <span class="ty">bytes</span>, length: <span class="ty">int</span>) -&gt; <span class="ty">bytes</span>:
+    <span class="st">"""Derive a keystream using PBKDF2 (demo only, not a real cipher)."""</span>
+    <span class="kw">return</span> hashlib.<span class="fn">pbkdf2_hmac</span>(<span class="st">"sha256"</span>, key, nonce, <span class="nm">1000</span>, dklen=length)
+
+<span class="kw">def</span> <span class="fn">encrypt</span>(plaintext: <span class="ty">bytes</span>, key: <span class="ty">bytes</span>) -&gt; <span class="ty">bytes</span>:
+    nonce = os.<span class="fn">urandom</span>(<span class="nm">16</span>)
+    stream = <span class="fn">derive_stream</span>(key, nonce, <span class="fn">len</span>(plaintext))
+    ciphertext = <span class="fn">bytes</span>(a ^ b <span class="kw">for</span> a, b <span class="kw">in</span> <span class="fn">zip</span>(plaintext, stream))
+    mac = hashlib.<span class="fn">pbkdf2_hmac</span>(<span class="st">"sha256"</span>, key + nonce + ciphertext, b<span class="st">"mac"</span>, <span class="nm">1000</span>)
+    <span class="kw">return</span> nonce + mac[:<span class="nm">16</span>] + ciphertext
+
+<span class="kw">def</span> <span class="fn">decrypt</span>(blob: <span class="ty">bytes</span>, key: <span class="ty">bytes</span>) -&gt; <span class="ty">bytes</span>:
+    nonce, mac, ct = blob[:<span class="nm">16</span>], blob[<span class="nm">16</span>:<span class="nm">32</span>], blob[<span class="nm">32</span>:]
+    expected = hashlib.<span class="fn">pbkdf2_hmac</span>(<span class="st">"sha256"</span>, key + nonce + ct, b<span class="st">"mac"</span>, <span class="nm">1000</span>)
+    <span class="kw">if</span> mac != expected[:<span class="nm">16</span>]:
+        <span class="kw">raise</span> <span class="ty">ValueError</span>(<span class="st">"Decryption failed: wrong key or tampered data"</span>)
+    stream = <span class="fn">derive_stream</span>(key, nonce, <span class="fn">len</span>(ct))
+    <span class="kw">return</span> <span class="fn">bytes</span>(a ^ b <span class="kw">for</span> a, b <span class="kw">in</span> <span class="fn">zip</span>(ct, stream))
+
+key = hashlib.<span class="fn">sha256</span>(b<span class="st">"my secret key"</span>).<span class="fn">digest</span>()
+msg = b<span class="st">"attack at dawn"</span>
+
+encrypted = <span class="fn">encrypt</span>(msg, key)
+<span class="fn">print</span>(<span class="st">f"Encrypted: </span>{encrypted.<span class="fn">hex</span>()[:<span class="nm">40</span>]}<span class="st">..."</span>)
+
+decrypted = <span class="fn">decrypt</span>(encrypted, key)
+<span class="fn">print</span>(<span class="st">f"Decrypted: </span>{decrypted.<span class="fn">decode</span>()}<span class="st">"</span>)
+
+<span class="cm"># Wrong key fails</span>
+<span class="kw">try</span>:
+    wrong_key = hashlib.<span class="fn">sha256</span>(b<span class="st">"wrong key"</span>).<span class="fn">digest</span>()
+    <span class="fn">decrypt</span>(encrypted, wrong_key)
+    <span class="fn">print</span>(<span class="st">"BUG: should have failed"</span>)
+<span class="kw">except</span> <span class="ty">ValueError</span> <span class="kw">as</span> e:
+    <span class="fn">print</span>(<span class="st">f"Wrong key: </span>{e}<span class="st">"</span>)</code></pre></div>
+  <div class="tab-content ts"><pre><code><span class="label">TypeScript &mdash; Web Crypto API</span>
+<span class="cm">// AES-256-GCM via the Web Crypto API (works in browser + Node)</span>
+
+<span class="kw">async function</span> <span class="fn">demo</span>() {
+    <span class="cm">// Generate a random 256-bit AES key</span>
+    <span class="kw">const</span> key = <span class="kw">await</span> crypto.subtle.<span class="fn">generateKey</span>(
+        { name: <span class="st">"AES-GCM"</span>, length: <span class="nm">256</span> },
+        <span class="nm">true</span>, [<span class="st">"encrypt"</span>, <span class="st">"decrypt"</span>]
+    );
+
+    <span class="kw">const</span> encoder = <span class="kw">new</span> <span class="ty">TextEncoder</span>();
+    <span class="kw">const</span> plaintext = encoder.<span class="fn">encode</span>(<span class="st">"attack at dawn"</span>);
+
+    <span class="cm">// Encrypt with a random 96-bit nonce</span>
+    <span class="kw">const</span> iv = crypto.<span class="fn">getRandomValues</span>(<span class="kw">new</span> <span class="ty">Uint8Array</span>(<span class="nm">12</span>));
+    <span class="kw">const</span> ciphertext = <span class="kw">await</span> crypto.subtle.<span class="fn">encrypt</span>(
+        { name: <span class="st">"AES-GCM"</span>, iv },
+        key, plaintext
+    );
+    console.<span class="fn">log</span>(<span class="st">"Encrypted:"</span>, <span class="kw">new</span> <span class="ty">Uint8Array</span>(ciphertext).length, <span class="st">"bytes"</span>);
+
+    <span class="cm">// Decrypt</span>
+    <span class="kw">const</span> decrypted = <span class="kw">await</span> crypto.subtle.<span class="fn">decrypt</span>(
+        { name: <span class="st">"AES-GCM"</span>, iv },
+        key, ciphertext
+    );
+    <span class="kw">const</span> decoder = <span class="kw">new</span> <span class="ty">TextDecoder</span>();
+    console.<span class="fn">log</span>(<span class="st">"Decrypted:"</span>, decoder.<span class="fn">decode</span>(decrypted));
+
+    <span class="cm">// Wrong key fails</span>
+    <span class="kw">const</span> wrongKey = <span class="kw">await</span> crypto.subtle.<span class="fn">generateKey</span>(
+        { name: <span class="st">"AES-GCM"</span>, length: <span class="nm">256</span> },
+        <span class="nm">true</span>, [<span class="st">"encrypt"</span>, <span class="st">"decrypt"</span>]
+    );
+    <span class="kw">try</span> {
+        <span class="kw">await</span> crypto.subtle.<span class="fn">decrypt</span>(
+            { name: <span class="st">"AES-GCM"</span>, iv },
+            wrongKey, ciphertext
+        );
+        console.<span class="fn">log</span>(<span class="st">"BUG: should have failed"</span>);
+    } <span class="kw">catch</span> (e) {
+        console.<span class="fn">log</span>(<span class="st">"Wrong key: decryption failed (as expected)"</span>);
+    }
+}
+
+<span class="fn">demo</span>();</code></pre></div>
+  <div class="tab-content go"><pre><code><span class="label">Go &mdash; crypto/aes + cipher.NewGCM</span>
+<span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"crypto/aes"</span>
+    <span class="st">"crypto/cipher"</span>
+    <span class="st">"crypto/rand"</span>
+    <span class="st">"fmt"</span>
+    <span class="st">"io"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="cm">// Generate a random 256-bit key</span>
+    key := <span class="fn">make</span>([]<span class="ty">byte</span>, <span class="nm">32</span>)
+    <span class="kw">if</span> _, err := io.<span class="fn">ReadFull</span>(rand.Reader, key); err != <span class="kw">nil</span> {
+        <span class="fn">panic</span>(err)
+    }
+
+    <span class="cm">// Create AES-GCM cipher</span>
+    block, err := aes.<span class="fn">NewCipher</span>(key)
+    <span class="kw">if</span> err != <span class="kw">nil</span> { <span class="fn">panic</span>(err) }
+    gcm, err := cipher.<span class="fn">NewGCM</span>(block)
+    <span class="kw">if</span> err != <span class="kw">nil</span> { <span class="fn">panic</span>(err) }
+
+    <span class="cm">// Encrypt</span>
+    plaintext := []<span class="ty">byte</span>(<span class="st">"attack at dawn"</span>)
+    nonce := <span class="fn">make</span>([]<span class="ty">byte</span>, gcm.<span class="fn">NonceSize</span>())
+    io.<span class="fn">ReadFull</span>(rand.Reader, nonce)
+
+    ciphertext := gcm.<span class="fn">Seal</span>(<span class="kw">nil</span>, nonce, plaintext, <span class="kw">nil</span>)
+    fmt.<span class="fn">Printf</span>(<span class="st">"Encrypted: %d bytes\n"</span>, <span class="fn">len</span>(ciphertext))
+
+    <span class="cm">// Decrypt</span>
+    decrypted, err := gcm.<span class="fn">Open</span>(<span class="kw">nil</span>, nonce, ciphertext, <span class="kw">nil</span>)
+    <span class="kw">if</span> err != <span class="kw">nil</span> { <span class="fn">panic</span>(err) }
+    fmt.<span class="fn">Printf</span>(<span class="st">"Decrypted: %s\n"</span>, decrypted)
+}</code></pre></div>
+  <div class="tab-content rs"><pre><code><span class="label">Rust &mdash; ring::aead AES-256-GCM</span>
+<span class="kw">use</span> ring::aead::{<span class="ty">Aead</span>, <span class="ty">AES_256_GCM</span>, <span class="ty">LessSafeKey</span>, <span class="ty">Nonce</span>,
+                  <span class="ty">UnboundKey</span>, <span class="ty">NONCE_LEN</span>};
+<span class="kw">use</span> ring::rand::{<span class="ty">SecureRandom</span>, <span class="ty">SystemRandom</span>};
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> rng = <span class="ty">SystemRandom</span>::<span class="fn">new</span>();
+
+    <span class="cm">// Generate a random 256-bit key</span>
+    <span class="kw">let mut</span> key_bytes = [<span class="nm">0u8</span>; <span class="nm">32</span>];
+    rng.<span class="fn">fill</span>(&amp;<span class="kw">mut</span> key_bytes).<span class="fn">unwrap</span>();
+    <span class="kw">let</span> unbound = <span class="ty">UnboundKey</span>::<span class="fn">new</span>(&amp;<span class="ty">AES_256_GCM</span>, &amp;key_bytes).<span class="fn">unwrap</span>();
+    <span class="kw">let</span> key = <span class="ty">LessSafeKey</span>::<span class="fn">new</span>(unbound);
+
+    <span class="cm">// Encrypt</span>
+    <span class="kw">let mut</span> nonce_bytes = [<span class="nm">0u8</span>; <span class="ty">NONCE_LEN</span>];
+    rng.<span class="fn">fill</span>(&amp;<span class="kw">mut</span> nonce_bytes).<span class="fn">unwrap</span>();
+    <span class="kw">let</span> nonce = <span class="ty">Nonce</span>::<span class="fn">assume_unique_for_key</span>(nonce_bytes);
+
+    <span class="kw">let mut</span> in_out = b<span class="st">"attack at dawn"</span>.<span class="fn">to_vec</span>();
+    key.<span class="fn">seal_in_place_append_tag</span>(nonce, <span class="ty">Aad</span>::<span class="fn">empty</span>(), &amp;<span class="kw">mut</span> in_out)
+       .<span class="fn">unwrap</span>();
+    <span class="fn">println!</span>(<span class="st">"Encrypted: {} bytes"</span>, in_out.<span class="fn">len</span>());
+
+    <span class="cm">// Decrypt</span>
+    <span class="kw">let</span> nonce2 = <span class="ty">Nonce</span>::<span class="fn">assume_unique_for_key</span>(nonce_bytes);
+    <span class="kw">let</span> decrypted = key.<span class="fn">open_in_place</span>(nonce2, <span class="ty">Aad</span>::<span class="fn">empty</span>(), &amp;<span class="kw">mut</span> in_out)
+                       .<span class="fn">unwrap</span>();
+    <span class="fn">println!</span>(<span class="st">"Decrypted: {}"</span>, std::str::<span class="fn">from_utf8</span>(decrypted).<span class="fn">unwrap</span>());
+}</code></pre></div>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This &mdash; Encrypt and Decrypt</div>
+<p>Encrypt a secret message, then try decrypting with the wrong key. The MAC check will reject the forgery.</p>
+<pre><code><span class="label">Python</span>
+<span class="kw">import</span> hashlib, os
+
+<span class="kw">def</span> <span class="fn">derive_stream</span>(key, nonce, length):
+    <span class="kw">return</span> hashlib.<span class="fn">pbkdf2_hmac</span>(<span class="st">"sha256"</span>, key, nonce, <span class="nm">1000</span>, dklen=length)
+
+<span class="kw">def</span> <span class="fn">encrypt</span>(plaintext, key):
+    nonce = os.<span class="fn">urandom</span>(<span class="nm">16</span>)
+    stream = <span class="fn">derive_stream</span>(key, nonce, <span class="fn">len</span>(plaintext))
+    ct = <span class="fn">bytes</span>(a ^ b <span class="kw">for</span> a, b <span class="kw">in</span> <span class="fn">zip</span>(plaintext, stream))
+    mac = hashlib.<span class="fn">pbkdf2_hmac</span>(<span class="st">"sha256"</span>, key + nonce + ct, b<span class="st">"mac"</span>, <span class="nm">1000</span>)
+    <span class="kw">return</span> nonce + mac[:<span class="nm">16</span>] + ct
+
+<span class="kw">def</span> <span class="fn">decrypt</span>(blob, key):
+    nonce, mac, ct = blob[:<span class="nm">16</span>], blob[<span class="nm">16</span>:<span class="nm">32</span>], blob[<span class="nm">32</span>:]
+    expected = hashlib.<span class="fn">pbkdf2_hmac</span>(<span class="st">"sha256"</span>, key + nonce + ct, b<span class="st">"mac"</span>, <span class="nm">1000</span>)
+    <span class="kw">if</span> mac != expected[:<span class="nm">16</span>]:
+        <span class="kw">raise</span> <span class="ty">ValueError</span>(<span class="st">"Decryption FAILED: wrong key or tampered"</span>)
+    stream = <span class="fn">derive_stream</span>(key, nonce, <span class="fn">len</span>(ct))
+    <span class="kw">return</span> <span class="fn">bytes</span>(a ^ b <span class="kw">for</span> a, b <span class="kw">in</span> <span class="fn">zip</span>(ct, stream))
+
+<span class="cm"># Encrypt with correct key</span>
+key = hashlib.<span class="fn">sha256</span>(b<span class="st">"my secret"</span>).<span class="fn">digest</span>()
+blob = <span class="fn">encrypt</span>(b<span class="st">"the eagle has landed"</span>, key)
+<span class="fn">print</span>(<span class="st">"Encrypted OK"</span>)
+
+<span class="cm"># Decrypt with correct key</span>
+<span class="fn">print</span>(<span class="st">"Correct key:"</span>, <span class="fn">decrypt</span>(blob, key).<span class="fn">decode</span>())
+
+<span class="cm"># Decrypt with wrong key</span>
+<span class="kw">try</span>:
+    wrong = hashlib.<span class="fn">sha256</span>(b<span class="st">"wrong"</span>).<span class="fn">digest</span>()
+    <span class="fn">decrypt</span>(blob, wrong)
+<span class="kw">except</span> <span class="ty">ValueError</span> <span class="kw">as</span> e:
+    <span class="fn">print</span>(<span class="st">"Wrong key:"</span>, e)</code></pre>
+</div>
+
+<div class="power zen">
+<div class="power-label">Boring Crypto</div>
+<p>The best crypto code is code that someone else wrote, that millions of users depend on, that has been audited by professionals, and that is maintained by people who understand side channels. Your job is to choose the right library and configure it correctly &mdash; not to implement AES. Pick libsodium, <code>cryptography</code>, Web Crypto, <code>crypto/aes</code>, or <code>ring</code>. Use their high-level APIs. Read their documentation. Ship it.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 14: BUILD THE MESSENGER                                  -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch14">
+<h2>14 &mdash; Build the Messenger</h2>
+
+<p class="drop-cap">Put it all together. We started with a question: how do you send a message that only one person can read? Thirteen chapters later, we have every primitive we need. Now we wire them into a working end-to-end encrypted messenger and trace a single message from Alice&rsquo;s keyboard to Bob&rsquo;s screen.</p>
+
+<h3>Architecture Overview</h3>
+
+<div class="diagram">
+<span class="diagram-label">Full messenger architecture &mdash; chapter references</span>
+<pre><code>
+  <span class="ty">REGISTRATION</span> (ch9 + ch6)
+  &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;
+  &boxv; Password &rarr; <span class="fn">Argon2id</span> &rarr; account auth                  &boxv;
+  &boxv; Generate <span class="fn">Ed25519</span> identity keypair                     &boxv;
+  &boxv; Generate <span class="fn">X25519</span> signed prekey                         &boxv;
+  &boxv; Upload public keys to server                          &boxv;
+  &boxul;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxur;
+                              &darr;
+  <span class="ty">FIRST CONTACT</span> (ch8 + ch5)
+  &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;
+  &boxv; Bob fetches Alice's prekey bundle from server          &boxv;
+  &boxv; <span class="fn">X3DH</span> key agreement &rarr; shared secret                 &boxv;
+  &boxv; Derive initial root key + sending chain               &boxv;
+  &boxul;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxur;
+                              &darr;
+  <span class="ty">SENDING A MESSAGE</span> (ch10 + ch4 + ch3 + ch2)
+  &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;
+  &boxv; Bob types <span class="st">"hello"</span>                                      &boxv;
+  &boxv; <span class="fn">CSPRNG</span> (ch10) &rarr; random nonce                        &boxv;
+  &boxv; <span class="fn">Double Ratchet</span> (ch8) &rarr; derive message key            &boxv;
+  &boxv; <span class="fn">AES-256-GCM</span> (ch4) &rarr; encrypt + auth tag (ch3)        &boxv;
+  &boxv; <span class="fn">SHA-256</span> (ch2) &rarr; message fingerprint                 &boxv;
+  &boxv; <span class="fn">TLS 1.3</span> (ch7) &rarr; send ciphertext to server            &boxv;
+  &boxul;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxur;
+                              &darr;
+  <span class="ty">SERVER</span> (cannot read content)
+  &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;
+  &boxv; Stores encrypted blob &mdash; <span class="cm">opaque bytes, no plaintext</span>  &boxv;
+  &boxv; Forwards to Alice when she connects                   &boxv;
+  &boxul;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxur;
+                              &darr;
+  <span class="ty">RECEIVING</span> (ch8 + ch4)
+  &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;
+  &boxv; <span class="fn">TLS 1.3</span> (ch7) &rarr; receive ciphertext                  &boxv;
+  &boxv; <span class="fn">Double Ratchet</span> (ch8) &rarr; derive same message key       &boxv;
+  &boxv; <span class="fn">AES-256-GCM</span> (ch4) &rarr; decrypt + verify auth tag       &boxv;
+  &boxv; Display: <span class="st">"hello"</span>                                      &boxv;
+  &boxul;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxur;
+                              &darr;
+  <span class="ty">ONGOING</span> (ch8): each message advances the KDF chain
+  <span class="ty">AUTH</span> (ch6): safety numbers = hash of both public identity keys
+  <span class="ty">KEYS</span> (ch10): CSPRNG feeds all key generation
+</code></pre>
+</div>
+
+<h3>Step by Step</h3>
+
+<p><strong>1. Registration (ch9 + ch6).</strong> Alice creates an account. Her password is hashed with Argon2id (ch9) for server-side authentication. She generates an Ed25519 identity keypair (ch6) and an X25519 signed prekey (ch5). The public halves are uploaded to the server. Her private keys never leave her device.</p>
+
+<p><strong>2. First Contact (ch8 + ch5).</strong> Bob wants to message Alice. He fetches her prekey bundle from the server &mdash; her identity key, signed prekey, and a one-time prekey. He performs <strong>X3DH</strong> (Extended Triple Diffie-Hellman, ch8): three DH operations that produce a shared secret even though Alice is offline. From this shared secret, he derives an initial root key and a sending chain for the Double Ratchet.</p>
+
+<p><strong>3. Sending a Message (ch10 + ch4 + ch3 + ch2).</strong> Bob types &ldquo;hello.&rdquo; The Double Ratchet (ch8) advances his sending chain and derives a message key. A fresh nonce is generated from the CSPRNG (ch10). AES-256-GCM (ch4) encrypts the plaintext and produces an authentication tag (which serves as the HMAC from ch3 &mdash; GCM folds integrity checking into the cipher). The ciphertext is sent to the server over TLS 1.3 (ch7), which provides transport-level encryption on top of the end-to-end encryption.</p>
+
+<p><strong>4. Receiving (ch8 + ch4).</strong> The server stores the ciphertext &mdash; it cannot read it. When Alice connects, she fetches the encrypted blob. Her Double Ratchet derives the same message key (the DH ratchet and KDF chain are deterministic given the same inputs). AES-256-GCM decrypts the message and verifies the authentication tag. If the tag is invalid, the message is rejected. Otherwise, Alice sees &ldquo;hello.&rdquo;</p>
+
+<p><strong>5. Ongoing Conversation (ch8).</strong> Each message advances the KDF chain. When the direction of conversation switches (Alice replies to Bob), a new DH ratchet step occurs: fresh ephemeral keys are exchanged, producing a new shared secret that feeds the KDF chain. This gives <em>forward secrecy</em> (compromising current keys cannot decrypt past messages) and <em>post-compromise security</em> (if an attacker compromises current keys, future DH ratchet steps will lock them out again).</p>
+
+<p><strong>6. Authentication (ch6).</strong> Alice and Bob verify each other&rsquo;s identity keys via <em>safety numbers</em>: a hash of both public identity keys, displayed as a numeric code or QR code. They compare out-of-band (in person, over a phone call). If the numbers match, no man-in-the-middle has substituted keys during the X3DH exchange.</p>
+
+<h3>What E2E Doesn&rsquo;t Hide</h3>
+
+<p>End-to-end encryption protects <em>content</em>. It does not protect <em>metadata</em>:</p>
+
+<ul>
+<li><strong>Who talks to whom</strong> &mdash; the server sees sender and recipient</li>
+<li><strong>When messages are sent</strong> &mdash; timestamps are visible to the server</li>
+<li><strong>Message sizes</strong> &mdash; even encrypted, the length is visible (padding helps but doesn&rsquo;t fully solve this)</li>
+<li><strong>IP addresses</strong> &mdash; the server sees where you connect from</li>
+<li><strong>Frequency and patterns</strong> &mdash; traffic analysis reveals communication habits</li>
+</ul>
+
+<p>Signal&rsquo;s &ldquo;Sealed Sender&rdquo; partially addresses the sender-identity problem by encrypting the sender field with the recipient&rsquo;s identity key. But metadata protection remains fundamentally harder than content protection.</p>
+
+<div class="power zen">
+<div class="power-label">What We Built</div>
+<p>From a hash function to a complete end-to-end encrypted messenger. Each chapter added one piece: hashing for fingerprints (ch2), HMAC for integrity (ch3), AES-GCM for confidentiality (ch4), Diffie-Hellman for key agreement (ch5), Ed25519 for identity (ch6), TLS for transport (ch7), the Signal protocol for forward secrecy (ch8), Argon2 for passwords (ch9), CSPRNG for key material (ch10), side-channel awareness (ch11), real-world failure analysis (ch12), and battle-tested libraries (ch13). No single primitive is enough. The stack works only when every piece fits together correctly.</p>
+</div>
+
+<div class="power wild">
+<div class="power-label">What We Didn&rsquo;t Cover</div>
+<p><strong>Post-quantum cryptography</strong> &mdash; ML-KEM (Kyber) is already shipping in Chrome&rsquo;s TLS and Signal&rsquo;s PQXDH protocol. Lattice-based key exchange will replace X25519 once quantum computers threaten ECDLP. <strong>Multi-device sync</strong> &mdash; how Signal handles your phone, desktop, and iPad sharing one identity. <strong>Group messaging</strong> &mdash; Sender Keys for efficiency vs. pairwise sessions for security. <strong>Metadata resistance</strong> &mdash; onion routing, sealed sender, Private Information Retrieval. <strong>Deniability</strong> &mdash; offline deniability in Signal (neither party can prove authorship to a third party), online deniability is harder. <strong>Homomorphic encryption</strong> &mdash; computing on encrypted data without decrypting. <strong>Zero-knowledge proofs</strong> &mdash; proving you know something without revealing it. The field is vast and moving fast.</p>
+</div>
+
+</section>
+
+</div><!-- .content -->
+
+<script>
+(function() {
+  'use strict';
+
+  function detectLang(codeEl, pre) {
+    const tc = pre.closest('.tab-content');
+    if (tc) {
+      if (tc.classList.contains('c')) return 'c';
+      if (tc.classList.contains('py')) return 'python';
+      if (tc.classList.contains('ts')) return 'typescript';
+      if (tc.classList.contains('go')) return 'go';
+      if (tc.classList.contains('rs')) return 'rust';
+    }
+    const label = pre.querySelector('.label');
+    if (label) {
+      const t = label.textContent.toLowerCase();
+      if (t.includes('python')) return 'python';
+      if (t.includes('typescript') || t === 'ts') return 'typescript';
+      if (t.includes('rust') || t === 'rs') return 'rust';
+      if (t.includes('go') || t === 'go') return 'go';
+      if (t.match(/^c(\s|$)/i) || t.includes('c —') || t.includes('c –')) return 'c';
+    }
+    if (pre.closest('.try-this')) {
+      const code = codeEl.textContent;
+      if (code.startsWith('python3') || code.includes('import ')) return 'python';
+    }
+    return null;
+  }
+
+  function isRunnable(pre, codeEl, lang) {
+    if (!lang) return false;
+    if (lang === 'c' || lang === 'go' || lang === 'rust') return false;
+    if (pre.closest('.diagram')) return false;
+    if (pre.closest('.try-this')) return true;
+    if (pre.closest('.tab-content')) return true;
+    const code = codeEl.textContent;
+    if (pre.querySelector('.label')) {
+      if (code.match(/\b(def |fn |func |function |int main|void |printf|println|print\(|console\.log|fmt\.)/)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function getCode(codeEl) {
+    const clone = codeEl.cloneNode(true);
+    clone.querySelectorAll('.label').forEach(el => el.remove());
+    return clone.textContent;
+  }
+
+  function getOrCreateOutput(pre) {
+    let out = pre.nextElementSibling;
+    if (out && out.classList.contains('run-output')) return out;
+    out = document.createElement('div');
+    out.className = 'run-output';
+    pre.insertAdjacentElement('afterend', out);
+    return out;
+  }
+
+  let pyodideReady = null;
+  async function loadPyodide_() {
+    if (pyodideReady) return pyodideReady;
+    pyodideReady = (async () => {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/pyodide/v0.27.4/full/pyodide.js';
+      document.head.appendChild(script);
+      await new Promise((res, rej) => { script.onload = res; script.onerror = rej; });
+      return await loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.27.4/full/' });
+    })();
+    return pyodideReady;
+  }
+
+  async function runPython(code, out) {
+    out.textContent = 'Loading Python runtime...';
+    out.classList.remove('error');
+    try {
+      const py = await loadPyodide_();
+      py.runPython(`import sys, io; sys.stdout = io.StringIO()`);
+      py.runPython(code);
+      const stdout = py.runPython('sys.stdout.getvalue()');
+      out.textContent = stdout || '(no output)';
+    } catch (e) {
+      out.textContent = String(e.message || e);
+      out.classList.add('error');
+    }
+  }
+
+  async function runPythonOneLiner(code, out) {
+    const m = code.match(/^python3?\s+-c\s+["']([\s\S]+)["']\s*$/);
+    if (m) return runPython(m[1], out);
+    const m2 = code.match(/^python3?\s+-c\s+["']([\s\S]+?)["']/);
+    if (m2) return runPython(m2[1], out);
+    return runPython(code, out);
+  }
+
+  function stripTS(code) {
+    return code
+      .replace(/:\s*(?:string|number|boolean|void|any|never|unknown|undefined|null|bigint|symbol)\b(\[\])?/g, '')
+      .replace(/:\s*(?:Record|Map|Set|Array|Promise|Partial|Required|Readonly)<[^>]+>/g, '')
+      .replace(/<(?:string|number|boolean|void|any|never|unknown|T|U|K|V)(?:\[\])?(?:\s*,\s*(?:string|number|boolean|void|any|never|unknown|T|U|K|V)(?:\[\])?)*>/g, '')
+      .replace(/\bas\s+\w+/g, '')
+      .replace(/^\s*(?:export|import)\s+type\s+.*$/gm, '')
+      .replace(/^\s*interface\s+\w+\s*\{[\s\S]*?\n\}/gm, '')
+      .replace(/^\s*type\s+\w+\s*=.*$/gm, '');
+  }
+
+  async function runJS(code, out) {
+    out.classList.remove('error');
+    const logs = [];
+    const origLog = console.log;
+    const origWarn = console.warn;
+    const origError = console.error;
+    console.log = (...args) => logs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' '));
+    console.warn = console.log;
+    console.error = (...args) => logs.push('ERROR: ' + args.map(String).join(' '));
+    try {
+      const cleaned = stripTS(code);
+      const fn = new Function(cleaned);
+      const result = fn();
+      if (result instanceof Promise) await result;
+      out.textContent = logs.join('\n') || '(no output)';
+    } catch (e) {
+      out.textContent = logs.join('\n') + (logs.length ? '\n' : '') + String(e);
+      out.classList.add('error');
+    } finally {
+      console.log = origLog;
+      console.warn = origWarn;
+      console.error = origError;
+    }
+  }
+
+  function snippetId(codeEl, pre) {
+    if (codeEl.dataset.snippetId) return codeEl.dataset.snippetId;
+    const path = location.pathname;
+    const fname = path.split('/').pop().replace(/-deep-dive\.html$/, '').replace(/\.html$/, '');
+    const prefix = fname.substring(0, 5);
+
+    const tc = pre.closest('.tab-content');
+    if (tc) {
+      const tabs = tc.closest('.lang-tabs');
+      const radio = tabs ? tabs.querySelector('input[type="radio"]') : null;
+      const groupName = radio ? radio.name.replace('tabs-', '') : 'unknown';
+      const langClass = ['c','py','ts','go','rs'].find(c => tc.classList.contains(c)) || 'x';
+      const id = prefix + '-' + groupName + '-' + langClass;
+      codeEl.dataset.snippetId = id;
+      return id;
+    }
+
+    const label = pre.querySelector('.label');
+    if (label) {
+      const slug = label.textContent.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').substring(0, 20);
+      const id = prefix + '-' + slug;
+      codeEl.dataset.snippetId = id;
+      return id;
+    }
+
+    const id = prefix + '-anon-' + Math.random().toString(36).substring(2, 8);
+    codeEl.dataset.snippetId = id;
+    return id;
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('pre > code, pre code').forEach(function(codeEl) {
+      const pre = codeEl.closest('pre');
+      if (!pre) return;
+      const lang = detectLang(codeEl, pre);
+      if (!isRunnable(pre, codeEl, lang)) return;
+
+      const btn = document.createElement('button');
+      btn.className = 'run-btn';
+      btn.textContent = '\u25B6 Run';
+      btn.title = 'Run this code';
+      pre.style.position = 'relative';
+      pre.appendChild(btn);
+
+      btn.addEventListener('click', async function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (btn.classList.contains('running')) return;
+        btn.classList.add('running');
+        btn.textContent = '\u25B6 ...';
+
+        let outputAnchor = pre;
+        const tabContent = pre.closest('.tab-content');
+        if (tabContent) {
+          outputAnchor = tabContent.closest('.lang-tabs');
+        }
+        const out = getOrCreateOutput(outputAnchor);
+        out.style.display = 'block';
+
+        const code = getCode(codeEl);
+        try {
+          switch (lang) {
+            case 'python':
+              if (pre.closest('.try-this') && code.match(/^python3?\s/)) {
+                await runPythonOneLiner(code, out);
+              } else {
+                await runPython(code, out);
+              }
+              break;
+            case 'typescript':
+            case 'javascript':
+              await runJS(code, out);
+              break;
+          }
+        } catch (e) {
+          out.textContent = String(e);
+          out.classList.add('error');
+        }
+
+        btn.classList.remove('running');
+        btn.textContent = '\u25B6 Run';
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

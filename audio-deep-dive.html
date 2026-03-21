@@ -1,0 +1,3194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Audio — Synthesizing Sound from Scratch</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+    --white: #e8e8f0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 2rem;
+    display: flex;
+    gap: 1.2rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.2s, text-shadow 0.2s;
+    padding: 0.3rem 0;
+  }
+  nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+  nav .nav-title {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 1rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.3);
+  }
+
+  .content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+  }
+
+  .hero {
+    text-align: center;
+    padding: 4rem 0 5rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4rem;
+    position: relative;
+  }
+  .hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3.2rem;
+    font-weight: 600;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+  }
+  .hero .subtitle {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 500px;
+    margin: 0 auto;
+  }
+  .hero .blink {
+    display: inline-block;
+    animation: blink 1s step-end infinite;
+    color: var(--green);
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  section { margin-bottom: 5rem; padding-top: 1rem; }
+  h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: var(--green);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: 0.02em;
+  }
+  h3 {
+    font-size: 1.25rem;
+    color: var(--cyan);
+    margin: 2.5rem 0 1rem;
+    font-weight: 600;
+  }
+  h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 2rem 0 0.8rem;
+  }
+  p { margin-bottom: 1rem; }
+
+  .drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4rem;
+    line-height: 0.8;
+    padding: 0.1em 0.15em 0 0;
+    color: var(--green);
+    font-weight: 600;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+  }
+
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    padding: 0.12em 0.4em;
+    border-radius: 3px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem 1.4rem;
+    overflow-x: auto;
+    margin: 1.2rem 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px;
+    line-height: 1.55;
+    position: relative;
+  }
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+  }
+  .cm { color: var(--text-dim); }
+  .kw { color: var(--magenta); }
+  .ty { color: var(--cyan); }
+  .st { color: var(--green); }
+  .nm { color: var(--yellow); }
+  .fn { color: var(--blue); }
+  .pp { color: var(--orange); }
+  .label {
+    position: absolute;
+    top: 0.3rem; right: 0.7rem;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    opacity: 0.5;
+  }
+
+  .diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+  }
+  .diagram pre {
+    background: none; border: none; padding: 0; margin: 0;
+    font-size: 13px; line-height: 1.45; color: var(--text);
+  }
+  .diagram pre code { color: var(--text); }
+  .diagram-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--green-dim);
+    margin-bottom: 0.8rem;
+    display: block;
+  }
+
+  .power {
+    background: var(--bg-card);
+    border-left: 3px solid var(--green);
+    padding: 1.2rem 1.4rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .power-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.3rem;
+  }
+  .power p { margin-bottom: 0; font-size: 0.95rem; }
+  .power.danger { border-left-color: var(--red); }
+  .power.danger .power-label { color: var(--red); }
+  .power.hack { border-left-color: var(--magenta); }
+  .power.hack .power-label { color: var(--magenta); }
+  .power.wild { border-left-color: var(--orange); }
+  .power.wild .power-label { color: var(--orange); }
+  .power.zen { border-left-color: var(--cyan); }
+  .power.zen .power-label { color: var(--cyan); }
+
+  .mem-row { display: flex; gap: 1px; margin: 0.4rem 0; flex-wrap: wrap; }
+  .mc {
+    width: 30px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px; font-weight: 600; border-radius: 2px;
+  }
+  .mc.g { background: var(--green); color: var(--bg); }
+  .mc.c { background: var(--cyan); color: var(--bg); }
+  .mc.m { background: var(--magenta); color: var(--bg); }
+  .mc.o { background: var(--orange); color: var(--bg); }
+  .mc.r { background: var(--red); color: var(--bg); }
+  .mc.y { background: var(--yellow); color: var(--bg); }
+  .mc.b { background: var(--blue); color: var(--bg); }
+  .mc.d { background: var(--text-dim); color: var(--bg); opacity: 0.3; }
+  .mc.e { background: transparent; border: 1px dashed var(--border); color: var(--text-dim); }
+  .mc.w { background: var(--white); color: var(--bg); }
+  .mc.p { background: var(--purple); color: #fff; }
+  .mc.wide { width: 50px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.88rem;
+  }
+  th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    text-align: left;
+    padding: 0.5rem 0.7rem;
+    border-bottom: 2px solid var(--border);
+  }
+  td {
+    padding: 0.45rem 0.7rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:hover { background: rgba(0,255,136,0.02); }
+
+  details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1rem 0;
+    overflow: hidden;
+  }
+  details summary {
+    padding: 0.7rem 1.1rem;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--green);
+    user-select: none;
+    transition: background 0.2s;
+  }
+  details summary:hover { background: rgba(0,255,136,0.04); }
+  details[open] summary { border-bottom: 1px solid var(--border); }
+  details .det { padding: 1.1rem; }
+  details pre { margin: 0.8rem 0; }
+
+  .vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .vs-col {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.1rem;
+  }
+  .vs-col h4 { margin-top: 0; }
+
+  .glitch { position: relative; display: inline-block; }
+  .glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+  .glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 2s infinite linear alternate-reverse;
+    clip-path: inset(0 0 65% 0);
+  }
+  .glitch::after {
+    color: var(--magenta);
+    animation: glitch-2 3s infinite linear alternate-reverse;
+    clip-path: inset(65% 0 0 0);
+  }
+  @keyframes glitch-1 {
+    0%, 95% { transform: translateX(0); }
+    96% { transform: translateX(-2px); }
+    97% { transform: translateX(2px); }
+    98% { transform: translateX(-1px); }
+    100% { transform: translateX(0); }
+  }
+  @keyframes glitch-2 {
+    0%, 93% { transform: translateX(0); }
+    94% { transform: translateX(2px); }
+    96% { transform: translateX(-2px); }
+    98% { transform: translateX(1px); }
+    100% { transform: translateX(0); }
+  }
+
+  .ticker {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--green);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    display: inline-block;
+    text-shadow: 0 0 6px rgba(0,255,136,0.3);
+  }
+
+  /* === LANGUAGE TABS === */
+  .lang-tabs {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1.2rem 0;
+    overflow: hidden;
+  }
+  .lang-tabs input[type="radio"] { display: none; }
+  .lang-tabs label {
+    display: inline-block;
+    padding: 0.5rem 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .lang-tabs label:hover { color: var(--green); }
+  .lang-tabs .tab-bar {
+    border-bottom: 1px solid var(--border);
+    padding: 0 0.5rem;
+  }
+  .lang-tabs .tab-content { display: none; }
+  .lang-tabs .tab-content pre { margin: 0; border: none; border-radius: 0; }
+
+  .lang-tabs input.tc:checked ~ .tab-content.c,
+  .lang-tabs input.tpy:checked ~ .tab-content.py,
+  .lang-tabs input.tts:checked ~ .tab-content.ts,
+  .lang-tabs input.tgo:checked ~ .tab-content.go,
+  .lang-tabs input.trs:checked ~ .tab-content.rs { display: block; }
+
+  .lang-tabs input:nth-of-type(1):checked ~ .tab-bar label:nth-child(1),
+  .lang-tabs input:nth-of-type(2):checked ~ .tab-bar label:nth-child(2),
+  .lang-tabs input:nth-of-type(3):checked ~ .tab-bar label:nth-child(3),
+  .lang-tabs input:nth-of-type(4):checked ~ .tab-bar label:nth-child(4),
+  .lang-tabs input:nth-of-type(5):checked ~ .tab-bar label:nth-child(5) {
+    color: var(--green);
+    background: rgba(0,255,136,0.06);
+    border-bottom: 2px solid var(--green);
+  }
+
+  /* === TRY-THIS BOX === */
+  .try-this {
+    background: rgba(0, 255, 136, 0.04);
+    border-left: 3px solid var(--green-dim);
+    padding: 1rem 1.2rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .try-this .try-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.5rem;
+  }
+  .try-this pre {
+    margin: 0.5rem 0 0;
+    font-size: 12.5px;
+  }
+  .try-this p { font-size: 0.9rem; margin-bottom: 0.5rem; }
+
+  /* === LANG-NOTE BOX === */
+  .lang-note {
+    background: var(--bg-card);
+    border-left: 3px solid var(--blue);
+    padding: 1rem 1.2rem;
+    margin: 1.2rem 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 0.9rem;
+  }
+  .lang-note .lang-note-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--blue);
+    margin-bottom: 0.3rem;
+  }
+
+  /* === RUN BUTTON + OUTPUT === */
+  .run-btn {
+    position: absolute; top: 0.3rem; right: 3rem;
+    background: var(--green); color: var(--bg);
+    border: none; border-radius: 3px; cursor: pointer;
+    font: 600 10px 'JetBrains Mono', monospace; padding: 2px 8px;
+    opacity: 0.6; transition: opacity 0.2s;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    z-index: 2;
+  }
+  .run-btn:hover { opacity: 1; }
+  .run-btn.running { opacity: 0.4; cursor: wait; }
+  .run-output {
+    background: #050508; border: 1px solid var(--border);
+    border-top: none; border-radius: 0 0 6px 6px;
+    padding: 0.8rem 1rem; margin-top: -1px;
+    font: 13px/1.5 'JetBrains Mono', monospace; color: var(--green);
+    white-space: pre-wrap; max-height: 200px; overflow-y: auto;
+  }
+  .run-output.error { color: var(--red); }
+
+  @media (max-width: 700px) {
+    .vs { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2rem; }
+    .content { padding: 4rem 1rem 4rem; }
+    nav { font-size: 10px; gap: 0.8rem; padding: 0.4rem 1rem; }
+  }
+
+  /* === AUDIO DEMO STYLES === */
+  .demo-box {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+    padding: 1.5rem; margin: 1.5rem 0;
+  }
+  .demo-box h4 { margin-top: 0; }
+  .demo-btn {
+    background: var(--bg-code); color: var(--green); border: 1px solid var(--border);
+    border-radius: 4px; padding: 0.4rem 1rem; cursor: pointer;
+    font: 500 12px 'JetBrains Mono', monospace; text-transform: uppercase;
+    transition: background 0.2s, border-color 0.2s;
+  }
+  .demo-btn:hover { border-color: var(--green); background: rgba(0,255,136,0.08); }
+  .demo-btn.active { background: var(--green); color: var(--bg); }
+  .demo-controls { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; margin: 0.8rem 0; }
+  .demo-controls label { font: 500 11px 'JetBrains Mono', monospace; color: var(--text-dim); text-transform: uppercase; }
+  .demo-controls input[type="range"] { width: 120px; accent-color: var(--green); }
+  .demo-controls select {
+    background: var(--bg-code); color: var(--green); border: 1px solid var(--border);
+    border-radius: 4px; padding: 0.3rem 0.5rem; font: 12px 'JetBrains Mono', monospace;
+  }
+  .seq-grid { display: grid; grid-template-columns: auto repeat(8, 1fr); gap: 3px; margin: 1rem 0; }
+  .seq-cell {
+    width: 100%; aspect-ratio: 1; background: var(--bg-code); border: 1px solid var(--border);
+    border-radius: 3px; cursor: pointer; transition: background 0.15s;
+  }
+  .seq-cell.active { background: var(--green); border-color: var(--green); }
+  .seq-cell.current { box-shadow: 0 0 8px var(--cyan); }
+  .seq-label {
+    font: 500 10px 'JetBrains Mono', monospace; color: var(--text-dim);
+    text-transform: uppercase; display: flex; align-items: center;
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="nav-title">&gt;_ AUDIO</span>
+  <a href="#ch1">waves</a><a href="#ch2">sampling</a><a href="#ch3">oscillators</a>
+  <a href="#ch4">synthesis</a><a href="#ch5">filters</a><a href="#ch6">envelopes</a>
+  <a href="#ch7">effects</a><a href="#ch8">fm</a><a href="#ch9">midi</a>
+  <a href="#ch10">codecs</a><a href="#ch11">webaudio</a><a href="#ch12">musictheory</a>
+</nav>
+
+<div class="content">
+
+<div class="hero">
+  <h1><span class="glitch" data-text="AUDIO">AUDIO</span></h1>
+  <div class="subtitle">Synthesizing sound from scratch. Every note you hear is air molecules dancing to the math that made them move.<span class="blink">_</span></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 1 — WHAT IS SOUND?                                     -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch1">
+<h2>01 — What Is Sound?</h2>
+
+<p class="drop-cap">Pressure waves ripple through the air like invisible rings on a pond. When something vibrates — a guitar string, a speaker cone, your vocal cords — it pushes and pulls on the surrounding air molecules, creating alternating zones of high and low pressure that radiate outward at roughly 343 meters per second. That is sound. Everything you have ever heard, from a thunderclap to a whisper, is nothing more than air molecules jostling their neighbours in a chain reaction that ends at your eardrum.</p>
+
+<p><strong>Frequency</strong> determines pitch: a low frequency like 80 Hz sounds like a bass rumble, while 4,000 Hz is a sharp whistle. <strong>Amplitude</strong> determines volume: bigger pressure swings mean louder sound. These two properties — how fast the wave oscillates and how far it swings — encode almost everything about a tone.</p>
+
+<h3>Human Hearing Range</h3>
+
+<p>The human ear responds to frequencies between roughly <code>20 Hz</code> and <code>20,000 Hz</code> (20 kHz). Below 20 Hz is <em>infrasound</em> — you might feel it in your chest at a concert but you cannot hear it. Above 20 kHz is <em>ultrasound</em> — the domain of bats and medical imaging. Most adults lose the top end with age; by 30, you are likely deaf above 16 kHz.</p>
+
+<div class="diagram">
+  <span class="diagram-label">Pressure Wave — One Cycle of a Sine Wave</span>
+<pre><code>  Pressure
+     +  <span class="green">*     *</span>                         ← peak (compression)
+     |<span class="green"> *         *</span>
+     |<span class="green">*             *</span>
+  0 -+--<span class="text-dim">-</span>--<span class="text-dim">-</span>--<span class="text-dim">-</span>--<span class="text-dim">-</span>--<span class="text-dim">-</span>---<span class="text-dim">-</span>--<span class="text-dim">-</span>--<span class="text-dim">-</span>--<span class="text-dim">-</span>--→ Time
+     |                <span class="cyan">*             *</span>
+     |                 <span class="cyan">*         *</span>
+     -                   <span class="cyan">*     *</span>     ← trough (rarefaction)
+
+     |←——— one cycle (period T) ———→|
+     frequency f = 1/T</code></pre>
+</div>
+
+<h3>Waveform Visualizer</h3>
+
+<div class="demo-box">
+  <h4>Live Waveform</h4>
+  <canvas id="wave-canvas" width="760" height="200" style="width:100%;background:var(--bg-code);border-radius:4px;"></canvas>
+  <div class="demo-controls">
+    <label>Freq <span id="wave-freq-val">440</span> Hz</label>
+    <input type="range" id="wave-freq" min="20" max="2000" value="440">
+    <label>Amp <span id="wave-amp-val">0.50</span></label>
+    <input type="range" id="wave-amp" min="0" max="1" value="0.5" step="0.01">
+    <button class="demo-btn" id="wave-play">Play</button>
+  </div>
+</div>
+
+<div class="power zen">
+  <div class="power-label">It Is All Sine Waves</div>
+  <p>Fourier proved in 1822 that <em>any</em> periodic waveform — no matter how jagged — can be decomposed into a sum of sine waves at different frequencies and amplitudes. This is the single most important idea in audio. Every synthesizer, every codec, every equalizer rests on Fourier's insight: complex sounds are just stacks of simple sines.</p>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 2 — SAMPLING: CATCHING A WAVE                         -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch2">
+<h2>02 — Sampling: Catching a Wave</h2>
+
+<p class="drop-cap">Analog sound is continuous — an infinite river of pressure values flowing through time. To store it in a computer, we must freeze-frame that river at regular intervals. Each snapshot is a <em>sample</em>: a single number representing the pressure at that instant. String enough samples together — 44,100 per second for CD audio — and you can reconstruct the original wave with startling fidelity. This analog-to-digital conversion is where the physical world becomes math.</p>
+
+<h3>The Nyquist Theorem</h3>
+
+<p>Harry Nyquist and Claude Shannon showed that to perfectly capture a frequency <code>f</code>, you must sample at <em>at least</em> <code>2f</code>. This is the <strong>Nyquist frequency</strong>. CD audio samples at 44,100 Hz, which perfectly captures everything up to 22,050 Hz — comfortably above human hearing. Sample too slowly, and high frequencies fold back as phantom tones called <strong>aliasing</strong> — a siren that sounds like a wobble, a cymbal that sounds like static.</p>
+
+<h3>Bit Depth</h3>
+
+<p>Each sample is quantized to a fixed number of bits. More bits means finer resolution and a higher dynamic range (the span between the quietest and loudest representable signals).</p>
+
+<table>
+  <tr><th>Format</th><th>Sample Rate</th><th>Bit Depth</th><th>Dynamic Range</th><th>Bitrate (stereo)</th></tr>
+  <tr><td>Telephone</td><td>8,000 Hz</td><td>8-bit</td><td>~48 dB</td><td>128 kbps</td></tr>
+  <tr><td>CD Audio</td><td>44,100 Hz</td><td>16-bit</td><td>~96 dB</td><td>1,411 kbps</td></tr>
+  <tr><td>DVD Audio</td><td>96,000 Hz</td><td>24-bit</td><td>~144 dB</td><td>4,608 kbps</td></tr>
+  <tr><td>Studio Pro</td><td>192,000 Hz</td><td>32-bit float</td><td>~1,528 dB*</td><td>12,288 kbps</td></tr>
+</table>
+
+<p style="font-size:0.85rem;color:var(--text-dim);">*32-bit float dynamic range is theoretical; practical limits are set by physics, not math.</p>
+
+<h4>Sine Wave to PCM Buffer</h4>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-sample" id="tabs-sample-c" class="tc" checked>
+  <input type="radio" name="tabs-sample" id="tabs-sample-py" class="tpy">
+  <input type="radio" name="tabs-sample" id="tabs-sample-ts" class="tts">
+  <input type="radio" name="tabs-sample" id="tabs-sample-go" class="tgo">
+  <input type="radio" name="tabs-sample" id="tabs-sample-rs" class="trs">
+  <div class="tab-bar">
+    <label for="tabs-sample-c">C</label>
+    <label for="tabs-sample-py">Python</label>
+    <label for="tabs-sample-ts">TypeScript</label>
+    <label for="tabs-sample-go">Go</label>
+    <label for="tabs-sample-rs">Rust</label>
+  </div>
+
+  <div class="tab-content c"><pre><code><span class="label">C</span><span class="pp">#include</span> <span class="st">&lt;math.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdint.h&gt;</span>
+
+<span class="cm">// Generate 1 second of 440 Hz sine at 44100 Hz sample rate</span>
+<span class="kw">void</span> <span class="fn">generate_sine</span>(<span class="ty">int16_t</span> *buf, <span class="ty">int</span> sample_rate, <span class="ty">double</span> freq, <span class="ty">double</span> amp) {
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i &lt; sample_rate; i++) {
+        <span class="ty">double</span> t = (<span class="ty">double</span>)i / sample_rate;
+        <span class="ty">double</span> val = amp * <span class="fn">sin</span>(<span class="nm">2.0</span> * <span class="nm">M_PI</span> * freq * t);
+        <span class="cm">// Scale to 16-bit range [-32768, 32767]</span>
+        buf[i] = (<span class="ty">int16_t</span>)(val * <span class="nm">32767.0</span>);
+    }
+}
+
+<span class="ty">int</span> <span class="fn">main</span>(<span class="kw">void</span>) {
+    <span class="ty">int16_t</span> samples[<span class="nm">44100</span>];
+    <span class="fn">generate_sine</span>(samples, <span class="nm">44100</span>, <span class="nm">440.0</span>, <span class="nm">0.8</span>);
+    <span class="cm">// Write samples to raw PCM file, WAV header, etc.</span>
+    <span class="kw">return</span> <span class="nm">0</span>;
+}</code></pre></div>
+
+  <div class="tab-content py"><pre><code><span class="label">Python</span><span class="kw">import</span> numpy <span class="kw">as</span> np
+
+sample_rate = <span class="nm">44100</span>
+freq = <span class="nm">440.0</span>
+duration = <span class="nm">1.0</span>  <span class="cm"># seconds</span>
+amp = <span class="nm">0.8</span>
+
+t = np.<span class="fn">linspace</span>(<span class="nm">0</span>, duration, <span class="ty">int</span>(sample_rate * duration), endpoint=<span class="nm">False</span>)
+samples_float = amp * np.<span class="fn">sin</span>(<span class="nm">2</span> * np.pi * freq * t)
+
+<span class="cm"># Convert to 16-bit PCM</span>
+samples_int16 = (samples_float * <span class="nm">32767</span>).<span class="fn">astype</span>(np.int16)
+
+<span class="cm"># Write raw PCM to file</span>
+samples_int16.<span class="fn">tofile</span>(<span class="st">"sine_440.raw"</span>)
+<span class="fn">print</span>(<span class="st">f"Generated </span>{<span class="fn">len</span>(samples_int16)}<span class="st"> samples"</span>)</code></pre></div>
+
+  <div class="tab-content ts"><pre><code><span class="label">TypeScript</span><span class="kw">const</span> sampleRate = <span class="nm">44100</span>;
+<span class="kw">const</span> freq = <span class="nm">440</span>;
+<span class="kw">const</span> duration = <span class="nm">1.0</span>;
+<span class="kw">const</span> amp = <span class="nm">0.8</span>;
+
+<span class="kw">const</span> numSamples = Math.<span class="fn">floor</span>(sampleRate * duration);
+<span class="kw">const</span> buffer = <span class="kw">new</span> <span class="ty">Float32Array</span>(numSamples);
+
+<span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">0</span>; i &lt; numSamples; i++) {
+    <span class="kw">const</span> t = i / sampleRate;
+    buffer[i] = amp * Math.<span class="fn">sin</span>(<span class="nm">2</span> * Math.PI * freq * t);
+}
+
+<span class="cm">// buffer now contains 44100 Float32 samples</span>
+console.<span class="fn">log</span>(<span class="st">`Generated </span>${numSamples}<span class="st"> samples, peak: </span>${Math.<span class="fn">max</span>(...buffer).<span class="fn">toFixed</span>(<span class="nm">4</span>)}<span class="st">`</span>);</code></pre></div>
+
+  <div class="tab-content go"><pre><code><span class="label">Go</span><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"encoding/binary"</span>
+    <span class="st">"math"</span>
+    <span class="st">"os"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    sampleRate := <span class="nm">44100</span>
+    freq := <span class="nm">440.0</span>
+    amp := <span class="nm">0.8</span>
+
+    buf := <span class="fn">make</span>([]<span class="ty">int16</span>, sampleRate) <span class="cm">// 1 second</span>
+    <span class="kw">for</span> i := <span class="nm">0</span>; i &lt; sampleRate; i++ {
+        t := <span class="ty">float64</span>(i) / <span class="ty">float64</span>(sampleRate)
+        val := amp * math.<span class="fn">Sin</span>(<span class="nm">2</span> * math.Pi * freq * t)
+        buf[i] = <span class="ty">int16</span>(val * <span class="nm">32767</span>)
+    }
+
+    f, _ := os.<span class="fn">Create</span>(<span class="st">"sine_440.raw"</span>)
+    <span class="kw">defer</span> f.<span class="fn">Close</span>()
+    binary.<span class="fn">Write</span>(f, binary.LittleEndian, buf)
+}</code></pre></div>
+
+  <div class="tab-content rs"><pre><code><span class="label">Rust</span><span class="kw">use</span> std::f64::consts::PI;
+
+<span class="kw">fn</span> <span class="fn">generate_sine</span>(sample_rate: <span class="ty">usize</span>, freq: <span class="ty">f64</span>, amp: <span class="ty">f64</span>) -&gt; <span class="ty">Vec</span>&lt;<span class="ty">i16</span>&gt; {
+    (<span class="nm">0</span>..sample_rate)
+        .<span class="fn">map</span>(|i| {
+            <span class="kw">let</span> t = i <span class="kw">as</span> <span class="ty">f64</span> / sample_rate <span class="kw">as</span> <span class="ty">f64</span>;
+            <span class="kw">let</span> val = amp * (2.0 * PI * freq * t).<span class="fn">sin</span>();
+            (val * <span class="nm">32767.0</span>) <span class="kw">as</span> <span class="ty">i16</span>
+        })
+        .<span class="fn">collect</span>()
+}
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> samples = <span class="fn">generate_sine</span>(<span class="nm">44100</span>, <span class="nm">440.0</span>, <span class="nm">0.8</span>);
+    <span class="cm">// samples: Vec&lt;i16&gt; — write to file or audio device</span>
+    <span class="fn">println!</span>(<span class="st">"Generated {} samples"</span>, samples.<span class="fn">len</span>());
+}</code></pre></div>
+</div>
+
+<p>The floating-point precision of your samples matters more than you think. For the full story on why <code>0.1 + 0.2 != 0.3</code> and how rounding accumulates in audio buffers, see the <a href="floatingpoint-deep-dive.html" style="color:var(--cyan);">Floating-Point Deep Dive</a>.</p>
+
+<div class="power danger">
+  <div class="power-label">The Nyquist Wall</div>
+  <p>If you generate a 20 kHz tone and sample it at 40 kHz, you get the theoretical minimum — two samples per cycle. The result is a jagged zigzag that barely hints at a sine. One sample fewer per second and the signal aliases: a 20 kHz tone sampled at 39,999 Hz becomes a phantom 19,999 Hz tone. There is no recovering the original. The Nyquist wall is absolute — cross it and information is destroyed.</p>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 3 — OSCILLATORS: THE ATOMS OF SOUND                    -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch3">
+<h2>03 — Oscillators: The Atoms of Sound</h2>
+
+<p class="drop-cap">An oscillator is a function that produces a repeating waveform — the atomic building block of every synthesizer. Feed it a frequency and it spits out a stream of samples tracing the same shape over and over. Everything from an 808 kick to a lush pad starts with one or more oscillators running in parallel, their outputs summed and sculpted into something musical.</p>
+
+<h3>The Four Classic Waveforms</h3>
+
+<p>Virtually every synthesizer offers these four shapes. They differ in <em>harmonic content</em> — which overtones ride on top of the fundamental frequency.</p>
+
+<div class="diagram">
+  <span class="diagram-label">Classic Waveform Shapes</span>
+<pre><code> <span class="st">SINE</span>          <span class="cyan">SQUARE</span>        <span class="magenta">SAWTOOTH</span>      <span class="orange">TRIANGLE</span>
+    *              ┌──┐           /|          /\
+  *   *         │  │        / |        /  \
+ *     *        │  │       /  |       /    \
+*       *  ────│  │──── /   | ──── /      \
+         *      │     │  /    |     /        \
+          *  *  │     └──  /     |    /          \
+           *               /      |</code></pre>
+</div>
+
+<p><strong>Sine</strong> — a single pure frequency, no harmonics. The fundamental tone. <strong>Square</strong> — odd harmonics only (3rd, 5th, 7th...), each at 1/n amplitude. Hollow, woody sound. <strong>Sawtooth</strong> — all harmonics (odd and even) at 1/n amplitude. Bright, buzzy, the richest of the four. <strong>Triangle</strong> — odd harmonics only at 1/n&sup2; amplitude. Softer than square, almost sine-like.</p>
+
+<h3>Oscillator Lab</h3>
+
+<div class="demo-box">
+  <h4>Oscillator Lab</h4>
+  <div class="demo-controls">
+    <button class="demo-btn active" id="osc-sine">Sine</button>
+    <button class="demo-btn" id="osc-square">Square</button>
+    <button class="demo-btn" id="osc-saw">Saw</button>
+    <button class="demo-btn" id="osc-triangle">Triangle</button>
+  </div>
+  <canvas id="osc-canvas" width="760" height="200" style="width:100%;background:var(--bg-code);border-radius:4px;"></canvas>
+  <div class="demo-controls">
+    <label>Freq <span id="osc-freq-val">440</span> Hz</label>
+    <input type="range" id="osc-freq" min="50" max="2000" value="440">
+    <label>Gain <span id="osc-gain-val">0.30</span></label>
+    <input type="range" id="osc-gain" min="0" max="1" value="0.3" step="0.01">
+  </div>
+</div>
+
+<h4>Generate Waveform Samples</h4>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-osc" id="tabs-osc-c" class="tc" checked>
+  <input type="radio" name="tabs-osc" id="tabs-osc-py" class="tpy">
+  <input type="radio" name="tabs-osc" id="tabs-osc-ts" class="tts">
+  <input type="radio" name="tabs-osc" id="tabs-osc-go" class="tgo">
+  <input type="radio" name="tabs-osc" id="tabs-osc-rs" class="trs">
+  <div class="tab-bar">
+    <label for="tabs-osc-c">C</label>
+    <label for="tabs-osc-py">Python</label>
+    <label for="tabs-osc-ts">TypeScript</label>
+    <label for="tabs-osc-go">Go</label>
+    <label for="tabs-osc-rs">Rust</label>
+  </div>
+
+  <div class="tab-content c"><pre><code><span class="label">C</span><span class="pp">#include</span> <span class="st">&lt;math.h&gt;</span>
+
+<span class="kw">typedef enum</span> { <span class="ty">SINE</span>, <span class="ty">SQUARE</span>, <span class="ty">SAW</span>, <span class="ty">TRIANGLE</span> } <span class="ty">Waveform</span>;
+
+<span class="ty">double</span> <span class="fn">oscillator</span>(<span class="ty">Waveform</span> type, <span class="ty">double</span> phase) {
+    <span class="kw">switch</span> (type) {
+        <span class="kw">case</span> <span class="ty">SINE</span>:
+            <span class="kw">return</span> <span class="fn">sin</span>(<span class="nm">2.0</span> * <span class="nm">M_PI</span> * phase);
+        <span class="kw">case</span> <span class="ty">SQUARE</span>:
+            <span class="kw">return</span> <span class="fn">fmod</span>(phase, <span class="nm">1.0</span>) &lt; <span class="nm">0.5</span> ? <span class="nm">1.0</span> : <span class="nm">-1.0</span>;
+        <span class="kw">case</span> <span class="ty">SAW</span>:
+            <span class="kw">return</span> <span class="nm">2.0</span> * <span class="fn">fmod</span>(phase, <span class="nm">1.0</span>) - <span class="nm">1.0</span>;
+        <span class="kw">case</span> <span class="ty">TRIANGLE</span>: {
+            <span class="ty">double</span> p = <span class="fn">fmod</span>(phase, <span class="nm">1.0</span>);
+            <span class="kw">return</span> <span class="nm">4.0</span> * <span class="fn">fabs</span>(p - <span class="nm">0.5</span>) - <span class="nm">1.0</span>;
+        }
+    }
+    <span class="kw">return</span> <span class="nm">0.0</span>;
+}
+
+<span class="cm">// Usage: advance phase by freq/sample_rate each sample</span>
+<span class="cm">// double phase = 0.0;</span>
+<span class="cm">// for each sample: out = oscillator(SAW, phase); phase += freq / sr;</span></code></pre></div>
+
+  <div class="tab-content py"><pre><code><span class="label">Python</span><span class="kw">import</span> numpy <span class="kw">as</span> np
+
+<span class="kw">def</span> <span class="fn">oscillator</span>(waveform: <span class="ty">str</span>, freq: <span class="ty">float</span>, sr: <span class="ty">int</span> = <span class="nm">44100</span>, duration: <span class="ty">float</span> = <span class="nm">1.0</span>):
+    t = np.<span class="fn">linspace</span>(<span class="nm">0</span>, duration, <span class="ty">int</span>(sr * duration), endpoint=<span class="nm">False</span>)
+    phase = freq * t
+
+    <span class="kw">if</span> waveform == <span class="st">"sine"</span>:
+        <span class="kw">return</span> np.<span class="fn">sin</span>(<span class="nm">2</span> * np.pi * phase)
+    <span class="kw">elif</span> waveform == <span class="st">"square"</span>:
+        <span class="kw">return</span> np.<span class="fn">sign</span>(np.<span class="fn">sin</span>(<span class="nm">2</span> * np.pi * phase))
+    <span class="kw">elif</span> waveform == <span class="st">"saw"</span>:
+        <span class="kw">return</span> <span class="nm">2</span> * (phase % <span class="nm">1.0</span>) - <span class="nm">1</span>
+    <span class="kw">elif</span> waveform == <span class="st">"triangle"</span>:
+        <span class="kw">return</span> <span class="nm">4</span> * np.<span class="fn">abs</span>(phase % <span class="nm">1.0</span> - <span class="nm">0.5</span>) - <span class="nm">1</span>
+
+<span class="cm"># Generate 1 second of each waveform at 440 Hz</span>
+sine = <span class="fn">oscillator</span>(<span class="st">"sine"</span>, <span class="nm">440</span>)
+square = <span class="fn">oscillator</span>(<span class="st">"square"</span>, <span class="nm">440</span>)
+saw = <span class="fn">oscillator</span>(<span class="st">"saw"</span>, <span class="nm">440</span>)
+tri = <span class="fn">oscillator</span>(<span class="st">"triangle"</span>, <span class="nm">440</span>)</code></pre></div>
+
+  <div class="tab-content ts"><pre><code><span class="label">TypeScript</span><span class="kw">type</span> <span class="ty">Waveform</span> = <span class="st">"sine"</span> | <span class="st">"square"</span> | <span class="st">"saw"</span> | <span class="st">"triangle"</span>;
+
+<span class="kw">function</span> <span class="fn">oscillator</span>(type: <span class="ty">Waveform</span>, phase: <span class="ty">number</span>): <span class="ty">number</span> {
+  <span class="kw">switch</span> (type) {
+    <span class="kw">case</span> <span class="st">"sine"</span>:
+      <span class="kw">return</span> Math.<span class="fn">sin</span>(<span class="nm">2</span> * Math.PI * phase);
+    <span class="kw">case</span> <span class="st">"square"</span>:
+      <span class="kw">return</span> (phase % <span class="nm">1</span>) &lt; <span class="nm">0.5</span> ? <span class="nm">1</span> : <span class="nm">-1</span>;
+    <span class="kw">case</span> <span class="st">"saw"</span>:
+      <span class="kw">return</span> <span class="nm">2</span> * (phase % <span class="nm">1</span>) - <span class="nm">1</span>;
+    <span class="kw">case</span> <span class="st">"triangle"</span>:
+      <span class="kw">return</span> <span class="nm">4</span> * Math.<span class="fn">abs</span>((phase % <span class="nm">1</span>) - <span class="nm">0.5</span>) - <span class="nm">1</span>;
+  }
+}
+
+<span class="cm">// Fill a buffer with 1 second of sawtooth at 440 Hz</span>
+<span class="kw">const</span> sr = <span class="nm">44100</span>, freq = <span class="nm">440</span>;
+<span class="kw">const</span> buf = <span class="kw">new</span> <span class="ty">Float32Array</span>(sr);
+<span class="kw">let</span> phase = <span class="nm">0</span>;
+<span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">0</span>; i &lt; sr; i++) {
+  buf[i] = <span class="fn">oscillator</span>(<span class="st">"saw"</span>, phase);
+  phase += freq / sr;
+}</code></pre></div>
+
+  <div class="tab-content go"><pre><code><span class="label">Go</span><span class="kw">package</span> main
+
+<span class="kw">import</span> <span class="st">"math"</span>
+
+<span class="kw">type</span> <span class="ty">Waveform</span> <span class="ty">int</span>
+
+<span class="kw">const</span> (
+    <span class="ty">Sine</span>     <span class="ty">Waveform</span> = <span class="kw">iota</span>
+    <span class="ty">Square</span>
+    <span class="ty">Saw</span>
+    <span class="ty">Triangle</span>
+)
+
+<span class="kw">func</span> <span class="fn">oscillator</span>(wf <span class="ty">Waveform</span>, phase <span class="ty">float64</span>) <span class="ty">float64</span> {
+    <span class="kw">switch</span> wf {
+    <span class="kw">case</span> <span class="ty">Sine</span>:
+        <span class="kw">return</span> math.<span class="fn">Sin</span>(<span class="nm">2</span> * math.Pi * phase)
+    <span class="kw">case</span> <span class="ty">Square</span>:
+        <span class="kw">if</span> math.<span class="fn">Mod</span>(phase, <span class="nm">1.0</span>) &lt; <span class="nm">0.5</span> { <span class="kw">return</span> <span class="nm">1.0</span> }
+        <span class="kw">return</span> <span class="nm">-1.0</span>
+    <span class="kw">case</span> <span class="ty">Saw</span>:
+        <span class="kw">return</span> <span class="nm">2</span>*math.<span class="fn">Mod</span>(phase, <span class="nm">1.0</span>) - <span class="nm">1</span>
+    <span class="kw">case</span> <span class="ty">Triangle</span>:
+        <span class="kw">return</span> <span class="nm">4</span>*math.<span class="fn">Abs</span>(math.<span class="fn">Mod</span>(phase, <span class="nm">1.0</span>)-<span class="nm">0.5</span>) - <span class="nm">1</span>
+    }
+    <span class="kw">return</span> <span class="nm">0</span>
+}</code></pre></div>
+
+  <div class="tab-content rs"><pre><code><span class="label">Rust</span><span class="kw">use</span> std::f64::consts::PI;
+
+<span class="kw">enum</span> <span class="ty">Waveform</span> { Sine, Square, Saw, Triangle }
+
+<span class="kw">fn</span> <span class="fn">oscillator</span>(wf: &<span class="ty">Waveform</span>, phase: <span class="ty">f64</span>) -&gt; <span class="ty">f64</span> {
+    <span class="kw">match</span> wf {
+        <span class="ty">Waveform</span>::Sine     =&gt; (<span class="nm">2.0</span> * PI * phase).<span class="fn">sin</span>(),
+        <span class="ty">Waveform</span>::Square   =&gt; <span class="kw">if</span> phase.<span class="fn">fract</span>() &lt; <span class="nm">0.5</span> { <span class="nm">1.0</span> } <span class="kw">else</span> { <span class="nm">-1.0</span> },
+        <span class="ty">Waveform</span>::Saw      =&gt; <span class="nm">2.0</span> * phase.<span class="fn">fract</span>() - <span class="nm">1.0</span>,
+        <span class="ty">Waveform</span>::Triangle =&gt; <span class="nm">4.0</span> * (phase.<span class="fn">fract</span>() - <span class="nm">0.5</span>).<span class="fn">abs</span>() - <span class="nm">1.0</span>,
+    }
+}
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> sr = <span class="nm">44100_usize</span>;
+    <span class="kw">let</span> freq = <span class="nm">440.0_f64</span>;
+    <span class="kw">let</span> <span class="kw">mut</span> phase = <span class="nm">0.0</span>;
+    <span class="kw">let</span> samples: <span class="ty">Vec</span>&lt;<span class="ty">f64</span>&gt; = (<span class="nm">0</span>..sr).<span class="fn">map</span>(|_| {
+        <span class="kw">let</span> s = <span class="fn">oscillator</span>(&<span class="ty">Waveform</span>::Saw, phase);
+        phase += freq / sr <span class="kw">as</span> <span class="ty">f64</span>;
+        s
+    }).<span class="fn">collect</span>();
+    <span class="fn">println!</span>(<span class="st">"Generated {} samples"</span>, samples.<span class="fn">len</span>());
+}</code></pre></div>
+</div>
+
+<div class="power wild">
+  <div class="power-label">Square Waves Have Infinite Bandwidth</div>
+  <p>A perfect square wave requires an infinite sum of odd harmonics. In the real world, this is impossible — every physical system has a bandwidth limit. The sharp corners of a theoretical square wave contain energy at arbitrarily high frequencies. This is why naive digital square waves alias so badly: those infinite harmonics fold back below Nyquist as inharmonic garbage. Band-limited synthesis techniques like PolyBLEP exist specifically to tame this problem.</p>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 4 — ADDITIVE AND SUBTRACTIVE SYNTHESIS                 -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch4">
+<h2>04 — Additive and Subtractive Synthesis</h2>
+
+<p class="drop-cap">Two opposing philosophies dominate the history of synthesis. <strong>Additive synthesis</strong> builds complex sounds from the ground up by stacking simple sine waves — like painting with individual brushstrokes of frequency. <strong>Subtractive synthesis</strong> starts with a harmonically rich source (a sawtooth or square oscillator) and carves away frequencies with filters — like sculpting a block of marble. Both arrive at the same destination through opposite routes.</p>
+
+<h3>Additive Synthesis</h3>
+
+<p>The idea is pure Fourier: any sound can be constructed by summing sinusoids at the right frequencies, amplitudes, and phases. An organ pipe, a clarinet, a human vowel — each is just a specific recipe of partials. The catch is cost: modeling a rich sound might require hundreds of oscillators, each with its own envelope. Early additive synths (the Fairlight CMI, Kawai K5) were expensive precisely because of this computational weight.</p>
+
+<h3>Subtractive Synthesis</h3>
+
+<p>Start with a waveform that already contains all the harmonics you need — a sawtooth is the classic choice — then use filters to remove what you do not want. This is the architecture of the Moog, the Roland Juno, the SH-101, and nearly every analog synth ever made. It is computationally cheap, musically intuitive, and the reason "filter sweep" is a fundamental sound design technique.</p>
+
+<div class="diagram">
+  <span class="diagram-label">Additive vs. Subtractive Signal Flow</span>
+<pre><code> <span class="st">ADDITIVE</span>                          <span class="cyan">SUBTRACTIVE</span>
+
+ ┌──────────┐                      ┌───────────┐
+ │ Sine 1f  │──┐                   │ Sawtooth  │
+ └──────────┘  │                   │ Oscillator│
+ ┌──────────┐  │  ┌─────┐         └─────┬─────┘
+ │ Sine 2f  │──┼─→│ SUM │──→ Out        │
+ └──────────┘  │  └─────┘         ┌─────▼─────┐
+ ┌──────────┐  │                   │  Low-Pass  │
+ │ Sine 3f  │──┘                   │   Filter   │
+ └──────────┘                      └─────┬─────┘
+ ┌──────────┐                            │
+ │ Sine nf  │──→ ...                     ▼ Out
+ └──────────┘
+
+ Build UP from nothing          Carve DOWN from everything</code></pre>
+</div>
+
+<table>
+  <tr><th>Property</th><th>Additive</th><th>Subtractive</th></tr>
+  <tr><td>Source</td><td>Many sine oscillators</td><td>One harmonically rich oscillator</td></tr>
+  <tr><td>Control</td><td>Individual harmonic amplitudes</td><td>Filter cutoff, resonance, envelope</td></tr>
+  <tr><td>CPU cost</td><td>High (many oscillators)</td><td>Low (one osc + one filter)</td></tr>
+  <tr><td>Sweet spot</td><td>Evolving pads, organ tones, bell-like timbres</td><td>Basses, leads, brass, plucks</td></tr>
+  <tr><td>Classic hardware</td><td>Hammond organ, Kawai K5</td><td>Moog Minimoog, Roland Juno-106</td></tr>
+  <tr><td>Weakness</td><td>Hard to make sound "alive" without many envelopes</td><td>Cannot easily create inharmonic spectra</td></tr>
+</table>
+
+<p>In practice, most modern synths blend both approaches. A wavetable synth like Serum starts with a complex waveform (additive at edit time) and then filters it (subtractive at play time). The lines have blurred — but the two mental models remain essential for understanding what any synth is actually doing.</p>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 5 — FILTERS: SCULPTING FREQUENCY                      -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch5">
+<h2>05 — Filters: Sculpting Frequency</h2>
+
+<p class="drop-cap">Filters are the sculptor's chisel of sound design. They selectively attenuate frequencies, transforming a raw oscillator tone into something musical. A low-pass filter makes a bright sawtooth warm and mellow. A high-pass filter strips out mud and rumble. A bandpass isolates a narrow frequency band, like tuning a radio dial. Understanding filters is understanding the difference between a synth preset that sounds amateur and one that sounds professional.</p>
+
+<h3>Filter Types</h3>
+
+<p><strong>Low-pass (LP)</strong> — passes frequencies below the cutoff, attenuates above. The most common filter in synthesis. <strong>High-pass (HP)</strong> — the opposite: passes above, cuts below. Used to remove bass rumble or thin out a sound. <strong>Band-pass (BP)</strong> — passes a narrow band around the cutoff, attenuates both sides. Think wah-wah pedal. <strong>Notch (Band-reject)</strong> — the inverse of band-pass: cuts a narrow band, passes everything else. Used to remove specific resonances.</p>
+
+<h3>Cutoff, Resonance, and Slope</h3>
+
+<p>The <strong>cutoff frequency</strong> is where the filter begins attenuating. <strong>Resonance</strong> (Q) boosts frequencies near the cutoff, creating a peak that makes the filter "sing." Push Q high enough and the filter self-oscillates — it becomes an oscillator itself. <strong>Slope</strong> (measured in dB/octave) determines how aggressively the filter rolls off: a 12 dB/oct filter is gentle, a 24 dB/oct filter is steep, and a 48 dB/oct filter is a brick wall.</p>
+
+<h3>Filter Playground</h3>
+
+<div class="demo-box">
+  <h4>Filter Playground</h4>
+  <div class="demo-controls">
+    <label>Type</label>
+    <select id="filter-type">
+      <option value="lowpass">Low-Pass</option>
+      <option value="highpass">High-Pass</option>
+      <option value="bandpass">Band-Pass</option>
+      <option value="notch">Notch</option>
+    </select>
+    <label>Cutoff <span id="filter-cutoff-val">1000</span> Hz</label>
+    <input type="range" id="filter-cutoff" min="20" max="20000" value="1000">
+    <label>Q <span id="filter-q-val">1.0</span></label>
+    <input type="range" id="filter-q" min="0.1" max="20" value="1" step="0.1">
+    <button class="demo-btn" id="filter-play">Play</button>
+  </div>
+  <canvas id="filter-canvas" width="760" height="200" style="width:100%;background:var(--bg-code);border-radius:4px;"></canvas>
+</div>
+
+<h4>Biquad Low-Pass Filter</h4>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-filter" id="tabs-filter-c" class="tc" checked>
+  <input type="radio" name="tabs-filter" id="tabs-filter-py" class="tpy">
+  <input type="radio" name="tabs-filter" id="tabs-filter-ts" class="tts">
+  <input type="radio" name="tabs-filter" id="tabs-filter-go" class="tgo">
+  <input type="radio" name="tabs-filter" id="tabs-filter-rs" class="trs">
+  <div class="tab-bar">
+    <label for="tabs-filter-c">C</label>
+    <label for="tabs-filter-py">Python</label>
+    <label for="tabs-filter-ts">TypeScript</label>
+    <label for="tabs-filter-go">Go</label>
+    <label for="tabs-filter-rs">Rust</label>
+  </div>
+
+  <div class="tab-content c"><pre><code><span class="label">C</span><span class="pp">#include</span> <span class="st">&lt;math.h&gt;</span>
+
+<span class="kw">typedef struct</span> {
+    <span class="ty">double</span> b0, b1, b2, a1, a2;  <span class="cm">// coefficients</span>
+    <span class="ty">double</span> x1, x2, y1, y2;      <span class="cm">// state (delay elements)</span>
+} <span class="ty">Biquad</span>;
+
+<span class="kw">void</span> <span class="fn">biquad_lowpass</span>(<span class="ty">Biquad</span> *bq, <span class="ty">double</span> sr, <span class="ty">double</span> cutoff, <span class="ty">double</span> Q) {
+    <span class="ty">double</span> w0 = <span class="nm">2.0</span> * <span class="nm">M_PI</span> * cutoff / sr;
+    <span class="ty">double</span> alpha = <span class="fn">sin</span>(w0) / (<span class="nm">2.0</span> * Q);
+    <span class="ty">double</span> cosw0 = <span class="fn">cos</span>(w0);
+    <span class="ty">double</span> a0 = <span class="nm">1.0</span> + alpha;
+
+    bq-&gt;b0 = ((<span class="nm">1.0</span> - cosw0) / <span class="nm">2.0</span>) / a0;
+    bq-&gt;b1 = (<span class="nm">1.0</span> - cosw0) / a0;
+    bq-&gt;b2 = bq-&gt;b0;
+    bq-&gt;a1 = (<span class="nm">-2.0</span> * cosw0) / a0;
+    bq-&gt;a2 = (<span class="nm">1.0</span> - alpha) / a0;
+    bq-&gt;x1 = bq-&gt;x2 = bq-&gt;y1 = bq-&gt;y2 = <span class="nm">0.0</span>;
+}
+
+<span class="ty">double</span> <span class="fn">biquad_process</span>(<span class="ty">Biquad</span> *bq, <span class="ty">double</span> x0) {
+    <span class="ty">double</span> y0 = bq-&gt;b0 * x0 + bq-&gt;b1 * bq-&gt;x1 + bq-&gt;b2 * bq-&gt;x2
+              - bq-&gt;a1 * bq-&gt;y1 - bq-&gt;a2 * bq-&gt;y2;
+    bq-&gt;x2 = bq-&gt;x1; bq-&gt;x1 = x0;
+    bq-&gt;y2 = bq-&gt;y1; bq-&gt;y1 = y0;
+    <span class="kw">return</span> y0;
+}</code></pre></div>
+
+  <div class="tab-content py"><pre><code><span class="label">Python</span><span class="kw">import</span> numpy <span class="kw">as</span> np
+
+<span class="kw">class</span> <span class="ty">Biquad</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, sr: <span class="ty">float</span>, cutoff: <span class="ty">float</span>, Q: <span class="ty">float</span> = <span class="nm">0.707</span>):
+        w0 = <span class="nm">2</span> * np.pi * cutoff / sr
+        alpha = np.<span class="fn">sin</span>(w0) / (<span class="nm">2</span> * Q)
+        cosw0 = np.<span class="fn">cos</span>(w0)
+        a0 = <span class="nm">1</span> + alpha
+
+        self.b0 = ((<span class="nm">1</span> - cosw0) / <span class="nm">2</span>) / a0
+        self.b1 = (<span class="nm">1</span> - cosw0) / a0
+        self.b2 = self.b0
+        self.a1 = (<span class="nm">-2</span> * cosw0) / a0
+        self.a2 = (<span class="nm">1</span> - alpha) / a0
+        self.x1 = self.x2 = self.y1 = self.y2 = <span class="nm">0.0</span>
+
+    <span class="kw">def</span> <span class="fn">process</span>(self, x0: <span class="ty">float</span>) -&gt; <span class="ty">float</span>:
+        y0 = (self.b0 * x0 + self.b1 * self.x1 + self.b2 * self.x2
+              - self.a1 * self.y1 - self.a2 * self.y2)
+        self.x2, self.x1 = self.x1, x0
+        self.y2, self.y1 = self.y1, y0
+        <span class="kw">return</span> y0
+
+    <span class="kw">def</span> <span class="fn">filter_buffer</span>(self, buf: np.ndarray) -&gt; np.ndarray:
+        <span class="kw">return</span> np.<span class="fn">array</span>([self.<span class="fn">process</span>(s) <span class="kw">for</span> s <span class="kw">in</span> buf])</code></pre></div>
+
+  <div class="tab-content ts"><pre><code><span class="label">TypeScript</span><span class="kw">class</span> <span class="ty">Biquad</span> {
+  <span class="kw">private</span> b0: <span class="ty">number</span>; <span class="kw">private</span> b1: <span class="ty">number</span>; <span class="kw">private</span> b2: <span class="ty">number</span>;
+  <span class="kw">private</span> a1: <span class="ty">number</span>; <span class="kw">private</span> a2: <span class="ty">number</span>;
+  <span class="kw">private</span> x1 = <span class="nm">0</span>; <span class="kw">private</span> x2 = <span class="nm">0</span>;
+  <span class="kw">private</span> y1 = <span class="nm">0</span>; <span class="kw">private</span> y2 = <span class="nm">0</span>;
+
+  <span class="fn">constructor</span>(sr: <span class="ty">number</span>, cutoff: <span class="ty">number</span>, Q = <span class="nm">0.707</span>) {
+    <span class="kw">const</span> w0 = <span class="nm">2</span> * Math.PI * cutoff / sr;
+    <span class="kw">const</span> alpha = Math.<span class="fn">sin</span>(w0) / (<span class="nm">2</span> * Q);
+    <span class="kw">const</span> cosw0 = Math.<span class="fn">cos</span>(w0);
+    <span class="kw">const</span> a0 = <span class="nm">1</span> + alpha;
+
+    <span class="kw">this</span>.b0 = ((<span class="nm">1</span> - cosw0) / <span class="nm">2</span>) / a0;
+    <span class="kw">this</span>.b1 = (<span class="nm">1</span> - cosw0) / a0;
+    <span class="kw">this</span>.b2 = <span class="kw">this</span>.b0;
+    <span class="kw">this</span>.a1 = (<span class="nm">-2</span> * cosw0) / a0;
+    <span class="kw">this</span>.a2 = (<span class="nm">1</span> - alpha) / a0;
+  }
+
+  <span class="fn">process</span>(x0: <span class="ty">number</span>): <span class="ty">number</span> {
+    <span class="kw">const</span> y0 = <span class="kw">this</span>.b0*x0 + <span class="kw">this</span>.b1*<span class="kw">this</span>.x1 + <span class="kw">this</span>.b2*<span class="kw">this</span>.x2
+              - <span class="kw">this</span>.a1*<span class="kw">this</span>.y1 - <span class="kw">this</span>.a2*<span class="kw">this</span>.y2;
+    <span class="kw">this</span>.x2 = <span class="kw">this</span>.x1; <span class="kw">this</span>.x1 = x0;
+    <span class="kw">this</span>.y2 = <span class="kw">this</span>.y1; <span class="kw">this</span>.y1 = y0;
+    <span class="kw">return</span> y0;
+  }
+}</code></pre></div>
+
+  <div class="tab-content go"><pre><code><span class="label">Go</span><span class="kw">package</span> main
+
+<span class="kw">import</span> <span class="st">"math"</span>
+
+<span class="kw">type</span> <span class="ty">Biquad</span> <span class="kw">struct</span> {
+    b0, b1, b2, a1, a2 <span class="ty">float64</span>
+    x1, x2, y1, y2     <span class="ty">float64</span>
+}
+
+<span class="kw">func</span> <span class="fn">NewLowPass</span>(sr, cutoff, Q <span class="ty">float64</span>) *<span class="ty">Biquad</span> {
+    w0 := <span class="nm">2</span> * math.Pi * cutoff / sr
+    alpha := math.<span class="fn">Sin</span>(w0) / (<span class="nm">2</span> * Q)
+    cosw0 := math.<span class="fn">Cos</span>(w0)
+    a0 := <span class="nm">1.0</span> + alpha
+
+    <span class="kw">return</span> &<span class="ty">Biquad</span>{
+        b0: ((<span class="nm">1</span> - cosw0) / <span class="nm">2</span>) / a0,
+        b1: (<span class="nm">1</span> - cosw0) / a0,
+        b2: ((<span class="nm">1</span> - cosw0) / <span class="nm">2</span>) / a0,
+        a1: (<span class="nm">-2</span> * cosw0) / a0,
+        a2: (<span class="nm">1</span> - alpha) / a0,
+    }
+}
+
+<span class="kw">func</span> (bq *<span class="ty">Biquad</span>) <span class="fn">Process</span>(x0 <span class="ty">float64</span>) <span class="ty">float64</span> {
+    y0 := bq.b0*x0 + bq.b1*bq.x1 + bq.b2*bq.x2 - bq.a1*bq.y1 - bq.a2*bq.y2
+    bq.x2, bq.x1 = bq.x1, x0
+    bq.y2, bq.y1 = bq.y1, y0
+    <span class="kw">return</span> y0
+}</code></pre></div>
+
+  <div class="tab-content rs"><pre><code><span class="label">Rust</span><span class="kw">use</span> std::f64::consts::PI;
+
+<span class="kw">struct</span> <span class="ty">Biquad</span> {
+    b0: <span class="ty">f64</span>, b1: <span class="ty">f64</span>, b2: <span class="ty">f64</span>,
+    a1: <span class="ty">f64</span>, a2: <span class="ty">f64</span>,
+    x1: <span class="ty">f64</span>, x2: <span class="ty">f64</span>,
+    y1: <span class="ty">f64</span>, y2: <span class="ty">f64</span>,
+}
+
+<span class="kw">impl</span> <span class="ty">Biquad</span> {
+    <span class="kw">fn</span> <span class="fn">lowpass</span>(sr: <span class="ty">f64</span>, cutoff: <span class="ty">f64</span>, q: <span class="ty">f64</span>) -&gt; <span class="ty">Self</span> {
+        <span class="kw">let</span> w0 = <span class="nm">2.0</span> * PI * cutoff / sr;
+        <span class="kw">let</span> alpha = w0.<span class="fn">sin</span>() / (<span class="nm">2.0</span> * q);
+        <span class="kw">let</span> cosw0 = w0.<span class="fn">cos</span>();
+        <span class="kw">let</span> a0 = <span class="nm">1.0</span> + alpha;
+
+        <span class="ty">Biquad</span> {
+            b0: ((<span class="nm">1.0</span> - cosw0) / <span class="nm">2.0</span>) / a0,
+            b1: (<span class="nm">1.0</span> - cosw0) / a0,
+            b2: ((<span class="nm">1.0</span> - cosw0) / <span class="nm">2.0</span>) / a0,
+            a1: (<span class="nm">-2.0</span> * cosw0) / a0,
+            a2: (<span class="nm">1.0</span> - alpha) / a0,
+            x1: <span class="nm">0.0</span>, x2: <span class="nm">0.0</span>, y1: <span class="nm">0.0</span>, y2: <span class="nm">0.0</span>,
+        }
+    }
+
+    <span class="kw">fn</span> <span class="fn">process</span>(&<span class="kw">mut</span> self, x0: <span class="ty">f64</span>) -&gt; <span class="ty">f64</span> {
+        <span class="kw">let</span> y0 = self.b0 * x0 + self.b1 * self.x1 + self.b2 * self.x2
+               - self.a1 * self.y1 - self.a2 * self.y2;
+        self.x2 = self.x1; self.x1 = x0;
+        self.y2 = self.y1; self.y1 = y0;
+        y0
+    }
+}</code></pre></div>
+</div>
+
+<div class="power hack">
+  <div class="power-label">Resonance Is Feedback</div>
+  <p>Resonance works by feeding the filter's output back into its input at the cutoff frequency. This positive feedback loop amplifies a narrow band until, at maximum Q, the filter self-oscillates — producing a pure sine wave at the cutoff frequency with no input signal at all. The Moog ladder filter's distinctive scream is literally the sound of controlled feedback. Push it too far and you get runaway gain — which is why every real filter needs a saturation stage to keep the math (and your speakers) from exploding.</p>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 6 — ENVELOPES: THE SHAPE OF A NOTE                    -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch6">
+<h2>06 — Envelopes: The Shape of a Note</h2>
+
+<p class="drop-cap">Notes do not just switch on and off. A piano key struck hard has a bright, percussive attack that quickly mellows. A violin note swells slowly, sustains indefinitely while the bow moves, then fades when it lifts. An envelope describes how a parameter — usually amplitude, but also filter cutoff or pitch — changes over the lifetime of a note. Without envelopes, every sound would be an organ: on or off, nothing in between.</p>
+
+<h3>ADSR — The Universal Envelope</h3>
+
+<p>The <strong>ADSR</strong> model splits a note's life into four stages:</p>
+
+<p><strong>Attack</strong> — how long it takes to rise from zero to full level after a key is pressed. A snare drum has an attack near 0 ms; a slow pad might take 2 seconds. <strong>Decay</strong> — how long it takes to fall from the peak to the sustain level. A plucked string has a fast decay. <strong>Sustain</strong> — the steady-state level held as long as the key is held. This is a <em>level</em>, not a time. A pipe organ sustains at 100%; a xylophone sustains at 0%. <strong>Release</strong> — how long it takes to fade to zero after the key is released. A bell has a long release; a muted guitar has almost none.</p>
+
+<table>
+  <tr><th>Instrument</th><th>Attack</th><th>Decay</th><th>Sustain</th><th>Release</th></tr>
+  <tr><td>Piano</td><td>~5 ms</td><td>~500 ms</td><td>~40%</td><td>~300 ms</td></tr>
+  <tr><td>Violin (bowed)</td><td>~100 ms</td><td>~50 ms</td><td>~90%</td><td>~200 ms</td></tr>
+  <tr><td>Snare drum</td><td>&lt;1 ms</td><td>~80 ms</td><td>0%</td><td>~50 ms</td></tr>
+  <tr><td>Pad synth</td><td>~1500 ms</td><td>~500 ms</td><td>~70%</td><td>~2000 ms</td></tr>
+  <tr><td>Plucked string</td><td>~2 ms</td><td>~300 ms</td><td>~10%</td><td>~100 ms</td></tr>
+</table>
+
+<h3>ADSR Visualizer</h3>
+
+<div class="demo-box">
+  <h4>ADSR Envelope Shaper</h4>
+  <div class="demo-controls">
+    <label>Attack <span id="env-attack-val">0.10</span>s</label>
+    <input type="range" id="env-attack" min="0" max="2" value="0.1" step="0.01">
+    <label>Decay <span id="env-decay-val">0.30</span>s</label>
+    <input type="range" id="env-decay" min="0" max="2" value="0.3" step="0.01">
+    <label>Sustain <span id="env-sustain-val">0.60</span></label>
+    <input type="range" id="env-sustain" min="0" max="1" value="0.6" step="0.01">
+    <label>Release <span id="env-release-val">0.50</span>s</label>
+    <input type="range" id="env-release" min="0" max="3" value="0.5" step="0.01">
+    <button class="demo-btn" id="env-play">Play</button>
+  </div>
+  <canvas id="env-canvas" width="760" height="200" style="width:100%;background:var(--bg-code);border-radius:4px;"></canvas>
+</div>
+
+<h4>ADSR Envelope Generator</h4>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-adsr" id="tabs-adsr-c" class="tc" checked>
+  <input type="radio" name="tabs-adsr" id="tabs-adsr-py" class="tpy">
+  <input type="radio" name="tabs-adsr" id="tabs-adsr-ts" class="tts">
+  <input type="radio" name="tabs-adsr" id="tabs-adsr-go" class="tgo">
+  <input type="radio" name="tabs-adsr" id="tabs-adsr-rs" class="trs">
+  <div class="tab-bar">
+    <label for="tabs-adsr-c">C</label>
+    <label for="tabs-adsr-py">Python</label>
+    <label for="tabs-adsr-ts">TypeScript</label>
+    <label for="tabs-adsr-go">Go</label>
+    <label for="tabs-adsr-rs">Rust</label>
+  </div>
+
+  <div class="tab-content c"><pre><code><span class="label">C</span><span class="kw">typedef enum</span> { <span class="ty">ENV_IDLE</span>, <span class="ty">ENV_ATTACK</span>, <span class="ty">ENV_DECAY</span>, <span class="ty">ENV_SUSTAIN</span>, <span class="ty">ENV_RELEASE</span> } <span class="ty">EnvStage</span>;
+
+<span class="kw">typedef struct</span> {
+    <span class="ty">double</span> attack, decay, sustain, release; <span class="cm">// seconds / level</span>
+    <span class="ty">double</span> level;
+    <span class="ty">double</span> sr;
+    <span class="ty">EnvStage</span> stage;
+} <span class="ty">ADSR</span>;
+
+<span class="kw">void</span> <span class="fn">adsr_init</span>(<span class="ty">ADSR</span> *e, <span class="ty">double</span> sr, <span class="ty">double</span> a, <span class="ty">double</span> d, <span class="ty">double</span> s, <span class="ty">double</span> r) {
+    e-&gt;sr = sr; e-&gt;attack = a; e-&gt;decay = d;
+    e-&gt;sustain = s; e-&gt;release = r;
+    e-&gt;level = <span class="nm">0.0</span>; e-&gt;stage = <span class="ty">ENV_IDLE</span>;
+}
+
+<span class="kw">void</span> <span class="fn">adsr_gate</span>(<span class="ty">ADSR</span> *e, <span class="ty">int</span> on) {
+    e-&gt;stage = on ? <span class="ty">ENV_ATTACK</span> : <span class="ty">ENV_RELEASE</span>;
+}
+
+<span class="ty">double</span> <span class="fn">adsr_process</span>(<span class="ty">ADSR</span> *e) {
+    <span class="kw">switch</span> (e-&gt;stage) {
+        <span class="kw">case</span> <span class="ty">ENV_ATTACK</span>:
+            e-&gt;level += <span class="nm">1.0</span> / (e-&gt;attack * e-&gt;sr);
+            <span class="kw">if</span> (e-&gt;level &gt;= <span class="nm">1.0</span>) { e-&gt;level = <span class="nm">1.0</span>; e-&gt;stage = <span class="ty">ENV_DECAY</span>; }
+            <span class="kw">break</span>;
+        <span class="kw">case</span> <span class="ty">ENV_DECAY</span>:
+            e-&gt;level -= (<span class="nm">1.0</span> - e-&gt;sustain) / (e-&gt;decay * e-&gt;sr);
+            <span class="kw">if</span> (e-&gt;level &lt;= e-&gt;sustain) { e-&gt;level = e-&gt;sustain; e-&gt;stage = <span class="ty">ENV_SUSTAIN</span>; }
+            <span class="kw">break</span>;
+        <span class="kw">case</span> <span class="ty">ENV_SUSTAIN</span>:
+            <span class="kw">break</span>; <span class="cm">// hold at sustain level</span>
+        <span class="kw">case</span> <span class="ty">ENV_RELEASE</span>:
+            e-&gt;level -= e-&gt;sustain / (e-&gt;release * e-&gt;sr);
+            <span class="kw">if</span> (e-&gt;level &lt;= <span class="nm">0.0</span>) { e-&gt;level = <span class="nm">0.0</span>; e-&gt;stage = <span class="ty">ENV_IDLE</span>; }
+            <span class="kw">break</span>;
+        <span class="kw">case</span> <span class="ty">ENV_IDLE</span>:
+            <span class="kw">break</span>;
+    }
+    <span class="kw">return</span> e-&gt;level;
+}</code></pre></div>
+
+  <div class="tab-content py"><pre><code><span class="label">Python</span><span class="kw">import</span> numpy <span class="kw">as</span> np
+
+<span class="kw">def</span> <span class="fn">adsr_envelope</span>(sr: <span class="ty">int</span>, attack: <span class="ty">float</span>, decay: <span class="ty">float</span>,
+                   sustain: <span class="ty">float</span>, release: <span class="ty">float</span>,
+                   hold: <span class="ty">float</span> = <span class="nm">1.0</span>) -&gt; np.ndarray:
+    <span class="st">"""Generate a complete ADSR envelope as a numpy array."""</span>
+    a_samples = <span class="ty">int</span>(attack * sr)
+    d_samples = <span class="ty">int</span>(decay * sr)
+    h_samples = <span class="ty">int</span>(hold * sr)   <span class="cm"># sustain hold time</span>
+    r_samples = <span class="ty">int</span>(release * sr)
+
+    <span class="cm"># Attack: ramp 0 → 1</span>
+    a = np.<span class="fn">linspace</span>(<span class="nm">0</span>, <span class="nm">1</span>, a_samples) <span class="kw">if</span> a_samples &gt; <span class="nm">0</span> <span class="kw">else</span> np.<span class="fn">array</span>([])
+    <span class="cm"># Decay: ramp 1 → sustain</span>
+    d = np.<span class="fn">linspace</span>(<span class="nm">1</span>, sustain, d_samples) <span class="kw">if</span> d_samples &gt; <span class="nm">0</span> <span class="kw">else</span> np.<span class="fn">array</span>([])
+    <span class="cm"># Sustain: hold at sustain level</span>
+    s = np.<span class="fn">full</span>(h_samples, sustain)
+    <span class="cm"># Release: ramp sustain → 0</span>
+    r = np.<span class="fn">linspace</span>(sustain, <span class="nm">0</span>, r_samples) <span class="kw">if</span> r_samples &gt; <span class="nm">0</span> <span class="kw">else</span> np.<span class="fn">array</span>([])
+
+    <span class="kw">return</span> np.<span class="fn">concatenate</span>([a, d, s, r])
+
+<span class="cm"># Generate a piano-like envelope</span>
+env = <span class="fn">adsr_envelope</span>(<span class="nm">44100</span>, attack=<span class="nm">0.005</span>, decay=<span class="nm">0.5</span>, sustain=<span class="nm">0.4</span>, release=<span class="nm">0.3</span>)
+<span class="fn">print</span>(<span class="st">f"Envelope length: </span>{<span class="fn">len</span>(env)}<span class="st"> samples ({<span class="fn">len</span>(env)/<span class="nm">44100</span>:.2f}s)"</span>)</code></pre></div>
+
+  <div class="tab-content ts"><pre><code><span class="label">TypeScript</span><span class="kw">type</span> <span class="ty">EnvStage</span> = <span class="st">"idle"</span> | <span class="st">"attack"</span> | <span class="st">"decay"</span> | <span class="st">"sustain"</span> | <span class="st">"release"</span>;
+
+<span class="kw">class</span> <span class="ty">ADSR</span> {
+  <span class="kw">private</span> level = <span class="nm">0</span>;
+  <span class="kw">private</span> stage: <span class="ty">EnvStage</span> = <span class="st">"idle"</span>;
+
+  <span class="fn">constructor</span>(
+    <span class="kw">private</span> sr: <span class="ty">number</span>,
+    <span class="kw">private</span> attack: <span class="ty">number</span>,
+    <span class="kw">private</span> decay: <span class="ty">number</span>,
+    <span class="kw">private</span> sustain: <span class="ty">number</span>,
+    <span class="kw">private</span> release: <span class="ty">number</span>,
+  ) {}
+
+  <span class="fn">gate</span>(on: <span class="ty">boolean</span>) {
+    <span class="kw">this</span>.stage = on ? <span class="st">"attack"</span> : <span class="st">"release"</span>;
+  }
+
+  <span class="fn">process</span>(): <span class="ty">number</span> {
+    <span class="kw">switch</span> (<span class="kw">this</span>.stage) {
+      <span class="kw">case</span> <span class="st">"attack"</span>:
+        <span class="kw">this</span>.level += <span class="nm">1</span> / (<span class="kw">this</span>.attack * <span class="kw">this</span>.sr);
+        <span class="kw">if</span> (<span class="kw">this</span>.level &gt;= <span class="nm">1</span>) { <span class="kw">this</span>.level = <span class="nm">1</span>; <span class="kw">this</span>.stage = <span class="st">"decay"</span>; }
+        <span class="kw">break</span>;
+      <span class="kw">case</span> <span class="st">"decay"</span>:
+        <span class="kw">this</span>.level -= (<span class="nm">1</span> - <span class="kw">this</span>.sustain) / (<span class="kw">this</span>.decay * <span class="kw">this</span>.sr);
+        <span class="kw">if</span> (<span class="kw">this</span>.level &lt;= <span class="kw">this</span>.sustain) {
+          <span class="kw">this</span>.level = <span class="kw">this</span>.sustain; <span class="kw">this</span>.stage = <span class="st">"sustain"</span>;
+        }
+        <span class="kw">break</span>;
+      <span class="kw">case</span> <span class="st">"sustain"</span>: <span class="kw">break</span>;
+      <span class="kw">case</span> <span class="st">"release"</span>:
+        <span class="kw">this</span>.level -= <span class="kw">this</span>.sustain / (<span class="kw">this</span>.release * <span class="kw">this</span>.sr);
+        <span class="kw">if</span> (<span class="kw">this</span>.level &lt;= <span class="nm">0</span>) { <span class="kw">this</span>.level = <span class="nm">0</span>; <span class="kw">this</span>.stage = <span class="st">"idle"</span>; }
+        <span class="kw">break</span>;
+    }
+    <span class="kw">return</span> <span class="kw">this</span>.level;
+  }
+}</code></pre></div>
+
+  <div class="tab-content go"><pre><code><span class="label">Go</span><span class="kw">package</span> main
+
+<span class="kw">type</span> <span class="ty">EnvStage</span> <span class="ty">int</span>
+
+<span class="kw">const</span> (
+    <span class="ty">Idle</span> <span class="ty">EnvStage</span> = <span class="kw">iota</span>
+    <span class="ty">Attack</span>
+    <span class="ty">Decay</span>
+    <span class="ty">Sustain</span>
+    <span class="ty">Release</span>
+)
+
+<span class="kw">type</span> <span class="ty">ADSR</span> <span class="kw">struct</span> {
+    Sr                           <span class="ty">float64</span>
+    AttackTime, DecayTime        <span class="ty">float64</span>
+    SustainLevel, ReleaseTime    <span class="ty">float64</span>
+    Level                        <span class="ty">float64</span>
+    Stage                        <span class="ty">EnvStage</span>
+}
+
+<span class="kw">func</span> (e *<span class="ty">ADSR</span>) <span class="fn">Gate</span>(on <span class="ty">bool</span>) {
+    <span class="kw">if</span> on { e.Stage = <span class="ty">Attack</span> } <span class="kw">else</span> { e.Stage = <span class="ty">Release</span> }
+}
+
+<span class="kw">func</span> (e *<span class="ty">ADSR</span>) <span class="fn">Process</span>() <span class="ty">float64</span> {
+    <span class="kw">switch</span> e.Stage {
+    <span class="kw">case</span> <span class="ty">Attack</span>:
+        e.Level += <span class="nm">1.0</span> / (e.AttackTime * e.Sr)
+        <span class="kw">if</span> e.Level &gt;= <span class="nm">1.0</span> { e.Level = <span class="nm">1.0</span>; e.Stage = <span class="ty">Decay</span> }
+    <span class="kw">case</span> <span class="ty">Decay</span>:
+        e.Level -= (<span class="nm">1.0</span> - e.SustainLevel) / (e.DecayTime * e.Sr)
+        <span class="kw">if</span> e.Level &lt;= e.SustainLevel { e.Level = e.SustainLevel; e.Stage = <span class="ty">Sustain</span> }
+    <span class="kw">case</span> <span class="ty">Sustain</span>:
+        <span class="cm">// hold</span>
+    <span class="kw">case</span> <span class="ty">Release</span>:
+        e.Level -= e.SustainLevel / (e.ReleaseTime * e.Sr)
+        <span class="kw">if</span> e.Level &lt;= <span class="nm">0</span> { e.Level = <span class="nm">0</span>; e.Stage = <span class="ty">Idle</span> }
+    }
+    <span class="kw">return</span> e.Level
+}</code></pre></div>
+
+  <div class="tab-content rs"><pre><code><span class="label">Rust</span><span class="kw">enum</span> <span class="ty">Stage</span> { Idle, Attack, Decay, Sustain, Release }
+
+<span class="kw">struct</span> <span class="ty">Adsr</span> {
+    sr: <span class="ty">f64</span>,
+    attack: <span class="ty">f64</span>, decay: <span class="ty">f64</span>, sustain: <span class="ty">f64</span>, release: <span class="ty">f64</span>,
+    level: <span class="ty">f64</span>,
+    stage: <span class="ty">Stage</span>,
+}
+
+<span class="kw">impl</span> <span class="ty">Adsr</span> {
+    <span class="kw">fn</span> <span class="fn">new</span>(sr: <span class="ty">f64</span>, a: <span class="ty">f64</span>, d: <span class="ty">f64</span>, s: <span class="ty">f64</span>, r: <span class="ty">f64</span>) -&gt; <span class="ty">Self</span> {
+        <span class="ty">Adsr</span> { sr, attack: a, decay: d, sustain: s, release: r,
+               level: <span class="nm">0.0</span>, stage: <span class="ty">Stage</span>::Idle }
+    }
+
+    <span class="kw">fn</span> <span class="fn">gate</span>(&<span class="kw">mut</span> self, on: <span class="ty">bool</span>) {
+        self.stage = <span class="kw">if</span> on { <span class="ty">Stage</span>::Attack } <span class="kw">else</span> { <span class="ty">Stage</span>::Release };
+    }
+
+    <span class="kw">fn</span> <span class="fn">process</span>(&<span class="kw">mut</span> self) -&gt; <span class="ty">f64</span> {
+        <span class="kw">match</span> self.stage {
+            <span class="ty">Stage</span>::Attack =&gt; {
+                self.level += <span class="nm">1.0</span> / (self.attack * self.sr);
+                <span class="kw">if</span> self.level &gt;= <span class="nm">1.0</span> {
+                    self.level = <span class="nm">1.0</span>; self.stage = <span class="ty">Stage</span>::Decay;
+                }
+            }
+            <span class="ty">Stage</span>::Decay =&gt; {
+                self.level -= (<span class="nm">1.0</span> - self.sustain) / (self.decay * self.sr);
+                <span class="kw">if</span> self.level &lt;= self.sustain {
+                    self.level = self.sustain; self.stage = <span class="ty">Stage</span>::Sustain;
+                }
+            }
+            <span class="ty">Stage</span>::Sustain =&gt; {}
+            <span class="ty">Stage</span>::Release =&gt; {
+                self.level -= self.sustain / (self.release * self.sr);
+                <span class="kw">if</span> self.level &lt;= <span class="nm">0.0</span> {
+                    self.level = <span class="nm">0.0</span>; self.stage = <span class="ty">Stage</span>::Idle;
+                }
+            }
+            <span class="ty">Stage</span>::Idle =&gt; {}
+        }
+        self.level
+    }
+}</code></pre></div>
+</div>
+
+</section>
+<!-- ============================================================ -->
+<!-- SECTION 07 — Effects: Delay, Reverb, Distortion              -->
+<!-- ============================================================ -->
+<section id="ch7">
+<h2><span class="ch-num">07</span> Effects: Delay, Reverb, Distortion</h2>
+
+<p class="drop-cap">Every sound you hear in recorded music has been processed through a chain of effects. The raw signal from a microphone or synthesizer is just the starting point &mdash; what reaches your ears has been delayed, reverberated, filtered, compressed, and shaped by algorithms that are themselves fascinating studies in signal processing. Effects are where math becomes art.</p>
+
+<h3>Delay Lines: The Circular Buffer</h3>
+
+<p>A delay effect stores audio samples in a buffer and plays them back after a fixed time. The core data structure is a <strong>circular buffer</strong> (ring buffer) &mdash; you write samples at the head, read them from a position behind the head, and when you hit the end of the buffer you wrap around to the beginning.</p>
+
+<div class="diagram">
+<span class="diagram-label">Delay Line with Feedback</span>
+<pre><code>
+  Input ──►[+]──────────────► Output
+             ▲                   │
+             │                   │ wet/dry mix
+             │    ┌──────────┐   │
+             └────┤ DELAY    │◄──┘
+              fb  │ (ring    │  feedback
+              gain│ buffer)  │  gain
+                  └──────────┘
+
+  Ring Buffer:
+  ┌───┬───┬───┬───┬───┬───┬───┬───┐
+  │ . │ . │ R │ . │ . │ . │ W │ . │
+  └───┴───┴───┴───┴───┴───┴───┴───┘
+              ▲               ▲
+              read            write
+              (delay_ms       (current
+               behind)        sample)
+</code></pre>
+</div>
+
+<p>The <strong>feedback</strong> parameter controls how much of the delayed signal feeds back into the input. At 0% you get a single echo. At 50% you get decaying repeats. At 100% you get infinite repeats (and eventual clipping). The <strong>wet/dry mix</strong> blends the original signal with the delayed signal.</p>
+
+<h3>Reverb: Convolution with Space</h3>
+
+<p>Reverb simulates the reflections of sound in a physical space. There are two fundamental approaches:</p>
+
+<p><strong>Convolution reverb</strong> captures the acoustic signature of a real space as an <em>impulse response</em> (IR) &mdash; record a short, sharp sound (like a clap or starter pistol) in a cathedral, and the recording captures every reflection, absorption, and diffusion pattern of that space. To apply this reverb, you convolve the dry audio with the IR. Mathematically this is multiplication in the frequency domain: FFT both signals, multiply, inverse FFT.</p>
+
+<p><strong>Algorithmic reverb</strong> builds the effect from chains of delay lines and filters. The classic designs:</p>
+
+<ul>
+<li><strong>Schroeder reverb</strong> (1962): parallel comb filters feeding into series allpass filters. Simple but metallic-sounding.</li>
+<li><strong>Freeverb</strong> (Jezar, 2000): 8 comb filters + 4 allpass filters with carefully tuned delay lengths. Still used everywhere because it sounds good and is cheap to compute.</li>
+<li><strong>Feedback Delay Networks (FDN)</strong>: generalization where N delay lines are mixed through a unitary matrix. Modern algorithmic reverbs are mostly FDNs.</li>
+</ul>
+
+<h3>Distortion: Waveshaping</h3>
+
+<p>Distortion applies a nonlinear transfer function to the signal. The input sample value maps to a new output value through a curve:</p>
+
+<ul>
+<li><strong>Hard clipping</strong>: <code>out = clamp(in, -threshold, threshold)</code>. Brutal, digital-sounding.</li>
+<li><strong>Soft clipping</strong>: <code>out = tanh(gain * in)</code>. Smooth saturation, tube-amp character.</li>
+<li><strong>Overdrive</strong>: asymmetric clipping where positive and negative halves are shaped differently. Mimics transistor circuits.</li>
+<li><strong>Bitcrusher</strong>: reduce bit depth by quantizing. <code>out = round(in * levels) / levels</code>.</li>
+</ul>
+
+<p>The key insight: distortion creates <strong>harmonics</strong>. A pure sine wave through a symmetric clipper gains odd harmonics (3rd, 5th, 7th...). Asymmetric clipping adds even harmonics too. This is why tube amps sound "warm" &mdash; they add primarily even harmonics from their asymmetric saturation curve.</p>
+
+<div class="power hack">
+<div class="power-label">Reverb Is Convolution</div>
+<p>Convolution reverb is the same mathematical operation used in image processing, neural networks, and signal filtering. When you apply a reverb IR to audio, you are literally computing <code>y[n] = SUM(x[k] * h[n-k])</code> &mdash; the same convolution kernel operation a CNN uses on pixels. The only difference is dimensionality: audio is 1D, images are 2D, video is 3D. The FFT trick that makes convolution reverb practical (O(N log N) instead of O(N&sup2;)) is the same trick that accelerates any large convolution. Every reverb plugin is secretly a neural network layer running in the frequency domain.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<!-- SECTION 08 — FM Synthesis: The DX7 Revolution                -->
+<!-- ============================================================ -->
+<section id="ch8">
+<h2><span class="ch-num">08</span> FM Synthesis: The DX7 Revolution</h2>
+
+<p class="drop-cap">In 1967, John Chowning was experimenting with extreme vibrato at Stanford's Center for Computer Research in Music and Acoustics. He pushed the modulation frequency above 20 Hz &mdash; past the point where you hear individual pitch wobbles &mdash; and something remarkable happened. The timbre itself changed. New harmonics appeared from nowhere. He had accidentally discovered frequency modulation synthesis, a technique that would spawn the best-selling synthesizer in history and define the sound of 1980s pop music.</p>
+
+<h3>FM = Modulating Frequency with Frequency</h3>
+
+<p>The basic FM equation for a two-operator system:</p>
+
+<div class="diagram">
+<span class="diagram-label">Two-Operator FM Synthesis</span>
+<pre><code>
+  output(t) = sin(2&pi; * fc * t  +  d * sin(2&pi; * fm * t))
+
+  Where:
+    fc = carrier frequency       (determines pitch)
+    fm = modulator frequency     (determines harmonic structure)
+    d  = modulation depth/index  (determines brightness)
+
+  Ratio = fm / fc
+    Integer ratios  &rarr; harmonic spectra (musical tones)
+    Non-integer     &rarr; inharmonic spectra (bells, metallic sounds)
+
+  Modulation Index = d / fm
+    Low index  (0-1)   &rarr; few sidebands, simple tone
+    High index (5-10+) &rarr; many sidebands, complex/bright tone
+</code></pre>
+</div>
+
+<h3>The DX7: 6 Operators, 32 Algorithms</h3>
+
+<p>Yamaha licensed Chowning's patent and released the DX7 in 1983. Instead of two operators, the DX7 has <strong>six</strong>, each a sine oscillator with its own envelope. The 32 <em>algorithms</em> are fixed routings of these operators &mdash; which modulates which, which goes directly to the output (carriers), and which feeds back into itself. Algorithm 1 is a simple stack (6&rarr;5&rarr;4&rarr;3&rarr;2&rarr;1). Algorithm 32 puts all six in parallel as carriers. The space between these extremes is where the DX7's extraordinary timbral range lives.</p>
+
+<div class="diagram">
+<span class="diagram-label">DX7 Algorithm Examples</span>
+<pre><code>
+  Algorithm 1 (serial):        Algorithm 32 (parallel):
+
+  [OP6]                        [OP1] [OP2] [OP3] [OP4] [OP5] [OP6]
+    │                            │     │     │     │     │     │
+  [OP5]                          └──┬──┘     └──┬──┘     └──┬──┘
+    │                               │           │           │
+  [OP4]                             └─────┬─────┘           │
+    │                                     │                 │
+  [OP3]                                   └────────┬────────┘
+    │                                              │
+  [OP2]                                          OUTPUT
+    │
+  [OP1]
+    │
+  OUTPUT
+</code></pre>
+</div>
+
+<h3>FM Explorer</h3>
+
+<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:1.5rem;margin:2rem 0;">
+  <div style="display:flex;flex-wrap:wrap;gap:1rem;align-items:center;margin-bottom:1rem;font-family:'JetBrains Mono',monospace;font-size:0.85rem;">
+    <label style="color:var(--text-dim);">Carrier:
+      <input type="range" id="fm-carrier" min="50" max="2000" value="220" style="width:120px">
+      <span id="fm-carrier-val" style="color:var(--cyan);">220 Hz</span>
+    </label>
+    <label style="color:var(--text-dim);">Mod Ratio:
+      <input type="range" id="fm-ratio" min="0.5" max="8" value="2" step="0.5" style="width:120px">
+      <span id="fm-ratio-val" style="color:var(--cyan);">2.0</span>
+    </label>
+    <label style="color:var(--text-dim);">Mod Depth:
+      <input type="range" id="fm-depth" min="0" max="1000" value="200" style="width:120px">
+      <span id="fm-depth-val" style="color:var(--cyan);">200</span>
+    </label>
+    <button id="fm-play" style="background:var(--bg);border:1px solid var(--green);color:var(--green);padding:0.4rem 1.2rem;border-radius:4px;cursor:pointer;font-family:inherit;">&#9654; Play</button>
+  </div>
+  <canvas id="fm-canvas" width="760" height="200" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:4px;"></canvas>
+</div>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-fm" id="fm-c" class="tc" checked>
+  <input type="radio" name="tabs-fm" id="fm-py" class="tpy">
+  <input type="radio" name="tabs-fm" id="fm-ts" class="tts">
+  <input type="radio" name="tabs-fm" id="fm-go" class="tgo">
+  <input type="radio" name="tabs-fm" id="fm-rs" class="trs">
+  <div class="tab-bar">
+    <label for="fm-c">C</label>
+    <label for="fm-py">Python</label>
+    <label for="fm-ts">TypeScript</label>
+    <label for="fm-go">Go</label>
+    <label for="fm-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+    <pre><code><span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;math.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdint.h&gt;</span>
+
+<span class="pp">#define</span> SAMPLE_RATE <span class="nm">44100</span>
+<span class="pp">#define</span> DURATION    <span class="nm">1.0</span>
+<span class="pp">#define</span> TWO_PI      <span class="nm">6.283185307</span>
+
+<span class="cm">// Two-operator FM synthesis</span>
+<span class="kw">void</span> <span class="fn">fm_synth</span>(<span class="ty">float</span> *buf, <span class="ty">int</span> n_samples,
+              <span class="ty">float</span> carrier_hz, <span class="ty">float</span> mod_ratio, <span class="ty">float</span> mod_depth) {
+    <span class="ty">float</span> mod_hz = carrier_hz * mod_ratio;
+
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i &lt; n_samples; i++) {
+        <span class="ty">float</span> t = (<span class="ty">float</span>)i / SAMPLE_RATE;
+        <span class="cm">// Modulator output</span>
+        <span class="ty">float</span> mod = mod_depth * <span class="fn">sinf</span>(TWO_PI * mod_hz * t);
+        <span class="cm">// Carrier with frequency modulated by modulator</span>
+        buf[i] = <span class="fn">sinf</span>(TWO_PI * carrier_hz * t + mod);
+    }
+}
+
+<span class="ty">int</span> <span class="fn">main</span>(<span class="kw">void</span>) {
+    <span class="ty">int</span> n = (<span class="ty">int</span>)(SAMPLE_RATE * DURATION);
+    <span class="ty">float</span> buf[n];
+
+    <span class="cm">// Electric piano-like: carrier 220Hz, ratio 2, depth 200</span>
+    <span class="fn">fm_synth</span>(buf, n, <span class="nm">220.0f</span>, <span class="nm">2.0f</span>, <span class="nm">200.0f</span>);
+
+    <span class="fn">printf</span>(<span class="st">"Generated %d FM samples\n"</span>, n);
+    <span class="fn">printf</span>(<span class="st">"First 5: "</span>);
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i &lt; <span class="nm">5</span>; i++)
+        <span class="fn">printf</span>(<span class="st">"%.4f "</span>, buf[i]);
+    <span class="fn">printf</span>(<span class="st">"\n"</span>);
+    <span class="kw">return</span> <span class="nm">0</span>;
+}<span class="label">C &mdash; two-operator FM</span></code></pre>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">import</span> numpy <span class="kw">as</span> np
+
+<span class="kw">def</span> <span class="fn">fm_synth</span>(carrier_hz: <span class="ty">float</span>, mod_ratio: <span class="ty">float</span>,
+             mod_depth: <span class="ty">float</span>, duration: <span class="ty">float</span> = <span class="nm">1.0</span>,
+             sample_rate: <span class="ty">int</span> = <span class="nm">44100</span>) -> np.ndarray:
+    <span class="st">"""Two-operator FM synthesis."""</span>
+    t = np.<span class="fn">linspace</span>(<span class="nm">0</span>, duration, <span class="ty">int</span>(sample_rate * duration), endpoint=<span class="kw">False</span>)
+    mod_hz = carrier_hz * mod_ratio
+
+    <span class="cm"># Modulator</span>
+    modulator = mod_depth * np.<span class="fn">sin</span>(<span class="nm">2</span> * np.pi * mod_hz * t)
+
+    <span class="cm"># Carrier with FM</span>
+    signal = np.<span class="fn">sin</span>(<span class="nm">2</span> * np.pi * carrier_hz * t + modulator)
+    <span class="kw">return</span> signal
+
+<span class="cm"># Electric piano: carrier 220Hz, ratio 2:1, depth 200</span>
+samples = <span class="fn">fm_synth</span>(<span class="nm">220</span>, <span class="nm">2.0</span>, <span class="nm">200</span>)
+<span class="fn">print</span>(f<span class="st">"Generated {len(samples)} FM samples"</span>)
+<span class="fn">print</span>(f<span class="st">"First 5: {samples[:5].round(4)}"</span>)
+<span class="fn">print</span>(f<span class="st">"RMS level: {np.sqrt(np.mean(samples**2)):.4f}"</span>)<span class="label">Python &mdash; numpy FM</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="kw">function</span> <span class="fn">fmSynth</span>(
+  carrierHz: <span class="ty">number</span>, modRatio: <span class="ty">number</span>,
+  modDepth: <span class="ty">number</span>, duration: <span class="ty">number</span> = <span class="nm">1.0</span>,
+  sampleRate: <span class="ty">number</span> = <span class="nm">44100</span>
+): <span class="ty">Float32Array</span> {
+  <span class="kw">const</span> n = Math.<span class="fn">floor</span>(sampleRate * duration);
+  <span class="kw">const</span> buf = <span class="kw">new</span> <span class="ty">Float32Array</span>(n);
+  <span class="kw">const</span> modHz = carrierHz * modRatio;
+  <span class="kw">const</span> twoPi = <span class="nm">2</span> * Math.PI;
+
+  <span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">0</span>; i &lt; n; i++) {
+    <span class="kw">const</span> t = i / sampleRate;
+    <span class="kw">const</span> mod = modDepth * Math.<span class="fn">sin</span>(twoPi * modHz * t);
+    buf[i] = Math.<span class="fn">sin</span>(twoPi * carrierHz * t + mod);
+  }
+  <span class="kw">return</span> buf;
+}
+
+<span class="kw">const</span> samples = <span class="fn">fmSynth</span>(<span class="nm">220</span>, <span class="nm">2.0</span>, <span class="nm">200</span>);
+console.<span class="fn">log</span>(<span class="st">`Generated ${samples.length} FM samples`</span>);
+console.<span class="fn">log</span>(<span class="st">`First 5:`</span>, Array.<span class="fn">from</span>(samples.<span class="fn">slice</span>(<span class="nm">0</span>, <span class="nm">5</span>)).<span class="fn">map</span>(v =&gt; v.<span class="fn">toFixed</span>(<span class="nm">4</span>)));
+<span class="kw">const</span> rms = Math.<span class="fn">sqrt</span>(samples.<span class="fn">reduce</span>((s, v) =&gt; s + v * v, <span class="nm">0</span>) / samples.length);
+console.<span class="fn">log</span>(<span class="st">`RMS level: ${rms.toFixed(4)}`</span>);<span class="label">TypeScript &mdash; FM synthesis</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"fmt"</span>
+    <span class="st">"math"</span>
+)
+
+<span class="kw">const</span> sampleRate = <span class="nm">44100</span>
+
+<span class="kw">func</span> <span class="fn">fmSynth</span>(carrierHz, modRatio, modDepth, duration <span class="ty">float64</span>) []<span class="ty">float64</span> {
+    n := <span class="ty">int</span>(sampleRate * duration)
+    buf := <span class="fn">make</span>([]<span class="ty">float64</span>, n)
+    modHz := carrierHz * modRatio
+    twoPi := <span class="nm">2.0</span> * math.Pi
+
+    <span class="kw">for</span> i := <span class="nm">0</span>; i &lt; n; i++ {
+        t := <span class="ty">float64</span>(i) / sampleRate
+        mod := modDepth * math.<span class="fn">Sin</span>(twoPi*modHz*t)
+        buf[i] = math.<span class="fn">Sin</span>(twoPi*carrierHz*t + mod)
+    }
+    <span class="kw">return</span> buf
+}
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    samples := <span class="fn">fmSynth</span>(<span class="nm">220</span>, <span class="nm">2.0</span>, <span class="nm">200</span>, <span class="nm">1.0</span>)
+    fmt.<span class="fn">Printf</span>(<span class="st">"Generated %d FM samples\n"</span>, <span class="fn">len</span>(samples))
+    fmt.<span class="fn">Printf</span>(<span class="st">"First 5: "</span>)
+    <span class="kw">for</span> _, v := <span class="kw">range</span> samples[:<span class="nm">5</span>] {
+        fmt.<span class="fn">Printf</span>(<span class="st">"%.4f "</span>, v)
+    }
+    fmt.<span class="fn">Println</span>()
+}<span class="label">Go &mdash; FM synthesis</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="kw">use</span> std::f64::consts::PI;
+
+<span class="kw">const</span> SAMPLE_RATE: <span class="ty">f64</span> = <span class="nm">44100.0</span>;
+
+<span class="kw">fn</span> <span class="fn">fm_synth</span>(carrier_hz: <span class="ty">f64</span>, mod_ratio: <span class="ty">f64</span>,
+            mod_depth: <span class="ty">f64</span>, duration: <span class="ty">f64</span>) -&gt; Vec&lt;<span class="ty">f64</span>&gt; {
+    <span class="kw">let</span> n = (SAMPLE_RATE * duration) <span class="kw">as</span> <span class="ty">usize</span>;
+    <span class="kw">let</span> mod_hz = carrier_hz * mod_ratio;
+    <span class="kw">let</span> two_pi = <span class="nm">2.0</span> * PI;
+
+    (<span class="nm">0</span>..n).<span class="fn">map</span>(|i| {
+        <span class="kw">let</span> t = i <span class="kw">as</span> <span class="ty">f64</span> / SAMPLE_RATE;
+        <span class="kw">let</span> modulator = mod_depth * (two_pi * mod_hz * t).<span class="fn">sin</span>();
+        (two_pi * carrier_hz * t + modulator).<span class="fn">sin</span>()
+    }).<span class="fn">collect</span>()
+}
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> samples = <span class="fn">fm_synth</span>(<span class="nm">220.0</span>, <span class="nm">2.0</span>, <span class="nm">200.0</span>, <span class="nm">1.0</span>);
+    <span class="fn">println!</span>(<span class="st">"Generated {} FM samples"</span>, samples.<span class="fn">len</span>());
+    <span class="fn">print!</span>(<span class="st">"First 5: "</span>);
+    <span class="kw">for</span> v <span class="kw">in</span> &amp;samples[..<span class="nm">5</span>] {
+        <span class="fn">print!</span>(<span class="st">"{:.4} "</span>, v);
+    }
+    <span class="fn">println!</span>();
+}<span class="label">Rust &mdash; FM synthesis</span></code></pre>
+  </div>
+</div>
+
+<div class="power wild">
+<div class="power-label">The DX7 Accident</div>
+<p>The DX7's iconic "E.PIANO 1" patch &mdash; heard on thousands of pop records from 1983 to 1990 &mdash; was not carefully designed. It was a factory preset that happened to sound good because of Yamaha's particular implementation of the envelope generators. The six operators with their 32 algorithms create a parameter space so vast (155 billion possible combinations by one estimate) that most DX7 owners never programmed their own patches. They used the factory presets, and those presets defined the sound of an entire decade. The lesson for software engineers: sometimes the default configuration matters more than the configurability.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<!-- SECTION 09 — MIDI and Sequencing                             -->
+<!-- ============================================================ -->
+<section id="ch9">
+<h2><span class="ch-num">09</span> MIDI and Sequencing</h2>
+
+<p class="drop-cap">MIDI &mdash; Musical Instrument Digital Interface &mdash; is a protocol from 1983 that refuses to die. It does not transmit audio. It transmits <em>instructions</em>: which note to play, how hard to press it, when to release it. Think of it as the difference between a WAV file and sheet music. MIDI is the sheet music, and it remains the universal language through which synthesizers, drum machines, DAWs, and controllers communicate.</p>
+
+<h3>Message Format</h3>
+
+<p>MIDI messages are byte sequences. The first byte is the <strong>status byte</strong> (high bit set, 0x80-0xFF), followed by one or two <strong>data bytes</strong> (high bit clear, 0x00-0x7F). The status byte encodes both the message type and the channel (0-15).</p>
+
+<div class="diagram">
+<span class="diagram-label">MIDI Message Structure</span>
+<pre><code>
+  Status Byte:   1nnn cccc
+                  │││ ││││
+                  │││ └┴┴┴── channel (0-15)
+                  └┴┴────── message type (0-7)
+
+  Note On:   [0x90 + ch] [note] [velocity]
+  Note Off:  [0x80 + ch] [note] [velocity]
+  CC:        [0xB0 + ch] [ctrl] [value]
+  Prog Chg:  [0xC0 + ch] [program]
+
+  Example: Play middle C at max velocity on channel 0
+    0x90  0x3C  0x7F
+    │     │     └── velocity 127 (max)
+    │     └──────── note 60 (middle C)
+    └────────────── Note On, channel 0
+</code></pre>
+</div>
+
+<h3>Common MIDI Messages</h3>
+
+<table>
+<tr><th>Status</th><th>Name</th><th>Data Bytes</th><th>Description</th></tr>
+<tr><td><code>0x80</code></td><td>Note Off</td><td>note, velocity</td><td>Release a note</td></tr>
+<tr><td><code>0x90</code></td><td>Note On</td><td>note, velocity</td><td>Press a note (vel=0 is also Note Off)</td></tr>
+<tr><td><code>0xA0</code></td><td>Aftertouch</td><td>note, pressure</td><td>Per-note pressure after initial strike</td></tr>
+<tr><td><code>0xB0</code></td><td>Control Change</td><td>controller, value</td><td>Knobs, sliders, pedals (CC 1=mod, 7=volume, 64=sustain)</td></tr>
+<tr><td><code>0xC0</code></td><td>Program Change</td><td>program</td><td>Switch instrument preset</td></tr>
+<tr><td><code>0xD0</code></td><td>Channel Pressure</td><td>pressure</td><td>Whole-channel aftertouch</td></tr>
+<tr><td><code>0xE0</code></td><td>Pitch Bend</td><td>LSB, MSB</td><td>14-bit pitch bend (8192 = center)</td></tr>
+</table>
+
+<p>MIDI's 7-bit data range (0-127) was generous in 1983 but limiting today. Velocity 0-127 means only 128 dynamic levels. Pitch bend uses two bytes for 14-bit resolution (16384 values), which is barely enough to sound smooth. MIDI 2.0 (2020) upgrades to 32-bit resolution, but adoption is glacial.</p>
+
+<p>See <a href="parsers-deep-dive.html" style="color:var(--cyan)">Parsers</a> for how binary protocol formats like MIDI are parsed &mdash; the status byte / data byte distinction is a framing mechanism, and MIDI's "running status" optimization (omitting repeated status bytes) creates the same kind of stateful parsing challenges found in UTF-8 and other variable-length encodings.</p>
+
+</section>
+
+<!-- ============================================================ -->
+<!-- SECTION 10 — Audio Codecs: Compressing the Air               -->
+<!-- ============================================================ -->
+<section id="ch10">
+<h2><span class="ch-num">10</span> Audio Codecs: Compressing the Air</h2>
+
+<p class="drop-cap">Uncompressed CD audio consumes 1,411 kilobits per second. A three-minute song is 31 megabytes. In 1991, that was a significant fraction of a hard drive. The quest to make audio files smaller without making them sound worse drove one of the most successful applications of psychoacoustic research: lossy audio compression. The algorithms do not preserve the signal &mdash; they preserve the <em>perception</em> of the signal.</p>
+
+<h3>The Format Landscape</h3>
+
+<ul>
+<li><strong>PCM</strong> (WAV/AIFF): uncompressed, sample-for-sample faithful. The baseline everything else is compared against.</li>
+<li><strong>FLAC</strong>: lossless compression, typically 50-60% of original size. Prediction + residual coding. Bit-perfect reconstruction.</li>
+<li><strong>MP3</strong> (MPEG-1 Audio Layer III): the codec that changed everything. Psychoacoustic model + modified DCT + Huffman coding. 128-320 kbps typical.</li>
+<li><strong>Ogg Vorbis</strong>: open-source lossy codec. Better quality per bit than MP3, especially at low bitrates. MDCT-based.</li>
+<li><strong>Opus</strong>: the modern champion. Hybrid of SILK (speech) and CELT (music). 6-510 kbps, ultra-low latency (2.5ms frames). Dominates VoIP, streaming, and WebRTC.</li>
+</ul>
+
+<h3>Psychoacoustic Model</h3>
+
+<p>Lossy codecs exploit how human hearing works:</p>
+
+<ul>
+<li><strong>Absolute threshold</strong>: sounds below ~0 dB SPL at any frequency are inaudible. Do not encode them.</li>
+<li><strong>Frequency masking</strong>: a loud tone at 1 kHz makes nearby frequencies (900-1100 Hz) inaudible. Encode them with fewer bits.</li>
+<li><strong>Temporal masking</strong>: after a loud transient, quiet sounds are masked for 5-20 ms. Before it too (pre-masking, ~5 ms).</li>
+<li><strong>Critical bands</strong>: the ear groups frequencies into ~25 Bark bands. Within a band, the loudest component masks the rest.</li>
+</ul>
+
+<p>The codec transforms audio into frequency domain (MDCT), calculates masking thresholds per band, then quantizes each band just coarsely enough that the quantization noise stays below the masking threshold. You cannot hear what you cannot hear.</p>
+
+<h3>Format Comparison</h3>
+
+<table>
+<tr><th>Format</th><th>Type</th><th>Bitrate</th><th>Latency</th><th>Quality at 128 kbps</th></tr>
+<tr><td>PCM (WAV)</td><td>Uncompressed</td><td>1,411 kbps</td><td>0 ms</td><td>Perfect (reference)</td></tr>
+<tr><td>FLAC</td><td>Lossless</td><td>~800 kbps</td><td>~20 ms</td><td>Perfect (lossless)</td></tr>
+<tr><td>MP3</td><td>Lossy</td><td>32-320 kbps</td><td>~100 ms</td><td>Good (artifacts above 16 kHz)</td></tr>
+<tr><td>Ogg Vorbis</td><td>Lossy</td><td>45-500 kbps</td><td>~50 ms</td><td>Very good</td></tr>
+<tr><td>AAC</td><td>Lossy</td><td>16-320 kbps</td><td>~40 ms</td><td>Very good</td></tr>
+<tr><td>Opus</td><td>Lossy</td><td>6-510 kbps</td><td>2.5-60 ms</td><td>Excellent (near transparent)</td></tr>
+</table>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-codec" id="codec-c" class="tc" checked>
+  <input type="radio" name="tabs-codec" id="codec-py" class="tpy">
+  <input type="radio" name="tabs-codec" id="codec-ts" class="tts">
+  <input type="radio" name="tabs-codec" id="codec-go" class="tgo">
+  <input type="radio" name="tabs-codec" id="codec-rs" class="trs">
+  <div class="tab-bar">
+    <label for="codec-c">C</label>
+    <label for="codec-py">Python</label>
+    <label for="codec-ts">TypeScript</label>
+    <label for="codec-go">Go</label>
+    <label for="codec-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+    <pre><code><span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdint.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;string.h&gt;</span>
+
+<span class="cm">// WAV file header (44 bytes, PCM format)</span>
+<span class="kw">typedef struct</span> {
+    <span class="ty">char</span>     riff[<span class="nm">4</span>];        <span class="cm">// "RIFF"</span>
+    <span class="ty">uint32_t</span> file_size;      <span class="cm">// file size - 8</span>
+    <span class="ty">char</span>     wave[<span class="nm">4</span>];        <span class="cm">// "WAVE"</span>
+    <span class="ty">char</span>     fmt_[<span class="nm">4</span>];        <span class="cm">// "fmt "</span>
+    <span class="ty">uint32_t</span> fmt_size;       <span class="cm">// 16 for PCM</span>
+    <span class="ty">uint16_t</span> audio_format;   <span class="cm">// 1 = PCM</span>
+    <span class="ty">uint16_t</span> channels;       <span class="cm">// 1 = mono, 2 = stereo</span>
+    <span class="ty">uint32_t</span> sample_rate;
+    <span class="ty">uint32_t</span> byte_rate;      <span class="cm">// sample_rate * channels * bits/8</span>
+    <span class="ty">uint16_t</span> block_align;    <span class="cm">// channels * bits/8</span>
+    <span class="ty">uint16_t</span> bits_per_sample;
+    <span class="ty">char</span>     data[<span class="nm">4</span>];        <span class="cm">// "data"</span>
+    <span class="ty">uint32_t</span> data_size;      <span class="cm">// num_samples * channels * bits/8</span>
+} <span class="ty">WavHeader</span>;
+
+<span class="kw">void</span> <span class="fn">wav_header_init</span>(<span class="ty">WavHeader</span> *h, <span class="ty">uint32_t</span> sample_rate,
+                     <span class="ty">uint16_t</span> channels, <span class="ty">uint16_t</span> bits,
+                     <span class="ty">uint32_t</span> num_samples) {
+    <span class="fn">memcpy</span>(h-&gt;riff, <span class="st">"RIFF"</span>, <span class="nm">4</span>);
+    <span class="fn">memcpy</span>(h-&gt;wave, <span class="st">"WAVE"</span>, <span class="nm">4</span>);
+    <span class="fn">memcpy</span>(h-&gt;fmt_, <span class="st">"fmt "</span>, <span class="nm">4</span>);
+    <span class="fn">memcpy</span>(h-&gt;data, <span class="st">"data"</span>, <span class="nm">4</span>);
+    h-&gt;fmt_size       = <span class="nm">16</span>;
+    h-&gt;audio_format   = <span class="nm">1</span>;  <span class="cm">// PCM</span>
+    h-&gt;channels       = channels;
+    h-&gt;sample_rate    = sample_rate;
+    h-&gt;bits_per_sample = bits;
+    h-&gt;block_align    = channels * (bits / <span class="nm">8</span>);
+    h-&gt;byte_rate      = sample_rate * h-&gt;block_align;
+    h-&gt;data_size      = num_samples * h-&gt;block_align;
+    h-&gt;file_size      = <span class="nm">36</span> + h-&gt;data_size;
+}
+
+<span class="ty">int</span> <span class="fn">main</span>(<span class="kw">void</span>) {
+    <span class="ty">WavHeader</span> hdr;
+    <span class="fn">wav_header_init</span>(&amp;hdr, <span class="nm">44100</span>, <span class="nm">1</span>, <span class="nm">16</span>, <span class="nm">44100</span>);
+    <span class="fn">printf</span>(<span class="st">"WAV header: %u bytes, data: %u bytes\n"</span>,
+           (<span class="ty">unsigned</span>)<span class="kw">sizeof</span>(hdr), hdr.data_size);
+    <span class="fn">printf</span>(<span class="st">"Total file: %u bytes\n"</span>, hdr.file_size + <span class="nm">8</span>);
+    <span class="kw">return</span> <span class="nm">0</span>;
+}<span class="label">C &mdash; WAV header struct</span></code></pre>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">import</span> struct
+
+<span class="kw">def</span> <span class="fn">wav_header</span>(sample_rate: <span class="ty">int</span>, channels: <span class="ty">int</span>,
+               bits: <span class="ty">int</span>, num_samples: <span class="ty">int</span>) -> <span class="ty">bytes</span>:
+    <span class="st">"""Build a 44-byte WAV header for PCM audio."""</span>
+    block_align = channels * (bits // <span class="nm">8</span>)
+    byte_rate = sample_rate * block_align
+    data_size = num_samples * block_align
+    file_size = <span class="nm">36</span> + data_size
+
+    <span class="kw">return</span> struct.<span class="fn">pack</span>(
+        <span class="st">'&lt;4sI4s4sIHHIIHH4sI'</span>,
+        <span class="st">b'RIFF'</span>,       <span class="cm"># ChunkID</span>
+        file_size,      <span class="cm"># ChunkSize</span>
+        <span class="st">b'WAVE'</span>,       <span class="cm"># Format</span>
+        <span class="st">b'fmt '</span>,       <span class="cm"># Subchunk1ID</span>
+        <span class="nm">16</span>,             <span class="cm"># Subchunk1Size (PCM)</span>
+        <span class="nm">1</span>,              <span class="cm"># AudioFormat (1 = PCM)</span>
+        channels,       <span class="cm"># NumChannels</span>
+        sample_rate,    <span class="cm"># SampleRate</span>
+        byte_rate,      <span class="cm"># ByteRate</span>
+        block_align,    <span class="cm"># BlockAlign</span>
+        bits,           <span class="cm"># BitsPerSample</span>
+        <span class="st">b'data'</span>,       <span class="cm"># Subchunk2ID</span>
+        data_size       <span class="cm"># Subchunk2Size</span>
+    )
+
+<span class="cm"># 1 second of 44.1kHz 16-bit mono</span>
+header = <span class="fn">wav_header</span>(<span class="nm">44100</span>, <span class="nm">1</span>, <span class="nm">16</span>, <span class="nm">44100</span>)
+<span class="fn">print</span>(f<span class="st">"Header size: {len(header)} bytes"</span>)
+<span class="fn">print</span>(f<span class="st">"RIFF marker: {header[:4]}"</span>)
+<span class="fn">print</span>(f<span class="st">"File size field: {struct.unpack_from('&lt;I', header, 4)[0] + 8} bytes total"</span>)<span class="label">Python &mdash; struct.pack WAV</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="kw">function</span> <span class="fn">wavHeader</span>(sampleRate: <span class="ty">number</span>, channels: <span class="ty">number</span>,
+                    bits: <span class="ty">number</span>, numSamples: <span class="ty">number</span>): <span class="ty">ArrayBuffer</span> {
+  <span class="kw">const</span> blockAlign = channels * (bits / <span class="nm">8</span>);
+  <span class="kw">const</span> byteRate = sampleRate * blockAlign;
+  <span class="kw">const</span> dataSize = numSamples * blockAlign;
+
+  <span class="kw">const</span> buf = <span class="kw">new</span> <span class="ty">ArrayBuffer</span>(<span class="nm">44</span>);
+  <span class="kw">const</span> view = <span class="kw">new</span> <span class="ty">DataView</span>(buf);
+  <span class="kw">const</span> encoder = <span class="kw">new</span> <span class="ty">TextEncoder</span>();
+
+  <span class="kw">function</span> <span class="fn">writeStr</span>(offset: <span class="ty">number</span>, s: <span class="ty">string</span>) {
+    <span class="kw">const</span> bytes = encoder.<span class="fn">encode</span>(s);
+    <span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">0</span>; i &lt; bytes.length; i++)
+      view.<span class="fn">setUint8</span>(offset + i, bytes[i]);
+  }
+
+  <span class="fn">writeStr</span>(<span class="nm">0</span>,  <span class="st">'RIFF'</span>);
+  view.<span class="fn">setUint32</span>(<span class="nm">4</span>,  <span class="nm">36</span> + dataSize, <span class="kw">true</span>);
+  <span class="fn">writeStr</span>(<span class="nm">8</span>,  <span class="st">'WAVE'</span>);
+  <span class="fn">writeStr</span>(<span class="nm">12</span>, <span class="st">'fmt '</span>);
+  view.<span class="fn">setUint32</span>(<span class="nm">16</span>, <span class="nm">16</span>, <span class="kw">true</span>);           <span class="cm">// PCM fmt size</span>
+  view.<span class="fn">setUint16</span>(<span class="nm">20</span>, <span class="nm">1</span>,  <span class="kw">true</span>);           <span class="cm">// PCM format</span>
+  view.<span class="fn">setUint16</span>(<span class="nm">22</span>, channels, <span class="kw">true</span>);
+  view.<span class="fn">setUint32</span>(<span class="nm">24</span>, sampleRate, <span class="kw">true</span>);
+  view.<span class="fn">setUint32</span>(<span class="nm">28</span>, byteRate, <span class="kw">true</span>);
+  view.<span class="fn">setUint16</span>(<span class="nm">32</span>, blockAlign, <span class="kw">true</span>);
+  view.<span class="fn">setUint16</span>(<span class="nm">34</span>, bits, <span class="kw">true</span>);
+  <span class="fn">writeStr</span>(<span class="nm">36</span>, <span class="st">'data'</span>);
+  view.<span class="fn">setUint32</span>(<span class="nm">40</span>, dataSize, <span class="kw">true</span>);
+
+  <span class="kw">return</span> buf;
+}
+
+<span class="kw">const</span> header = <span class="fn">wavHeader</span>(<span class="nm">44100</span>, <span class="nm">1</span>, <span class="nm">16</span>, <span class="nm">44100</span>);
+console.<span class="fn">log</span>(<span class="st">`Header size: ${header.byteLength} bytes`</span>);
+<span class="kw">const</span> dv = <span class="kw">new</span> <span class="ty">DataView</span>(header);
+console.<span class="fn">log</span>(<span class="st">`Total file: ${dv.getUint32(4, true) + 8} bytes`</span>);<span class="label">TypeScript &mdash; DataView WAV</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"bytes"</span>
+    <span class="st">"encoding/binary"</span>
+    <span class="st">"fmt"</span>
+)
+
+<span class="kw">type</span> <span class="ty">WavHeader</span> <span class="kw">struct</span> {
+    RiffID      [<span class="nm">4</span>]<span class="ty">byte</span>
+    FileSize    <span class="ty">uint32</span>
+    WaveID      [<span class="nm">4</span>]<span class="ty">byte</span>
+    FmtID       [<span class="nm">4</span>]<span class="ty">byte</span>
+    FmtSize     <span class="ty">uint32</span>
+    AudioFormat <span class="ty">uint16</span>
+    Channels    <span class="ty">uint16</span>
+    SampleRate  <span class="ty">uint32</span>
+    ByteRate    <span class="ty">uint32</span>
+    BlockAlign  <span class="ty">uint16</span>
+    BitsPerSamp <span class="ty">uint16</span>
+    DataID      [<span class="nm">4</span>]<span class="ty">byte</span>
+    DataSize    <span class="ty">uint32</span>
+}
+
+<span class="kw">func</span> <span class="fn">newWavHeader</span>(rate <span class="ty">uint32</span>, ch, bits <span class="ty">uint16</span>, nSamples <span class="ty">uint32</span>) <span class="ty">WavHeader</span> {
+    blockAlign := ch * (bits / <span class="nm">8</span>)
+    dataSize := nSamples * <span class="ty">uint32</span>(blockAlign)
+    h := <span class="ty">WavHeader</span>{
+        FmtSize:     <span class="nm">16</span>,
+        AudioFormat: <span class="nm">1</span>,
+        Channels:    ch,
+        SampleRate:  rate,
+        ByteRate:    rate * <span class="ty">uint32</span>(blockAlign),
+        BlockAlign:  blockAlign,
+        BitsPerSamp: bits,
+        DataSize:    dataSize,
+        FileSize:    <span class="nm">36</span> + dataSize,
+    }
+    <span class="fn">copy</span>(h.RiffID[:], <span class="st">"RIFF"</span>)
+    <span class="fn">copy</span>(h.WaveID[:], <span class="st">"WAVE"</span>)
+    <span class="fn">copy</span>(h.FmtID[:],  <span class="st">"fmt "</span>)
+    <span class="fn">copy</span>(h.DataID[:], <span class="st">"data"</span>)
+    <span class="kw">return</span> h
+}
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    h := <span class="fn">newWavHeader</span>(<span class="nm">44100</span>, <span class="nm">1</span>, <span class="nm">16</span>, <span class="nm">44100</span>)
+    <span class="kw">var</span> buf bytes.Buffer
+    binary.<span class="fn">Write</span>(&amp;buf, binary.LittleEndian, h)
+    fmt.<span class="fn">Printf</span>(<span class="st">"Header: %d bytes, total file: %d bytes\n"</span>,
+        buf.<span class="fn">Len</span>(), h.FileSize+<span class="nm">8</span>)
+}<span class="label">Go &mdash; binary.Write WAV</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="kw">fn</span> <span class="fn">wav_header</span>(sample_rate: <span class="ty">u32</span>, channels: <span class="ty">u16</span>,
+              bits: <span class="ty">u16</span>, num_samples: <span class="ty">u32</span>) -&gt; Vec&lt;<span class="ty">u8</span>&gt; {
+    <span class="kw">let</span> block_align = channels * (bits / <span class="nm">8</span>);
+    <span class="kw">let</span> byte_rate = sample_rate * block_align <span class="kw">as</span> <span class="ty">u32</span>;
+    <span class="kw">let</span> data_size = num_samples * block_align <span class="kw">as</span> <span class="ty">u32</span>;
+    <span class="kw">let</span> file_size = <span class="nm">36</span> + data_size;
+
+    <span class="kw">let mut</span> h = Vec::<span class="fn">with_capacity</span>(<span class="nm">44</span>);
+
+    h.<span class="fn">extend_from_slice</span>(<span class="st">b"RIFF"</span>);
+    h.<span class="fn">extend_from_slice</span>(&amp;file_size.<span class="fn">to_le_bytes</span>());
+    h.<span class="fn">extend_from_slice</span>(<span class="st">b"WAVE"</span>);
+    h.<span class="fn">extend_from_slice</span>(<span class="st">b"fmt "</span>);
+    h.<span class="fn">extend_from_slice</span>(&amp;<span class="nm">16u32</span>.<span class="fn">to_le_bytes</span>());       <span class="cm">// fmt chunk size</span>
+    h.<span class="fn">extend_from_slice</span>(&amp;<span class="nm">1u16</span>.<span class="fn">to_le_bytes</span>());        <span class="cm">// PCM</span>
+    h.<span class="fn">extend_from_slice</span>(&amp;channels.<span class="fn">to_le_bytes</span>());
+    h.<span class="fn">extend_from_slice</span>(&amp;sample_rate.<span class="fn">to_le_bytes</span>());
+    h.<span class="fn">extend_from_slice</span>(&amp;byte_rate.<span class="fn">to_le_bytes</span>());
+    h.<span class="fn">extend_from_slice</span>(&amp;block_align.<span class="fn">to_le_bytes</span>());
+    h.<span class="fn">extend_from_slice</span>(&amp;bits.<span class="fn">to_le_bytes</span>());
+    h.<span class="fn">extend_from_slice</span>(<span class="st">b"data"</span>);
+    h.<span class="fn">extend_from_slice</span>(&amp;data_size.<span class="fn">to_le_bytes</span>());
+
+    h
+}
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> header = <span class="fn">wav_header</span>(<span class="nm">44100</span>, <span class="nm">1</span>, <span class="nm">16</span>, <span class="nm">44100</span>);
+    <span class="fn">println!</span>(<span class="st">"Header: {} bytes"</span>, header.<span class="fn">len</span>());
+    <span class="fn">println!</span>(<span class="st">"RIFF: {:?}"</span>, std::str::<span class="fn">from_utf8</span>(&amp;header[..<span class="nm">4</span>]).<span class="fn">unwrap</span>());
+    <span class="kw">let</span> total = <span class="ty">u32</span>::<span class="fn">from_le_bytes</span>(header[<span class="nm">4</span>..<span class="nm">8</span>].<span class="fn">try_into</span>().<span class="fn">unwrap</span>()) + <span class="nm">8</span>;
+    <span class="fn">println!</span>(<span class="st">"Total file: {} bytes"</span>, total);
+}<span class="label">Rust &mdash; WAV header bytes</span></code></pre>
+  </div>
+</div>
+
+<p>See <a href="compression-deep-dive.html" style="color:var(--cyan)">Compression</a> for the entropy coding and dictionary compression techniques that underpin FLAC and the Huffman stage of MP3 &mdash; audio codecs are compression algorithms with a psychoacoustic preprocessor bolted on top.</p>
+
+<div class="power zen">
+<div class="power-label">Psychoacoustic Cheating</div>
+<p>Every lossy audio codec is a study in principled cheating. The encoder analyzes what you can hear, what louder sounds mask, what frequencies your ears cannot resolve &mdash; and throws away everything else. At 128 kbps, MP3 discards roughly 90% of the original data. Opus at 96 kbps discards 93%. Yet in blind tests, most listeners cannot distinguish Opus at 128 kbps from the uncompressed original. The codec is not compressing sound &mdash; it is compressing <em>perception</em>, and perception has a much lower bandwidth than physics.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<!-- SECTION 11 — Web Audio API Internals                         -->
+<!-- ============================================================ -->
+<section id="ch11">
+<h2><span class="ch-num">11</span> Web Audio API Internals</h2>
+
+<p class="drop-cap">The Web Audio API is a high-level graph-based system for audio processing in the browser. Unlike the simple <code>&lt;audio&gt;</code> element, Web Audio gives you a modular routing architecture where you build signal chains by connecting nodes &mdash; oscillators, filters, gain controls, analyzers &mdash; into a directed acyclic graph. The browser's audio engine traverses this graph 128 samples at a time, mixing and processing in real time.</p>
+
+<h3>The Audio Graph</h3>
+
+<p>Everything starts with an <strong>AudioContext</strong>. It is the container for all audio operations &mdash; it owns the output, manages timing, and provides factory methods for creating nodes. The context has a sample rate (usually 44100 or 48000), a current time (<code>audioCtx.currentTime</code>), and a destination node that represents the speakers.</p>
+
+<div class="diagram">
+<span class="diagram-label">Web Audio Node Graph</span>
+<pre><code>
+  ┌──────────┐    ┌──────────┐    ┌──────────┐
+  │Oscillator│───►│  Gain    │───►│ Analyser │───► destination
+  │  Node    │    │  Node    │    │  Node    │     (speakers)
+  └──────────┘    └──────────┘    └──────────┘
+                       ▲
+  ┌──────────┐         │
+  │Buffer Src│─────────┘
+  │  Node    │
+  └──────────┘
+
+  ┌──────────┐    ┌──────────┐    ┌──────────┐
+  │  Noise   │───►│ Biquad   │───►│  Gain    │───► destination
+  │ Source   │    │ Filter   │    │          │
+  └──────────┘    └──────────┘    └──────────┘
+</code></pre>
+</div>
+
+<h3>Common Nodes</h3>
+
+<ul>
+<li><strong>OscillatorNode</strong>: generates waveforms (sine, square, sawtooth, triangle, custom). Has <code>.frequency</code> and <code>.detune</code> AudioParams.</li>
+<li><strong>GainNode</strong>: multiplies signal by a value. The <code>.gain</code> AudioParam supports automation (ramps, exponential curves).</li>
+<li><strong>BiquadFilterNode</strong>: second-order IIR filter. Types: lowpass, highpass, bandpass, notch, allpass, peaking, lowshelf, highshelf. Has <code>.frequency</code>, <code>.Q</code>, and <code>.gain</code> params.</li>
+<li><strong>AnalyserNode</strong>: provides FFT data and time-domain waveform for visualization. Does not modify the signal.</li>
+<li><strong>AudioBufferSourceNode</strong>: plays back an AudioBuffer (pre-loaded PCM data). One-shot &mdash; create a new one for each playback.</li>
+<li><strong>DelayNode</strong>: delays the signal by a specified time. Maximum delay set at creation.</li>
+<li><strong>ConvolverNode</strong>: convolution reverb using an impulse response buffer.</li>
+<li><strong>WaveShaperNode</strong>: applies a distortion curve (Float32Array transfer function).</li>
+<li><strong>AudioWorkletNode</strong>: custom DSP in a separate thread. Write your own processor class, register it, and process 128-sample blocks in real time. This is how you build effects that Web Audio does not provide natively.</li>
+</ul>
+
+<p>The key architectural insight: AudioParams (like <code>gain.gain</code> or <code>oscillator.frequency</code>) are <strong>a-rate</strong> (audio rate, updated every sample) by default. This means you can modulate them smoothly with <code>linearRampToValueAtTime()</code> and <code>setTargetAtTime()</code>. No clicks, no zipper noise. The automation runs on the audio thread, not the main thread, so it is sample-accurate even when the UI is busy.</p>
+
+<p>See <a href="buffers-deep-dive.html" style="color:var(--cyan)">Buffers</a> for ring buffers and memory management patterns &mdash; the AudioWorklet processes fixed-size 128-sample blocks, which is a ring buffer pattern at its core.</p>
+
+</section>
+
+<!-- ============================================================ -->
+<!-- SECTION 12 — Music Theory for Programmers                    -->
+<!-- ============================================================ -->
+<section id="ch12">
+<h2><span class="ch-num">12</span> Music Theory for Programmers</h2>
+
+<p class="drop-cap">Equal temperament is a mathematical compromise that has dominated Western music for three centuries. The idea: divide the octave into 12 equally-spaced semitones, where "equally spaced" means each semitone is the same <em>ratio</em> above the previous one. That ratio is the twelfth root of 2, approximately 1.05946. Every interval is slightly out of tune compared to the pure harmonic ratios, but every key sounds equally (slightly) wrong, which means you can transpose freely. It is the ultimate engineering trade-off: perfection in any one key sacrificed for adequacy in all keys.</p>
+
+<h3>The Frequency Formula</h3>
+
+<div class="diagram">
+<span class="diagram-label">Equal Temperament</span>
+<pre><code>
+  f(n) = 440 &times; 2^((n - 69) / 12)    Hz
+
+  Where n = MIDI note number (0-127)
+  A4 = note 69 = 440 Hz (the tuning reference)
+
+  One semitone up:   &times; 2^(1/12)  &asymp; &times; 1.05946
+  One octave up:     &times; 2^(12/12) = &times; 2
+  Perfect fifth up:  &times; 2^(7/12)  &asymp; &times; 1.49831  (pure = 1.5)
+</code></pre>
+</div>
+
+<h3>Notes, MIDI Numbers, Frequencies</h3>
+
+<table>
+<tr><th>Note</th><th>MIDI</th><th>Frequency (Hz)</th><th>Interval from C4</th></tr>
+<tr><td>C4</td><td>60</td><td>261.63</td><td>Unison</td></tr>
+<tr><td>D4</td><td>62</td><td>293.66</td><td>Major 2nd</td></tr>
+<tr><td>E4</td><td>64</td><td>329.63</td><td>Major 3rd</td></tr>
+<tr><td>F4</td><td>65</td><td>349.23</td><td>Perfect 4th</td></tr>
+<tr><td>G4</td><td>67</td><td>392.00</td><td>Perfect 5th</td></tr>
+<tr><td>A4</td><td>69</td><td>440.00</td><td>Major 6th</td></tr>
+<tr><td>B4</td><td>71</td><td>493.88</td><td>Major 7th</td></tr>
+<tr><td>C5</td><td>72</td><td>523.25</td><td>Octave</td></tr>
+</table>
+
+<h3>Scales and Chords</h3>
+
+<p>A <strong>scale</strong> is a subset of the 12 semitones. The major scale uses intervals [2,2,1,2,2,2,1] (whole and half steps). The minor scale: [2,1,2,2,1,2,2]. A <strong>chord</strong> is three or more notes from a scale played simultaneously. A major triad is root + major 3rd (4 semitones) + perfect 5th (7 semitones). A minor triad: root + minor 3rd (3) + perfect 5th (7).</p>
+
+<p>For a programmer, the key insight is that all of music theory is <strong>modular arithmetic</strong>. Transposition is addition mod 12. Inversion is subtraction mod 12. The circle of fifths is just adding 7 mod 12 repeatedly: C, G, D, A, E, B, F#, C#, G#, D#, A#, F, C.</p>
+
+<h3>Beat Sequencer</h3>
+
+<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:1.5rem;margin:2rem 0;">
+  <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;font-family:'JetBrains Mono',monospace;font-size:0.85rem;">
+    <label style="color:var(--text-dim);">BPM:
+      <input type="range" id="seq-tempo" min="60" max="200" value="120" style="width:120px">
+      <span id="seq-tempo-val" style="color:var(--cyan);">120</span>
+    </label>
+    <button id="seq-play" style="background:var(--bg);border:1px solid var(--green);color:var(--green);padding:0.4rem 1.2rem;border-radius:4px;cursor:pointer;font-family:inherit;">&#9654; Play</button>
+  </div>
+  <div class="seq-grid" id="seq-grid">
+    <div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;">
+      <span class="seq-label">Kick</span>
+      <div class="seq-cell" data-row="kick" data-col="0"></div>
+      <div class="seq-cell" data-row="kick" data-col="1"></div>
+      <div class="seq-cell" data-row="kick" data-col="2"></div>
+      <div class="seq-cell" data-row="kick" data-col="3"></div>
+      <div class="seq-cell" data-row="kick" data-col="4"></div>
+      <div class="seq-cell" data-row="kick" data-col="5"></div>
+      <div class="seq-cell" data-row="kick" data-col="6"></div>
+      <div class="seq-cell" data-row="kick" data-col="7"></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;">
+      <span class="seq-label">Snare</span>
+      <div class="seq-cell" data-row="snare" data-col="0"></div>
+      <div class="seq-cell" data-row="snare" data-col="1"></div>
+      <div class="seq-cell" data-row="snare" data-col="2"></div>
+      <div class="seq-cell" data-row="snare" data-col="3"></div>
+      <div class="seq-cell" data-row="snare" data-col="4"></div>
+      <div class="seq-cell" data-row="snare" data-col="5"></div>
+      <div class="seq-cell" data-row="snare" data-col="6"></div>
+      <div class="seq-cell" data-row="snare" data-col="7"></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;">
+      <span class="seq-label">HiHat</span>
+      <div class="seq-cell" data-row="hihat" data-col="0"></div>
+      <div class="seq-cell" data-row="hihat" data-col="1"></div>
+      <div class="seq-cell" data-row="hihat" data-col="2"></div>
+      <div class="seq-cell" data-row="hihat" data-col="3"></div>
+      <div class="seq-cell" data-row="hihat" data-col="4"></div>
+      <div class="seq-cell" data-row="hihat" data-col="5"></div>
+      <div class="seq-cell" data-row="hihat" data-col="6"></div>
+      <div class="seq-cell" data-row="hihat" data-col="7"></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;">
+      <span class="seq-label">Bass</span>
+      <div class="seq-cell" data-row="bass" data-col="0"></div>
+      <div class="seq-cell" data-row="bass" data-col="1"></div>
+      <div class="seq-cell" data-row="bass" data-col="2"></div>
+      <div class="seq-cell" data-row="bass" data-col="3"></div>
+      <div class="seq-cell" data-row="bass" data-col="4"></div>
+      <div class="seq-cell" data-row="bass" data-col="5"></div>
+      <div class="seq-cell" data-row="bass" data-col="6"></div>
+      <div class="seq-cell" data-row="bass" data-col="7"></div>
+    </div>
+  </div>
+</div>
+
+<div class="power zen">
+<div class="power-label">Twelve Notes Is a Compromise</div>
+<p>The octave divides into 12 semitones because 12 is the smallest number where powers of 2^(n/12) closely approximate simple ratios. 2^(7/12) = 1.4983 is very close to 3/2 (the perfect fifth = 1.5). 2^(4/12) = 1.2599 approximates 5/4 (major third = 1.25). But none are exact. A "pure" fifth at 3/2 and a "tempered" fifth at 2^(7/12) differ by about 2 cents &mdash; imperceptible to most ears. Stack twelve fifths, however, and the error accumulates to 23.46 cents: the Pythagorean comma. Equal temperament distributes this comma evenly, making every fifth equally impure. Other cultures chose differently: Arabic maqam uses 24 quarter-tones, Indian classical music uses 22 shrutis, Indonesian gamelan uses non-octave scales. Twelve is not physics. Twelve is a cultural choice optimized for harmonic flexibility.</p>
+</div>
+
+</section>
+
+<p style="text-align:center;color:var(--text-dim);margin-top:4rem;font-style:italic;">Sound is vibration, vibration is numbers, and numbers are something we know how to manipulate. Every synthesizer, every codec, every reverb algorithm is proof that understanding the physics of air pressure lets you conjure entire worlds from arithmetic.</p>
+
+</div>
+
+<!-- ============================================================ -->
+<!-- WEB AUDIO DEMO SCRIPTS                                       -->
+<!-- ============================================================ -->
+<script>
+(function() {
+  'use strict';
+
+  // === Shared: lazy AudioContext ===
+  let audioCtx = null;
+  function getAudioCtx() {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    return audioCtx;
+  }
+
+  // === Shared: noise buffer ===
+  let noiseBuffer = null;
+  function getNoiseBuffer() {
+    if (noiseBuffer) return noiseBuffer;
+    const ctx = getAudioCtx();
+    const len = ctx.sampleRate * 2;
+    noiseBuffer = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    return noiseBuffer;
+  }
+
+  // ================================================================
+  // WAVEFORM VISUALIZER (wave-canvas, wave-freq, wave-amp, wave-play)
+  // ================================================================
+  (function() {
+    const canvas = document.getElementById('wave-canvas');
+    const freqSlider = document.getElementById('wave-freq');
+    const ampSlider = document.getElementById('wave-amp');
+    const playBtn = document.getElementById('wave-play');
+    if (!canvas || !playBtn) return;
+
+    const freqVal = document.getElementById('wave-freq-val');
+    const ampVal = document.getElementById('wave-amp-val');
+    const ctx2d = canvas.getContext('2d');
+    let osc = null, gainNode = null, analyser = null;
+    let animId = null;
+    let playing = false;
+
+    function draw() {
+      if (!analyser) return;
+      const buf = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteTimeDomainData(buf);
+      const w = canvas.width, h = canvas.height;
+      ctx2d.fillStyle = '#0a0a0f';
+      ctx2d.fillRect(0, 0, w, h);
+      ctx2d.strokeStyle = '#00ff88';
+      ctx2d.lineWidth = 2;
+      ctx2d.beginPath();
+      const sliceW = w / buf.length;
+      for (let i = 0; i < buf.length; i++) {
+        const v = buf[i] / 128.0;
+        const y = (v * h) / 2;
+        if (i === 0) ctx2d.moveTo(0, y);
+        else ctx2d.lineTo(i * sliceW, y);
+      }
+      ctx2d.stroke();
+      animId = requestAnimationFrame(draw);
+    }
+
+    function start() {
+      const actx = getAudioCtx();
+      osc = actx.createOscillator();
+      gainNode = actx.createGain();
+      analyser = actx.createAnalyser();
+      analyser.fftSize = 2048;
+      osc.frequency.value = parseFloat(freqSlider.value);
+      gainNode.gain.value = parseFloat(ampSlider.value);
+      osc.connect(gainNode).connect(analyser).connect(actx.destination);
+      osc.start();
+      playing = true;
+      playBtn.textContent = '\u25A0 Stop';
+      playBtn.style.borderColor = 'var(--red)';
+      playBtn.style.color = 'var(--red)';
+      draw();
+    }
+
+    function stop() {
+      if (osc) { osc.stop(); osc.disconnect(); osc = null; }
+      if (gainNode) { gainNode.disconnect(); gainNode = null; }
+      if (analyser) { analyser.disconnect(); analyser = null; }
+      if (animId) { cancelAnimationFrame(animId); animId = null; }
+      playing = false;
+      playBtn.textContent = '\u25B6 Play';
+      playBtn.style.borderColor = 'var(--green)';
+      playBtn.style.color = 'var(--green)';
+    }
+
+    playBtn.addEventListener('click', function() { playing ? stop() : start(); });
+    if (freqSlider) freqSlider.addEventListener('input', function() {
+      if (freqVal) freqVal.textContent = this.value + ' Hz';
+      if (osc) osc.frequency.value = parseFloat(this.value);
+    });
+    if (ampSlider) ampSlider.addEventListener('input', function() {
+      if (ampVal) ampVal.textContent = parseFloat(this.value).toFixed(2);
+      if (gainNode) gainNode.gain.value = parseFloat(this.value);
+    });
+  })();
+
+  // ================================================================
+  // OSCILLATOR LAB (osc-canvas, osc-freq, osc-gain, waveform btns)
+  // ================================================================
+  (function() {
+    const canvas = document.getElementById('osc-canvas');
+    const freqSlider = document.getElementById('osc-freq');
+    const gainSlider = document.getElementById('osc-gain');
+    if (!canvas) return;
+
+    const freqVal = document.getElementById('osc-freq-val');
+    const gainVal = document.getElementById('osc-gain-val');
+    const ctx2d = canvas.getContext('2d');
+    let osc = null, gainNode = null, analyser = null;
+    let animId = null;
+    let currentType = 'sine';
+    let playing = false;
+
+    const waveButtons = document.querySelectorAll('[data-wave]');
+    const playBtn = document.getElementById('osc-play');
+
+    function draw() {
+      if (!analyser) return;
+      const buf = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteTimeDomainData(buf);
+      const w = canvas.width, h = canvas.height;
+      ctx2d.fillStyle = '#0a0a0f';
+      ctx2d.fillRect(0, 0, w, h);
+      ctx2d.strokeStyle = '#00ddff';
+      ctx2d.lineWidth = 2;
+      ctx2d.beginPath();
+      const sliceW = w / buf.length;
+      for (let i = 0; i < buf.length; i++) {
+        const v = buf[i] / 128.0;
+        const y = (v * h) / 2;
+        if (i === 0) ctx2d.moveTo(0, y);
+        else ctx2d.lineTo(i * sliceW, y);
+      }
+      ctx2d.stroke();
+      animId = requestAnimationFrame(draw);
+    }
+
+    function start() {
+      const actx = getAudioCtx();
+      osc = actx.createOscillator();
+      gainNode = actx.createGain();
+      analyser = actx.createAnalyser();
+      analyser.fftSize = 2048;
+      osc.type = currentType;
+      osc.frequency.value = parseFloat(freqSlider ? freqSlider.value : 440);
+      gainNode.gain.value = parseFloat(gainSlider ? gainSlider.value : 0.3);
+      osc.connect(gainNode).connect(analyser).connect(actx.destination);
+      osc.start();
+      playing = true;
+      if (playBtn) {
+        playBtn.textContent = '\u25A0 Stop';
+        playBtn.style.borderColor = 'var(--red)';
+        playBtn.style.color = 'var(--red)';
+      }
+      draw();
+    }
+
+    function stop() {
+      if (osc) { osc.stop(); osc.disconnect(); osc = null; }
+      if (gainNode) { gainNode.disconnect(); gainNode = null; }
+      if (analyser) { analyser.disconnect(); analyser = null; }
+      if (animId) { cancelAnimationFrame(animId); animId = null; }
+      playing = false;
+      if (playBtn) {
+        playBtn.textContent = '\u25B6 Play';
+        playBtn.style.borderColor = 'var(--green)';
+        playBtn.style.color = 'var(--green)';
+      }
+    }
+
+    if (playBtn) playBtn.addEventListener('click', function() { playing ? stop() : start(); });
+
+    waveButtons.forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        currentType = this.dataset.wave;
+        waveButtons.forEach(function(b) { b.style.borderColor = 'var(--border)'; b.style.color = 'var(--text-dim)'; });
+        this.style.borderColor = 'var(--cyan)';
+        this.style.color = 'var(--cyan)';
+        if (osc) osc.type = currentType;
+      });
+    });
+
+    if (freqSlider) freqSlider.addEventListener('input', function() {
+      if (freqVal) freqVal.textContent = this.value + ' Hz';
+      if (osc) osc.frequency.value = parseFloat(this.value);
+    });
+    if (gainSlider) gainSlider.addEventListener('input', function() {
+      if (gainVal) gainVal.textContent = parseFloat(this.value).toFixed(2);
+      if (gainNode) gainNode.gain.value = parseFloat(this.value);
+    });
+  })();
+
+  // ================================================================
+  // FILTER PLAYGROUND (filter-canvas, filter-cutoff, filter-q,
+  //                    filter-type, filter-play)
+  // ================================================================
+  (function() {
+    const canvas = document.getElementById('filter-canvas');
+    const cutoffSlider = document.getElementById('filter-cutoff');
+    const qSlider = document.getElementById('filter-q');
+    const typeSelect = document.getElementById('filter-type');
+    const playBtn = document.getElementById('filter-play');
+    if (!canvas || !playBtn) return;
+
+    const cutoffVal = document.getElementById('filter-cutoff-val');
+    const qVal = document.getElementById('filter-q-val');
+    const ctx2d = canvas.getContext('2d');
+    let noiseSrc = null, filter = null, gainNode = null;
+    let playing = false;
+
+    function drawResponse() {
+      if (!filter) return;
+      const w = canvas.width, h = canvas.height;
+      const nPoints = w;
+      const freqArr = new Float32Array(nPoints);
+      const magArr = new Float32Array(nPoints);
+      const phaseArr = new Float32Array(nPoints);
+
+      // Logarithmic frequency axis: 20Hz to 20kHz
+      for (let i = 0; i < nPoints; i++) {
+        freqArr[i] = 20 * Math.pow(1000, i / (nPoints - 1));
+      }
+      filter.getFrequencyResponse(freqArr, magArr, phaseArr);
+
+      ctx2d.fillStyle = '#0a0a0f';
+      ctx2d.fillRect(0, 0, w, h);
+
+      // Grid lines
+      ctx2d.strokeStyle = '#1e1e2e';
+      ctx2d.lineWidth = 1;
+      [100, 1000, 10000].forEach(function(f) {
+        var x = (Math.log10(f / 20) / Math.log10(1000)) * w;
+        ctx2d.beginPath(); ctx2d.moveTo(x, 0); ctx2d.lineTo(x, h); ctx2d.stroke();
+      });
+      // 0dB line
+      var zeroY = h * 0.5;
+      ctx2d.beginPath(); ctx2d.moveTo(0, zeroY); ctx2d.lineTo(w, zeroY); ctx2d.stroke();
+
+      // Frequency labels
+      ctx2d.fillStyle = '#6a6a7e';
+      ctx2d.font = '10px JetBrains Mono, monospace';
+      ctx2d.fillText('20', 2, h - 4);
+      var x100 = (Math.log10(100 / 20) / Math.log10(1000)) * w;
+      ctx2d.fillText('100', x100, h - 4);
+      var x1k = (Math.log10(1000 / 20) / Math.log10(1000)) * w;
+      ctx2d.fillText('1k', x1k, h - 4);
+      var x10k = (Math.log10(10000 / 20) / Math.log10(1000)) * w;
+      ctx2d.fillText('10k', x10k, h - 4);
+      ctx2d.fillText('20k', w - 24, h - 4);
+
+      // Response curve
+      ctx2d.strokeStyle = '#ff00aa';
+      ctx2d.lineWidth = 2;
+      ctx2d.beginPath();
+      for (let i = 0; i < nPoints; i++) {
+        var db = 20 * Math.log10(magArr[i] + 1e-20);
+        var y = zeroY - (db / 40) * h;
+        y = Math.max(0, Math.min(h, y));
+        if (i === 0) ctx2d.moveTo(i, y);
+        else ctx2d.lineTo(i, y);
+      }
+      ctx2d.stroke();
+    }
+
+    function start() {
+      var actx = getAudioCtx();
+      var noise = actx.createBufferSource();
+      noise.buffer = getNoiseBuffer();
+      noise.loop = true;
+
+      filter = actx.createBiquadFilter();
+      filter.type = typeSelect ? typeSelect.value : 'lowpass';
+      filter.frequency.value = parseFloat(cutoffSlider ? cutoffSlider.value : 1000);
+      filter.Q.value = parseFloat(qSlider ? qSlider.value : 1);
+
+      gainNode = actx.createGain();
+      gainNode.gain.value = 0.15;
+
+      noise.connect(filter).connect(gainNode).connect(actx.destination);
+      noise.start();
+      noiseSrc = noise;
+
+      playing = true;
+      playBtn.textContent = '\u25A0 Stop';
+      playBtn.style.borderColor = 'var(--red)';
+      playBtn.style.color = 'var(--red)';
+      drawResponse();
+    }
+
+    function stop() {
+      if (noiseSrc) { noiseSrc.stop(); noiseSrc.disconnect(); noiseSrc = null; }
+      if (filter) { filter.disconnect(); filter = null; }
+      if (gainNode) { gainNode.disconnect(); gainNode = null; }
+      playing = false;
+      playBtn.textContent = '\u25B6 Play';
+      playBtn.style.borderColor = 'var(--green)';
+      playBtn.style.color = 'var(--green)';
+    }
+
+    playBtn.addEventListener('click', function() { playing ? stop() : start(); });
+
+    if (cutoffSlider) cutoffSlider.addEventListener('input', function() {
+      if (cutoffVal) cutoffVal.textContent = this.value + ' Hz';
+      if (filter) { filter.frequency.value = parseFloat(this.value); drawResponse(); }
+    });
+    if (qSlider) qSlider.addEventListener('input', function() {
+      if (qVal) qVal.textContent = parseFloat(this.value).toFixed(1);
+      if (filter) { filter.Q.value = parseFloat(this.value); drawResponse(); }
+    });
+    if (typeSelect) typeSelect.addEventListener('change', function() {
+      if (filter) { filter.type = this.value; drawResponse(); }
+    });
+  })();
+
+  // ================================================================
+  // ADSR VISUALIZER (env-canvas, env-attack, env-decay,
+  //                  env-sustain, env-release, env-play)
+  // ================================================================
+  (function() {
+    const canvas = document.getElementById('env-canvas');
+    const attackSlider = document.getElementById('env-attack');
+    const decaySlider = document.getElementById('env-decay');
+    const sustainSlider = document.getElementById('env-sustain');
+    const releaseSlider = document.getElementById('env-release');
+    const playBtn = document.getElementById('env-play');
+    if (!canvas || !playBtn) return;
+
+    const attackVal = document.getElementById('env-attack-val');
+    const decayVal = document.getElementById('env-decay-val');
+    const sustainVal = document.getElementById('env-sustain-val');
+    const releaseVal = document.getElementById('env-release-val');
+    const ctx2d = canvas.getContext('2d');
+
+    function getParams() {
+      return {
+        a: parseFloat(attackSlider ? attackSlider.value : 0.1),
+        d: parseFloat(decaySlider ? decaySlider.value : 0.2),
+        s: parseFloat(sustainSlider ? sustainSlider.value : 0.6),
+        r: parseFloat(releaseSlider ? releaseSlider.value : 0.3)
+      };
+    }
+
+    function drawEnvelope() {
+      var p = getParams();
+      var w = canvas.width, h = canvas.height;
+      var total = p.a + p.d + 0.3 + p.r; // sustain hold = 0.3s
+      var pad = 20;
+      var drawW = w - pad * 2;
+      var drawH = h - pad * 2;
+
+      ctx2d.fillStyle = '#0a0a0f';
+      ctx2d.fillRect(0, 0, w, h);
+
+      // Baseline
+      ctx2d.strokeStyle = '#1e1e2e';
+      ctx2d.lineWidth = 1;
+      ctx2d.beginPath();
+      ctx2d.moveTo(pad, pad + drawH);
+      ctx2d.lineTo(pad + drawW, pad + drawH);
+      ctx2d.stroke();
+
+      // ADSR shape
+      ctx2d.strokeStyle = '#ffdd00';
+      ctx2d.lineWidth = 3;
+      ctx2d.beginPath();
+
+      var x0 = pad;
+      var y0 = pad + drawH; // bottom = 0
+      var yTop = pad;       // top = 1
+
+      // Start at 0
+      ctx2d.moveTo(x0, y0);
+
+      // Attack: 0 to 1
+      var xA = x0 + (p.a / total) * drawW;
+      ctx2d.lineTo(xA, yTop);
+
+      // Decay: 1 to sustain
+      var xD = xA + (p.d / total) * drawW;
+      var yS = pad + drawH * (1 - p.s);
+      ctx2d.lineTo(xD, yS);
+
+      // Sustain hold
+      var xS = xD + (0.3 / total) * drawW;
+      ctx2d.lineTo(xS, yS);
+
+      // Release: sustain to 0
+      var xR = xS + (p.r / total) * drawW;
+      ctx2d.lineTo(xR, y0);
+
+      ctx2d.stroke();
+
+      // Labels
+      ctx2d.fillStyle = '#6a6a7e';
+      ctx2d.font = '11px JetBrains Mono, monospace';
+      ctx2d.fillText('A', (x0 + xA) / 2, y0 + 14);
+      ctx2d.fillText('D', (xA + xD) / 2, y0 + 14);
+      ctx2d.fillText('S', (xD + xS) / 2, y0 + 14);
+      ctx2d.fillText('R', (xS + xR) / 2, y0 + 14);
+    }
+
+    function playNote() {
+      var actx = getAudioCtx();
+      var p = getParams();
+      var now = actx.currentTime;
+
+      var osc = actx.createOscillator();
+      var env = actx.createGain();
+      osc.frequency.value = 440;
+      osc.connect(env).connect(actx.destination);
+
+      // ADSR envelope via gain automation
+      env.gain.setValueAtTime(0, now);
+      env.gain.linearRampToValueAtTime(0.5, now + p.a);
+      env.gain.linearRampToValueAtTime(0.5 * p.s, now + p.a + p.d);
+      // Hold sustain
+      env.gain.setValueAtTime(0.5 * p.s, now + p.a + p.d + 0.3);
+      // Release
+      env.gain.linearRampToValueAtTime(0, now + p.a + p.d + 0.3 + p.r);
+
+      osc.start(now);
+      osc.stop(now + p.a + p.d + 0.3 + p.r + 0.05);
+    }
+
+    playBtn.addEventListener('click', function() {
+      playNote();
+      drawEnvelope();
+    });
+
+    [attackSlider, decaySlider, sustainSlider, releaseSlider].forEach(function(s) {
+      if (s) s.addEventListener('input', function() {
+        drawEnvelope();
+        if (attackVal && attackSlider) attackVal.textContent = parseFloat(attackSlider.value).toFixed(2) + 's';
+        if (decayVal && decaySlider) decayVal.textContent = parseFloat(decaySlider.value).toFixed(2) + 's';
+        if (sustainVal && sustainSlider) sustainVal.textContent = parseFloat(sustainSlider.value).toFixed(2);
+        if (releaseVal && releaseSlider) releaseVal.textContent = parseFloat(releaseSlider.value).toFixed(2) + 's';
+      });
+    });
+
+    drawEnvelope();
+  })();
+
+  // ================================================================
+  // FM EXPLORER (fm-canvas, fm-carrier, fm-ratio, fm-depth, fm-play)
+  // ================================================================
+  (function() {
+    const canvas = document.getElementById('fm-canvas');
+    const carrierSlider = document.getElementById('fm-carrier');
+    const ratioSlider = document.getElementById('fm-ratio');
+    const depthSlider = document.getElementById('fm-depth');
+    const playBtn = document.getElementById('fm-play');
+    if (!canvas || !playBtn) return;
+
+    const carrierVal = document.getElementById('fm-carrier-val');
+    const ratioVal = document.getElementById('fm-ratio-val');
+    const depthVal = document.getElementById('fm-depth-val');
+    const ctx2d = canvas.getContext('2d');
+    let carrier = null, modulator = null, modGain = null, masterGain = null, analyser = null;
+    let animId = null;
+    let playing = false;
+
+    function draw() {
+      if (!analyser) return;
+      const buf = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteTimeDomainData(buf);
+      const w = canvas.width, h = canvas.height;
+      ctx2d.fillStyle = '#0a0a0f';
+      ctx2d.fillRect(0, 0, w, h);
+      ctx2d.strokeStyle = '#ff8800';
+      ctx2d.lineWidth = 2;
+      ctx2d.beginPath();
+      const sliceW = w / buf.length;
+      for (let i = 0; i < buf.length; i++) {
+        const v = buf[i] / 128.0;
+        const y = (v * h) / 2;
+        if (i === 0) ctx2d.moveTo(0, y);
+        else ctx2d.lineTo(i * sliceW, y);
+      }
+      ctx2d.stroke();
+      animId = requestAnimationFrame(draw);
+    }
+
+    function start() {
+      var actx = getAudioCtx();
+      var cFreq = parseFloat(carrierSlider.value);
+      var mRatio = parseFloat(ratioSlider.value);
+      var mDepth = parseFloat(depthSlider.value);
+
+      carrier = actx.createOscillator();
+      modulator = actx.createOscillator();
+      modGain = actx.createGain();
+      masterGain = actx.createGain();
+      analyser = actx.createAnalyser();
+      analyser.fftSize = 2048;
+
+      carrier.frequency.value = cFreq;
+      modulator.frequency.value = cFreq * mRatio;
+      modGain.gain.value = mDepth;
+      masterGain.gain.value = 0.3;
+
+      // FM routing: modulator -> gain(depth) -> carrier.frequency
+      modulator.connect(modGain);
+      modGain.connect(carrier.frequency);
+      carrier.connect(masterGain).connect(analyser).connect(actx.destination);
+
+      modulator.start();
+      carrier.start();
+      playing = true;
+      playBtn.textContent = '\u25A0 Stop';
+      playBtn.style.borderColor = 'var(--red)';
+      playBtn.style.color = 'var(--red)';
+      draw();
+    }
+
+    function stop() {
+      if (carrier) { carrier.stop(); carrier.disconnect(); carrier = null; }
+      if (modulator) { modulator.stop(); modulator.disconnect(); modulator = null; }
+      if (modGain) { modGain.disconnect(); modGain = null; }
+      if (masterGain) { masterGain.disconnect(); masterGain = null; }
+      if (analyser) { analyser.disconnect(); analyser = null; }
+      if (animId) { cancelAnimationFrame(animId); animId = null; }
+      playing = false;
+      playBtn.textContent = '\u25B6 Play';
+      playBtn.style.borderColor = 'var(--green)';
+      playBtn.style.color = 'var(--green)';
+    }
+
+    playBtn.addEventListener('click', function() { playing ? stop() : start(); });
+
+    carrierSlider.addEventListener('input', function() {
+      if (carrierVal) carrierVal.textContent = this.value + ' Hz';
+      if (carrier) {
+        carrier.frequency.value = parseFloat(this.value);
+        if (modulator) modulator.frequency.value = parseFloat(this.value) * parseFloat(ratioSlider.value);
+      }
+    });
+    ratioSlider.addEventListener('input', function() {
+      if (ratioVal) ratioVal.textContent = parseFloat(this.value).toFixed(1);
+      if (modulator) modulator.frequency.value = parseFloat(carrierSlider.value) * parseFloat(this.value);
+    });
+    depthSlider.addEventListener('input', function() {
+      if (depthVal) depthVal.textContent = this.value;
+      if (modGain) modGain.gain.value = parseFloat(this.value);
+    });
+  })();
+
+  // ================================================================
+  // BEAT SEQUENCER (seq-grid, seq-tempo, seq-play)
+  // ================================================================
+  (function() {
+    const grid = document.getElementById('seq-grid');
+    const tempoSlider = document.getElementById('seq-tempo');
+    const playBtn = document.getElementById('seq-play');
+    if (!grid || !playBtn) return;
+
+    const tempoVal = document.getElementById('seq-tempo-val');
+    const cells = grid.querySelectorAll('.seq-cell');
+    let playing = false;
+    let intervalId = null;
+    let currentStep = 0;
+
+    // Toggle cells on click
+    cells.forEach(function(cell) {
+      cell.addEventListener('click', function() {
+        this.classList.toggle('active');
+      });
+    });
+
+    if (tempoSlider) tempoSlider.addEventListener('input', function() {
+      if (tempoVal) tempoVal.textContent = this.value;
+      if (playing) {
+        clearInterval(intervalId);
+        var ms = (60 / parseFloat(this.value)) * 1000 / 2; // 8th notes
+        intervalId = setInterval(step, ms);
+      }
+    });
+
+    function playKick(actx, time) {
+      var osc = actx.createOscillator();
+      var gain = actx.createGain();
+      osc.frequency.setValueAtTime(150, time);
+      osc.frequency.exponentialRampToValueAtTime(50, time + 0.1);
+      gain.gain.setValueAtTime(0.8, time);
+      gain.gain.exponentialRampToValueAtTime(0.01, time + 0.2);
+      osc.connect(gain).connect(actx.destination);
+      osc.start(time);
+      osc.stop(time + 0.2);
+    }
+
+    function playSnare(actx, time) {
+      // Noise burst
+      var noise = actx.createBufferSource();
+      noise.buffer = getNoiseBuffer();
+      var noiseGain = actx.createGain();
+      noiseGain.gain.setValueAtTime(0.5, time);
+      noiseGain.gain.exponentialRampToValueAtTime(0.01, time + 0.15);
+      var hp = actx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 1000;
+      noise.connect(hp).connect(noiseGain).connect(actx.destination);
+      noise.start(time);
+      noise.stop(time + 0.15);
+
+      // Body tone
+      var osc = actx.createOscillator();
+      var oscGain = actx.createGain();
+      osc.frequency.value = 200;
+      oscGain.gain.setValueAtTime(0.4, time);
+      oscGain.gain.exponentialRampToValueAtTime(0.01, time + 0.1);
+      osc.connect(oscGain).connect(actx.destination);
+      osc.start(time);
+      osc.stop(time + 0.1);
+    }
+
+    function playHihat(actx, time) {
+      var noise = actx.createBufferSource();
+      noise.buffer = getNoiseBuffer();
+      var gain = actx.createGain();
+      gain.gain.setValueAtTime(0.3, time);
+      gain.gain.exponentialRampToValueAtTime(0.01, time + 0.05);
+      var hp = actx.createBiquadFilter();
+      hp.type = 'highpass';
+      hp.frequency.value = 7000;
+      noise.connect(hp).connect(gain).connect(actx.destination);
+      noise.start(time);
+      noise.stop(time + 0.05);
+    }
+
+    function playBass(actx, time) {
+      var osc = actx.createOscillator();
+      var gain = actx.createGain();
+      osc.frequency.value = 110;
+      gain.gain.setValueAtTime(0.5, time);
+      gain.gain.exponentialRampToValueAtTime(0.01, time + 0.3);
+      osc.connect(gain).connect(actx.destination);
+      osc.start(time);
+      osc.stop(time + 0.3);
+    }
+
+    function step() {
+      var actx = getAudioCtx();
+      var time = actx.currentTime;
+
+      // Remove previous current markers
+      cells.forEach(function(c) { c.classList.remove('current'); });
+
+      // Highlight current step
+      var stepCells = grid.querySelectorAll('[data-col="' + currentStep + '"]');
+      stepCells.forEach(function(c) { c.classList.add('current'); });
+
+      // Play active cells in current step
+      var activeCells = grid.querySelectorAll('[data-col="' + currentStep + '"].active');
+      activeCells.forEach(function(c) {
+        var row = c.dataset.row;
+        if (row === 'kick') playKick(actx, time);
+        else if (row === 'snare') playSnare(actx, time);
+        else if (row === 'hihat') playHihat(actx, time);
+        else if (row === 'bass') playBass(actx, time);
+      });
+
+      currentStep = (currentStep + 1) % 8;
+    }
+
+    function startSeq() {
+      var bpm = parseFloat(tempoSlider ? tempoSlider.value : 120);
+      var ms = (60 / bpm) * 1000 / 2; // 8th notes
+      currentStep = 0;
+      step();
+      intervalId = setInterval(step, ms);
+      playing = true;
+      playBtn.textContent = '\u25A0 Stop';
+      playBtn.style.borderColor = 'var(--red)';
+      playBtn.style.color = 'var(--red)';
+    }
+
+    function stopSeq() {
+      if (intervalId) { clearInterval(intervalId); intervalId = null; }
+      cells.forEach(function(c) { c.classList.remove('current'); });
+      playing = false;
+      currentStep = 0;
+      playBtn.textContent = '\u25B6 Play';
+      playBtn.style.borderColor = 'var(--green)';
+      playBtn.style.color = 'var(--green)';
+    }
+
+    playBtn.addEventListener('click', function() { playing ? stopSeq() : startSeq(); });
+  })();
+
+})();
+</script>
+
+<!-- ============================================================ -->
+<!-- PYODIDE / JS RUNNER SCRIPT                                   -->
+<!-- ============================================================ -->
+<script>
+(function() {
+  'use strict';
+
+  // === LANGUAGE DETECTION ===
+  function detectLang(codeEl, pre) {
+    // From tab-content class
+    const tc = pre.closest('.tab-content');
+    if (tc) {
+      if (tc.classList.contains('c')) return 'c';
+      if (tc.classList.contains('py')) return 'python';
+      if (tc.classList.contains('ts')) return 'typescript';
+      if (tc.classList.contains('go')) return 'go';
+      if (tc.classList.contains('rs')) return 'rust';
+    }
+    // From label span
+    const label = pre.querySelector('.label');
+    if (label) {
+      const t = label.textContent.toLowerCase();
+      if (t.includes('python')) return 'python';
+      if (t.includes('typescript') || t === 'ts') return 'typescript';
+      if (t.includes('rust') || t === 'rs') return 'rust';
+      if (t.includes('go') || t === 'go') return 'go';
+      if (t.match(/^c(\s|$)/i) || t.includes('c —') || t.includes('c –')) return 'c';
+    }
+    // From try-this (usually python one-liners)
+    if (pre.closest('.try-this')) {
+      const code = codeEl.textContent;
+      if (code.startsWith('python3') || code.includes('import ')) return 'python';
+    }
+    return null;
+  }
+
+  // === RUNNABLE CHECK ===
+  function isRunnable(pre, codeEl, lang) {
+    if (!lang) return false;
+    // C/Go/Rust are not runnable in-browser
+    if (lang === 'c' || lang === 'go' || lang === 'rust') return false;
+    // Skip diagrams
+    if (pre.closest('.diagram')) return false;
+    // Try-this blocks are always runnable
+    if (pre.closest('.try-this')) return true;
+    // Tab content is always runnable
+    if (pre.closest('.tab-content')) return true;
+    // Standalone with label containing a lang name + has function/print
+    const code = codeEl.textContent;
+    if (pre.querySelector('.label')) {
+      if (code.match(/\b(def |fn |func |function |int main|void |printf|println|print\(|console\.log|fmt\.)/)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // === EXTRACT PLAIN TEXT FROM CODE ELEMENT ===
+  function getCode(codeEl) {
+    // Clone and remove label spans before extracting text
+    const clone = codeEl.cloneNode(true);
+    clone.querySelectorAll('.label').forEach(el => el.remove());
+    return clone.textContent;
+  }
+
+  // === OUTPUT PANEL ===
+  function getOrCreateOutput(pre) {
+    let out = pre.nextElementSibling;
+    if (out && out.classList.contains('run-output')) return out;
+    out = document.createElement('div');
+    out.className = 'run-output';
+    pre.insertAdjacentElement('afterend', out);
+    return out;
+  }
+
+  // === PYTHON RUNNER (Pyodide) ===
+  let pyodideReady = null;
+  async function loadPyodide_() {
+    if (pyodideReady) return pyodideReady;
+    pyodideReady = (async () => {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/pyodide/v0.27.4/full/pyodide.js';
+      document.head.appendChild(script);
+      await new Promise((res, rej) => { script.onload = res; script.onerror = rej; });
+      return await loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.27.4/full/' });
+    })();
+    return pyodideReady;
+  }
+
+  async function runPython(code, out) {
+    out.textContent = 'Loading Python runtime...';
+    out.classList.remove('error');
+    try {
+      const py = await loadPyodide_();
+      // Redirect stdout
+      py.runPython(`import sys, io; sys.stdout = io.StringIO()`);
+      py.runPython(code);
+      const stdout = py.runPython('sys.stdout.getvalue()');
+      out.textContent = stdout || '(no output)';
+    } catch (e) {
+      out.textContent = String(e.message || e);
+      out.classList.add('error');
+    }
+  }
+
+  // === PYTHON ONE-LINER RUNNER ===
+  async function runPythonOneLiner(code, out) {
+    // Handle "python3 -c '...'" style
+    const m = code.match(/^python3?\s+-c\s+["']([\s\S]+)["']\s*$/);
+    if (m) return runPython(m[1], out);
+    // Handle "python3 -c '...' | ..." — just run the python part
+    const m2 = code.match(/^python3?\s+-c\s+["']([\s\S]+?)["']/);
+    if (m2) return runPython(m2[1], out);
+    return runPython(code, out);
+  }
+
+  // === JS/TS RUNNER ===
+  function stripTS(code) {
+    // Remove TS type annotations for browser eval
+    return code
+      .replace(/:\s*(?:string|number|boolean|void|any|never|unknown|undefined|null|bigint|symbol)\b(\[\])?/g, '')
+      .replace(/:\s*(?:Record|Map|Set|Array|Promise|Partial|Required|Readonly)<[^>]+>/g, '')
+      .replace(/<(?:string|number|boolean|void|any|never|unknown|T|U|K|V)(?:\[\])?(?:\s*,\s*(?:string|number|boolean|void|any|never|unknown|T|U|K|V)(?:\[\])?)*>/g, '')
+      .replace(/\bas\s+\w+/g, '')
+      .replace(/^\s*(?:export|import)\s+type\s+.*$/gm, '')
+      .replace(/^\s*interface\s+\w+\s*\{[\s\S]*?\n\}/gm, '')
+      .replace(/^\s*type\s+\w+\s*=.*$/gm, '');
+  }
+
+  async function runJS(code, out) {
+    out.classList.remove('error');
+    const logs = [];
+    const origLog = console.log;
+    const origWarn = console.warn;
+    const origError = console.error;
+    console.log = (...args) => logs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' '));
+    console.warn = console.log;
+    console.error = (...args) => logs.push('ERROR: ' + args.map(String).join(' '));
+    try {
+      const cleaned = stripTS(code);
+      const fn = new Function(cleaned);
+      const result = fn();
+      if (result instanceof Promise) await result;
+      out.textContent = logs.join('\n') || '(no output)';
+    } catch (e) {
+      out.textContent = logs.join('\n') + (logs.length ? '\n' : '') + String(e);
+      out.classList.add('error');
+    } finally {
+      console.log = origLog;
+      console.warn = origWarn;
+      console.error = origError;
+    }
+  }
+
+  // === SNIPPET ID GENERATION ===
+  function snippetId(codeEl, pre) {
+    if (codeEl.dataset.snippetId) return codeEl.dataset.snippetId;
+    // Derive prefix from filename
+    const path = location.pathname;
+    const fname = path.split('/').pop().replace(/-deep-dive\.html$/, '').replace(/\.html$/, '');
+    const prefix = fname.substring(0, 5);
+
+    const tc = pre.closest('.tab-content');
+    if (tc) {
+      // Tab content: use tab group name + lang class
+      const tabs = tc.closest('.lang-tabs');
+      const radio = tabs ? tabs.querySelector('input[type="radio"]') : null;
+      const groupName = radio ? radio.name.replace('tabs-', '') : 'unknown';
+      const langClass = ['c','py','ts','go','rs'].find(c => tc.classList.contains(c)) || 'x';
+      const id = prefix + '-' + groupName + '-' + langClass;
+      codeEl.dataset.snippetId = id;
+      return id;
+    }
+
+    // Standalone: use label text slug
+    const label = pre.querySelector('.label');
+    if (label) {
+      const slug = label.textContent.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').substring(0, 20);
+      const id = prefix + '-' + slug;
+      codeEl.dataset.snippetId = id;
+      return id;
+    }
+
+    const id = prefix + '-anon-' + Math.random().toString(36).substring(2, 8);
+    codeEl.dataset.snippetId = id;
+    return id;
+  }
+
+  // === BUTTON INJECTION ===
+  document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('pre > code, pre code').forEach(function(codeEl) {
+      const pre = codeEl.closest('pre');
+      if (!pre) return;
+      const lang = detectLang(codeEl, pre);
+      if (!isRunnable(pre, codeEl, lang)) return;
+
+      const btn = document.createElement('button');
+      btn.className = 'run-btn';
+      btn.textContent = '\u25B6 Run';
+      btn.title = 'Run this code';
+      // Position inside tab-content pre
+      pre.style.position = 'relative';
+      pre.appendChild(btn);
+
+      btn.addEventListener('click', async function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (btn.classList.contains('running')) return;
+        btn.classList.add('running');
+        btn.textContent = '\u25B6 ...';
+
+        // For tab-content, put output after the lang-tabs container
+        let outputAnchor = pre;
+        const tabContent = pre.closest('.tab-content');
+        if (tabContent) {
+          outputAnchor = tabContent.closest('.lang-tabs');
+        }
+        const out = getOrCreateOutput(outputAnchor);
+        out.style.display = 'block';
+
+        const code = getCode(codeEl);
+        try {
+          switch (lang) {
+            case 'python':
+              if (pre.closest('.try-this') && code.match(/^python3?\s/)) {
+                await runPythonOneLiner(code, out);
+              } else {
+                await runPython(code, out);
+              }
+              break;
+            case 'typescript':
+            case 'javascript':
+              await runJS(code, out);
+              break;
+          }
+        } catch (e) {
+          out.textContent = String(e);
+          out.classList.add('error');
+        }
+
+        btn.classList.remove('running');
+        btn.textContent = '\u25B6 Run';
+      });
+    });
+  });
+})();
+</script>
+
+</body>
+</html>

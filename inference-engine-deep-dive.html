@@ -511,7 +511,8 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
     <a href="#ch3">forward pass</a>
     <a href="#ch4">choosing words</a>
     <span style="color:var(--border)">&middot;</span>
-    <a href="inference-engine-deep-dive-2.html" style="color:var(--orange)">Part 2 &rarr;</a>
+    <a href="inference-engine-deep-dive-2.html" style="color:var(--orange)">Part II &rarr;</a>
+    <a href="inference-engine-deep-dive-3.html" style="color:var(--orange)">Part III &rarr;</a>
 </nav>
 
 <div class="content">
@@ -609,13 +610,20 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
         if (step >= 1) {
             const fpG = svg.append('g').attr('transform','translate(15,48)');
             const layers = ['embed','L1','L2','L3','\u2026','L12','norm','logits'];
+            const lc = {
+                embed: {fill:'rgba(0,255,136,0.12)', stroke:'#00ff8833', text:'#00ff88'},
+                norm:  {fill:'rgba(255,221,0,0.12)', stroke:'#ffdd0033', text:'#ffdd00'},
+                logits:{fill:'rgba(255,0,170,0.12)', stroke:'#ff00aa33', text:'#ff00aa'}
+            };
+            const defaultC = {fill:'rgba(0,221,255,0.12)', stroke:'#00ddff33', text:'#00ddff'};
             const layerW = 52, gap = 3;
             let lx = 0;
             layers.forEach((l, i) => {
+                const c = lc[l] || defaultC;
                 fpG.append('rect').attr('x', lx).attr('y', 0).attr('width', layerW).attr('height', 20)
-                    .attr('fill','rgba(0,221,255,0.12)').attr('stroke','#00ddff33').attr('rx', 2);
+                    .attr('fill', c.fill).attr('stroke', c.stroke).attr('rx', 2);
                 fpG.append('text').attr('x', lx + layerW/2).attr('y', 14).text(l)
-                    .attr('fill','#00ddff').attr('font-family','JetBrains Mono, monospace')
+                    .attr('fill', c.text).attr('font-family','JetBrains Mono, monospace')
                     .attr('font-size',9).attr('text-anchor','middle');
                 lx += layerW + gap;
                 if (i < layers.length - 1) {
@@ -703,7 +711,7 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
   &boxv;           Add a position signal so the model knows word order.
       &darr;
   ┌───────────────────────────────────────────────────────┐
-  &boxv; <span class="kw">&starf; NORM</span>      Stabilise the numbers (mean&thinsp;=&thinsp;0, variance&thinsp;=&thinsp;1)         &boxv;
+  &boxv; <span class="kw">&starf; NORM</span>      Stabilise the numbers (rescale to unit RMS)         &boxv;
   &boxv;     &darr;                                                        &boxv;
   &boxv; <span class="ty">&starf; ATTENTION</span>  <strong>Each token asks: "who in this sentence matters</strong>  &boxv;
   &boxv;              <strong>to me?"</strong>  Produces a relevance-weighted blend    &boxv;
@@ -713,8 +721,9 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
   &boxv; <span class="kw">&starf; NORM</span>      Stabilise again                                   &boxv;
   &boxv;     &darr;                                                        &boxv;
   &boxv; <span class="fn">&starf; FFN</span>       Expand 768&thinsp;&rarr;&thinsp;3072, apply non-linearity, shrink     &boxv;
-  &boxv;              back to 768.  <strong>This is where "thinking"</strong>        &boxv;
-  &boxv;              <strong>happens</strong> &mdash; pattern matching, fact recall.       &boxv;
+  &boxv;              back to 768.  <strong>Attention gathers; the FFN</strong>      &boxv;
+  &boxv;              <strong>rewrites</strong> &mdash; transforming mixed context into      &boxv;
+  &boxv;              new features.                                     &boxv;
   &boxv;     &darr;  <span class="pp">+ skip connection</span>                                   &boxv;
   └───────────────────────────────────── <span class="cm">&times;12 identical</span> ──┘
       &darr;
@@ -1112,7 +1121,7 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 <div class="diagram" style="border:none; margin:0; border-radius:0;">
 <span class="diagram-label">Why vocab size matters for speed</span>
 <pre><code>
-  Every token costs compute: <strong>~44 billion FLOPs</strong> in a 27B model.
+  Every token costs compute: <strong>~54 billion FLOPs</strong> in a 27B model.
   Fewer tokens = proportionally less work.
 
   <span class="cm">GPT-2 (50K vocab):</span>   ~4.5 chars/token  <span class="cm">→ more tokens, more compute</span>
@@ -1167,7 +1176,7 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
         {
             text: 'def fibonacci(n):',
             label: 'Code is expensive',
-            insight: 'Code tokenizes poorly. <span style="color:var(--green)">def</span> and <span style="color:var(--cyan)">·n</span> are single tokens, but <span style="color:var(--magenta)">fib</span><span style="color:var(--orange)">on</span><span style="color:var(--yellow)">acci</span> splits into 3 pieces because it\'s rare in training data. Parentheses and colons are each their own token. This 17-character line costs <strong>8 tokens</strong> &mdash; almost 2 chars/token vs. ~4.5 for English prose. Code-optimized models (CodeLlama, StarCoder) train BPE on code corpora to fix this.',
+            insight: 'Code tokenizes poorly. <span style="color:var(--green)">def</span> and <span style="color:var(--cyan)">·n</span> are single tokens, but <span style="color:var(--magenta)">fib</span><span style="color:var(--orange)">on</span><span style="color:var(--yellow)">acci</span> splits into 3 pieces because it\'s rare in training data. Parentheses and colons are each their own token. This 17-character line costs <strong>8 tokens</strong> &mdash; almost 2 chars/token vs. ~4.5 for English prose. Code-optimized models (Qwen-Coder, DeepSeek-Coder) train BPE on code corpora to fix this.',
             tokens: [{t:'def', id:4299}, {t:'·fib', id:15566}, {t:'on', id:261}, {t:'acci', id:32068}, {t:'(', id:7}, {t:'n', id:77}, {t:'):', id:2599}]
         },
         {
@@ -1179,7 +1188,7 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
         {
             text: '🔥',
             label: 'Emoji: 1 glyph, 3+ tokens',
-            insight: 'A single fire emoji is 4 bytes in UTF-8. GPT-2\'s BPE sees bytes, not glyphs &mdash; so it produces <strong>3-4 tokens</strong> for one emoji. Each token consumed costs 44 billion FLOPs in a 27B model. Emoji-heavy text is absurdly expensive per visible character. Newer tokenizers (Qwen, Llama 3) handle this better by including common emoji as single tokens.',
+            insight: 'A single fire emoji is 4 bytes in UTF-8. GPT-2\'s BPE sees bytes, not glyphs &mdash; so it produces <strong>3-4 tokens</strong> for one emoji. Each token consumed costs 54 billion FLOPs in a 27B model. Emoji-heavy text is absurdly expensive per visible character. Newer tokenizers (Qwen, Llama 3) handle this better by including common emoji as single tokens.',
             tokens: [{t:'\\xf0\\x9f', id:8582}, {t:'\\x94', id:166}, {t:'\\xa5', id:97}]
         },
         {
@@ -1284,6 +1293,9 @@ Token <span class="nm">9017</span> (<span class="st">"uranium"</span>)  → [<sp
 <span class="fn">"cat"</span> and <span class="fn">"dog"</span> are close because training saw them in similar contexts.
 <span class="fn">"cat"</span> and <span class="fn">"uranium"</span> are far because they never appear in the same patterns.
 
+<span class="cm">Raw embeddings are the starting geometry &mdash; later layers reshape</span>
+<span class="cm">these vectors far more than the initial lookup.</span>
+
 <span class="cm">Think of it as GPS for meaning: just as (lat, lon) locates a city,</span>
 <span class="cm">768 numbers locate a concept in meaning-space.</span>
 </code></pre>
@@ -1357,7 +1369,8 @@ x = embedding_table[token_ids]   <span class="cm"># shape: [seq_len, 768]</span>
   <span class="cm">output &rarr; next block (or final norm + logits)</span>
 
   <span class="pp">7 matmuls per block: W_q, W_k, W_v, W_out, W_gate, W_up, W_down</span>
-  <span class="pp">&times; 64 blocks = 448 matmuls per token</span>
+  <span class="pp">&times; 64 blocks = 448 learned projections per token</span>
+  <span class="cm">(not counting score computation, softmax, norms, or cache ops)</span>
 </code></pre>
 </div>
 
@@ -1823,6 +1836,8 @@ Output = 0.231·V₀ + 0.234·V₁ + 0.329·V₂ + 0.206·V₃
 <p>Attention is a soft lookup table. Q is the search query, K is the index, V is the data. Unlike a hash table, every entry matches to some degree &mdash; softmax just decides <em>how much</em>.</p>
 </div>
 
+<p style="color:var(--text-dim); font-style:italic; font-size:0.95rem;">In decode mode, this step is usually memory-bound, not math-bound &mdash; the GPU waits for data, not arithmetic. Part II explains why.</p>
+
 <h4 id="swiglu">Step 5: SwiGLU FFN</h4>
 
 <p>After attention blends information <em>across</em> tokens, the FFN processes each token <em>independently</em> &mdash; expanding the vector to 4&times; width, selectively routing features through a learned gate, then compressing back. It's the largest single compute cost per block, and modern models use a gated variant called <strong>SwiGLU</strong> that's fundamentally different from GPT-2's simple expand-activate-shrink.</p>
@@ -2204,8 +2219,8 @@ out  = h @ W_down     <span class="cm"># [17408] &rarr; [5120]  compress back</s
   ─────────────────────────────────────────────────────────────────────
 
   <span class="cm">Per block:</span>   7 matmuls &times; 1 block  = 7 matmuls           <span class="nm">682M FLOPs</span>
-  <span class="cm">Per token:</span>   7 matmuls &times; 64 blocks = <strong>448 matmuls</strong>          <span style="color:var(--yellow)"><strong>~44B FLOPs</strong></span>
-  <span class="cm">100 tokens:</span> 448 &times; 100            = <strong>44,800 matmuls</strong>       <span style="color:var(--yellow)"><strong>~4.4T FLOPs</strong></span>
+  <span class="cm">Per token:</span>   7 matmuls &times; 64 blocks = <strong>448 matmuls</strong>          <span style="color:var(--yellow)"><strong>~54B FLOPs</strong></span>
+  <span class="cm">100 tokens:</span> 448 &times; 100            = <strong>44,800 matmuls</strong>       <span style="color:var(--yellow)"><strong>~5.4T FLOPs</strong></span>
 
   <span class="pp">Every token you see streaming? All 64 blocks ran. All 448 matmuls fired.</span>
   <span class="pp">The vector that entered block 1 as a raw embedding exits block 64</span>
@@ -2227,10 +2242,10 @@ out  = h @ W_down     <span class="cm"># [17408] &rarr; [5120]  compress back</s
     Top-p prunes the tail. One random draw. This is where determinism ends and generation begins.<span class="blink">_</span>
 </div>
 
-<p class="drop-cap">Those raw scores are called <strong>logits</strong>. They're not probabilities yet &mdash; they're unbounded numbers, some positive, some negative, with no guarantee of summing to anything. The sampling pipeline transforms them: penalize repetition, prune the tail, control the temperature, normalize to probabilities, and finally roll the dice. Each filter shapes the output in a different way, and their order matters &mdash; engines disagree on the right sequence. Here's llama.cpp's default.</p>
+<p class="drop-cap">Those raw scores are called <strong>logits</strong>. They're not probabilities yet &mdash; they're unbounded numbers, some positive, some negative, with no guarantee of summing to anything. The sampling pipeline transforms them: penalize repetition, prune the tail, control the temperature, normalize to probabilities, and finally roll the dice. Each filter shapes the output in a different way, and their order matters &mdash; engines disagree on the right sequence. Here's one common order, used by llama.cpp and several other engines.</p>
 
 <div class="diagram">
-<span class="diagram-label">llama.cpp default sampling order</span>
+<span class="diagram-label">Common sampling order (llama.cpp and others)</span>
 <pre><code>
   <span class="cm">Raw logits from the model: 152,064 scores (one per vocab token)</span>
   <span class="cm">Example top 8: [5.2, 3.8, 3.1, 2.4, 1.7, 0.9, -0.3, -1.1]</span>
@@ -2510,10 +2525,48 @@ out  = h @ W_down     <span class="cm"># [17408] &rarr; [5120]  compress back</s
 
 <div class="power">
 <div class="power-label">The Complete Machine</div>
-<p>We started with a question: what happens when you type something and words appear? Now we know. Raw text becomes tokens. Tokens become vectors. Vectors pass through 64 identical blocks &mdash; each one normalizing, attending, thinking, routing &mdash; until a single vector emerges. That vector projects back to vocabulary space. Temperature, top-p, and min-p shape the distribution. One random draw. One word. Append it, run everything again. That's the whole machine.</p>
+<p>We started with a question: what happens when you type something and words appear? Now we know. Raw text becomes tokens. Tokens become vectors. Vectors pass through 64 identical blocks &mdash; each one normalizing, attending, transforming, routing &mdash; until a single vector emerges. That vector projects back to vocabulary space. Temperature, top-p, and min-p shape the distribution. One random draw. One word. Append it, run everything again. That's the whole machine.</p>
 </div>
 
-<p>Now we know the machine. Part II asks the harder question: how do you make it <em>run?</em> 54 GB of weights that won't fit on your GPU. 44 billion operations per token. A KV cache that grows with every word. Quantization, FlashAttention, continuous batching &mdash; and the engines that put it all together: llama.cpp, vLLM, ExLlamaV2. The math doesn't change. The engineering changes everything.</p>
+<p style="color:var(--text-dim); font-style:italic; font-size:0.95rem;">The model's math is fixed. The engineering battle is moving weights and KV entries fast enough to keep up.</p>
+
+<h3>Two Modes</h3>
+
+<p>The pipeline you just traced runs in two very different regimes. The distinction matters so much that it shapes every optimization in Part II.</p>
+
+<div class="diagram">
+<span class="diagram-label">Prefill vs Decode &mdash; the same model, two workloads</span>
+<pre><code>
+  <span style="color:var(--green);font-weight:bold">PREFILL</span> &mdash; processing the prompt
+
+  "What is the capital of France?"
+
+  All tokens processed <span style="color:var(--green)">in parallel</span>.
+  One big batch matrix multiply.
+  GPU compute units: <span style="color:var(--green)">busy</span>.
+  Bottleneck: <span style="color:var(--green)">compute (FLOPS)</span>.
+  Fast &mdash; thousands of tokens per second.
+
+  <span style="color:var(--border)">&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;</span>
+
+  <span style="color:var(--orange);font-weight:bold">DECODE</span> &mdash; generating the response
+
+  "The" &rarr; "capital" &rarr; "of" &rarr; "France" &rarr; "is" &rarr; "Paris" &rarr; "."
+
+  One token at a time. <span style="color:var(--orange)">Serial</span>.
+  Each token reads the <em>entire model</em> from memory.
+  GPU compute units: <span style="color:var(--orange)">95% idle</span>, waiting for data.
+  Bottleneck: <span style="color:var(--orange)">memory bandwidth</span>.
+  Slow &mdash; tens of tokens per second.
+
+  <span class="cm">Same weights. Same code. Same GPU.</span>
+  <span class="cm">Entirely different performance profiles.</span>
+</code></pre>
+</div>
+
+<p>Prefill is what GPUs were built for &mdash; parallel math on big matrices. Decode is the opposite: a single vector multiplied against the entire model, over and over, one token at a time. This asymmetry is why long prompts process surprisingly fast but responses stream out slowly. It's why every optimization in Part II exists, and why Part III's serving systems must schedule these two phases differently.</p>
+
+<p>Now we know the machine &mdash; and we know it has two faces. Part II asks the harder question: how do you make it <em>run?</em> 54 GB of weights that won't fit on your GPU. A KV cache that grows with every word. The memory bus as the true bottleneck. Quantization, FlashAttention, speculative decoding &mdash; and the engines that put it all together. The math doesn't change. The engineering changes everything.</p>
 
 </section>
 
@@ -2528,10 +2581,15 @@ out  = h @ W_down     <span class="cm"># [17408] &rarr; [5120]  compress back</s
         <span style="color:var(--green)">Ch 3</span> The Forward Pass &middot;
         <span style="color:var(--green)">Ch 4</span> Choosing Words
     </div>
-    <a href="inference-engine-deep-dive-2.html" style="font-family:'JetBrains Mono',monospace; font-size:1rem; color:var(--green); text-decoration:none; text-shadow:0 0 10px rgba(0,255,136,0.2);">
-        Part II: Making It Fast &rarr;
-    </a>
-    <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-dim); margin-top:0.6rem;">Quantization &middot; KV Cache &middot; FlashAttention &middot; Batching &middot; llama.cpp &middot; vLLM &middot; ExLlamaV2</div>
+    <div style="display:flex; justify-content:center; gap:2rem; flex-wrap:wrap;">
+        <a href="inference-engine-deep-dive-2.html" style="font-family:'JetBrains Mono',monospace; font-size:1rem; color:var(--green); text-decoration:none; text-shadow:0 0 10px rgba(0,255,136,0.2);">
+            Part II: Making It Fast &rarr;
+        </a>
+        <a href="inference-engine-deep-dive-3.html" style="font-family:'JetBrains Mono',monospace; font-size:1rem; color:var(--green); text-decoration:none; text-shadow:0 0 10px rgba(0,255,136,0.2);">
+            Part III: Serving at Scale &rarr;
+        </a>
+    </div>
+    <div style="font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-dim); margin-top:0.6rem;">Roofline &middot; KV Cache &middot; Quantization &middot; FlashAttention &middot; Batching &middot; Speculation &middot; Engines &middot; Scheduling &middot; Parallelism</div>
 </div>
 
 </div>

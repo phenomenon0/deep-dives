@@ -1,0 +1,2370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Randomness — Nothing Is Random and Everything Is a Lie</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+    --white: #e8e8f0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 2rem;
+    display: flex;
+    gap: 1.2rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.2s, text-shadow 0.2s;
+    padding: 0.3rem 0;
+  }
+  nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+  nav .nav-title {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 1rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.3);
+  }
+
+  .content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+  }
+
+  .hero {
+    text-align: center;
+    padding: 4rem 0 5rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4rem;
+    position: relative;
+  }
+  .hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3.2rem;
+    font-weight: 600;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+  }
+  .hero .subtitle {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 500px;
+    margin: 0 auto;
+  }
+  .hero .blink {
+    display: inline-block;
+    animation: blink 1s step-end infinite;
+    color: var(--green);
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  section { margin-bottom: 5rem; padding-top: 1rem; }
+  h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: var(--green);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: 0.02em;
+  }
+  h3 {
+    font-size: 1.25rem;
+    color: var(--cyan);
+    margin: 2.5rem 0 1rem;
+    font-weight: 600;
+  }
+  h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 2rem 0 0.8rem;
+  }
+  p { margin-bottom: 1rem; }
+
+  .drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4rem;
+    line-height: 0.8;
+    padding: 0.1em 0.15em 0 0;
+    color: var(--green);
+    font-weight: 600;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+  }
+
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    padding: 0.12em 0.4em;
+    border-radius: 3px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem 1.4rem;
+    overflow-x: auto;
+    margin: 1.2rem 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px;
+    line-height: 1.55;
+    position: relative;
+  }
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+  }
+  .cm { color: var(--text-dim); }
+  .kw { color: var(--magenta); }
+  .ty { color: var(--cyan); }
+  .st { color: var(--green); }
+  .nm { color: var(--yellow); }
+  .fn { color: var(--blue); }
+  .pp { color: var(--orange); }
+  .label {
+    position: absolute;
+    top: 0.3rem; right: 0.7rem;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    opacity: 0.5;
+  }
+
+  .diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+  }
+  .diagram pre {
+    background: none; border: none; padding: 0; margin: 0;
+    font-size: 13px; line-height: 1.45; color: var(--text);
+  }
+  .diagram pre code { color: var(--text); }
+  .diagram-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--green-dim);
+    margin-bottom: 0.8rem;
+    display: block;
+  }
+
+  .power {
+    background: var(--bg-card);
+    border-left: 3px solid var(--green);
+    padding: 1.2rem 1.4rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .power-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.3rem;
+  }
+  .power p { margin-bottom: 0; font-size: 0.95rem; }
+  .power.danger { border-left-color: var(--red); }
+  .power.danger .power-label { color: var(--red); }
+  .power.hack { border-left-color: var(--magenta); }
+  .power.hack .power-label { color: var(--magenta); }
+  .power.wild { border-left-color: var(--orange); }
+  .power.wild .power-label { color: var(--orange); }
+  .power.zen { border-left-color: var(--cyan); }
+  .power.zen .power-label { color: var(--cyan); }
+
+  .mem-row { display: flex; gap: 1px; margin: 0.4rem 0; flex-wrap: wrap; }
+  .mc {
+    width: 30px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px; font-weight: 600; border-radius: 2px;
+  }
+  .mc.g { background: var(--green); color: var(--bg); }
+  .mc.c { background: var(--cyan); color: var(--bg); }
+  .mc.m { background: var(--magenta); color: var(--bg); }
+  .mc.o { background: var(--orange); color: var(--bg); }
+  .mc.r { background: var(--red); color: var(--bg); }
+  .mc.y { background: var(--yellow); color: var(--bg); }
+  .mc.b { background: var(--blue); color: var(--bg); }
+  .mc.d { background: var(--text-dim); color: var(--bg); opacity: 0.3; }
+  .mc.e { background: transparent; border: 1px dashed var(--border); color: var(--text-dim); }
+  .mc.w { background: var(--white); color: var(--bg); }
+  .mc.p { background: var(--purple); color: #fff; }
+  .mc.wide { width: 50px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.88rem;
+  }
+  th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    text-align: left;
+    padding: 0.5rem 0.7rem;
+    border-bottom: 2px solid var(--border);
+  }
+  td {
+    padding: 0.45rem 0.7rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:hover { background: rgba(0,255,136,0.02); }
+
+  details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1rem 0;
+    overflow: hidden;
+  }
+  details summary {
+    padding: 0.7rem 1.1rem;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--green);
+    user-select: none;
+    transition: background 0.2s;
+  }
+  details summary:hover { background: rgba(0,255,136,0.04); }
+  details[open] summary { border-bottom: 1px solid var(--border); }
+  details .det { padding: 1.1rem; }
+  details pre { margin: 0.8rem 0; }
+
+  .vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .vs-col {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.1rem;
+  }
+  .vs-col h4 { margin-top: 0; }
+
+  .glitch { position: relative; display: inline-block; }
+  .glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+  .glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 2s infinite linear alternate-reverse;
+    clip-path: inset(0 0 65% 0);
+  }
+  .glitch::after {
+    color: var(--magenta);
+    animation: glitch-2 3s infinite linear alternate-reverse;
+    clip-path: inset(65% 0 0 0);
+  }
+  @keyframes glitch-1 {
+    0%, 95% { transform: translateX(0); }
+    96% { transform: translateX(-2px); }
+    97% { transform: translateX(2px); }
+    98% { transform: translateX(-1px); }
+    100% { transform: translateX(0); }
+  }
+  @keyframes glitch-2 {
+    0%, 93% { transform: translateX(0); }
+    94% { transform: translateX(2px); }
+    96% { transform: translateX(-2px); }
+    98% { transform: translateX(1px); }
+    100% { transform: translateX(0); }
+  }
+
+  .ticker {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--green);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    display: inline-block;
+    text-shadow: 0 0 6px rgba(0,255,136,0.3);
+  }
+
+  /* === LANGUAGE TABS === */
+  .lang-tabs {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1.2rem 0;
+    overflow: hidden;
+  }
+  .lang-tabs input[type="radio"] { display: none; }
+  .lang-tabs label {
+    display: inline-block;
+    padding: 0.5rem 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .lang-tabs label:hover { color: var(--green); }
+  .lang-tabs .tab-bar {
+    border-bottom: 1px solid var(--border);
+    padding: 0 0.5rem;
+  }
+  .lang-tabs .tab-content { display: none; }
+  .lang-tabs .tab-content pre { margin: 0; border: none; border-radius: 0; }
+
+  .lang-tabs input.tc:checked ~ .tab-content.c,
+  .lang-tabs input.tpy:checked ~ .tab-content.py,
+  .lang-tabs input.tts:checked ~ .tab-content.ts,
+  .lang-tabs input.tgo:checked ~ .tab-content.go,
+  .lang-tabs input.trs:checked ~ .tab-content.rs { display: block; }
+
+  .lang-tabs input:nth-of-type(1):checked ~ .tab-bar label:nth-child(1),
+  .lang-tabs input:nth-of-type(2):checked ~ .tab-bar label:nth-child(2),
+  .lang-tabs input:nth-of-type(3):checked ~ .tab-bar label:nth-child(3),
+  .lang-tabs input:nth-of-type(4):checked ~ .tab-bar label:nth-child(4),
+  .lang-tabs input:nth-of-type(5):checked ~ .tab-bar label:nth-child(5) {
+    color: var(--green);
+    background: rgba(0,255,136,0.06);
+    border-bottom: 2px solid var(--green);
+  }
+
+  /* === TRY-THIS BOX === */
+  .try-this {
+    background: rgba(0, 255, 136, 0.04);
+    border-left: 3px solid var(--green-dim);
+    padding: 1rem 1.2rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .try-this .try-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.5rem;
+  }
+  .try-this pre {
+    margin: 0.5rem 0 0;
+    font-size: 12.5px;
+  }
+  .try-this p { font-size: 0.9rem; margin-bottom: 0.5rem; }
+
+  /* === LANG-NOTE BOX === */
+  .lang-note {
+    background: var(--bg-card);
+    border-left: 3px solid var(--blue);
+    padding: 1rem 1.2rem;
+    margin: 1.2rem 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 0.9rem;
+  }
+  .lang-note .lang-note-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--blue);
+    margin-bottom: 0.3rem;
+  }
+
+  /* === RUN BUTTON + OUTPUT === */
+  .run-btn {
+    position: absolute; top: 0.3rem; right: 3rem;
+    background: var(--green); color: var(--bg);
+    border: none; border-radius: 3px; cursor: pointer;
+    font: 600 10px 'JetBrains Mono', monospace; padding: 2px 8px;
+    opacity: 0.6; transition: opacity 0.2s;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    z-index: 2;
+  }
+  .run-btn:hover { opacity: 1; }
+  .run-btn.running { opacity: 0.4; cursor: wait; }
+  .run-output {
+    background: #050508; border: 1px solid var(--border);
+    border-top: none; border-radius: 0 0 6px 6px;
+    padding: 0.8rem 1rem; margin-top: -1px;
+    font: 13px/1.5 'JetBrains Mono', monospace; color: var(--green);
+    white-space: pre-wrap; max-height: 200px; overflow-y: auto;
+  }
+  .run-output.error { color: var(--red); }
+
+  /* === INTERACTIVE DEMO === */
+  .interactive-demo {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+  }
+  .interactive-demo h4 { margin-top: 0; }
+  .interactive-demo input[type="text"], .interactive-demo textarea {
+    width: 100%;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.6rem 0.8rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    color: var(--green);
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .interactive-demo input[type="text"]:focus, .interactive-demo textarea:focus {
+    border-color: var(--green-dim);
+  }
+  .interactive-demo input[type="range"] {
+    width: 100%;
+    accent-color: var(--green);
+    margin: 0.5rem 0;
+  }
+  .interactive-demo input[type="number"] {
+    width: 120px;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.4rem 0.6rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--green);
+    outline: none;
+  }
+  .interactive-demo button {
+    background: transparent;
+    border: 1px solid var(--green);
+    color: var(--green);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 0.4rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.2s, box-shadow 0.2s;
+    margin-top: 0.5rem;
+  }
+  .interactive-demo button:hover {
+    background: rgba(0,255,136,0.1);
+    box-shadow: 0 0 10px rgba(0,255,136,0.2);
+  }
+  .demo-output {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1rem;
+    margin-top: 1rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text);
+    min-height: 3rem;
+    white-space: pre-wrap;
+    overflow-x: auto;
+  }
+  canvas.demo-canvas {
+    display: block;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    max-width: 100%;
+    margin-top: 1rem;
+    background: var(--bg);
+  }
+
+  @media (max-width: 700px) {
+    .vs { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2rem; }
+    .content { padding: 4rem 1rem 4rem; }
+    nav { font-size: 10px; gap: 0.8rem; padding: 0.4rem 1rem; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="nav-title">&gt;_ RNG</span>
+  <a href="#ch1">true random</a>
+  <a href="#ch2">pseudorandom</a>
+  <a href="#ch3">lcg</a>
+  <a href="#ch4">mersenne</a>
+  <a href="#ch5">xorshift</a>
+  <a href="#ch6">entropy</a>
+  <a href="#ch7">hardware</a>
+  <a href="#ch8">crypto</a>
+  <a href="#ch9">distributions</a>
+  <a href="#ch10">gaming</a>
+  <a href="#ch11">monte carlo</a>
+  <a href="#ch12">testing</a>
+</nav>
+
+<div class="content">
+
+<div class="hero">
+  <h1><span class="glitch" data-text="RANDOMNESS">RANDOMNESS</span></h1>
+  <div class="subtitle">Nothing is random and everything is a lie.<span class="blink">_</span></div>
+</div>
+
+<!-- ============================================================ -->
+<section id="ch1">
+<h2>// 01 &mdash; True Randomness Doesn't Exist (or does it?)</h2>
+
+<p class="drop-cap">For most of human history, randomness was philosophical camouflage for ignorance. Flip a coin and the outcome feels random &mdash; but given perfect knowledge of the coin's mass, the force applied, air resistance, and surface friction, Newtonian mechanics predicts the result exactly. This is Laplace's demon: a hypothetical intellect that knows the position and momentum of every particle in the universe could compute every future event with perfect precision. In a classical universe, nothing is random. Everything is just <em>unknown</em>.</p>
+
+<p>Then quantum mechanics showed up and ruined everything &mdash; or saved everything, depending on your disposition.</p>
+
+<h3>The Quantum Exception</h3>
+
+<p>In quantum mechanics, certain events are not merely unknown &mdash; they are fundamentally undetermined until observed. Radioactive decay: a single unstable nucleus will decay at some point, but there is no fact of the matter about <em>when</em>, even in principle. Photon polarization: pass a photon through a polarizing filter at 45° and there is a 50% chance it passes through. Not 50% because we don't know enough. 50% because the universe genuinely hasn't decided yet.</p>
+
+<p>The Bell inequality experiments (Aspect, 1982; Hensen et al., 2015) essentially ruled out local hidden variable theories &mdash; the universe isn't secretly deterministic with information we're missing. The randomness in quantum events appears to be <em>ontological</em>: baked into reality itself, not just epistemological uncertainty on our part.</p>
+
+<div class="diagram">
+<span class="diagram-label">Two flavors of randomness</span>
+<pre><code>  Epistemic randomness (classical):
+    "I don't know which side the coin landed on."
+    Cause: incomplete information
+    Theoretically predictable with enough data
+    Example: coin flip, dice roll, shuffled deck
+
+  Ontological randomness (quantum):
+    "The universe genuinely hasn't decided yet."
+    Cause: fundamental indeterminacy
+    NOT predictable even in principle
+    Example: radioactive decay, photon path, vacuum fluctuations
+
+  Practical implication for computers:
+    Both look identical from the outside.
+    You cannot tell by examining a bit whether it was
+    epistemically or ontologically generated.</code></pre>
+</div>
+
+<div class="power zen">
+<div class="power-label">The Academic Distinction</div>
+<p>Whether randomness is "truly" ontological or merely the limit of epistemic access doesn't matter one whit to your program. What matters is: can an adversary predict the next value? If yes, it's not random enough. If no, you're fine. Philosophy is a luxury; security is not.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch2">
+<h2>// 02 &mdash; Pseudorandom &mdash; Faking It</h2>
+
+<p class="drop-cap">Every random number your program has ever generated was a lie. A deterministic function took a starting value &mdash; the <em>seed</em> &mdash; and produced a sequence of numbers that merely <em>looked</em> random to casual inspection. Feed the same seed back in and you get the exact same sequence, byte for byte, forever. There's nothing random about it. It's arithmetic wearing a disguise.</p>
+
+<p>This is, counterintuitively, often exactly what you want.</p>
+
+<h3>Why Determinism Is a Feature</h3>
+
+<p>Reproducibility is gold. A game that uses a seeded PRNG generates the same world every time from the same seed &mdash; that's how Minecraft's world generation works, how No Man's Sky synthesizes an entire galaxy, how procedural level generators create millions of unique-but-reproducible layouts. Your test suite that shuffles data reproducibly can catch bugs that a truly random shuffle would hide. A simulation seeded to a known value can be replayed exactly to find where things went wrong.</p>
+
+<p>The seed is the entire state of the PRNG. Change the seed, change everything. Fix the seed, fix everything. This is profound leverage.</p>
+
+<div class="lang-tabs">
+  <input type="radio" class="tc" name="tabs-seed" id="seed-c" checked>
+  <input type="radio" class="tpy" name="tabs-seed" id="seed-py">
+  <input type="radio" class="tts" name="tabs-seed" id="seed-ts">
+  <input type="radio" class="tgo" name="tabs-seed" id="seed-go">
+  <input type="radio" class="trs" name="tabs-seed" id="seed-rs">
+  <div class="tab-bar">
+    <label for="seed-c">C</label>
+    <label for="seed-py">Python</label>
+    <label for="seed-ts">TypeScript</label>
+    <label for="seed-go">Go</label>
+    <label for="seed-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+<pre><code><span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdlib.h&gt;</span>
+
+<span class="ty">int</span> <span class="fn">main</span>() {
+    <span class="cm">/* srand seeds the global state; rand() reads from it */</span>
+    <span class="fn">srand</span>(<span class="nm">42</span>);
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i &lt; <span class="nm">5</span>; i++) {
+        <span class="fn">printf</span>(<span class="st">"%d\n"</span>, <span class="fn">rand</span>());
+    }
+
+    <span class="cm">/* Run again with same seed — identical output */</span>
+    <span class="fn">srand</span>(<span class="nm">42</span>);
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i &lt; <span class="nm">5</span>; i++) {
+        <span class="fn">printf</span>(<span class="st">"%d\n"</span>, <span class="fn">rand</span>());  <span class="cm">// same numbers again</span>
+    }
+    <span class="kw">return</span> <span class="nm">0</span>;
+}
+<span class="label">C</span></code></pre>
+  </div>
+  <div class="tab-content py">
+<pre><code><span class="kw">import</span> random
+
+<span class="cm"># Seed the Mersenne Twister (Python's default PRNG)</span>
+random.<span class="fn">seed</span>(<span class="nm">42</span>)
+first_run = [random.<span class="fn">randint</span>(<span class="nm">0</span>, <span class="nm">100</span>) <span class="kw">for</span> _ <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">5</span>)]
+
+random.<span class="fn">seed</span>(<span class="nm">42</span>)
+second_run = [random.<span class="fn">randint</span>(<span class="nm">0</span>, <span class="nm">100</span>) <span class="kw">for</span> _ <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">5</span>)]
+
+<span class="fn">print</span>(first_run)   <span class="cm"># [18, 73, 98, 9, 33]  (example)</span>
+<span class="fn">print</span>(second_run)  <span class="cm"># [18, 73, 98, 9, 33]  exactly the same</span>
+<span class="fn">assert</span> first_run == second_run  <span class="cm"># always passes</span>
+<span class="label">Python</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+<pre><code><span class="cm">// TypeScript / JavaScript has NO built-in seeded PRNG.</span>
+<span class="cm">// Math.random() is a black box — you cannot seed it.</span>
+<span class="cm">// You must bring your own algorithm.</span>
+
+<span class="cm">// Mulberry32 — a fast, seedable 32-bit PRNG</span>
+<span class="kw">function</span> <span class="fn">mulberry32</span>(seed: <span class="ty">number</span>) {
+  <span class="kw">return</span> <span class="kw">function</span>(): <span class="ty">number</span> {
+    seed |= <span class="nm">0</span>;
+    seed = seed + <span class="nm">0x6D2B79F5</span> | <span class="nm">0</span>;
+    <span class="kw">let</span> t = <span class="ty">Math</span>.<span class="fn">imul</span>(seed ^ seed &gt;&gt;&gt; <span class="nm">15</span>, <span class="nm">1</span> | seed);
+    t = t + <span class="ty">Math</span>.<span class="fn">imul</span>(t ^ t &gt;&gt;&gt; <span class="nm">7</span>, <span class="nm">61</span> | t) ^ t;
+    <span class="kw">return</span> ((t ^ t &gt;&gt;&gt; <span class="nm">14</span>) &gt;&gt;&gt; <span class="nm">0</span>) / <span class="nm">4294967296</span>;
+  };
+}
+
+<span class="kw">const</span> rng = <span class="fn">mulberry32</span>(<span class="nm">42</span>);
+<span class="ty">console</span>.<span class="fn">log</span>(rng(), rng(), rng()); <span class="cm">// reproducible every time</span>
+<span class="label">TypeScript</span></code></pre>
+  </div>
+  <div class="tab-content go">
+<pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"fmt"</span>
+    <span class="st">"math/rand"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="cm">// Create a local source seeded to 42</span>
+    src := rand.<span class="fn">NewSource</span>(<span class="nm">42</span>)
+    r := rand.<span class="fn">New</span>(src)
+
+    <span class="kw">for</span> i := <span class="nm">0</span>; i &lt; <span class="nm">5</span>; i++ {
+        fmt.<span class="fn">Println</span>(r.<span class="fn">Intn</span>(<span class="nm">100</span>))
+    }
+    <span class="cm">// Reset source to same seed — same output</span>
+    src.<span class="fn">Seed</span>(<span class="nm">42</span>)
+    <span class="kw">for</span> i := <span class="nm">0</span>; i &lt; <span class="nm">5</span>; i++ {
+        fmt.<span class="fn">Println</span>(r.<span class="fn">Intn</span>(<span class="nm">100</span>))  <span class="cm">// identical</span>
+    }
+}
+<span class="label">Go</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+<pre><code><span class="kw">use</span> rand::{<span class="ty">SeedableRng</span>, <span class="ty">Rng</span>};
+<span class="kw">use</span> rand::rngs::<span class="ty">StdRng</span>;
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="cm">// StdRng is currently ChaCha12 — cryptographically secure</span>
+    <span class="kw">let mut</span> rng = <span class="ty">StdRng</span>::<span class="fn">seed_from_u64</span>(<span class="nm">42</span>);
+
+    <span class="kw">let</span> first: <span class="ty">Vec</span>&lt;<span class="ty">u32</span>&gt; = (<span class="nm">0</span>..<span class="nm">5</span>).<span class="fn">map</span>(|_| rng.<span class="fn">gen</span>()).<span class="fn">collect</span>();
+
+    <span class="kw">let mut</span> rng2 = <span class="ty">StdRng</span>::<span class="fn">seed_from_u64</span>(<span class="nm">42</span>);
+    <span class="kw">let</span> second: <span class="ty">Vec</span>&lt;<span class="ty">u32</span>&gt; = (<span class="nm">0</span>..<span class="nm">5</span>).<span class="fn">map</span>(|_| rng2.<span class="fn">gen</span>()).<span class="fn">collect</span>();
+
+    assert_eq!(first, second); <span class="cm">// guaranteed identical</span>
+    println!(<span class="st">"{:?}"</span>, first);
+}
+<span class="label">Rust</span></code></pre>
+  </div>
+</div>
+
+<div class="try-this">
+  <div class="try-label">Try This</div>
+  <p>Run with the same seed twice. Notice anything? Now change the seed by one. How different is the output? Try seed 0, seed 1, seed 2 &mdash; is there any obvious pattern between adjacent seeds?</p>
+</div>
+
+<div class="power danger">
+<div class="power-label">JavaScript Footgun</div>
+<p><code>Math.random()</code> in JavaScript has NO seed API. None. You cannot reproduce a sequence, you cannot reset it, you cannot inspect it. If you need reproducibility &mdash; games, simulations, tests &mdash; you must implement your own PRNG. The language just doesn't care about your needs.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch3">
+<h2>// 03 &mdash; Linear Congruential Generators</h2>
+
+<p class="drop-cap">The oldest trick in the PRNG book, and still lurking everywhere you look. Linear Congruential Generators (LCGs) are comically simple: take the current value, multiply by a constant, add another constant, take the remainder after dividing by a third constant. That's it. One line of arithmetic that has shipped in more software than any other random number algorithm in history &mdash; including the <code>rand()</code> function on your system right now.</p>
+
+<p>The formula is almost insultingly minimal:</p>
+
+<div class="diagram">
+<span class="diagram-label">LCG Formula</span>
+<pre><code>  X(n+1) = (a * X(n) + c) mod m
+
+  Where:
+    X(n)   — current state (the "seed" at step n)
+    a      — multiplier      (must be chosen carefully)
+    c      — increment       (can be 0 for "multiplicative" LCGs)
+    m      — modulus         (often a power of 2 for cheap arithmetic)
+    X(n+1) — next state / next output
+
+  Example step with glibc params (a=1103515245, c=12345, m=2^31):
+    X(0) = 1
+    X(1) = (1103515245 * 1 + 12345) mod 2147483648
+         = 1103527590 mod 2147483648
+         = 1103527590
+
+    X(2) = (1103515245 * 1103527590 + 12345) mod 2147483648
+         = ...
+         = 2524785265 mod 2147483648     (wraps around)
+         = 377301617</code></pre>
+</div>
+
+<h3>Famous LCG Parameters</h3>
+
+<p>The choice of <em>a</em>, <em>c</em>, and <em>m</em> matters enormously. A good set produces a full-period sequence covering every value from 0 to m&minus;1 exactly once before repeating. A bad set produces short cycles, obvious patterns, or catastrophically poor distribution.</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>a (multiplier)</th>
+      <th>c (increment)</th>
+      <th>m (modulus)</th>
+      <th>Used In</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>glibc</td>
+      <td><code>1103515245</code></td>
+      <td><code>12345</code></td>
+      <td>2<sup>31</sup></td>
+      <td>C stdlib <code>rand()</code> on Linux</td>
+    </tr>
+    <tr>
+      <td>MINSTD</td>
+      <td><code>16807</code></td>
+      <td><code>0</code></td>
+      <td>2<sup>31</sup>&minus;1</td>
+      <td>Park &amp; Miller 1988, many old systems</td>
+    </tr>
+    <tr>
+      <td>Numerical Recipes</td>
+      <td><code>1664525</code></td>
+      <td><code>1013904223</code></td>
+      <td>2<sup>32</sup></td>
+      <td>Numerical Recipes textbook</td>
+    </tr>
+    <tr>
+      <td>Borland C++</td>
+      <td><code>22695477</code></td>
+      <td><code>1</code></td>
+      <td>2<sup>32</sup></td>
+      <td>Borland/Turbo C++ <code>rand()</code></td>
+    </tr>
+    <tr>
+      <td>Microsoft MINSTD</td>
+      <td><code>214013</code></td>
+      <td><code>2531011</code></td>
+      <td>2<sup>31</sup></td>
+      <td>Visual C++ / older Windows</td>
+    </tr>
+    <tr>
+      <td>RANDU</td>
+      <td><code>65539</code></td>
+      <td><code>0</code></td>
+      <td>2<sup>31</sup></td>
+      <td>IBM mainframes 1960s &mdash; famously terrible</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>The Lattice Problem</h3>
+
+<p>In 1968, George Marsaglia published a paper with a devastating observation: <em>k</em>-tuples of consecutive LCG outputs, when plotted in <em>k</em>-dimensional space, all fall on a small number of parallel hyperplanes. For 3D output, you get three planes. For higher dimensions, even fewer. The sequence isn't random at all &mdash; it has geometric structure visible to anyone who looks.</p>
+
+<div class="diagram">
+<span class="diagram-label">Marsaglia's Hyperplane Theorem (1968)</span>
+<pre><code>  If (X1, X2, X3, ..., Xk) are consecutive LCG outputs,
+  then ALL k-tuples lie on at most m^(1/k) parallel hyperplanes.
+
+  For glibc LCG with m = 2^31:
+    k=2:  at most 2^15.5 ≈ 46,341 lines      (looks OK in 2D)
+    k=3:  at most 2^10.3 ≈ 1,290 planes      (visible structure in 3D)
+    k=6:  at most 2^5.2  ≈ 37 hyperplanes    (catastrophically bad)
+
+  This is why RANDU (IBM's notorious LCG) looked fine in 2D
+  but clustered onto exactly 15 planes in 3D.
+  Entire physics simulations were corrupted. Quietly.</code></pre>
+</div>
+
+<p>This doesn't mean LCGs are useless &mdash; they're fast, simple, and fine for non-cryptographic work where you just need "looks random enough in 1D." But the moment you generate pairs or triples and use them as coordinates, you've introduced correlated structure. See the lattice structure yourself in the interactive demo below, and also consider how <a href="floatingpoint-deep-dive.html" style="color:var(--cyan)">floating-point representation</a> affects the distribution of generated values.</p>
+
+<div class="power danger">
+<div class="power-label">Never Use LCGs for Security</div>
+<p>The entire state of an LCG IS the last output. One output, and you know the full state. Two outputs, and you can recover <em>a</em>, <em>c</em>, and <em>m</em> if you don't already know them. LCG output is completely predictable &mdash; forward <em>and</em> backward. Using an LCG to generate session tokens, passwords, nonces, or any security-sensitive value is a vulnerability, not a shortcut.</p>
+</div>
+
+<div class="interactive-demo" id="demo-lcg">
+  <h4>Interactive: LCG Visualizer</h4>
+  <p style="font-size:0.9rem;color:var(--text-dim);">Watch how different parameters create visible patterns. Good LCGs fill the space evenly; bad ones show obvious structure.</p>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:0.5rem">
+    <div><label style="font-size:0.75em;color:var(--text-dim)">a (multiplier)</label><input type="number" id="lcg-a" value="1103515245"></div>
+    <div><label style="font-size:0.75em;color:var(--text-dim)">c (increment)</label><input type="number" id="lcg-c" value="12345"></div>
+    <div><label style="font-size:0.75em;color:var(--text-dim)">m (modulus)</label><input type="number" id="lcg-m" value="2147483648"></div>
+  </div>
+  <div style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap">
+    <button id="lcg-run">Generate</button>
+    <button id="lcg-bad" style="border-color:var(--red);color:var(--red)">Bad Params</button>
+    <button id="lcg-good" style="border-color:var(--cyan);color:var(--cyan)">glibc Params</button>
+    <span style="font-size:0.8em;color:var(--text-dim)" id="lcg-info">2000 points plotted</span>
+  </div>
+  <canvas id="lcg-canvas" class="demo-canvas" width="400" height="400"></canvas>
+</div>
+
+<script>
+(function() {
+  function lcgPlot() {
+    var a = parseInt(document.getElementById('lcg-a').value) || 1103515245;
+    var c = parseInt(document.getElementById('lcg-c').value) || 12345;
+    var m = parseInt(document.getElementById('lcg-m').value) || 2147483648;
+    var canvas = document.getElementById('lcg-canvas');
+    var ctx = canvas.getContext('2d');
+    var W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#0a0a0f';
+    ctx.fillRect(0, 0, W, H);
+    var x = 1;
+    var pts = 2000;
+    ctx.fillStyle = 'rgba(0,255,136,0.55)';
+    for (var i = 0; i < pts; i++) {
+      var x1 = x;
+      x = ((a * x + c) % m + m) % m;
+      var px = Math.floor((x1 / m) * W);
+      var py = Math.floor((x / m) * H);
+      ctx.fillRect(px, py, 2, 2);
+    }
+    document.getElementById('lcg-info').textContent = pts + ' points plotted (consecutive pairs as (x,y))';
+  }
+  document.getElementById('lcg-run').addEventListener('click', lcgPlot);
+  document.getElementById('lcg-bad').addEventListener('click', function() {
+    document.getElementById('lcg-a').value = 65539;
+    document.getElementById('lcg-c').value = 0;
+    document.getElementById('lcg-m').value = 2147483648;
+    lcgPlot();
+  });
+  document.getElementById('lcg-good').addEventListener('click', function() {
+    document.getElementById('lcg-a').value = 1103515245;
+    document.getElementById('lcg-c').value = 12345;
+    document.getElementById('lcg-m').value = 2147483648;
+    lcgPlot();
+  });
+  lcgPlot();
+})();
+</script>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch4">
+<h2>// 04 &mdash; Mersenne Twister &mdash; The Industry Default</h2>
+
+<p class="drop-cap">In 1997, Makoto Matsumoto and Takuji Nishimura published a PRNG that made everything before it look embarrassing. The Mersenne Twister had a period of 2<sup>19937</sup>&minus;1 &mdash; a number so large it would take longer than the age of the universe to cycle through even if you generated a billion numbers per second. It passed statistical tests that shredded LCGs. It was fast. It was free. Within a decade it had become the default random number generator in Python, Ruby, PHP, R, MATLAB, and countless other systems. It is almost certainly the PRNG generating "random" numbers in your code right now.</p>
+
+<p>The name comes from the Mersenne prime 2<sup>19937</sup>&minus;1. Mersenne primes (of the form 2<sup>p</sup>&minus;1) have properties that make them useful for constructing PRNGs with guaranteed long periods.</p>
+
+<h3>How It Works</h3>
+
+<p>The Mersenne Twister maintains a state array of <strong>624 32-bit integers</strong> (a total of 19,968 bits of state). On each generation step, it processes this array through two operations:</p>
+
+<div class="diagram">
+<span class="diagram-label">Mersenne Twister State Machine</span>
+<pre><code>  State: MT[0..623]  — 624 × 32-bit words = 19,968 bits of state
+
+  ┌─────────────────────────────────────────────────────────────┐
+  │  MT[0]   MT[1]   MT[2]  ...  MT[396]  ...  MT[622]  MT[623] │
+  └─────────────────────────────────────────────────────────────┘
+          │                         │
+          └─────────┬───────────────┘
+                    │  TWIST OPERATION
+                    │  (when state exhausted)
+                    ▼
+    MT[i] = MT[i+397] XOR twist(MT[i], MT[i+1])
+    twist involves bitwise operations and matrix multiply over GF(2)
+
+          │
+          │  TEMPER OPERATION
+          │  (every output)
+          ▼
+    y = MT[index]
+    y ^= (y >> 11)
+    y ^= (y << 7)  &amp; 0x9D2C5680
+    y ^= (y << 15) &amp; 0xEFC60000
+    y ^= (y >> 18)
+    output = y
+
+  Twist runs every 624 outputs (regenerates all state).
+  Temper runs every output (improves bit distribution).
+  Period: 2^19937 - 1.</code></pre>
+</div>
+
+<h3>Why It Won</h3>
+
+<p>The Mersenne Twister dominated for good reasons. Its period is astronomically large &mdash; no simulation you will ever run will approach its cycle length. It passes the stringent Diehard statistical tests that demolished LCGs. The 624-word state is large enough that simple lattice attacks fail. And the implementation is fast enough to use without a second thought.</p>
+
+<div class="vs">
+  <div class="vs-col">
+    <h4>Strengths</h4>
+    <ul style="font-size:0.9rem;padding-left:1.2rem;line-height:1.8">
+      <li>Period 2<sup>19937</sup>&minus;1 (astronomically large)</li>
+      <li>Passes Diehard battery of tests</li>
+      <li>623-dimensional equidistribution</li>
+      <li>Fast generation (~2ns per number)</li>
+      <li>Widely implemented and tested</li>
+    </ul>
+  </div>
+  <div class="vs-col">
+    <h4>Weaknesses</h4>
+    <ul style="font-size:0.9rem;padding-left:1.2rem;line-height:1.8">
+      <li>NOT cryptographically secure</li>
+      <li>624 outputs fully reconstruct state</li>
+      <li>Large state (2.5KB) &mdash; bad for cache</li>
+      <li>Fails some modern tests (TestU01 BigCrush)</li>
+      <li>Slow initialization from seed</li>
+    </ul>
+  </div>
+</div>
+
+<h3>The State Recovery Attack</h3>
+
+<p>Here is the devastating fact that makes Mersenne Twister completely unsuitable for security: the temper operation is invertible. Given 624 consecutive outputs, you can <em>exactly</em> reconstruct the internal state. From that point forward, you can predict every future output. Backward too, if you want to.</p>
+
+<p>This isn't theoretical. Libraries exist to do it automatically. You collect outputs, invert the tempering, recover MT[0..623], clone the generator, and step it forward. Game over. Every "random" event from that point is predictable.</p>
+
+<div class="power danger">
+<div class="power-label">624 Outputs — That's All</div>
+<p>An attacker who observes 624 consecutive Mersenne Twister outputs can reconstruct your entire PRNG state and predict every subsequent "random" number forever. If your application exposes MT outputs (dice rolls, session tokens, shuffle orders, map generation seeds...) an attacker can reverse-engineer them. This is not hypothetical &mdash; online poker sites have been cracked this way.</p>
+</div>
+
+<h3>Default RNGs by Language</h3>
+
+<div class="lang-tabs">
+  <input type="radio" class="tc" name="tabs-mt" id="mt-c" checked>
+  <input type="radio" class="tpy" name="tabs-mt" id="mt-py">
+  <input type="radio" class="tts" name="tabs-mt" id="mt-ts">
+  <input type="radio" class="tgo" name="tabs-mt" id="mt-go">
+  <input type="radio" class="trs" name="tabs-mt" id="mt-rs">
+  <div class="tab-bar">
+    <label for="mt-c">C</label>
+    <label for="mt-py">Python</label>
+    <label for="mt-ts">TypeScript</label>
+    <label for="mt-go">Go</label>
+    <label for="mt-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+<pre><code><span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdlib.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;time.h&gt;</span>
+
+<span class="cm">/* C's rand() is implementation-defined.
+   glibc uses a linear feedback shift register (not MT).
+   BSD libc uses a different algorithm entirely.
+   For Mersenne Twister in C, use an explicit library. */</span>
+
+<span class="ty">int</span> <span class="fn">main</span>() {
+    <span class="fn">srand</span>((<span class="ty">unsigned</span>)<span class="fn">time</span>(<span class="ty">NULL</span>));  <span class="cm">// seed with current time</span>
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i &lt; <span class="nm">5</span>; i++) {
+        <span class="cm">/* rand() returns [0, RAND_MAX] — typically 31 bits */</span>
+        <span class="fn">printf</span>(<span class="st">"%d\n"</span>, <span class="fn">rand</span>() % <span class="nm">100</span>);
+    }
+    <span class="kw">return</span> <span class="nm">0</span>;
+}
+<span class="label">C</span></code></pre>
+  </div>
+  <div class="tab-content py">
+<pre><code><span class="kw">import</span> random
+
+<span class="cm"># Python's random module uses Mersenne Twister (MT19937).
+# This is documented and guaranteed by the language spec.</span>
+
+random.<span class="fn">seed</span>()  <span class="cm"># seed from os.urandom() — unpredictable</span>
+
+<span class="fn">print</span>(random.<span class="fn">random</span>())         <span class="cm"># float in [0.0, 1.0)</span>
+<span class="fn">print</span>(random.<span class="fn">randint</span>(<span class="nm">1</span>, <span class="nm">6</span>))    <span class="cm"># "dice roll"</span>
+<span class="fn">print</span>(random.<span class="fn">choice</span>([<span class="st">'a'</span>, <span class="st">'b'</span>, <span class="st">'c'</span>]))
+
+<span class="cm"># For crypto — use secrets, not random</span>
+<span class="kw">import</span> secrets
+<span class="fn">print</span>(secrets.<span class="fn">randbelow</span>(<span class="nm">100</span>))  <span class="cm"># uses os.urandom(), not MT</span>
+<span class="label">Python</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+<pre><code><span class="cm">// JavaScript's Math.random() is implementation-defined.
+// V8 (Node.js/Chrome) uses xorshift128+, NOT Mersenne Twister.
+// SpiderMonkey (Firefox) uses xorshift128+.
+// Neither is seeded, neither is cryptographically secure.</span>
+
+<span class="cm">// For crypto: use the Web Crypto API</span>
+<span class="kw">const</span> array = <span class="kw">new</span> <span class="ty">Uint32Array</span>(<span class="nm">5</span>);
+crypto.<span class="fn">getRandomValues</span>(array);  <span class="cm">// CSPRNG, always</span>
+<span class="ty">console</span>.<span class="fn">log</span>(array);
+
+<span class="cm">// Node.js: crypto module</span>
+<span class="kw">import</span> { randomBytes, randomInt } <span class="kw">from</span> <span class="st">'crypto'</span>;
+<span class="ty">console</span>.<span class="fn">log</span>(<span class="fn">randomInt</span>(<span class="nm">0</span>, <span class="nm">100</span>));  <span class="cm">// cryptographically secure</span>
+<span class="ty">console</span>.<span class="fn">log</span>(<span class="fn">randomBytes</span>(<span class="nm">16</span>).<span class="fn">toString</span>(<span class="st">'hex'</span>));
+<span class="label">TypeScript</span></code></pre>
+  </div>
+  <div class="tab-content go">
+<pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"fmt"</span>
+    <span class="st">"math/rand/v2"</span>  <span class="cm">// Go 1.22+ — uses PCG and ChaCha8</span>
+    <span class="st">"crypto/rand"</span>
+    <span class="st">"math/big"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="cm">// math/rand/v2 uses PCG (non-crypto) or ChaCha8 (crypto-ish)
+    // Go dropped Mersenne Twister in v2!</span>
+    fmt.<span class="fn">Println</span>(rand.<span class="fn">IntN</span>(<span class="nm">100</span>))      <span class="cm">// non-crypto, auto-seeded</span>
+
+    <span class="cm">// For actual crypto — crypto/rand, always</span>
+    n, _ := crand.<span class="fn">Int</span>(crand.Reader, big.<span class="fn">NewInt</span>(<span class="nm">100</span>))
+    fmt.<span class="fn">Println</span>(n)
+}
+<span class="label">Go</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+<pre><code><span class="kw">use</span> rand::{<span class="ty">Rng</span>, <span class="ty">SeedableRng</span>};
+<span class="kw">use</span> rand::rngs::{<span class="ty">StdRng</span>, <span class="ty">ThreadRng</span>};
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="cm">// thread_rng() — seeded from OS entropy, NOT Mersenne Twister.
+    // Rust's StdRng is currently ChaCha12.</span>
+    <span class="kw">let mut</span> rng: <span class="ty">ThreadRng</span> = rand::<span class="fn">thread_rng</span>();
+    println!(<span class="st">"{}"</span>, rng.<span class="fn">gen_range</span>(<span class="nm">0</span>..<span class="nm">100</span>));
+
+    <span class="cm">// For MT19937 specifically — use the rand_mt crate</span>
+    <span class="cm">// use rand_mt::Mt19937GenRand32;</span>
+    <span class="cm">// Rust's standard library deliberately chose stronger defaults.</span>
+
+    <span class="cm">// SmallRng — fast, non-crypto, platform-dependent algorithm</span>
+    <span class="kw">let mut</span> small = rand::rngs::<span class="ty">SmallRng</span>::<span class="fn">from_entropy</span>();
+    println!(<span class="st">"{}"</span>, small.<span class="fn">gen</span>::&lt;<span class="ty">f64</span>&gt;());
+}
+<span class="label">Rust</span></code></pre>
+  </div>
+</div>
+
+<div class="lang-note">
+  <div class="lang-note-label">Language Notes</div>
+  <p><strong>Python</strong>: MT19937 is guaranteed by the spec &mdash; it's been there since Python 2.3. <strong>Ruby</strong>: also MT19937 since Ruby 1.8. <strong>PHP</strong>: <code>rand()</code> used MT19937 since PHP 7.1. <strong>Go</strong>: deprecated MT in <code>math/rand/v2</code> (Go 1.22), moving to PCG and ChaCha8. <strong>Rust</strong>: never used MT; defaults to ChaCha-based algorithms. <strong>JavaScript</strong>: V8 uses xorshift128+, not MT &mdash; and it's not exposed to you anyway.</p>
+</div>
+
+</section>
+<!-- ============================================================ -->
+<section id="ch5">
+<h2>// 05 &mdash; Xorshift &amp; Modern PRNGs</h2>
+
+<p class="drop-cap">George Marsaglia (again!) introduced xorshift in 2003. The man simply could not stop publishing devastating papers about random number generators. Beautifully simple: three XOR-and-shift operations on an integer. No multiplication, no division, no lookup table — just the three most embarrassingly fast operations a CPU has. And yet the output passes statistical tests that would make a lesser PRNG weep.</p>
+
+<p>The core insight: XOR and bit shifts are reversible. A nonzero state can never reach zero, so the period is guaranteed to be the full 2<sup>32</sup>&minus;1 for a 32-bit state. Three carefully chosen shifts are enough to ensure every bit influences every other bit within a few iterations — that is the entire theory.</p>
+
+<div class="diagram">
+<span class="diagram-label">xorshift32 — the whole algorithm</span>
+<pre><code>  // State: a single 32-bit nonzero integer
+  // Three magic constants chosen by Marsaglia for maximum period
+
+  x ^= x &lt;&lt; 13      // left shift creates high-bit dependencies
+  x ^= x &gt;&gt; 17      // right shift creates low-bit dependencies
+  x ^= x &lt;&lt;  5      // left shift mixes them together
+  return x           // done. seriously.
+
+  ──────────────────────────────────────────────────────
+  Verification with seed = 0xDEADBEEF:
+
+    State[0]:  0xDEADBEEF  (initial seed)
+    State[1]:  0x42A5B2F9
+    State[2]:  0xC7D3E1A4
+    State[3]:  0x91B6F207
+    ...
+    After 2^32 - 1 steps:  back to 0xDEADBEEF
+    Period: exactly 4,294,967,295  (never visits 0x00000000)
+
+  Cost: 3 instructions. ~0.5ns on modern hardware.</code></pre>
+</div>
+
+<h3>The Modern Successors</h3>
+
+<p>Xorshift32 was a revelation, but it has weaknesses in the low bits and fails some of Marsaglia's own tests. The family tree grew rapidly as researchers found better shift constants, longer states, and a clever final mixing step called a "scrambler" that fixes the low-bit issues without sacrificing speed.</p>
+
+<p><strong>xoshiro256**</strong> (Blackman &amp; Vigna, 2018): 256-bit state, "xor/shift/rotate" operations plus a double-star scrambler. The current recommendation for most non-cryptographic use. <strong>PCG</strong> (Melissa O'Neill, 2014): "Permuted Congruential Generator" — an LCG under the hood, but with a clever permutation applied to the output bits. Statisticians love it because it provably has good equidistribution. <strong>SplitMix64</strong>: used to initialize other generators from a 64-bit seed. Excellent avalanche properties.</p>
+
+<table>
+<tr>
+  <th>Generator</th>
+  <th>Period</th>
+  <th>State Size</th>
+  <th>Speed (ns/call)</th>
+  <th>Quality</th>
+  <th>Used By</th>
+</tr>
+<tr>
+  <td>MT19937</td>
+  <td>2<sup>19937</sup>&minus;1</td>
+  <td>2.5 KB</td>
+  <td>~4 ns</td>
+  <td><span style="color:var(--yellow)">Good</span></td>
+  <td>Python, Ruby</td>
+</tr>
+<tr>
+  <td>xorshift128+</td>
+  <td>2<sup>128</sup>&minus;1</td>
+  <td>16 B</td>
+  <td>~1 ns</td>
+  <td><span style="color:var(--yellow)">Good</span></td>
+  <td>V8, SpiderMonkey</td>
+</tr>
+<tr>
+  <td>xoshiro256**</td>
+  <td>2<sup>256</sup>&minus;1</td>
+  <td>32 B</td>
+  <td>~1 ns</td>
+  <td><span style="color:var(--green)">Excellent</span></td>
+  <td>Newer libs</td>
+</tr>
+<tr>
+  <td>PCG-64</td>
+  <td>2<sup>128</sup></td>
+  <td>16 B</td>
+  <td>~1 ns</td>
+  <td><span style="color:var(--green)">Excellent</span></td>
+  <td>NumPy, Rust</td>
+</tr>
+</table>
+
+<p>Note what happened to the state size: MT19937 needs 2.5 kilobytes of state — nearly a full cache line cluster — while xorshift128+ and PCG-64 fit comfortably in two registers. Modern PRNGs are faster <em>and</em> better. This is not normal in computer science.</p>
+
+<h3>Implementation: xorshift32 in Five Languages</h3>
+
+<p>Because nothing demonstrates the elegance like seeing it fit on a napkin in every language you use:</p>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-xorshift" id="xorshift-c" class="tc" checked>
+  <input type="radio" name="tabs-xorshift" id="xorshift-py" class="tpy">
+  <input type="radio" name="tabs-xorshift" id="xorshift-ts" class="tts">
+  <input type="radio" name="tabs-xorshift" id="xorshift-go" class="tgo">
+  <input type="radio" name="tabs-xorshift" id="xorshift-rs" class="trs">
+  <div class="tab-bar">
+    <label for="xorshift-c">C</label>
+    <label for="xorshift-py">Python</label>
+    <label for="xorshift-ts">TypeScript</label>
+    <label for="xorshift-go">Go</label>
+    <label for="xorshift-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+    <pre><code><span class="pp">#include</span> <span class="st">&lt;stdint.h&gt;</span>
+
+<span class="cm">// State: any nonzero uint32. Global or per-thread.</span>
+<span class="kw">static</span> <span class="ty">uint32_t</span> xorshift_state = <span class="nm">0xDEADBEEF</span>;
+
+<span class="ty">uint32_t</span> <span class="fn">xorshift32</span>(<span class="ty">void</span>) {
+    <span class="ty">uint32_t</span> x = xorshift_state;
+    x ^= x &lt;&lt; <span class="nm">13</span>;
+    x ^= x &gt;&gt; <span class="nm">17</span>;
+    x ^= x &lt;&lt;  <span class="nm">5</span>;
+    <span class="kw">return</span> xorshift_state = x;
+}
+
+<span class="cm">// That's it. That's the whole thing.</span>
+<span class="cm">// Three XORs, three shifts, one assignment.</span>
+<span class="cm">// Compiles to ~6 instructions. Period: 2^32-1.</span>
+<span class="label">C</span></code></pre>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="cm"># Python integers are arbitrary precision,</span>
+<span class="cm"># so we must mask to 32 bits manually.</span>
+
+<span class="kw">class</span> <span class="ty">Xorshift32</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(<span class="kw">self</span>, seed: <span class="ty">int</span> = <span class="nm">0xDEADBEEF</span>):
+        <span class="kw">assert</span> seed != <span class="nm">0</span>, <span class="st">"seed must be nonzero"</span>
+        <span class="kw">self</span>.state = seed &amp; <span class="nm">0xFFFFFFFF</span>
+
+    <span class="kw">def</span> <span class="fn">next</span>(<span class="kw">self</span>) -&gt; <span class="ty">int</span>:
+        x = <span class="kw">self</span>.state
+        x ^= (x &lt;&lt; <span class="nm">13</span>) &amp; <span class="nm">0xFFFFFFFF</span>
+        x ^= (x &gt;&gt; <span class="nm">17</span>)
+        x ^= (x &lt;&lt;  <span class="nm">5</span>) &amp; <span class="nm">0xFFFFFFFF</span>
+        <span class="kw">self</span>.state = x
+        <span class="kw">return</span> x
+
+rng = <span class="ty">Xorshift32</span>(<span class="nm">42</span>)
+<span class="fn">print</span>([rng.<span class="fn">next</span>() <span class="kw">for</span> _ <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">5</span>)])
+<span class="label">Python</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="cm">// TypeScript: use >>> for unsigned right shift</span>
+<span class="cm">// JavaScript bitwise ops work on signed 32-bit ints,</span>
+<span class="cm">// so >>> forces unsigned interpretation.</span>
+
+<span class="kw">function</span> <span class="fn">makeXorshift32</span>(seed: <span class="ty">number</span> = <span class="nm">0xDEADBEEF</span>) {
+  <span class="kw">if</span> (seed === <span class="nm">0</span>) <span class="kw">throw new</span> <span class="ty">Error</span>(<span class="st">"seed must be nonzero"</span>);
+  <span class="kw">let</span> x = seed &gt;&gt;&gt; <span class="nm">0</span>;   <span class="cm">// coerce to uint32</span>
+
+  <span class="kw">return function</span> <span class="fn">next</span>(): <span class="ty">number</span> {
+    x ^= x &lt;&lt; <span class="nm">13</span>;
+    x ^= x &gt;&gt;&gt; <span class="nm">17</span>;
+    x ^= x &lt;&lt;  <span class="nm">5</span>;
+    <span class="kw">return</span> x &gt;&gt;&gt; <span class="nm">0</span>;     <span class="cm">// always return positive</span>
+  };
+}
+
+<span class="kw">const</span> rng = <span class="fn">makeXorshift32</span>(<span class="nm">42</span>);
+<span class="ty">console</span>.<span class="fn">log</span>(<span class="ty">Array</span>.<span class="fn">from</span>({length: <span class="nm">5</span>}, rng));
+<span class="label">TypeScript</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> <span class="st">"fmt"</span>
+
+<span class="kw">type</span> <span class="ty">Xorshift32</span> <span class="kw">struct</span> { state <span class="ty">uint32</span> }
+
+<span class="kw">func</span> <span class="fn">NewXorshift32</span>(seed <span class="ty">uint32</span>) *<span class="ty">Xorshift32</span> {
+    <span class="kw">if</span> seed == <span class="nm">0</span> { seed = <span class="nm">0xDEADBEEF</span> }
+    <span class="kw">return</span> &amp;<span class="ty">Xorshift32</span>{state: seed}
+}
+
+<span class="kw">func</span> (r *<span class="ty">Xorshift32</span>) <span class="fn">Next</span>() <span class="ty">uint32</span> {
+    x := r.state
+    x ^= x &lt;&lt; <span class="nm">13</span>
+    x ^= x &gt;&gt; <span class="nm">17</span>
+    x ^= x &lt;&lt;  <span class="nm">5</span>
+    r.state = x
+    <span class="kw">return</span> x
+}
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    rng := <span class="fn">NewXorshift32</span>(<span class="nm">42</span>)
+    <span class="kw">for</span> i := <span class="nm">0</span>; i &lt; <span class="nm">5</span>; i++ {
+        <span class="fn">fmt.Printf</span>(<span class="st">"%08x\n"</span>, rng.<span class="fn">Next</span>())
+    }
+}
+<span class="label">Go</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="cm">// Rust: wrapping_shl/shr for explicit overflow semantics,</span>
+<span class="cm">// though ^ with shifts on u32 is already wrapping.</span>
+
+<span class="kw">struct</span> <span class="ty">Xorshift32</span> { state: <span class="ty">u32</span> }
+
+<span class="kw">impl</span> <span class="ty">Xorshift32</span> {
+    <span class="kw">fn</span> <span class="fn">new</span>(seed: <span class="ty">u32</span>) -&gt; <span class="ty">Self</span> {
+        <span class="fn">assert!</span>(seed != <span class="nm">0</span>, <span class="st">"seed must be nonzero"</span>);
+        <span class="ty">Self</span> { state: seed }
+    }
+
+    <span class="kw">fn</span> <span class="fn">next</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">u32</span> {
+        <span class="kw">let mut</span> x = <span class="kw">self</span>.state;
+        x ^= x &lt;&lt; <span class="nm">13</span>;
+        x ^= x &gt;&gt; <span class="nm">17</span>;
+        x ^= x &lt;&lt;  <span class="nm">5</span>;
+        <span class="kw">self</span>.state = x;
+        x
+    }
+}
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let mut</span> rng = <span class="ty">Xorshift32</span>::<span class="fn">new</span>(<span class="nm">42</span>);
+    (<span class="nm">0</span>..<span class="nm">5</span>).<span class="fn">for_each</span>(|_| <span class="fn">println!</span>(<span class="st">"{:08x}"</span>, rng.<span class="fn">next</span>()));
+}
+<span class="label">Rust</span></code></pre>
+  </div>
+</div>
+
+<div class="power">
+<div class="power-label">Convergence</div>
+<p>xoshiro256** is what modern languages are converging on. V8 already uses xorshift128+ for <code>Math.random()</code>. NumPy switched to PCG-64 in 2019, which broke reproducibility for anyone seeding legacy simulations — a migration headache that reminded everyone that "random" is never really random in software.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch6">
+<h2>// 06 &mdash; The OS Entropy Pool</h2>
+
+<p class="drop-cap">Where does the seed come from? This is the question that separates "interesting algorithm" from "actually secure." A PRNG seeded with a predictable value is just an elaborate way to generate a deterministic sequence — which is exactly what you do <em>not</em> want for cryptography. The OS gathers entropy from the physical world: interrupt timing, disk seek times, mouse movements, keyboard press timing, network packet arrival jitter. Tiny, unpredictable variations in the physical universe, accumulated over time, fed into a pool of bits that nobody can predict.</p>
+
+<h3>Linux: Three Ways to Get Randomness</h3>
+
+<p>Linux has three interfaces, each with a different trade-off between security paranoia and pragmatic usability:</p>
+
+<div class="diagram">
+<span class="diagram-label">Linux entropy interfaces — a brief history of overengineering</span>
+<pre><code>  /dev/random   — historically: blocks when "entropy runs out"
+                  Theory: if we haven't gathered enough physical entropy,
+                  we refuse to give you more random bytes.
+                  Practice: servers with no keyboard/mouse routinely
+                  hang at boot waiting for entropy. Classic.
+
+  /dev/urandom  — non-blocking, always returns bytes
+                  Uses the CSPRNG, which is computationally secure
+                  even after the initial seed. Never blocks.
+                  The actually-sane choice for 99% of use cases.
+
+  getrandom()   — Linux 3.17+ syscall (2014)
+                  Blocks until initial pool is seeded (good!),
+                  then never blocks again (also good!).
+                  Not subject to /dev file descriptor limits.
+                  The correct modern choice.
+
+  ──────────────────────────────────────────────────────────────
+  The entropy debate: old Linux /dev/random blocked when the
+  kernel's internal entropy counter hit zero. Modern kernels
+  (5.18+, 2022) consider this unnecessary — a CSPRNG seeded
+  once is computationally indistinguishable from true entropy.
+  The counter is now cosmetic. The blocking is gone.</code></pre>
+</div>
+
+<h3>Other Operating Systems</h3>
+
+<p><strong>Windows</strong>: <code>BCryptGenRandom</code> from bcrypt.dll. Seeded from CPU timing, hardware RNG (RDRAND if available), and various system state. The old <code>CryptGenRandom</code> is deprecated but still works. <strong>macOS/iOS</strong>: <code>/dev/urandom</code> backed by the Fortuna CSPRNG, plus the <code>SecRandomCopyBytes</code> API. <strong>All modern BSDs</strong>: <code>arc4random()</code> — automatic, never-failing, always-secure. No seeding required. The correct API for the userspace programmer who just wants things to work.</p>
+
+<h3>How Entropy Gets Into the Pool</h3>
+
+<div class="diagram">
+<span class="diagram-label">entropy flow — from the physical world to your application</span>
+<pre><code>  Physical world
+    │
+    ├─ CPU interrupt timing (jiffies between IRQs)
+    ├─ Disk seek completion times (nanosecond variations)
+    ├─ Network packet arrival timestamps
+    ├─ Mouse/keyboard event timing
+    ├─ Hardware RNG (RDRAND, if present)
+    └─ Boot-time measurements (UEFI, TPM)
+    │
+    ▼
+  Interrupt handlers
+    │  Each interrupt: mix timing bits into the pool
+    │  add_interrupt_randomness() / add_device_randomness()
+    ▼
+  Entropy pool (Linux: 256-bit ChaCha20 key)
+    │  Input: hashed with BLAKE2s
+    │  State: continuously updated
+    ▼
+  CSPRNG (ChaCha20-based, since Linux 5.17)
+    │  Generates output stream from pool key
+    │  Periodically reseeded from pool
+    ▼
+  /dev/urandom / getrandom() / /dev/random
+    │
+    ▼
+  Your application</code></pre>
+</div>
+
+<h3>Getting OS Randomness in Your Code</h3>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-entropy" id="entropy-c" class="tc" checked>
+  <input type="radio" name="tabs-entropy" id="entropy-py" class="tpy">
+  <input type="radio" name="tabs-entropy" id="entropy-ts" class="tts">
+  <input type="radio" name="tabs-entropy" id="entropy-go" class="tgo">
+  <input type="radio" name="tabs-entropy" id="entropy-rs" class="trs">
+  <div class="tab-bar">
+    <label for="entropy-c">C</label>
+    <label for="entropy-py">Python</label>
+    <label for="entropy-ts">TypeScript</label>
+    <label for="entropy-go">Go</label>
+    <label for="entropy-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+    <pre><code><span class="pp">#include</span> <span class="st">&lt;sys/random.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdint.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+
+<span class="ty">int</span> <span class="fn">main</span>(<span class="ty">void</span>) {
+    <span class="ty">uint8_t</span> buf[<span class="nm">32</span>];
+
+    <span class="cm">// getrandom() — the modern, correct way (Linux 3.17+)</span>
+    <span class="cm">// flags=0: block until seeded, then never block again</span>
+    <span class="ty">ssize_t</span> n = <span class="fn">getrandom</span>(buf, <span class="kw">sizeof</span>(buf), <span class="nm">0</span>);
+    <span class="kw">if</span> (n != <span class="kw">sizeof</span>(buf)) {
+        <span class="fn">perror</span>(<span class="st">"getrandom"</span>);
+        <span class="kw">return</span> <span class="nm">1</span>;
+    }
+
+    <span class="fn">printf</span>(<span class="st">"32 random bytes: "</span>);
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i &lt; <span class="nm">32</span>; i++)
+        <span class="fn">printf</span>(<span class="st">"%02x"</span>, buf[i]);
+    <span class="fn">printf</span>(<span class="st">"\n"</span>);
+    <span class="kw">return</span> <span class="nm">0</span>;
+    <span class="cm">// Note: no file descriptor, no /dev path,</span>
+    <span class="cm">// not subject to fd limits in containers.</span>
+}
+<span class="label">C &mdash; getrandom() syscall</span></code></pre>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">import</span> os
+<span class="kw">import</span> secrets
+
+<span class="cm"># os.urandom: always available, always safe</span>
+raw_bytes = os.<span class="fn">urandom</span>(<span class="nm">32</span>)
+<span class="fn">print</span>(raw_bytes.<span class="fn">hex</span>())
+
+<span class="cm"># secrets module (Python 3.6+): preferred for</span>
+<span class="cm"># security-sensitive code. Higher-level API.</span>
+
+<span class="cm"># Cryptographically secure random integer</span>
+n = secrets.<span class="fn">randbelow</span>(<span class="nm">1_000_000</span>)
+
+<span class="cm"># Cryptographically secure token (URL-safe base64)</span>
+token = secrets.<span class="fn">token_urlsafe</span>(<span class="nm">32</span>)   <span class="cm"># 32 bytes = 43 chars</span>
+<span class="fn">print</span>(token)
+
+<span class="cm"># Cryptographically secure hex token</span>
+hex_token = secrets.<span class="fn">token_hex</span>(<span class="nm">16</span>)    <span class="cm"># 16 bytes = 32 hex chars</span>
+
+<span class="cm"># NEVER use random.random() for security.</span>
+<span class="cm"># NEVER use random.randint() for tokens.</span>
+<span class="cm"># The secrets module exists to stop you.</span>
+<span class="label">Python &mdash; os.urandom / secrets</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="cm">// Browser and Node.js (v15+): Web Crypto API</span>
+<span class="cm">// This is the standardized interface everywhere.</span>
+
+<span class="cm">// Fill a buffer with cryptographically secure random bytes</span>
+<span class="kw">const</span> buf = <span class="kw">new</span> <span class="ty">Uint8Array</span>(<span class="nm">32</span>);
+crypto.<span class="fn">getRandomValues</span>(buf);
+<span class="ty">console</span>.<span class="fn">log</span>(<span class="ty">Buffer</span>.<span class="fn">from</span>(buf).<span class="fn">toString</span>(<span class="st">'hex'</span>));
+
+<span class="cm">// Generate a random UUID (v4) — uses getRandomValues internally</span>
+<span class="kw">const</span> id = crypto.<span class="fn">randomUUID</span>();   <span class="cm">// "550e8400-e29b-41d4-a716-..."</span>
+
+<span class="cm">// Node.js crypto module (also fine)</span>
+<span class="kw">import</span> { randomBytes } <span class="kw">from</span> <span class="st">'node:crypto'</span>;
+<span class="kw">const</span> key = <span class="fn">randomBytes</span>(<span class="nm">32</span>);     <span class="cm">// Buffer of 32 random bytes</span>
+
+<span class="cm">// Math.random() is NOT crypto-secure.</span>
+<span class="cm">// V8 uses xorshift128+, which is predictable</span>
+<span class="cm">// given enough output observations.</span>
+<span class="label">TypeScript &mdash; crypto.getRandomValues</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"crypto/rand"</span>
+    <span class="st">"encoding/hex"</span>
+    <span class="st">"fmt"</span>
+    <span class="st">"math/big"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="cm">// crypto/rand.Read fills a buffer from the OS entropy pool</span>
+    <span class="cm">// Uses getrandom() on Linux, BCryptGenRandom on Windows</span>
+    buf := <span class="fn">make</span>([]<span class="ty">byte</span>, <span class="nm">32</span>)
+    <span class="kw">if</span> _, err := rand.<span class="fn">Read</span>(buf); err != <span class="kw">nil</span> {
+        <span class="fn">panic</span>(err)   <span class="cm">// should never happen on a sane OS</span>
+    }
+    <span class="fn">fmt.Println</span>(hex.<span class="fn">EncodeToString</span>(buf))
+
+    <span class="cm">// Cryptographically secure random integer in [0, max)</span>
+    max := big.<span class="fn">NewInt</span>(<span class="nm">1_000_000</span>)
+    n, _ := rand.<span class="fn">Int</span>(rand.Reader, max)
+    <span class="fn">fmt.Println</span>(n)
+
+    <span class="cm">// math/rand is NOT crypto-secure.</span>
+    <span class="cm">// Use crypto/rand for anything security-related.</span>
+}
+<span class="label">Go &mdash; crypto/rand</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="cm">// The getrandom crate wraps the OS call directly</span>
+<span class="cm">// Works on Linux, Windows, macOS, WASM, embedded.</span>
+
+<span class="cm">// Cargo.toml: getrandom = "0.2"</span>
+<span class="kw">use</span> getrandom::<span class="fn">getrandom</span>;
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let mut</span> buf = [<span class="nm">0u8</span>; <span class="nm">32</span>];
+    <span class="fn">getrandom</span>(&amp;<span class="kw">mut</span> buf).<span class="fn">expect</span>(<span class="st">"OS entropy unavailable"</span>);
+    <span class="fn">println!</span>(<span class="st">"{}"</span>, buf.<span class="fn">iter</span>().<span class="fn">map</span>(|b| <span class="fn">format!</span>(<span class="st">"{:02x}"</span>, b)).<span class="fn">collect</span>::&lt;<span class="ty">String</span>&gt;());
+
+    <span class="cm">// In practice, most Rust code uses the rand crate</span>
+    <span class="cm">// with OsRng for the crypto-secure source:</span>
+    <span class="cm">// use rand::rngs::OsRng;</span>
+    <span class="cm">// use rand::RngCore;</span>
+    <span class="cm">// let n = OsRng.next_u64();</span>
+    <span class="cm">//</span>
+    <span class="cm">// For non-crypto: ThreadRng (seeded from OsRng,</span>
+    <span class="cm">// uses ChaCha12, reseeded periodically). Fast.</span>
+}
+<span class="label">Rust &mdash; getrandom crate</span></code></pre>
+  </div>
+</div>
+
+<p>See <a href="syscalls-deep-dive.html" style="color:var(--cyan)">Syscalls</a> for how <code>getrandom()</code> talks to the kernel and why it is immune to the file-descriptor-exhaustion attacks that plagued <code>/dev/urandom</code> in containerized environments.</p>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch7">
+<h2>// 07 &mdash; Hardware RNG</h2>
+
+<p class="drop-cap">Why not skip software entirely and sample physical randomness? The thermal noise in a transistor, the radioactive decay of an atom, the chaotic path of a photon through a beam splitter — these are genuinely random events, not computable from any prior state. Quantum mechanics guarantees it. If you can measure these events fast enough and feed them into your computer, you get randomness that no algorithm can predict, because no algorithm governs it.</p>
+
+<h3>RDRAND and RDSEED: CPU-Level Randomness</h3>
+
+<p>Intel introduced the <code>RDRAND</code> instruction with Ivy Bridge (2012), later adding <code>RDSEED</code>. The chip samples thermal noise from on-chip circuits — tiny, unpredictable voltage fluctuations — conditions the signal through a CSPRNG, and returns a random value in a single instruction. AMD added equivalent support shortly after.</p>
+
+<div class="diagram">
+<span class="diagram-label">RDRAND pipeline — from thermal noise to register</span>
+<pre><code>  Thermal noise source (on-chip analog circuit)
+    │  Random voltage fluctuations ≈ 800 MHz sampling rate
+    ▼
+  Analog-to-digital converter
+    │  Digitizes noise into raw random bits
+    ▼
+  Conditioning (AES-based whitening)
+    │  Removes bias, ensures uniform distribution
+    ▼
+  FIFO buffer
+    │  Holds conditioned bits ready for instruction
+    ▼
+  RDRAND instruction
+    │  Returns 16/32/64 bits in ~80 clock cycles
+    │  Throughput: ~500 MB/s of random data
+    ▼
+  General-purpose register (rax, etc.)
+
+  RDSEED: returns raw entropy bits (before CSPRNG conditioning)
+          Slower, but directly seeds other generators</code></pre>
+</div>
+
+<p>The catch, of course, is trust. You are relying on Intel or AMD to have implemented this correctly and honestly. After the Snowden revelations, security researchers became very interested in whether <code>RDRAND</code> might have a backdoor — a subtle bias that the manufacturer could exploit. The instruction is a black box. You cannot audit the silicon. The consensus position among cryptographers: use <code>RDRAND</code> as one entropy source among several, never as the sole source. Linux mixes it with other entropy; do not let it replace everything else.</p>
+
+<div class="power wild">
+<div class="power-label">The Lava Lamp Wall</div>
+<p>Cloudflare's famous wall of 100 lava lamps in their San Francisco lobby is not a decoration — it is an entropy source. A camera photographs them continuously, hashes the pixel data, and feeds the result into their entropy pool. The blobs of wax, floating in their unpredictable fluid-dynamics ballet, contribute to the randomness protecting roughly 10% of the internet's encrypted HTTPS traffic. If someone puts a curtain in front of those lamps, the internet gets marginally less random. This is real infrastructure.</p>
+</div>
+
+<h3>Other Hardware Sources</h3>
+
+<p><strong>Radioactive decay</strong>: Genuinely quantum-random. A radioactive source will emit a particle at a time governed by quantum mechanics — not probability in the statistical sense, but fundamental indeterminacy. Some Hardware Security Modules (HSMs) use a small radioactive source plus a Geiger counter to generate true random numbers. The decay events cannot be predicted by any computation. Physics wins.</p>
+
+<p><strong>Atmospheric noise</strong>: <code>random.org</code> captures radio static from the atmosphere using radio receivers and converts it to random numbers. Output rate: approximately 10,000 bits per second. Used by lottery systems, scientific simulations, and anyone who wants to argue that their random numbers came from the universe rather than an algorithm. The latency is not great for high-speed applications.</p>
+
+<p><strong>Photon beam splitters</strong>: Quantum random number generators from companies like ID Quantique send single photons at a 50/50 beam splitter. Which path the photon takes is determined by quantum mechanics alone. Gigabit-per-second output. Used in cryptographic key generation for high-security applications. Extremely expensive. Also the coolest way to generate random numbers if you have the budget.</p>
+
+<div class="power wild">
+<div class="power-label">Unconventional Entropy</div>
+<p>One security researcher's home entropy source: a webcam pointed at a fish tank. The fish never stop moving, the water constantly refracts light differently, and the resulting pixel stream provides a surprisingly good entropy feed when hashed. The fish are unaware of their cryptographic responsibilities and remain unpredictable regardless.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch8">
+<h2>// 08 &mdash; Cryptographic RNG &mdash; When Randomness is Life or Death</h2>
+
+<p class="drop-cap">A CSPRNG adds one critical property beyond statistical quality: forward secrecy and backtrack resistance. Even if an attacker sees all previous outputs — every random number you have ever generated — they cannot predict the next one. And even if they somehow see the current internal state, they cannot reconstruct past outputs. No amount of computation helps, because the security is not based on statistical obscurity but on computational hardness. Breaking it requires solving problems believed to require exponential time.</p>
+
+<h3>ChaCha20-Based CSPRNG</h3>
+
+<p>Linux's CSPRNG since kernel 5.17 (2022) uses ChaCha20, the same stream cipher used in TLS 1.3. Fast, side-channel resistant, well-analyzed by the cryptographic community. The key is derived from the entropy pool; output is a ChaCha20 keystream. Each CPU core gets its own ChaCha20 state to avoid lock contention. The pool is periodically reseeded from fresh hardware entropy.</p>
+
+<h3>AES-CTR-DRBG</h3>
+
+<p>The NIST SP 800-90A standard specifies Deterministic Random Bit Generators. AES-CTR-DRBG uses AES in counter mode: encrypt an incrementing counter under a secret key, use the output as random bytes. NIST-certified, used in many HSMs and government-approved implementations. Also the site of the most infamous CSPRNG scandal in history — but we will get to that.</p>
+
+<div class="diagram">
+<span class="diagram-label">CSPRNG — the computational barrier</span>
+<pre><code>                                       YOU ARE HERE
+  OS Entropy Pool ──seed──&gt; [ CSPRNG Internal State ] ──&gt; random output
+                                         │
+                              ┌──────────┴──────────┐
+                              │  COMPUTATIONAL       │
+                              │  BARRIER             │
+                              │                      │
+                              │  Given: all outputs  │
+                              │  Find:  internal     │
+                              │         state        │
+                              │                      │
+                              │  Cost: 2^256 ops     │
+                              │        (infeasible)  │
+                              └──────────────────────┘
+                                         │
+                                         ▼
+                              Cannot go backwards.
+                              Cannot predict forwards from outputs.
+                              Compromising state ≠ compromising history
+                              (backtrack resistance).</code></pre>
+</div>
+
+<h3>The Horror Stories</h3>
+
+<p>Nothing illustrates the importance of correct CSPRNG implementation like the catastrophic failures. These are real events, with real financial and security consequences, caused by implementation mistakes that seem embarrassingly simple in retrospect.</p>
+
+<h4>Debian OpenSSL (2008)</h4>
+
+<p>A Debian developer was auditing OpenSSL with Valgrind, a memory error detector. Valgrind flagged two lines in the entropy-gathering code as "reading uninitialized memory" — a pattern that looks like a bug. The developer commented out those lines to silence the warning. Unfortunately, those lines were intentional: they fed process memory contents (genuinely unpredictable data) into the entropy pool.</p>
+
+<p>The result: for almost two years, every SSL/TLS key generated on Debian or Ubuntu had an effective entropy of approximately 15 bits. There were only about 32,768 possible keys. Researchers built lookup tables. Every SSH key, every SSL certificate generated on an affected system was trivially breakable. One commented-out line. Two years. Every Debian server on the internet.</p>
+
+<div class="power danger">
+<div class="power-label">The Debian OpenSSL Bug</div>
+<p>One line of code, commented out, made every SSL certificate generated on Debian for <strong>two years</strong> trivially breakable. The developer thought the code was a Valgrind false positive. It was not. The affected window: September 2006 to May 2008. All keys generated in that period had ~32,768 possible values. An attacker could brute-force them on a laptop.</p>
+</div>
+
+<h4>Sony PlayStation 3 (2010)</h4>
+
+<p>The PS3 used ECDSA (Elliptic Curve Digital Signature Algorithm) to sign firmware. ECDSA requires a cryptographically random nonce <em>k</em> for every signature. Sony used a constant value. The same <em>k</em>, every time, for every signature.</p>
+
+<div class="diagram">
+<span class="diagram-label">ECDSA with constant k — the algebra that broke a console</span>
+<pre><code>  ECDSA signature equation:
+    s = k_inverse * (hash + private_key * r)  mod n
+
+  Given two signatures (s1, r1) and (s2, r2) from the same k:
+    s1 = k_inv * (h1 + priv * r1)
+    s2 = k_inv * (h2 + priv * r2)
+
+  Since r1 == r2 (same k → same r), solve for k:
+    s1 - s2 = k_inv * (h1 - h2)
+    k = (h1 - h2) / (s1 - s2)   ← trivial algebra
+
+  Once k is known, private_key = (s * k - hash) / r
+
+  Result: complete console compromise.
+          Every game could be copied, homebrew ran freely.
+          The entire security model, destroyed by k = constant.</code></pre>
+</div>
+
+<h4>Android SecureRandom (2013)</h4>
+
+<p>Certain Android devices had a bug in the Java <code>SecureRandom</code> implementation: insufficient seeding during PRNG initialization. Some Bitcoin wallet applications running on these devices generated Bitcoin private keys with predictable values. Attackers scanned the blockchain for signatures with repeated nonces (same weakness as the PS3), identified the vulnerable keys, and drained the wallets. Real money, gone, because of PRNG seeding failure.</p>
+
+<h4>Dual_EC_DRBG (2006&ndash;2014)</h4>
+
+<p>The most troubling entry. NIST standardized "Dual Elliptic Curve Deterministic Random Bit Generator" in 2006. The algorithm uses two elliptic curve points, P and Q, whose relationship determines the security. If someone knows the discrete logarithm of Q with respect to P — that is, if they know a value <em>e</em> such that Q = e*P — they can predict all outputs from a short observation window. Nobody knows why those specific P and Q constants were chosen. Nobody has ever explained the selection criteria. The NSA was heavily involved in the standardization process. In 2013, Snowden documents revealed that the NSA had paid RSA Security $10 million to make Dual_EC_DRBG the default in their BSAFE library. NIST withdrew the standard in 2014. The mathematical backdoor, if it exists, has never been confirmed or denied because confirming it would require disclosing classified capability.</p>
+
+<div class="power danger">
+<div class="power-label">Dual_EC_DRBG</div>
+<p>A NIST-standardized CSPRNG with constants that may have been chosen by the NSA to allow decryption of traffic secured with it. The algorithm was mysteriously slow, had a known theoretical weakness if someone knew the relationship between its constants, and was promoted aggressively despite two independent cryptographers publicly noting the potential backdoor in 2007. It was withdrawn in 2014. The constants were never explained.</p>
+</div>
+
+<p>See <a href="network-deep-dive.html" style="color:var(--cyan)">Network Stack</a> for how TLS depends on quality randomness for key exchange — and why a broken CSPRNG in the key generation step means that the entire cryptographic handshake, regardless of how correctly implemented, provides no actual security.</p>
+
+</section>
+<!-- ============================================================ -->
+<section id="ch9">
+<h2>// 09 &mdash; Distribution Shaping</h2>
+
+<p class="drop-cap">PRNGs give you uniform random numbers — every value between 0 and 1 equally likely, a perfectly flat histogram, the statistical equivalent of a beige wall. But reality is nothing like that. Heights follow a bell curve. Time between earthquakes follows an exponential distribution. Particle decay is Poisson. If your simulation produces uniformly distributed everything, your simulation is lying about the universe.</p>
+
+<p>The good news: one distribution is enough to rule them all. Given a uniform source, mathematicians have devised transforms to produce any distribution you need. The machinery is surprisingly elegant — or diabolically clever, depending on how much you like trigonometry.</p>
+
+<h3>Box-Muller Transform</h3>
+
+<p>George Box and Mervin Muller, 1958. Take two independent uniform randoms <code>u1</code> and <code>u2</code> on (0,1]. Apply the following incantation:</p>
+
+<pre><code><span class="nm">z0</span> = <span class="fn">sqrt</span>(<span class="nm">-2</span> * <span class="fn">ln</span>(<span class="nm">u1</span>)) * <span class="fn">cos</span>(<span class="nm">2</span>π * <span class="nm">u2</span>)
+<span class="nm">z1</span> = <span class="fn">sqrt</span>(<span class="nm">-2</span> * <span class="fn">ln</span>(<span class="nm">u1</span>)) * <span class="fn">sin</span>(<span class="nm">2</span>π * <span class="nm">u2</span>)
+<span class="label">math — Box-Muller</span></code></pre>
+
+<p>You get back <strong>two</strong> standard normal random variables. The proof involves polar coordinates, the Jacobian, and more calculus than is strictly comfortable. The result is miraculous: two worthless flat randoms go in, two proper bell-curved gaussians come out. Box and Muller were pleased with themselves, and they had every right to be.</p>
+
+<p>One practical note: <code>u1</code> cannot be exactly 0 or you're computing <code>ln(0) = -∞</code> and your program becomes a philosophy problem. Most implementations sample from (0,1] rather than [0,1]. The difference matters.</p>
+
+<h3>Rejection Sampling</h3>
+
+<p>When you don't have a neat closed-form transform, there's a blunter instrument: rejection sampling. Draw a point uniformly from a bounding box that contains your target distribution. If the point falls under the distribution's curve, keep it. If not, throw it away and try again.</p>
+
+<p>It works. It's general. It's also wasteful in proportion to how much of the bounding box your distribution doesn't fill. For a standard normal truncated at ±3σ, you reject about 5% of samples. For a distribution with spiky tails in high dimensions, you might reject 99.9% of everything you generate. High-dimensional rejection sampling is how you teach computers to appreciate futility.</p>
+
+<h3>Inverse Transform Sampling</h3>
+
+<p>The most theoretically elegant approach: if you know the inverse of your distribution's cumulative distribution function (CDF), apply it directly to a uniform random. <code>x = CDF⁻¹(u)</code>. The exponential distribution, for instance, has CDF inverse <code>-ln(1-u) / λ</code>. One multiplication, one log, done.</p>
+
+<p>The catch: most distributions don't have a closed-form CDF inverse. The normal distribution's CDF involves the error function, which has no elementary antiderivative. You'd need a numerical approximation — which brings you back to Box-Muller in practice, because Box-Muller is faster than evaluating <code>erfinv()</code>.</p>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-gauss" id="gauss-c" class="tc" checked>
+  <input type="radio" name="tabs-gauss" id="gauss-py" class="tpy">
+  <input type="radio" name="tabs-gauss" id="gauss-ts" class="tts">
+  <input type="radio" name="tabs-gauss" id="gauss-go" class="tgo">
+  <input type="radio" name="tabs-gauss" id="gauss-rs" class="trs">
+  <div class="tab-bar">
+    <label for="gauss-c">C</label>
+    <label for="gauss-py">Python</label>
+    <label for="gauss-ts">TypeScript</label>
+    <label for="gauss-go">Go</label>
+    <label for="gauss-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+    <pre><code><span class="pp">#include</span> <span class="st">&lt;math.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdlib.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+
+<span class="cm">// Box-Muller transform: produces gaussian random from two uniforms</span>
+<span class="cm">// Returns two values via out_z0 and out_z1</span>
+<span class="ty">void</span> <span class="fn">box_muller</span>(<span class="ty">double</span> *out_z0, <span class="ty">double</span> *out_z1) {
+    <span class="ty">double</span> u1, u2;
+    <span class="cm">// Avoid u1 = 0 to prevent log(0)</span>
+    <span class="kw">do</span> { u1 = <span class="fn">rand</span>() / (<span class="ty">double</span>)RAND_MAX; } <span class="kw">while</span> (u1 == <span class="nm">0.0</span>);
+    u2 = <span class="fn">rand</span>() / (<span class="ty">double</span>)RAND_MAX;
+
+    <span class="ty">double</span> mag = <span class="fn">sqrt</span>(<span class="nm">-2.0</span> * <span class="fn">log</span>(u1));
+    *out_z0 = mag * <span class="fn">cos</span>(<span class="nm">2.0</span> * M_PI * u2);
+    *out_z1 = mag * <span class="fn">sin</span>(<span class="nm">2.0</span> * M_PI * u2);
+}
+
+<span class="ty">int</span> <span class="fn">main</span>(<span class="ty">void</span>) {
+    <span class="ty">double</span> z0, z1;
+    <span class="fn">box_muller</span>(&amp;z0, &amp;z1);
+    <span class="fn">printf</span>(<span class="st">"z0 = %.6f, z1 = %.6f\n"</span>, z0, z1);
+    <span class="kw">return</span> <span class="nm">0</span>;
+}
+<span class="label">C &mdash; Box-Muller</span></code></pre>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="pp">import</span> random
+<span class="pp">import</span> math
+
+<span class="cm"># Python's random.gauss() uses Box-Muller internally</span>
+<span class="cm"># (or Kinderman-Monahan depending on the implementation)</span>
+
+<span class="cm"># The easy way:</span>
+samples = [<span class="fn">random.gauss</span>(mu=<span class="nm">0</span>, sigma=<span class="nm">1</span>) <span class="kw">for</span> _ <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">10</span>)]
+<span class="fn">print</span>(<span class="st">"random.gauss samples:"</span>)
+<span class="kw">for</span> s <span class="kw">in</span> samples:
+    <span class="fn">print</span>(f<span class="st">"  {s:.4f}"</span>)
+
+<span class="cm"># Manual Box-Muller for the curious:</span>
+<span class="kw">def</span> <span class="fn">box_muller</span>():
+    u1 = <span class="nm">0.0</span>
+    <span class="kw">while</span> u1 == <span class="nm">0.0</span>:
+        u1 = <span class="fn">random.random</span>()
+    u2 = <span class="fn">random.random</span>()
+    mag = <span class="fn">math.sqrt</span>(<span class="nm">-2.0</span> * <span class="fn">math.log</span>(u1))
+    z0 = mag * <span class="fn">math.cos</span>(<span class="nm">2.0</span> * math.pi * u2)
+    z1 = mag * <span class="fn">math.sin</span>(<span class="nm">2.0</span> * math.pi * u2)
+    <span class="kw">return</span> z0, z1
+
+z0, z1 = <span class="fn">box_muller</span>()
+<span class="fn">print</span>(f<span class="st">"\nManual Box-Muller: z0={z0:.4f}, z1={z1:.4f}"</span>)
+<span class="label">python</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="cm">// Box-Muller: two uniforms → two standard normals</span>
+<span class="kw">function</span> <span class="fn">boxMuller</span>(): [<span class="ty">number</span>, <span class="ty">number</span>] {
+  <span class="kw">let</span> u1 = <span class="nm">0</span>;
+  <span class="kw">while</span> (u1 === <span class="nm">0</span>) u1 = <span class="ty">Math</span>.<span class="fn">random</span>(); <span class="cm">// exclude 0</span>
+  <span class="kw">const</span> u2 = <span class="ty">Math</span>.<span class="fn">random</span>();
+  <span class="kw">const</span> mag = <span class="ty">Math</span>.<span class="fn">sqrt</span>(<span class="nm">-2.0</span> * <span class="ty">Math</span>.<span class="fn">log</span>(u1));
+  <span class="kw">const</span> z0 = mag * <span class="ty">Math</span>.<span class="fn">cos</span>(<span class="nm">2.0</span> * <span class="ty">Math</span>.PI * u2);
+  <span class="kw">const</span> z1 = mag * <span class="ty">Math</span>.<span class="fn">sin</span>(<span class="nm">2.0</span> * <span class="ty">Math</span>.PI * u2);
+  <span class="kw">return</span> [z0, z1];
+}
+
+<span class="cm">// Generate gaussian with given mean and standard deviation</span>
+<span class="kw">function</span> <span class="fn">gaussian</span>(mean: <span class="ty">number</span>, std: <span class="ty">number</span>): <span class="ty">number</span> {
+  <span class="kw">const</span> [z] = <span class="fn">boxMuller</span>();
+  <span class="kw">return</span> mean + z * std;
+}
+
+<span class="kw">const</span> samples = <span class="ty">Array</span>.<span class="fn">from</span>({ length: <span class="nm">10</span> }, () =&gt; <span class="fn">gaussian</span>(<span class="nm">0</span>, <span class="nm">1</span>));
+<span class="fn">console.log</span>(<span class="st">"Gaussian samples:"</span>);
+samples.<span class="fn">forEach</span>(s =&gt; <span class="fn">console.log</span>(s.<span class="fn">toFixed</span>(<span class="nm">4</span>)));
+<span class="label">TypeScript</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="pp">package</span> main
+
+<span class="pp">import</span> (
+    <span class="st">"fmt"</span>
+    <span class="st">"math/rand"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="cm">// rand.NormFloat64() returns a standard normal random variable.</span>
+    <span class="cm">// Go's stdlib uses the Kinderman-Ramage method internally,</span>
+    <span class="cm">// which is faster than Box-Muller for most use cases.</span>
+    <span class="kw">for</span> i := <span class="nm">0</span>; i &lt; <span class="nm">10</span>; i++ {
+        sample := <span class="fn">rand.NormFloat64</span>()
+        <span class="fn">fmt.Printf</span>(<span class="st">"%.4f\n"</span>, sample)
+    }
+
+    <span class="cm">// Non-standard normal: scale and shift</span>
+    mean, std := <span class="nm">5.0</span>, <span class="nm">2.0</span>
+    x := mean + std*<span class="fn">rand.NormFloat64</span>()
+    <span class="fn">fmt.Printf</span>(<span class="st">"Normal(5,2) sample: %.4f\n"</span>, x)
+}
+<span class="label">Go &mdash; NormFloat64</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="cm">// rand_distr crate provides principled distribution sampling</span>
+<span class="cm">// [dependencies]</span>
+<span class="cm">// rand = "0.8"</span>
+<span class="cm">// rand_distr = "0.4"</span>
+
+<span class="pp">use</span> rand_distr::{<span class="ty">Distribution</span>, <span class="ty">Normal</span>, <span class="ty">Exp</span>, <span class="ty">Poisson</span>};
+<span class="pp">use</span> rand::thread_rng;
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let mut</span> rng = <span class="fn">thread_rng</span>();
+
+    <span class="cm">// Standard normal (mean=0, std=1)</span>
+    <span class="kw">let</span> normal = <span class="ty">Normal</span>::<span class="fn">new</span>(<span class="nm">0.0</span>, <span class="nm">1.0</span>).<span class="fn">unwrap</span>();
+    <span class="kw">for</span> _ <span class="kw">in</span> <span class="nm">0</span>..<span class="nm">5</span> {
+        <span class="fn">println!</span>(<span class="st">"N(0,1): {:.4}"</span>, normal.<span class="fn">sample</span>(&amp;<span class="kw">mut</span> rng));
+    }
+
+    <span class="cm">// Exponential distribution (rate=1.0)</span>
+    <span class="kw">let</span> exp = <span class="ty">Exp</span>::<span class="fn">new</span>(<span class="nm">1.0</span>).<span class="fn">unwrap</span>();
+    <span class="fn">println!</span>(<span class="st">"Exp(1): {:.4}"</span>, exp.<span class="fn">sample</span>(&amp;<span class="kw">mut</span> rng));
+
+    <span class="cm">// Poisson distribution (lambda=4.0)</span>
+    <span class="kw">let</span> poisson = <span class="ty">Poisson</span>::<span class="fn">new</span>(<span class="nm">4.0</span>).<span class="fn">unwrap</span>();
+    <span class="kw">let</span> k: <span class="ty">u64</span> = poisson.<span class="fn">sample</span>(&amp;<span class="kw">mut</span> rng);
+    <span class="fn">println!</span>(<span class="st">"Poisson(4): {}"</span>, k);
+}
+<span class="label">Rust &mdash; rand_distr</span></code></pre>
+  </div>
+</div>
+
+<p>Further reading: the floating-point arithmetic underlying all these transcendental functions is its own rabbit hole — see <a href="floatingpoint-deep-dive.html" style="color:var(--cyan)">the floating-point deep dive</a>. And if you need to generate millions of gaussian samples per second, the GPU can run Box-Muller in parallel on thousands of cores simultaneously — covered in the <a href="gpu-deep-dive.html" style="color:var(--cyan)">GPU deep dive</a>.</p>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch10">
+<h2>// 10 &mdash; Gaming the System</h2>
+
+<p class="drop-cap">If randomness is actually deterministic — a pure mathematical function of an initial seed — then it's not random at all. It's a lock with a very large combination. And locks exist to be picked. Humans are, fundamentally, pattern-matching engines with gambling problems, and the intersection of those two properties has produced some spectacular exploits.</p>
+
+<p>This is the heist movie section. Somewhere out there, right now, someone is counting frames in a video game or logging slot machine outcomes to a server in St. Petersburg, and they are winning.</p>
+
+<h3>Speedrun RNG Manipulation</h3>
+
+<p>Super Mario 64 has a global RNG state updated on every frame the game runs. Expert speedrunners don't just play the game fast — they manipulate the RNG state to land favorable outcomes. Certain star-collecting sequences require the star to spawn in a specific location, which requires a specific RNG value, which requires entering and exiting rooms in a precise order while waiting exact frame counts. A speedrun that looks like someone playing brilliantly is often someone executing a frame-perfect RNG manipulation chain they rehearsed for hundreds of hours.</p>
+
+<p>Pokémon takes this further. Every encounter, every stat roll, every shiny Pokémon is determined by the RNG state at a precise moment. The Pokémon RNG abuse community reverse-engineered the exact PRNG algorithms used in each game — usually a simple LCG — and built tools to predict the future. To catch a specific legendary with perfect stats, you synchronize your DS clock to a known seed value, then press A at the exact millisecond a timer tells you. The Pokémon is predetermined; you're just recovering the hidden state. It's less like catching a wild animal and more like digging up a buried treasure whose location you already computed.</p>
+
+<h3>Poker Software Exploit (1999)</h3>
+
+<p>ASF Software's Texas Hold'em Poker for Windows seeded its shuffle algorithm with <code>GetTickCount()</code> — milliseconds since midnight. This seems reasonable until you count: there are only 86,400,000 milliseconds in a day. A standard 52-card deck has 52! ≈ 8×10<sup>67</sup> possible shuffles. The software was using a keyhole to represent an entire galaxy of combinatorial space.</p>
+
+<p>Security researchers Russ Sterns and Gib Budelman demonstrated that a fast computer could enumerate every possible deck in the time between the shuffle request and the first card being dealt — roughly 200ms. In practice, you could see two or three of your hole cards, then brute-force the remaining deck from there. The "random" poker game was deterministic, and the house edge was irrelevant once you knew the algorithm.</p>
+
+<div class="power hack">
+  <div class="power-label">// hack</div>
+  <p>The ASF Software poker bug: seeded with milliseconds since midnight. 86.4 million possible shuffles. 52! has 68 digits. They were using a keyhole to represent a galaxy.</p>
+</div>
+
+<h3>Slot Machine Reverse Engineering</h3>
+
+<p>In 2011, a Russian group led by a man known as "Alex" cracked Aristocrat Mark VI slot machines in casinos across the United States and Europe. The attack was methodological: associates recorded video of slot machine outcomes on phones, uploaded the recordings to servers in St. Petersburg, where analysts reverse-engineered the PRNG state from the sequence of visible results. Once they knew the internal state, they could predict future outcomes. The analysts then sent timing signals back — vibrate the phone, tap the screen — telling the player exactly when to press the spin button to land a jackpot.</p>
+
+<p>The scheme worked because modern slot machines use pseudorandom number generators that cycle through a fixed sequence. Record enough consecutive outcomes, solve for the seed, and the future is a lookup table. Aristocrat patched the vulnerability in subsequent firmware. The Russian group reportedly made millions before being caught. The math was unimpeachable. The jurisdiction was complicated.</p>
+
+<h3>Vietnam Draft Lottery (1969)</h3>
+
+<p>On December 1, 1969, the United States conducted a draft lottery for men born between 1944 and 1950. Birthdays were written on capsules, placed in a box, and drawn one by one to determine draft order. The first birthday drawn would mean that cohort was drafted first.</p>
+
+<p>The problem: the capsules were loaded into the box by month, January first, December last. They were stirred — but not shuffled. Not really. Statistical analysis of the results showed December birthdates clustering disproportionately among the low numbers (drafted early). January birthdates clustered among the high numbers. The stirring was insufficient to overcome the sequential loading order.</p>
+
+<p>Roughly 850,000 men had their lives materially altered by a clerical decision about which month to pour capsules in first, combined with a failure to understand that "stirring" is not a substitute for a random permutation. Donald Knuth, writing about this event years later, noted that it was a textbook demonstration of how not to shuffle. The Fisher-Yates algorithm, which would have solved the problem in 366 iterations, had been published in 1938. It sat, unused, in a statistics textbook while a jar was stirred by hand.</p>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch11">
+<h2>// 11 &mdash; Monte Carlo Methods</h2>
+
+<p class="drop-cap">Stanislaw Ulam, 1946. He was recovering from encephalitis caused by a bad vaccine — brain surgery, long recovery, playing solitaire to pass the time. He started wondering about the probability of winning a game of Canfield solitaire. Tried to calculate it combinatorially. The branching possibilities were intractable. Then the thought: why not just play the game thousands of times and count? The fraction of wins is the probability. He told John von Neumann. Von Neumann immediately saw the implications for the neutron diffusion problems they were working on at Los Alamos. Monte Carlo simulation was born.</p>
+
+<p>The name came from the casino in Monaco — the connection being "chance." Nicholas Metropolis suggested it. Ulam didn't object. The method is now foundational to physics, finance, medicine, engineering, and computer graphics, which is a remarkable trajectory for a man playing solitaire while his brain healed.</p>
+
+<h3>Estimating π</h3>
+
+<p>The canonical demonstration: draw a unit square. Inside it, inscribe a circle of radius 0.5, centered at (0.5, 0.5). The circle's area is π × 0.5² = π/4. The square's area is 1. Throw random darts at the square. Count how many land inside the circle. The ratio times 4 converges to π.</p>
+
+<p>It's a terrible way to compute π — you need millions of samples to get five decimal places, and there are polynomial-time algorithms that give you a trillion digits. But as a demonstration of the Monte Carlo principle, it's perfect: replace hard geometry with random sampling, and the answer emerges from the noise.</p>
+
+<h3>Ray Tracing: Every Pixel is a Monte Carlo</h3>
+
+<p>Every Pixar film, every modern game with path tracing, every photorealistic render you've ever seen: Monte Carlo all the way down. Simulate a photon leaving a light source. At each surface, randomly choose a direction weighted by the bidirectional reflectance distribution function. Bounce it around the scene. When it hits the camera sensor, record the contribution. Repeat for millions of photons per pixel. Average them. The integral of light transport is unsolvable analytically for complex scenes — but tractable by sampling.</p>
+
+<p>The random noise you see in a game running at low ray-count settings? That's Monte Carlo variance. Increase the sample count and the noise resolves into the correct image. Your GPU is spending its energy not computing correct answers, but sampling a probability distribution until the answer stops jiggling. See the <a href="gpu-deep-dive.html" style="color:var(--cyan)">GPU deep dive</a> for how this is parallelized — GPUs are, in a real sense, Monte Carlo machines.</p>
+
+<h3>Finance and Physics</h3>
+
+<p>Wall Street runs on random numbers. Options pricing (Black-Scholes and its successors), Value at Risk calculations, stress testing entire portfolios — all Monte Carlo. You simulate thousands of possible market futures, see what fraction of them result in catastrophic loss, and price accordingly. The 2008 financial crisis was partly a failure of the Monte Carlo models to capture the correct distribution of housing prices — the models assumed gaussians where reality had fat tails. Garbage in, garbage out, but with mortgage-backed securities.</p>
+
+<p>CERN simulates particle collisions via Monte Carlo. The LHC generates real collisions; the Monte Carlo simulation generates synthetic ones to compare against, at a rate of roughly 10 billion simulated events per year. Confirming the Higgs boson required matching observed collision signatures against a distribution of Monte Carlo-generated expected signatures. Random numbers, in other words, helped prove the existence of the particle that gives all other particles their mass. Ulam's solitaire game has had an eventful afterlife.</p>
+
+<div class="interactive-demo" id="demo-pi">
+  <h4>Interactive: Monte Carlo Pi Estimator</h4>
+  <p style="font-size:0.9rem;color:var(--text-dim);">Watch random darts estimate π. More darts = better estimate.</p>
+  <div style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap">
+    <button id="pi-start">Start</button>
+    <button id="pi-reset" style="border-color:var(--red);color:var(--red)">Reset</button>
+    <span style="font-size:0.85em;color:var(--text-dim)">Speed:</span>
+    <input type="range" id="pi-speed" min="1" max="100" value="20" style="width:150px">
+  </div>
+  <canvas id="pi-canvas" class="demo-canvas" width="400" height="400"></canvas>
+  <div class="demo-output" id="pi-output">Click Start to begin</div>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch12">
+<h2>// 12 &mdash; Testing Randomness</h2>
+
+<p class="drop-cap">How do you prove something is random? You can't. Randomness is not a property you can verify with certainty — only one you can fail to disprove. Every statistical test for randomness is really a test for the presence of a specific non-random pattern. Pass all the tests and you're not proven random; you're merely undetected. The set of possible non-random patterns is infinite, the set of tests finite. There is no certificate of randomness. There is only the absence of known suspicion.</p>
+
+<p>This sounds bleak, but it's workable. If your PRNG passes 160 independent statistical tests at 99.9% confidence, the probability that it's secretly terrible in a cryptographically significant way drops to "please direct your paranoia elsewhere." Most RNG failures are obvious in one or two tests. Nobody is surprised by bad randomness quietly.</p>
+
+<h3>Diehard Tests</h3>
+
+<p>George Marsaglia, 1995. Marsaglia was perhaps the most prolific PRNG researcher of the 20th century — he invented the Mersenne Twister's predecessor, named his PRNG "KISS" (Keep It Simple Stupid), and distributed his test suite on a CD-ROM titled "A CD ROM Full of Random Numbers." The Diehard battery includes tests with names like Birthday Spacings, Overlapping Permutations, Ranks of Matrices, the Squeeze test, and the Monkey Tests. If your generator fails the Monkey Tests, your generator has failed at something a room of monkeys could have caught.</p>
+
+<p>Marsaglia was also notable for discovering multiple failures in widely-used PRNGs and publishing them bluntly. The generator in early versions of Java's <code>java.util.Random</code> failed several Diehard tests. Marsaglia published the failure. Java fixed it. Marsaglia published another failure. This continued.</p>
+
+<h3>TestU01</h3>
+
+<p>Pierre L'Ecuyer and Richard Simard, Université de Montréal, 2007. Three test batteries of increasing severity: SmallCrush (10 tests, a few seconds to run), Crush (96 tests, an hour), and BigCrush (160 tests, several hours on a fast CPU). BigCrush is the industry benchmark. If your PRNG fails BigCrush, it fails; if it passes BigCrush, it's considered cryptographically-adjacent in terms of statistical quality — though not cryptographically secure, which is a different property.</p>
+
+<p>Xorshift64, a popular fast non-crypto PRNG, passes SmallCrush but fails BigCrush. Mersenne Twister passes BigCrush but fails specific linear-complexity tests in TestU01 that Marsaglia's suite doesn't cover. xoshiro256** passes BigCrush. The hierarchy is clear; using the right tool depends on whether you need speed, statistical quality, or cryptographic security — and knowing that these are not the same thing.</p>
+
+<h3>NIST SP 800-22</h3>
+
+<p>The US government's official randomness test suite, maintained by the National Institute of Standards and Technology. Required for cryptographic modules seeking FIPS 140-2 certification — which is required for most software used by US federal agencies, defense contractors, and much of the financial industry. Fifteen tests: frequency, block frequency, runs, longest runs of ones, binary matrix rank, spectral (FFT), non-overlapping template matchings, overlapping template matchings, Maurer's universal statistical test, linear complexity, serial, approximate entropy, cumulative sums, random excursions, random excursions variant.</p>
+
+<p>Passing NIST SP 800-22 is necessary but not sufficient for cryptographic security. It tests statistical properties, not resistance to algorithmic cryptanalysis. <code>/dev/urandom</code> passes it. A well-implemented CSPRNG passes it. A Mersenne Twister also passes it, despite being completely predictable once you observe 624 consecutive outputs. The test suite doesn't know about your threat model.</p>
+
+<h3>Chi-Squared Test</h3>
+
+<p>The simplest randomness test, and the first one any statistician reaches for. Roll a die N times. Count occurrences of each face. Compare observed vs. expected frequencies using the chi-squared statistic: <code>χ² = Σ (observed - expected)² / expected</code>. If χ² is too large, the die is biased. If χ² is suspiciously small — much smaller than expected — the die is <em>too</em> regular. Either extreme is suspicious. Perfect randomness is not perfectly flat; it's flat with expected variance. A histogram that looks exactly right is as alarming as one that looks wrong.</p>
+
+<p>This is the counterintuitive part that surprises people: if you roll a fair die 6,000 times and every face comes up exactly 1,000 times, you should be deeply concerned. The probability of that happening by chance is roughly one in 10<sup>7</sup>. Something is generating suspiciously uniform outcomes. Either the die is controlled, or someone has manipulated the results to look more random than chance produces. Randomness has texture. The absence of texture is evidence of non-randomness.</p>
+
+<div class="interactive-demo" id="demo-dice">
+  <h4>Interactive: Dice Roll Tester</h4>
+  <p style="font-size:0.9rem;color:var(--text-dim);">Roll a simulated die and watch the chi-squared statistic.</p>
+  <div style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap">
+    <button id="dice-roll">Roll 100</button>
+    <button id="dice-roll1k">Roll 1,000</button>
+    <button id="dice-roll10k">Roll 10,000</button>
+    <button id="dice-reset" style="border-color:var(--red);color:var(--red)">Reset</button>
+  </div>
+  <div class="demo-output" id="dice-output">
+    <div id="dice-bars" style="display:flex;gap:4px;height:120px;align-items:flex-end;margin-bottom:0.5rem"></div>
+    <div id="dice-stats"></div>
+  </div>
+</div>
+
+</section>
+
+<p style="text-align:center;color:var(--text-dim);margin-top:4rem;font-style:italic;">In the end, randomness is the one resource computers cannot manufacture. Every shuffle, every simulation, every encrypted connection depends on harvesting genuine unpredictability from the physical world and stretching it with mathematics. The next time you flip a coin, remember: your CPU is doing something far stranger to generate the same outcome.</p>
+
+</div>
+
+<script>
+// === MONTE CARLO PI ESTIMATOR ===
+document.addEventListener('DOMContentLoaded', function() {
+  const canvas = document.getElementById('pi-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const output = document.getElementById('pi-output');
+  const speedSlider = document.getElementById('pi-speed');
+  let running=false, inside=0, total=0, animId=null;
+  function reset() {
+    running=false; inside=0; total=0;
+    if(animId) cancelAnimationFrame(animId); animId=null;
+    const w=canvas.width,h=canvas.height;
+    ctx.fillStyle='#0a0a0f';ctx.fillRect(0,0,w,h);
+    ctx.strokeStyle='rgba(0,255,136,0.3)';ctx.lineWidth=1;ctx.beginPath();ctx.arc(w/2,h/2,w/2,0,Math.PI*2);ctx.stroke();
+    output.textContent='Click Start to begin';
+    document.getElementById('pi-start').textContent='Start';
+  }
+  function step() {
+    if(!running)return;
+    const w=canvas.width,h=canvas.height,perFrame=parseInt(speedSlider.value);
+    for(let i=0;i<perFrame;i++){
+      const x=Math.random(),y=Math.random();
+      const d=(x-0.5)*(x-0.5)+(y-0.5)*(y-0.5);
+      const isIn=d<=0.25;
+      if(isIn)inside++;total++;
+      ctx.fillStyle=isIn?'rgba(0,255,136,0.7)':'rgba(255,0,170,0.5)';
+      ctx.fillRect(x*w,y*h,2,2);
+    }
+    const pi=(inside/total)*4,err=Math.abs(pi-Math.PI);
+    output.innerHTML='<span style="color:var(--green);font-size:1.3em">π ≈ '+pi.toFixed(6)+'</span>\nDarts: '+total.toLocaleString()+'  |  Inside: '+inside.toLocaleString()+'  |  Error: '+err.toFixed(6);
+    animId=requestAnimationFrame(step);
+  }
+  document.getElementById('pi-start').addEventListener('click',function(){
+    if(running){running=false;this.textContent='Start';}
+    else{running=true;this.textContent='Pause';step();}
+  });
+  document.getElementById('pi-reset').addEventListener('click',reset);
+  reset();
+});
+
+// === DICE ROLL TESTER ===
+document.addEventListener('DOMContentLoaded', function() {
+  const bars = document.getElementById('dice-bars');
+  const stats = document.getElementById('dice-stats');
+  if (!bars||!stats) return;
+  let counts=[0,0,0,0,0,0], totalRolls=0;
+  function lgamma(x){const c=[76.18009172947146,-86.50532032941677,24.01409824083091,-1.231739572450155,0.1208650973866179e-2,-0.5395239384953e-5];let y=x,tmp=x+5.5;tmp-=(x-0.5)*Math.log(tmp);let ser=1.000000000190015;for(let j=0;j<6;j++)ser+=c[j]/++y;return -tmp+Math.log(2.5066282746310005*ser/x);}
+  function gammainc(a,x){if(x<=0)return 0;let sum=0,term=1/a;for(let n=1;n<200;n++){sum+=term;term*=x/(a+n);}return sum*Math.exp(-x+a*Math.log(x)-lgamma(a));}
+  function render(){
+    const max=Math.max(...counts,1);
+    bars.innerHTML=counts.map((c,i)=>'<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%"><div style="font-size:0.75em;color:var(--text-dim);margin-bottom:2px">'+c+'</div><div style="width:100%;background:var(--green);border-radius:2px 2px 0 0;min-height:2px;height:'+(c/max*100)+'%;transition:height 0.3s"></div><div style="font-size:0.85em;margin-top:4px;color:var(--cyan)">'+(i+1)+'</div></div>').join('');
+    if(!totalRolls){stats.innerHTML='<span style="color:var(--text-dim)">Roll some dice to begin</span>';return;}
+    const expected=totalRolls/6;
+    const chiSq=counts.reduce((s,c)=>s+Math.pow(c-expected,2)/expected,0);
+    const pVal=1-gammainc(2.5,chiSq/2);
+    stats.innerHTML='Total: <span style="color:var(--green)">'+totalRolls.toLocaleString()+'</span>  |  χ² = <span style="color:var(--yellow)">'+chiSq.toFixed(3)+'</span>  |  p ≈ <span style="color:'+(pVal<0.05?'var(--red)':'var(--green)')+'">'+pVal.toFixed(4)+'</span>'+(pVal<0.05?' <span style="color:var(--red)">⚠ Suspicious!</span>':' <span style="color:var(--green)">✓ Looks random</span>');
+  }
+  function roll(n){for(let i=0;i<n;i++){counts[Math.floor(Math.random()*6)]++;totalRolls++;}render();}
+  document.getElementById('dice-roll').addEventListener('click',()=>roll(100));
+  document.getElementById('dice-roll1k').addEventListener('click',()=>roll(1000));
+  document.getElementById('dice-roll10k').addEventListener('click',()=>roll(10000));
+  document.getElementById('dice-reset').addEventListener('click',()=>{counts=[0,0,0,0,0,0];totalRolls=0;render();});
+  render();
+});
+
+// === CODE RUNNER ===
+(function() {
+  'use strict';
+
+  // === LANGUAGE DETECTION ===
+  function detectLang(codeEl, pre) {
+    // From tab-content class
+    const tc = pre.closest('.tab-content');
+    if (tc) {
+      if (tc.classList.contains('c')) return 'c';
+      if (tc.classList.contains('py')) return 'python';
+      if (tc.classList.contains('ts')) return 'typescript';
+      if (tc.classList.contains('go')) return 'go';
+      if (tc.classList.contains('rs')) return 'rust';
+    }
+    // From label span
+    const label = pre.querySelector('.label');
+    if (label) {
+      const t = label.textContent.toLowerCase();
+      if (t.includes('python')) return 'python';
+      if (t.includes('typescript') || t === 'ts') return 'typescript';
+      if (t.includes('rust') || t === 'rs') return 'rust';
+      if (t.includes('go') || t === 'go') return 'go';
+      if (t.match(/^c(\s|$)/i) || t.includes('c —') || t.includes('c –')) return 'c';
+    }
+    // From try-this (usually python one-liners)
+    if (pre.closest('.try-this')) {
+      const code = codeEl.textContent;
+      if (code.startsWith('python3') || code.includes('import ')) return 'python';
+    }
+    return null;
+  }
+
+  // === RUNNABLE CHECK ===
+  function isRunnable(pre, codeEl, lang) {
+    if (!lang) return false;
+    // C/Go/Rust are not runnable in-browser
+    if (lang === 'c' || lang === 'go' || lang === 'rust') return false;
+    // Skip diagrams
+    if (pre.closest('.diagram')) return false;
+    // Try-this blocks are always runnable
+    if (pre.closest('.try-this')) return true;
+    // Tab content is always runnable
+    if (pre.closest('.tab-content')) return true;
+    // Standalone with label containing a lang name + has function/print
+    const code = codeEl.textContent;
+    if (pre.querySelector('.label')) {
+      if (code.match(/\b(def |fn |func |function |int main|void |printf|println|print\(|console\.log|fmt\.)/)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // === EXTRACT PLAIN TEXT FROM CODE ELEMENT ===
+  function getCode(codeEl) {
+    // Clone and remove label spans before extracting text
+    const clone = codeEl.cloneNode(true);
+    clone.querySelectorAll('.label').forEach(el => el.remove());
+    return clone.textContent;
+  }
+
+  // === OUTPUT PANEL ===
+  function getOrCreateOutput(pre) {
+    let out = pre.nextElementSibling;
+    if (out && out.classList.contains('run-output')) return out;
+    out = document.createElement('div');
+    out.className = 'run-output';
+    pre.insertAdjacentElement('afterend', out);
+    return out;
+  }
+
+  // === PYTHON RUNNER (Pyodide) ===
+  let pyodideReady = null;
+  async function loadPyodide_() {
+    if (pyodideReady) return pyodideReady;
+    pyodideReady = (async () => {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/pyodide/v0.27.4/full/pyodide.js';
+      document.head.appendChild(script);
+      await new Promise((res, rej) => { script.onload = res; script.onerror = rej; });
+      return await loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.27.4/full/' });
+    })();
+    return pyodideReady;
+  }
+
+  async function runPython(code, out) {
+    out.textContent = 'Loading Python runtime...';
+    out.classList.remove('error');
+    try {
+      const py = await loadPyodide_();
+      // Redirect stdout
+      py.runPython(`import sys, io; sys.stdout = io.StringIO()`);
+      py.runPython(code);
+      const stdout = py.runPython('sys.stdout.getvalue()');
+      out.textContent = stdout || '(no output)';
+    } catch (e) {
+      out.textContent = String(e.message || e);
+      out.classList.add('error');
+    }
+  }
+
+  // === PYTHON ONE-LINER RUNNER ===
+  async function runPythonOneLiner(code, out) {
+    // Handle "python3 -c '...'" style
+    const m = code.match(/^python3?\s+-c\s+["']([\s\S]+)["']\s*$/);
+    if (m) return runPython(m[1], out);
+    // Handle "python3 -c '...' | ..." — just run the python part
+    const m2 = code.match(/^python3?\s+-c\s+["']([\s\S]+?)["']/);
+    if (m2) return runPython(m2[1], out);
+    return runPython(code, out);
+  }
+
+  // === JS/TS RUNNER ===
+  function stripTS(code) {
+    // Remove TS type annotations for browser eval
+    return code
+      .replace(/:\s*(?:string|number|boolean|void|any|never|unknown|undefined|null|bigint|symbol)\b(\[\])?/g, '')
+      .replace(/:\s*(?:Record|Map|Set|Array|Promise|Partial|Required|Readonly)<[^>]+>/g, '')
+      .replace(/<(?:string|number|boolean|void|any|never|unknown|T|U|K|V)(?:\[\])?(?:\s*,\s*(?:string|number|boolean|void|any|never|unknown|T|U|K|V)(?:\[\])?)*>/g, '')
+      .replace(/\bas\s+\w+/g, '')
+      .replace(/^\s*(?:export|import)\s+type\s+.*$/gm, '')
+      .replace(/^\s*interface\s+\w+\s*\{[\s\S]*?\n\}/gm, '')
+      .replace(/^\s*type\s+\w+\s*=.*$/gm, '');
+  }
+
+  async function runJS(code, out) {
+    out.classList.remove('error');
+    const logs = [];
+    const origLog = console.log;
+    const origWarn = console.warn;
+    const origError = console.error;
+    console.log = (...args) => logs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' '));
+    console.warn = console.log;
+    console.error = (...args) => logs.push('ERROR: ' + args.map(String).join(' '));
+    try {
+      const cleaned = stripTS(code);
+      const fn = new Function(cleaned);
+      const result = fn();
+      if (result instanceof Promise) await result;
+      out.textContent = logs.join('\n') || '(no output)';
+    } catch (e) {
+      out.textContent = logs.join('\n') + (logs.length ? '\n' : '') + String(e);
+      out.classList.add('error');
+    } finally {
+      console.log = origLog;
+      console.warn = origWarn;
+      console.error = origError;
+    }
+  }
+
+  // === SNIPPET ID GENERATION ===
+  function snippetId(codeEl, pre) {
+    if (codeEl.dataset.snippetId) return codeEl.dataset.snippetId;
+    // Derive prefix from filename
+    const path = location.pathname;
+    const fname = path.split('/').pop().replace(/-deep-dive\.html$/, '').replace(/\.html$/, '');
+    const prefix = fname.substring(0, 5);
+
+    const tc = pre.closest('.tab-content');
+    if (tc) {
+      // Tab content: use tab group name + lang class
+      const tabs = tc.closest('.lang-tabs');
+      const radio = tabs ? tabs.querySelector('input[type="radio"]') : null;
+      const groupName = radio ? radio.name.replace('tabs-', '') : 'unknown';
+      const langClass = ['c','py','ts','go','rs'].find(c => tc.classList.contains(c)) || 'x';
+      const id = prefix + '-' + groupName + '-' + langClass;
+      codeEl.dataset.snippetId = id;
+      return id;
+    }
+
+    // Standalone: use label text slug
+    const label = pre.querySelector('.label');
+    if (label) {
+      const slug = label.textContent.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').substring(0, 20);
+      const id = prefix + '-' + slug;
+      codeEl.dataset.snippetId = id;
+      return id;
+    }
+
+    const id = prefix + '-anon-' + Math.random().toString(36).substring(2, 8);
+    codeEl.dataset.snippetId = id;
+    return id;
+  }
+
+  // === BUTTON INJECTION ===
+  document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('pre > code, pre code').forEach(function(codeEl) {
+      const pre = codeEl.closest('pre');
+      if (!pre) return;
+      const lang = detectLang(codeEl, pre);
+      if (!isRunnable(pre, codeEl, lang)) return;
+
+      const btn = document.createElement('button');
+      btn.className = 'run-btn';
+      btn.textContent = '\u25B6 Run';
+      btn.title = 'Run this code';
+      // Position inside tab-content pre
+      pre.style.position = 'relative';
+      pre.appendChild(btn);
+
+      btn.addEventListener('click', async function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (btn.classList.contains('running')) return;
+        btn.classList.add('running');
+        btn.textContent = '\u25B6 ...';
+
+        // For tab-content, put output after the lang-tabs container
+        let outputAnchor = pre;
+        const tabContent = pre.closest('.tab-content');
+        if (tabContent) {
+          outputAnchor = tabContent.closest('.lang-tabs');
+        }
+        const out = getOrCreateOutput(outputAnchor);
+        out.style.display = 'block';
+
+        const code = getCode(codeEl);
+        try {
+          switch (lang) {
+            case 'python':
+              if (pre.closest('.try-this') && code.match(/^python3?\s/)) {
+                await runPythonOneLiner(code, out);
+              } else {
+                await runPython(code, out);
+              }
+              break;
+            case 'typescript':
+            case 'javascript':
+              await runJS(code, out);
+              break;
+          }
+        } catch (e) {
+          out.textContent = String(e);
+          out.classList.add('error');
+        }
+
+        btn.classList.remove('running');
+        btn.textContent = '\u25B6 Run';
+      });
+    });
+  });
+})();
+</script>
+
+</body>
+</html>

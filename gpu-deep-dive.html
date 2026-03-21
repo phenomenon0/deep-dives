@@ -405,6 +405,7 @@ strong { color: var(--white); }
     <a href="#ch12">pcie wall</a>
     <a href="#ch13">debug</a>
     <a href="#ch14">timeline</a>
+    <a href="#ch15">dark arts</a>
 </nav>
 
 <div class="content">
@@ -679,6 +680,38 @@ strong { color: var(--white); }
 <div class="try-label">Try This</div>
 <p>Write a kernel that computes different functions for odd vs even elements. First, use <code>threadIdx.x % 2</code> (divergent). Then restructure so elements 0&ndash;31 take one path and 32&ndash;63 take the other. Profile both with Nsight Compute&mdash;watch the "Warp Stall" and "Branch Efficiency" metrics.</p>
 </div>
+
+<h3>The Ballot Trick</h3>
+
+<p>Most tutorials show <code>__ballot_sync</code> as a voting mechanism. In production, it's a <em>work-skipping</em> primitive. The idea: before doing expensive computation, ask the entire warp "does anyone actually have work?" If the answer is no, skip everything. Zero divergence, zero wasted cycles.</p>
+
+<p>This pattern is lethal for sparse workloads. Sparse matrix operations, sparse attention in LLMs, particle simulations where most cells are empty&mdash;any time the majority of threads hold zeros, ballot lets you skip entire warps at near-zero cost.</p>
+
+<pre><code><span class="pp">__global__</span> <span class="kw">void</span> <span class="fn">sparse_kernel</span>(<span class="ty">float</span> *values, <span class="ty">int</span> *col_idx,
+                              <span class="ty">int</span> *row_ptr, <span class="ty">float</span> *x, <span class="ty">float</span> *y, <span class="ty">int</span> n) {
+    <span class="ty">int</span> tid = blockIdx.x * blockDim.x + threadIdx.x;
+    <span class="kw">if</span> (tid &gt;= n) <span class="kw">return</span>;
+
+    <span class="ty">int</span> row_start = row_ptr[tid];
+    <span class="ty">int</span> row_end   = row_ptr[tid + <span class="nm">1</span>];
+    <span class="ty">int</span> nnz = row_end - row_start;
+
+    <span class="cm">// The ballot trick: does ANY thread in this warp have work?</span>
+    <span class="ty">unsigned</span> has_work = <span class="fn">__ballot_sync</span>(<span class="nm">0xFFFFFFFF</span>, nnz &gt; <span class="nm">0</span>);
+    <span class="kw">if</span> (has_work == <span class="nm">0</span>) <span class="kw">return</span>;  <span class="cm">// entire warp skipped in 1 instruction</span>
+
+    <span class="cm">// Only warps with at least one non-empty row reach here</span>
+    <span class="ty">float</span> sum = <span class="nm">0.0f</span>;
+    <span class="kw">for</span> (<span class="ty">int</span> j = row_start; j &lt; row_end; j++) {
+        sum += values[j] * x[col_idx[j]];
+    }
+    y[tid] = sum;
+}</code></pre>
+
+<div class="power hack">
+<strong>Why This Matters for LLMs:</strong> Sparse attention patterns (top-k, local window, block-sparse) produce matrices that are 90&ndash;99% zeros. Without ballot skipping, every warp still executes the full computation with most threads multiplying by zero. With it, you skip entire warps in a single cycle. In production sparse attention kernels, this pattern alone delivers 3&ndash;8&times; speedup over dense attention on long sequences.
+</div>
+
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -900,6 +933,52 @@ grid = <span class="kw">lambda</span> meta: (triton.<span class="fn">cdiv</span>
 <div class="try-label">Try This</div>
 <p>Launch a vector add with block sizes of 32, 128, 256, 512, and 1024 on a large array (100M elements). Profile each with <code>nsys profile</code>. You'll see diminishing returns above 256 for this memory-bound kernel.</p>
 </div>
+
+<h3>Persistent Kernels</h3>
+
+<p>Here's a counter-intuitive idea: launch a kernel <em>once</em>, and let it loop forever, pulling work from a global queue. No repeated kernel launches. No driver overhead. Just threads spinning until there's nothing left to do.</p>
+
+<p>Why bother? Each kernel launch costs 5&ndash;10&mu;s of CPU-side overhead. That sounds tiny until you realize an LLM inference step might need 1,000+ small operations. At 5&mu;s each, that's 5&ndash;10ms of pure launch overhead&mdash;often more than the actual compute.</p>
+
+<pre><code><span class="pp">__device__</span> <span class="ty">unsigned int</span> work_counter = <span class="nm">0</span>;
+
+<span class="pp">__global__</span> <span class="kw">void</span> <span class="fn">persistent_kernel</span>(<span class="ty">float</span> *data, <span class="ty">int</span> total_tasks) {
+    <span class="kw">while</span> (<span class="nm">true</span>) {
+        <span class="cm">// Atomically grab the next task</span>
+        <span class="ty">unsigned int</span> task = <span class="fn">atomicAdd</span>(&amp;work_counter, <span class="nm">1</span>);
+        <span class="kw">if</span> (task &gt;= total_tasks) <span class="kw">return</span>;  <span class="cm">// no more work</span>
+
+        <span class="cm">// Do the actual work for this task</span>
+        <span class="fn">process_task</span>(data, task);
+    }
+}
+
+<span class="cm">// Launch ONCE with exactly enough blocks to fill the GPU</span>
+<span class="ty">int</span> num_sms;
+<span class="fn">cudaDeviceGetAttribute</span>(&amp;num_sms, cudaDevAttrMultiProcessorCount, <span class="nm">0</span>);
+<span class="fn">persistent_kernel</span>&lt;&lt;&lt;num_sms * <span class="nm">2</span>, <span class="nm">256</span>&gt;&gt;&gt;(data, total_tasks);</code></pre>
+
+<h3>Cooperative Launch</h3>
+
+<p>Sometimes you need <em>all blocks</em> in the grid to synchronize&mdash;not just threads within a block. Iterative algorithms like PageRank, Jacobi solvers, and certain graph algorithms need a global barrier between iterations. <code>cudaLaunchCooperativeKernel</code> makes this possible: it guarantees all blocks are co-resident on the GPU and provides <code>grid.sync()</code> for grid-wide barriers.</p>
+
+<pre><code><span class="pp">__global__</span> <span class="kw">void</span> <span class="fn">pagerank_kernel</span>(<span class="ty">float</span> *rank, <span class="ty">float</span> *new_rank,
+                                <span class="ty">int</span> *edges, <span class="ty">int</span> iters) {
+    <span class="kw">namespace</span> cg = cooperative_groups;
+    cg::<span class="ty">grid_group</span> grid = cg::<span class="fn">this_grid</span>();
+
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i &lt; iters; i++) {
+        <span class="fn">compute_rank_update</span>(rank, new_rank, edges);
+        grid.<span class="fn">sync</span>();  <span class="cm">// ALL blocks wait here</span>
+        <span class="fn">swap_buffers</span>(rank, new_rank);
+        grid.<span class="fn">sync</span>();
+    }
+}</code></pre>
+
+<div class="power wild">
+<strong>The Launch Tax:</strong> Every kernel launch costs 5&ndash;10&mu;s. If you launch 1,000 kernels per inference step, that's 5&ndash;10ms of pure overhead. Persistent kernels eliminate this entirely. Production ray tracers (OptiX) and LLM inference engines (TensorRT-LLM, vLLM) use persistent kernels for their hottest paths. The tradeoff: your kernel becomes harder to debug and must handle its own work distribution.
+</div>
+
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -1002,6 +1081,35 @@ max_threads = cuda.<span class="fn">get_current_device</span>().MAX_THREADS_PER_
 <p>The bottleneck here is registers. Reducing to 40 regs/thread would allow 6 blocks (75% occupancy).</p>
 </div>
 </details>
+
+<h3>War Story: When 25% Occupancy Crushed 100%</h3>
+
+<p>A real convolution kernel. Version A: carefully tuned for 100% occupancy&mdash;32 registers per thread, 64 warps per SM, textbook perfect. Version B: "wasteful" at 25% occupancy&mdash;128 registers per thread, only 16 warps per SM. Version B ran <strong>2.3&times; faster</strong>. Here's why.</p>
+
+<p>With 128 registers per thread, <em>every</em> intermediate value of the convolution lived in registers. Zero spills. Zero local memory traffic. The L1 cache wasn't thrashed by 64 competing warps&mdash;only 16 warps shared it, so the working set actually fit. Meanwhile, Version A's 32 registers couldn't hold the full computation. The compiler silently spilled 12 variables to local memory. Each spill was a 500-cycle round trip to global memory, disguised as a "local" access.</p>
+
+<div class="diagram">
+<pre>
+  <span class="fn">The Math That Breaks Intuition</span>
+
+  Version A (100% occupancy):
+    32 regs/thread &times; 2048 threads = 65,536 regs  <span class="st">(all used)</span>
+    12 variables spilled &times; 500 cycles each = <span class="r">6,000 cycles/iteration</span>
+    L1 cache: 64 warps competing &rarr; constant thrashing
+
+  Version B (25% occupancy):
+    128 regs/thread &times; 512 threads = 65,536 regs  <span class="st">(all used)</span>
+    0 variables spilled = <span class="st">0 extra cycles</span>
+    L1 cache: 16 warps &rarr; working set fits comfortably
+
+  <span class="nm">Result: 25% occupancy &times; 4&times; regs/thread &times; 0 spills = 2.3&times; faster</span>
+</pre>
+</div>
+
+<div class="power danger">
+<strong>Register spills are the silent killer.</strong> The compiler silently moves variables to "local memory"&mdash;which is actually GLOBAL memory with 500-cycle latency. Your kernel looks fast on paper but secretly hammers HBM on every iteration. Check spills with <code>nvcc --ptxas-options=-v</code>. If you see <code>bytes spill stores &gt; 0</code>, you have a problem. Sometimes the fix is counter-intuitive: <em>reduce</em> occupancy to <em>increase</em> registers per thread.
+</div>
+
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -1227,6 +1335,43 @@ max_threads = cuda.<span class="fn">get_current_device</span>().MAX_THREADS_PER_
 <div class="try-label">Try This</div>
 <p>Write a kernel that reads a column of a 32&times;32 shared memory matrix. Profile with Nsight Compute and look at the <code>l1tex__data_bank_conflicts_pipe_lsu</code> metric. Then add the +1 padding and profile again. The metric should drop to zero.</p>
 </div>
+
+<h3>When Bank Conflicts Don't Matter</h3>
+
+<p>Before you spend hours padding shared memory arrays, ask yourself: <em>is shared memory even the bottleneck?</em> If your kernel is memory-bound (global memory throughput is the limiting factor), fixing bank conflicts gives you exactly 0% improvement. You're optimizing the wrong thing.</p>
+
+<p>Profile first. If <code>shared_load_transactions</code> is less than 5% of total memory transactions, bank conflicts are noise. Your time is better spent on coalescing global loads or reducing total memory traffic. Don't cargo-cult optimize.</p>
+
+<div class="power zen">
+<strong>Profile-Driven Rule:</strong> In Nsight Compute, check <code>l1tex__data_bank_conflicts_pipe_lsu</code> relative to <code>dram__bytes_read</code>. If global memory is 20&times; your shared memory traffic, a 4-way bank conflict in shared memory costs you less than 1% total runtime. Fix global access patterns first.
+</div>
+
+<h3>Skip Shared Memory Entirely</h3>
+
+<p>For reductions of 32 or fewer values, warp shuffles (<code>__shfl_down_sync</code>) are 10&times; faster than shared memory AND have zero bank conflict risk. No <code>__syncthreads()</code> needed. No padding tricks. Just direct register-to-register transfers.</p>
+
+<div class="vs">
+<div>
+<h4>Shared Memory (12 lines)</h4>
+<pre><code><span class="kw">__shared__</span> <span class="ty">float</span> sdata[<span class="nm">32</span>];
+sdata[threadIdx.x] = val;
+<span class="fn">__syncthreads</span>();
+<span class="kw">for</span> (<span class="ty">int</span> s = <span class="nm">16</span>; s &gt; <span class="nm">0</span>; s &gt;&gt;= <span class="nm">1</span>) {
+    <span class="kw">if</span> (threadIdx.x &lt; s)
+        sdata[threadIdx.x] += sdata[threadIdx.x + s];
+    <span class="fn">__syncthreads</span>();
+}
+<span class="cm">// Bank conflict risk on every iteration</span></code></pre>
+</div>
+<div>
+<h4>Warp Shuffle (4 lines)</h4>
+<pre><code><span class="kw">for</span> (<span class="ty">int</span> s = <span class="nm">16</span>; s &gt; <span class="nm">0</span>; s &gt;&gt;= <span class="nm">1</span>)
+    val += <span class="fn">__shfl_down_sync</span>(<span class="nm">0xFFFFFFFF</span>, val, s);
+<span class="cm">// Zero bank conflicts. Zero shared memory.</span>
+<span class="cm">// Result in lane 0's register.</span></code></pre>
+</div>
+</div>
+
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -1638,6 +1783,59 @@ As[buf][ty][tx] = A[row * N + <span class="nm">0</span> * <span class="nm">TILE<
 <div class="try-label">Try This</div>
 <p>Take a simple element-wise kernel (like ReLU: <code>y = max(x, 0)</code>) and create three versions: (1) naive scalar, (2) float4 vectorized, (3) fused with the next operation in the pipeline. Profile each. The vectorized version typically gains 1.3&ndash;1.5&times;; the fused version gains 1.8&ndash;2&times; over the naive baseline.</p>
 </div>
+
+<h3>The Printf That Killed a Kernel</h3>
+
+<p>True story. A developer added a single <code>printf()</code> to debug a kernel. Performance dropped <strong>100&times;</strong>. Not because printf is slow per se&mdash;it's because <code>printf()</code> in device code serializes the <em>entire grid</em> through a single 1 MB print buffer. Every thread in every warp in every block queues up, one at a time, to write to that buffer. Your 18,432-core parallel machine becomes a single-threaded printer.</p>
+
+<pre><code><span class="cm">// DON'T: serializes the entire grid</span>
+<span class="fn">printf</span>(<span class="st">"val = %f\n"</span>, result);
+
+<span class="cm">// LESS BAD: only thread 0 prints</span>
+<span class="kw">if</span> (threadIdx.x == <span class="nm">0</span> &amp;&amp; blockIdx.x == <span class="nm">0</span>)
+    <span class="fn">printf</span>(<span class="st">"val = %f\n"</span>, result);
+
+<span class="cm">// BEST: use Nsight Compute instead of printf</span></code></pre>
+
+<div class="power danger">
+<strong>Never ship printf in production kernels.</strong> Even a conditional printf on thread 0 still touches the print buffer machinery. Use Nsight Compute's value inspection or write debug values to a device buffer that you copy back and inspect on the host.
+</div>
+
+<h3>Quantization-Aware Memory Loading</h3>
+
+<p>For LLM inference, model weights are often quantized to INT4&mdash;8 weights packed into a single 32-bit integer. Load once from global memory, unpack in registers. You get <strong>8&times; memory bandwidth amplification</strong> for quantized models.</p>
+
+<pre><code><span class="cm">// Pack 8 INT4 weights into one uint32</span>
+<span class="cm">// Bit layout: [w7|w6|w5|w4|w3|w2|w1|w0] each 4 bits</span>
+<span class="pp">__device__</span> <span class="kw">void</span> <span class="fn">unpack_int4</span>(<span class="ty">uint32_t</span> packed, <span class="ty">float</span> *out, <span class="ty">float</span> scale) {
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i &lt; <span class="nm">8</span>; i++) {
+        <span class="ty">int</span> val = (packed &gt;&gt; (i * <span class="nm">4</span>)) &amp; <span class="nm">0xF</span>;  <span class="cm">// extract 4 bits</span>
+        val -= <span class="nm">8</span>;                             <span class="cm">// unsigned to signed</span>
+        out[i] = (<span class="ty">float</span>)val * scale;            <span class="cm">// dequantize</span>
+    }
+}</code></pre>
+
+<div class="power hack">
+<strong>The Bandwidth Trick:</strong> A 70B parameter model in FP16 needs 140 GB&mdash;won't fit on a single 80 GB GPU. In INT4, it's 35 GB. Fits easily. And each global memory load delivers 8&times; more useful values. This is why GPTQ, AWQ, and GGML quantization exist: they're memory bandwidth optimizations disguised as compression.
+</div>
+
+<h3>The Matmul Progression</h3>
+
+<p>Matrix multiplication is the GPU's bread and butter. Here's how performance scales with each optimization level for a 4096&times;4096 FP32 matmul on an A100 (theoretical peak: ~19.5 TFLOPS FP32):</p>
+
+<table>
+<tr><th>Optimization Level</th><th>TFLOPS</th><th>% of Peak</th><th>Key Change</th></tr>
+<tr><td>Naive (1 thread/element)</td><td>~0.3</td><td>1.5%</td><td>Baseline&mdash;every thread reads entire row/col from global</td></tr>
+<tr><td>Tiled (shared memory)</td><td>~5</td><td>26%</td><td>Block-level data reuse, 32&times;32 tiles</td></tr>
+<tr><td>Tiled + vectorized loads</td><td>~12</td><td>62%</td><td>float4 loads, 4&times; fewer memory instructions</td></tr>
+<tr><td>+ register blocking</td><td>~16</td><td>82%</td><td>Each thread computes 4&times;4 output block</td></tr>
+<tr><td>cuBLAS</td><td>~19.5</td><td>100%</td><td>Hand-tuned assembly, architecture-specific paths</td></tr>
+</table>
+
+<div class="power zen">
+<strong>The Lesson:</strong> The jump from naive to tiled is 17&times;. From tiled to cuBLAS is another 4&times;. Most of the gain comes from reducing global memory traffic. If you're writing custom kernels, get tiling right first&mdash;everything else is diminishing returns.
+</div>
+
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -1745,6 +1943,42 @@ As[buf][ty][tx] = A[row * N + <span class="nm">0</span> * <span class="nm">TILE<
 <div class="try-label">Try This</div>
 <p>Compare three approaches for processing a 1 GB dataset: (1) <code>cudaMalloc</code> + <code>cudaMemcpy</code> + kernel + <code>cudaMemcpy</code> back, (2) <code>cudaMallocManaged</code> unified memory, (3) zero-copy with <code>cudaHostAlloc</code>. Profile with Nsight Systems. For a single-pass kernel, zero-copy can actually win because it avoids the upfront transfer latency.</p>
 </div>
+
+<h3>The Pipeline Pattern</h3>
+
+<p>The real solution to the PCIe wall isn't faster transfers&mdash;it's <em>hiding</em> the transfer behind compute. Double-buffering with CUDA streams: while the GPU computes on batch N, the CPU transfers batch N+1. This is how <strong>every</strong> production training framework works.</p>
+
+<div class="diagram">
+<pre>
+  <span class="fn">Double-Buffered Pipeline with CUDA Streams</span>
+
+  Time &rarr;
+
+  Stream A: <span class="st">[Transfer 0]</span><span class="nm">[Compute 0]</span>            <span class="st">[Transfer 2]</span><span class="nm">[Compute 2]</span>
+  Stream B:              <span class="st">[Transfer 1]</span><span class="nm">[Compute 1]</span>            <span class="st">[Transfer 3]</span>
+
+  <span class="cm">Transfer and compute overlap &mdash; PCIe bus and SMs both busy</span>
+  <span class="cm">Effective throughput: limited by max(transfer, compute), not sum</span>
+</pre>
+</div>
+
+<pre><code><span class="ty">cudaStream_t</span> streams[<span class="nm">2</span>];
+<span class="fn">cudaStreamCreate</span>(&amp;streams[<span class="nm">0</span>]);
+<span class="fn">cudaStreamCreate</span>(&amp;streams[<span class="nm">1</span>]);
+
+<span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i &lt; num_batches; i++) {
+    <span class="ty">int</span> s = i % <span class="nm">2</span>;  <span class="cm">// alternate streams</span>
+    <span class="fn">cudaMemcpyAsync</span>(d_buf[s], h_buf[i], size,
+                    cudaMemcpyHostToDevice, streams[s]);
+    <span class="fn">compute_kernel</span>&lt;&lt;&lt;grid, block, <span class="nm">0</span>, streams[s]&gt;&gt;&gt;(d_buf[s], d_out[s]);
+    <span class="fn">cudaMemcpyAsync</span>(h_out[i], d_out[s], out_size,
+                    cudaMemcpyDeviceToHost, streams[s]);
+}</code></pre>
+
+<div class="power wild">
+<strong>Critical Requirement:</strong> Host memory <em>must</em> be pinned (<code>cudaMallocHost</code> or <code>cudaHostAlloc</code>) for async transfers to actually overlap. Regular <code>malloc</code>'d memory falls back to synchronous copies, and your entire pipeline collapses to serial execution. This is the #1 mistake people make with CUDA streams.
+</div>
+
 </section>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -1999,6 +2233,182 @@ err = <span class="fn">cudaDeviceSynchronize</span>();
 <div class="try-label">Try This</div>
 <p>Run <code>nvidia-smi -q | grep -i "product name"</code> to find your GPU, then look up its specs. Calculate your GPU's operational intensity ceiling: peak TFLOPS / peak memory bandwidth. For an H100, it's 67 TFLOPS / 3.35 TB/s = ~20 FLOPs/byte. Any kernel with arithmetic intensity below 20 is memory-bound on your hardware. Matrix multiplication (O(N) FLOPs/byte) easily exceeds this; vector add (0.25 FLOPs/byte) never will.</p>
 </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch15">
+<h2>// 15 &mdash; Dirty Tricks &amp; Dark Arts</h2>
+
+<p class="drop-cap">Everything before this chapter was engineering. This chapter is alchemy. These are the techniques that don't appear in textbooks&mdash;tricks extracted from production kernels, NVIDIA's own libraries, and years of profiler-driven micro-optimization. Each one is a scalpel. Used correctly, they carve 10&ndash;50% off your kernel's runtime. Used incorrectly, they produce wrong results and undebuggable code. You've been warned.</p>
+
+<h3>1. Launch Bounds</h3>
+
+<p><code>__launch_bounds__</code> tells the compiler the maximum threads per block and minimum blocks per SM your kernel will use. This lets the register allocator be more aggressive&mdash;it knows exactly how many registers are available and can use more per thread without worrying about occupancy surprises.</p>
+
+<pre><code><span class="pp">__global__</span> <span class="kw">void</span> <span class="pp">__launch_bounds__</span>(<span class="nm">256</span>, <span class="nm">2</span>)  <span class="cm">// max 256 threads, min 2 blocks/SM</span>
+<span class="fn">my_kernel</span>(<span class="ty">float</span> *data) {
+    <span class="cm">// Compiler knows: at most 512 threads/SM</span>
+    <span class="cm">// → can use up to 128 registers/thread (65536/512)</span>
+    <span class="cm">// Without this hint: compiler assumes worst case, uses fewer regs</span>
+}</code></pre>
+
+<div class="power hack">
+<strong>Free Performance:</strong> Adding <code>__launch_bounds__</code> costs zero runtime overhead. It's a compile-time hint. In register-heavy kernels (convolutions, attention), this unlocks 10&ndash;20% more performance by eliminating unnecessary register spills.
+</div>
+
+<h3>2. Warp Specialization</h3>
+
+<p>Instead of all warps doing the same thing, assign different <em>roles</em>. Warp 0 does memory loads into shared memory. Warps 1&ndash;N do computation on previously loaded data. The memory latency of warp 0's loads is hidden by the compute warps' execution.</p>
+
+<pre><code><span class="ty">int</span> warp_id = threadIdx.x / <span class="nm">32</span>;
+<span class="kw">if</span> (warp_id == <span class="nm">0</span>) {
+    <span class="cm">// Producer: load next tile from global → shared</span>
+    smem[threadIdx.x] = data[global_offset + threadIdx.x];
+} <span class="kw">else</span> {
+    <span class="cm">// Consumer: compute on previously loaded tile</span>
+    result += smem[threadIdx.x - <span class="nm">32</span>] * weights[threadIdx.x - <span class="nm">32</span>];
+}
+<span class="fn">__syncthreads</span>();  <span class="cm">// swap roles on next iteration</span></code></pre>
+
+<div class="power">
+<strong>Where It Shines:</strong> NVIDIA's CUTLASS library uses warp specialization extensively in their GEMM kernels. The Hopper architecture's TMA (Tensor Memory Accelerator) was literally designed to make warp specialization easier&mdash;one warp programs the TMA, others compute.
+</div>
+
+<h3>3. Register Spill Hunting</h3>
+
+<p>Compile with <code>--ptxas-options=-v</code> and read the output like a detective. The compiler tells you exactly how many registers each kernel uses and how many bytes spill to local memory.</p>
+
+<pre><code><span class="cm">$ nvcc --ptxas-options=-v kernel.cu</span>
+<span class="st">ptxas info: Used 48 registers, 0 bytes smem, 0 bytes spill stores, 0 bytes spill loads</span>  <span class="cm">← clean</span>
+<span class="r">ptxas info: Used 32 registers, 0 bytes smem, 96 bytes spill stores, 96 bytes spill loads</span> <span class="cm">← TROUBLE</span></code></pre>
+
+<div class="power danger">
+<strong>Spill stores &gt; 0 means your kernel is secretly hitting global memory.</strong> Every spill is a 500-cycle round trip disguised as a local variable access. Fix strategies: reduce live variables, break kernel into smaller functions, use <code>__launch_bounds__</code>, or accept lower occupancy for more registers per thread.
+</div>
+
+<h3>4. Thread Coarsening</h3>
+
+<p>Instead of each thread processing one element, have each thread process 4&ndash;8. Fewer total threads means less scheduling overhead and better instruction-level parallelism&mdash;the compiler can interleave independent operations within a single thread.</p>
+
+<pre><code><span class="cm">// Fine-grained: 1 element per thread</span>
+<span class="ty">int</span> i = blockIdx.x * blockDim.x + threadIdx.x;
+out[i] = <span class="fn">process</span>(in[i]);
+
+<span class="cm">// Coarsened: 4 elements per thread (often 1.3-1.5× faster)</span>
+<span class="ty">int</span> base = (blockIdx.x * blockDim.x + threadIdx.x) * <span class="nm">4</span>;
+<span class="ty">float4</span> v = <span class="kw">reinterpret_cast</span>&lt;<span class="ty">float4</span>*&gt;(in)[base / <span class="nm">4</span>];
+v.x = <span class="fn">process</span>(v.x); v.y = <span class="fn">process</span>(v.y);
+v.z = <span class="fn">process</span>(v.z); v.w = <span class="fn">process</span>(v.w);
+<span class="kw">reinterpret_cast</span>&lt;<span class="ty">float4</span>*&gt;(out)[base / <span class="nm">4</span>] = v;</code></pre>
+
+<div class="power">
+<strong>Why It Works:</strong> Coarsening combines naturally with vectorized loads (float4). You issue fewer instructions total, the compiler has more independent operations to interleave, and you amortize thread setup cost across multiple elements.
+</div>
+
+<h3>5. The __restrict__ Unlock</h3>
+
+<p>C/C++ doesn't assume pointer arguments are non-aliasing. The compiler must pessimistically assume <code>out[i]</code> might overlap <code>in[i]</code>, killing optimization opportunities. Add <code>__restrict__</code> and the compiler unleashes store elimination, load reordering, and aggressive caching.</p>
+
+<pre><code><span class="cm">// Without __restrict__: compiler must reload after every store</span>
+<span class="pp">__global__</span> <span class="kw">void</span> <span class="fn">kernel</span>(<span class="ty">float</span> *out, <span class="ty">float</span> *in) { ... }
+
+<span class="cm">// With __restrict__: compiler knows pointers don't alias</span>
+<span class="pp">__global__</span> <span class="kw">void</span> <span class="fn">kernel</span>(<span class="ty">float</span> * <span class="pp">__restrict__</span> out,
+                       <span class="kw">const</span> <span class="ty">float</span> * <span class="pp">__restrict__</span> in) { ... }
+<span class="cm">// 5-15% speedup for zero effort. Just don't lie about aliasing.</span></code></pre>
+
+<div class="power hack">
+<strong>Pair with const:</strong> <code>const float * __restrict__</code> tells the compiler the data is both non-aliasing AND read-only. This enables the most aggressive optimizations&mdash;the compiler can cache values in registers knowing nothing else will modify them.
+</div>
+
+<h3>6. Fast Math Intrinsics</h3>
+
+<p>CUDA provides hardware-accelerated versions of common math functions. They trade the last few bits of precision for 2&ndash;4&times; throughput. For neural network inference, those lost bits are below the noise floor.</p>
+
+<pre><code><span class="cm">// Standard (precise, slow)</span>          <span class="cm">// Intrinsic (fast, ~2 ULP error)</span>
+<span class="fn">expf</span>(x)                              <span class="fn">__expf</span>(x)
+<span class="fn">sqrtf</span>(x)                             <span class="fn">__frsqrt_rn</span>(x)  <span class="cm">// inverse sqrt</span>
+a * b + c                            <span class="fn">__fmaf_rn</span>(a, b, c)  <span class="cm">// fused multiply-add</span>
+<span class="fn">sinf</span>(x)                              <span class="fn">__sinf</span>(x)
+<span class="fn">logf</span>(x)                              <span class="fn">__logf</span>(x)</code></pre>
+
+<div class="power wild">
+<strong>The Nuclear Option:</strong> Compile with <code>--use_fast_math</code> and the compiler replaces ALL standard math with intrinsics globally. This also enables <code>--ftz=true</code> (flush denormals to zero) and <code>--prec-div=false</code> (fast division). Dangerous for numerical code, perfect for inference.
+</div>
+
+<h3>7. Atomics &amp; Lock-Free Structures</h3>
+
+<p><code>atomicCAS</code> (compare-and-swap) is the building block for lock-free data structures on the GPU. Histograms, hash tables, work queues&mdash;all built on atomics. But naive atomics create massive contention when thousands of threads hit the same address.</p>
+
+<pre><code><span class="cm">// Naive histogram: every thread atomics to global</span>
+<span class="fn">atomicAdd</span>(&amp;histogram[bin], <span class="nm">1</span>);  <span class="cm">// contention nightmare</span>
+
+<span class="cm">// Better: per-warp local accumulation, then atomic merge</span>
+<span class="kw">__shared__</span> <span class="ty">int</span> local_hist[<span class="nm">256</span>];
+<span class="fn">atomicAdd</span>(&amp;local_hist[bin], <span class="nm">1</span>);   <span class="cm">// shared mem atomics (fast)</span>
+<span class="fn">__syncthreads</span>();
+<span class="kw">if</span> (threadIdx.x &lt; <span class="nm">256</span>)
+    <span class="fn">atomicAdd</span>(&amp;histogram[threadIdx.x], local_hist[threadIdx.x]);  <span class="cm">// one merge</span></code></pre>
+
+<div class="power danger">
+<strong>Atomic Contention Kills:</strong> If 1,000 threads atomicAdd to the same address, they serialize. That's 1,000 sequential operations on your "parallel" machine. Always reduce locally first (per-warp or per-block), then merge with a single atomic per bin.
+</div>
+
+<h3>8. L2 Cache Partitioning</h3>
+
+<p>Hopper and later GPUs let you pin data in the L2 cache using <code>cudaAccessPolicyWindow</code>. Lookup tables, embedding tables, frequently accessed indices&mdash;pin them in L2 and they survive across kernel launches.</p>
+
+<pre><code><span class="ty">cudaAccessPolicyWindow</span> policy = {};
+policy.base_ptr  = (<span class="kw">void</span> *)lookup_table;
+policy.num_bytes = table_size;
+policy.hitRatio  = <span class="nm">1.0f</span>;    <span class="cm">// always try to keep in L2</span>
+policy.hitProp   = cudaAccessPropertyPersisting;
+policy.missProp  = cudaAccessPropertyStreaming;
+
+<span class="ty">cudaStreamAttrValue</span> attr;
+attr.accessPolicyWindow = policy;
+<span class="fn">cudaStreamSetAttribute</span>(stream, cudaStreamAttributeAccessPolicy, &amp;attr);</code></pre>
+
+<div class="power">
+<strong>When To Use:</strong> If your kernel repeatedly reads a small table (< L2 size) across many launches&mdash;embedding lookups in LLMs, color lookup tables in image processing, permutation tables in cryptography&mdash;L2 pinning eliminates repeated HBM fetches.
+</div>
+
+<h3>9. Warp-Level Matrix Ops Without Tensor Cores</h3>
+
+<p>On older GPUs without tensor cores (or for matrix sizes that don't align to tensor core shapes), you can still do fast small matrix multiplies using warp shuffles. Distribute rows across lanes, compute dot products entirely in registers.</p>
+
+<pre><code><span class="cm">// 4x4 matrix multiply using warp shuffles</span>
+<span class="cm">// Each thread holds one row of A and one column of B</span>
+<span class="ty">float</span> dot = <span class="nm">0.0f</span>;
+<span class="kw">for</span> (<span class="ty">int</span> k = <span class="nm">0</span>; k &lt; <span class="nm">4</span>; k++) {
+    <span class="ty">float</span> a_val = <span class="fn">__shfl_sync</span>(<span class="nm">0xFFFFFFFF</span>, a_row, k);  <span class="cm">// broadcast A[row][k]</span>
+    dot += a_val * b_col[k];                          <span class="cm">// local B[k][col]</span>
+}
+<span class="cm">// Result: each thread has one element of the output matrix</span>
+<span class="cm">// Zero shared memory. Zero global memory. Pure register computation.</span></code></pre>
+
+<div class="power zen">
+<strong>For Small Matrices:</strong> Tensor cores need 16&times;16 minimum. For 4&times;4, 8&times;8, or non-power-of-2 sizes, warp shuffle matmuls often beat tensor cores because there's no padding overhead and no wmma API boilerplate.
+</div>
+
+<h3>10. The Nuclear Option: Inline PTX</h3>
+
+<p>When the compiler won't generate the instruction you need, drop to PTX assembly. This is the escape hatch for when you know the hardware better than the compiler. LOP3 (3-input logical operation), PRMT (byte permute), and specialized memory instructions are all accessible via inline PTX.</p>
+
+<pre><code><span class="cm">// 3-input XOR in a single instruction (normally takes 2)</span>
+<span class="ty">uint32_t</span> result;
+<span class="kw">asm</span>(<span class="st">"lop3.b32 %0, %1, %2, %3, 0x96;"</span>
+    : <span class="st">"=r"</span>(result) : <span class="st">"r"</span>(a), <span class="st">"r"</span>(b), <span class="st">"r"</span>(c));
+<span class="cm">// 0x96 = truth table for XOR(a, XOR(b, c))</span>
+
+<span class="cm">// Force a cache-streaming load (bypass L1, don't pollute cache)</span>
+<span class="ty">float</span> val;
+<span class="kw">asm</span>(<span class="st">"ld.global.cs.f32 %0, [%1];"</span> : <span class="st">"=f"</span>(val) : <span class="st">"l"</span>(ptr));</code></pre>
+
+<div class="power danger">
+<strong>Here Be Dragons:</strong> Inline PTX bypasses the compiler's register allocator and optimizer. Use it wrong and you'll get silent corruption or worse performance than C code. Only reach for this when profiling proves the compiler's code generation is the bottleneck&mdash;and you've exhausted every other option.
+</div>
+
 </section>
 
 </div>

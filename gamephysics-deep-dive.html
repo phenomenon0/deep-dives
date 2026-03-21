@@ -1,0 +1,1384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Game Physics Deep Dive — Collision, Constraints, and the Illusion of Solid Worlds</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --accent: #00ff88;
+    --accent-dim: #00aa55;
+    --blue: #4488ff;
+    --cyan: #00ddff;
+    --pink: #ff00aa;
+    --green: #00ff88;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.025) 2px,
+      rgba(0, 0, 0, 0.025) 4px
+    );
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.6rem 2rem;
+    display: flex;
+    gap: 1.1rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.2s;
+  }
+  nav a:hover { color: var(--accent); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+  nav .nav-title {
+    color: var(--accent);
+    font-weight: 600;
+    margin-right: 1rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.3);
+  }
+
+  .content {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+  }
+
+  .hero {
+    text-align: center;
+    padding: 3rem 0 4rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4rem;
+    position: relative;
+  }
+  .hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3.2rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.6rem;
+    letter-spacing: -0.02em;
+  }
+  .hero .subtitle {
+    font-size: 1.08rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 620px;
+    margin: 0 auto;
+  }
+  .hero .lede {
+    max-width: 710px;
+    margin: 1rem auto 0;
+    color: var(--text);
+  }
+  .hero .blink {
+    display: inline-block;
+    animation: blink 1s step-end infinite;
+    color: var(--accent);
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .glitch { position: relative; display: inline-block; }
+  .glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+  .glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 2s infinite linear alternate-reverse;
+    clip-path: inset(0 0 65% 0);
+  }
+  .glitch::after {
+    color: var(--pink);
+    animation: glitch-2 3s infinite linear alternate-reverse;
+    clip-path: inset(65% 0 0 0);
+  }
+  @keyframes glitch-1 {
+    0%, 95% { transform: translateX(0); }
+    96% { transform: translateX(-2px); }
+    97% { transform: translateX(2px); }
+    98% { transform: translateX(-1px); }
+    100% { transform: translateX(0); }
+  }
+  @keyframes glitch-2 {
+    0%, 93% { transform: translateX(0); }
+    94% { transform: translateX(2px); }
+    96% { transform: translateX(-2px); }
+    98% { transform: translateX(1px); }
+    100% { transform: translateX(0); }
+  }
+
+  section { margin-bottom: 4rem; }
+  h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.8rem;
+    color: var(--accent);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: -0.01em;
+  }
+  h3 {
+    font-size: 1.28rem;
+    color: var(--cyan);
+    margin: 2rem 0 1rem;
+    font-weight: 600;
+  }
+  h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1rem;
+    color: var(--pink);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 1.5rem 0 0.8rem;
+  }
+
+  p { margin-bottom: 1rem; }
+  ul, ol {
+    margin: 0 0 1rem 1.25rem;
+  }
+  li {
+    margin-bottom: 0.35rem;
+  }
+  a { color: var(--blue); }
+
+  .drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4.2rem;
+    line-height: 0.8;
+    padding: 0.1em 0.12em 0 0;
+    color: var(--accent);
+    font-weight: 600;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+  }
+
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.84em;
+    background: var(--bg-code);
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem 1.4rem;
+    overflow-x: auto;
+    margin: 1.2rem 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px;
+    line-height: 1.55;
+    position: relative;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+  }
+  .comment { color: var(--text-dim); }
+  .keyword { color: var(--pink); }
+  .type { color: var(--cyan); }
+  .string { color: var(--green); }
+  .number { color: var(--yellow); }
+  .fn { color: var(--blue); }
+  .label {
+    position: absolute;
+    top: 0.4rem;
+    right: 0.8rem;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    opacity: 0.6;
+  }
+
+  .diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.8rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+  }
+  .diagram pre {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text);
+  }
+  .diagram pre code { color: var(--text); }
+  .diagram-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    margin-bottom: 1rem;
+    display: block;
+  }
+
+  .concept-map {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .concept-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.15rem;
+  }
+  .concept-card.full { grid-column: 1 / -1; }
+  .concept-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 0.4rem;
+  }
+  .concept-desc {
+    font-size: 0.92rem;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+
+  .insight {
+    background: var(--bg-card);
+    border-left: 3px solid var(--accent);
+    padding: 1.2rem 1.4rem;
+    margin: 1.5rem 0;
+    border-radius: 0 8px 8px 0;
+  }
+  .insight-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin-bottom: 0.4rem;
+  }
+  .insight p { margin-bottom: 0; font-size: 0.95rem; }
+  .insight.danger { border-left-color: var(--red); }
+  .insight.danger .insight-label { color: var(--red); }
+  .insight.cool { border-left-color: var(--cyan); }
+  .insight.cool .insight-label { color: var(--cyan); }
+  .insight.perf { border-left-color: var(--green); }
+  .insight.perf .insight-label { color: var(--green); }
+
+  .power {
+    background: var(--bg-card);
+    border-left: 3px solid var(--accent);
+    padding: 1.2rem 1.4rem;
+    margin: 1.5rem 0;
+    border-radius: 0 8px 8px 0;
+  }
+  .power-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin-bottom: 0.35rem;
+  }
+  .power p { margin-bottom: 0; font-size: 0.95rem; }
+  .power.danger { border-left-color: var(--red); }
+  .power.danger .power-label { color: var(--red); }
+  .power.hack { border-left-color: var(--pink); }
+  .power.hack .power-label { color: var(--pink); }
+  .power.wild { border-left-color: var(--yellow); }
+  .power.wild .power-label { color: var(--yellow); }
+  .power.zen { border-left-color: var(--cyan); }
+  .power.zen .power-label { color: var(--cyan); }
+
+  .try-this {
+    background: rgba(0,255,136,0.04);
+    border-left: 3px solid var(--accent-dim);
+    padding: 1rem 1.2rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .try-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    margin-bottom: 0.45rem;
+  }
+  .try-this p { font-size: 0.92rem; }
+  .try-this pre {
+    margin: 0.7rem 0 0;
+    font-size: 12.5px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.9rem;
+  }
+  th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    text-align: left;
+    padding: 0.6rem 0.8rem;
+    border-bottom: 2px solid var(--border);
+  }
+  td {
+    padding: 0.5rem 0.8rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:hover { background: rgba(230, 146, 74, 0.04); }
+
+  details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin: 1rem 0;
+    overflow: hidden;
+  }
+  details summary {
+    padding: 0.8rem 1.2rem;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--accent);
+    user-select: none;
+  }
+  details summary:hover { background: rgba(230, 146, 74, 0.06); }
+  details[open] summary { border-bottom: 1px solid var(--border); }
+  .details-content { padding: 1.2rem; }
+
+  .comparison {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .compare-col {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem;
+  }
+  .compare-col.good { border-color: var(--green); }
+  .compare-col.bad { border-color: var(--red); }
+  .compare-col h4 { margin-top: 0; }
+
+  .mem-block {
+    display: flex;
+    gap: 2px;
+    margin: 0.8rem 0;
+    flex-wrap: wrap;
+  }
+  .mem-cell {
+    width: 44px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    border-radius: 3px;
+    color: var(--bg);
+    font-weight: 600;
+  }
+  .mem-cell.header { background: var(--accent); }
+  .mem-cell.meta { background: var(--cyan); }
+  .mem-cell.data { background: var(--blue); }
+  .mem-cell.hot { background: var(--pink); }
+  .mem-cell.pad { background: var(--text-dim); opacity: 0.35; }
+  .mem-cell.free {
+    background: transparent;
+    border: 1px dashed var(--border);
+    color: var(--text-dim);
+  }
+
+  .flow {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 1rem 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    flex-wrap: wrap;
+  }
+  .flow-box {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.45rem 0.9rem;
+    white-space: nowrap;
+  }
+  .flow-arrow { color: var(--accent); font-size: 18px; }
+
+  .xref {
+    font-size: 0.95rem;
+    color: var(--text-dim);
+  }
+
+  @media (max-width: 700px) {
+    .concept-map, .comparison { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2.15rem; }
+    .content { padding: 4rem 1.2rem 4rem; }
+    nav { font-size: 10px; gap: 0.9rem; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="nav-title">&gt;_ PHYSICS</span>
+  <a href="#ch1">time</a>
+  <a href="#ch2">layout</a>
+  <a href="#ch3">broad</a>
+  <a href="#ch4">narrow</a>
+  <a href="#ch5">contacts</a>
+  <a href="#ch6">impulses</a>
+  <a href="#ch7">constraints</a>
+  <a href="#ch8">islands</a>
+  <a href="#ch9">controller</a>
+  <a href="#ch10">ccd</a>
+  <a href="#ch11">determinism</a>
+  <a href="#ch12">pipeline</a>
+</nav>
+
+<div class="content">
+
+<div class="hero">
+  <h1><span class="glitch" data-text="GAME PHYSICS">GAME PHYSICS</span></h1>
+  <div class="subtitle">Collision detection, contact generation, iterative solvers, and the machinery that makes an action game feel like matter instead of math.<span class="blink">_</span></div>
+  <p class="lede">We are going to build the part of the game that pushes back. Not a scientific simulator. Not a whitepaper. A frame-budgeted collision and constraint machine that can hold a stack of crates, slide a hero capsule up a stair, and stop a bullet from teleporting through a wall at 120 Hz.</p>
+</div>
+
+<div class="power hack">
+<div class="power-label">Hack: Physics Is Applied Lying</div>
+<p>The player does not want truth. The player wants resistance. If the world pushes back consistently, they call it “realistic.” If it jitters, tunnels, or snags their jump arc, they call it broken. Real-time physics is the art of choosing which lies are stable enough to feel honest.</p>
+</div>
+
+<section id="ch1">
+<h2>1. Time Is the First Collider</h2>
+
+<p class="drop-cap">Physics is not “objects moving around.” Physics is a contract about <em>when</em> the world updates. Get time wrong and everything downstream lies: gravity changes with frame rate, tunneling appears, joints explode, and your carefully tuned dodge roll from the <a href="gamecharacter-deep-dive.html">character deep dive</a> suddenly feels mushy. A physics engine starts with a clock, not a collider.</p>
+
+<h3>The fixed-step bargain</h3>
+
+<p>The simulation wants a constant <code>dt</code>. Rendering wants to run whenever the GPU and monitor permit. These are different clocks. Do not fuse them. Use an accumulator, step physics at a fixed rate, then interpolate for rendering.</p>
+
+<pre><code><span class="label">C++</span>
+<span class="keyword">const</span> <span class="type">float</span> kDt = <span class="number">1.0f</span> / <span class="number">120.0f</span>;
+<span class="type">float</span> accumulator = <span class="number">0.0f</span>;
+<span class="type">double</span> previous = <span class="fn">NowSeconds</span>();
+
+<span class="keyword">while</span> (running) {
+    <span class="type">double</span> current = <span class="fn">NowSeconds</span>();
+    <span class="type">float</span> frame = <span class="fn">min</span>(<span class="type">float</span>(current - previous), <span class="number">0.25f</span>);
+    previous = current;
+    accumulator += frame;
+
+    <span class="keyword">while</span> (accumulator &gt;= kDt) {
+        <span class="fn">StepPhysics</span>(world, kDt);
+        accumulator -= kDt;
+    }
+
+    <span class="type">float</span> alpha = accumulator / kDt;
+    <span class="fn">RenderInterpolated</span>(world.previous, world.current, alpha);
+}</code></pre>
+
+<div class="diagram">
+<span class="diagram-label">Two clocks, one world</span>
+<pre><code>render frames: |----16ms----|---14ms---|------22ms------|---17ms---|
+physics ticks: |--8.33--|--8.33--|--8.33--|--8.33--|--8.33--| ...
+
+frame 1: simulate 2 ticks, render between states
+frame 2: simulate 1 tick, render between states
+frame 3: simulate 3 ticks, render between states
+
+render never decides reality
+physics never cares about refresh rate</code></pre>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>step size</th>
+      <th>common use</th>
+      <th>upside</th>
+      <th>cost</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1/60 s</td>
+      <td>general gameplay</td>
+      <td>cheap, easy to reason about</td>
+      <td>fast bodies tunnel more easily</td>
+    </tr>
+    <tr>
+      <td>1/120 s</td>
+      <td>action games, fighters</td>
+      <td>better contact stability</td>
+      <td>2x solver work</td>
+    </tr>
+    <tr>
+      <td>variable</td>
+      <td>never on purpose</td>
+      <td>none</td>
+      <td>nondeterministic chaos</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="insight danger">
+<div class="insight-label">Failure Mode</div>
+<p>Most “physics bugs” reported by players are actually timestep bugs. If a crate jitters, a body tunnels, or a jump feels different at 144Hz, suspect time before you suspect collision math.</p>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This Tonight</div>
+<p>Run the same tiny spring simulation with two timestep schedules that cover the same amount of wall-clock time.</p>
+<pre><code>python - &lt;&lt;'PY'
+def run(schedule):
+    x, v = 1.0, 0.0
+    k = 40.0
+    for dt in schedule:
+        a = -k * x
+        v += a * dt
+        x += v * dt
+    return round(x, 6), round(v, 6)
+
+fixed  = [1/120] * 240
+jitter = [1/30, 1/240] * 120
+
+print("fixed :", run(fixed))
+print("jitter:", run(jitter))
+PY</code></pre>
+<p>Same simulated duration. Different answer. That is why the clock gets its own chapter before collision even shows up.</p>
+</div>
+</section>
+
+<section id="ch2">
+<h2>2. Body Data Wants Cache, Not Inheritance</h2>
+
+<p class="drop-cap">A physics world is a hot loop over a lot of boring numbers: position, rotation, inverse mass, velocity, shape bounds, sleep flags. That means layout matters more than class elegance. If you store bodies as fat objects with virtual methods, the solver spends its life waiting on cache misses. This is the exact lesson from <a href="buffers-deep-dive.html">Buffers</a>: contiguous wins.</p>
+
+<h3>Struct-of-arrays beats object soup</h3>
+
+<div class="comparison">
+  <div class="compare-col bad">
+    <h4>Pointer-rich body graph</h4>
+    <p><code>Body*</code> points to <code>Shape*</code>, <code>Material*</code>, <code>Constraint*</code>. Easy to model, terrible to stream through. Every collision pass is pointer chasing.</p>
+  </div>
+  <div class="compare-col good">
+    <h4>Dense solver arrays</h4>
+    <p>Body ids index into parallel arrays for transforms, velocities, inverse masses, and broad-phase handles. The loop becomes arithmetic, not archaeology.</p>
+  </div>
+</div>
+
+<div class="diagram">
+<span class="diagram-label">Hot body state laid out for the solver</span>
+<div class="mem-block">
+  <div class="mem-cell header">id</div>
+  <div class="mem-cell data">px</div>
+  <div class="mem-cell data">py</div>
+  <div class="mem-cell data">pz</div>
+  <div class="mem-cell meta">rot</div>
+  <div class="mem-cell data">vx</div>
+  <div class="mem-cell data">vy</div>
+  <div class="mem-cell data">vz</div>
+  <div class="mem-cell meta">w</div>
+  <div class="mem-cell hot">invM</div>
+  <div class="mem-cell hot">invI</div>
+  <div class="mem-cell meta">sleep</div>
+</div>
+<pre><code>bodies.position_x[i]
+bodies.position_y[i]
+bodies.linear_velocity_x[i]
+bodies.inverse_mass[i]
+
+one integer id, many dense columns
+the broad phase and the solver both love this</code></pre>
+</div>
+
+<pre><code><span class="label">Rust-ish</span>
+<span class="keyword">struct</span> <span class="type">BodySet</span> {
+    position: <span class="type">Vec</span>&lt;<span class="type">Vec3</span>&gt;,
+    rotation: <span class="type">Vec</span>&lt;<span class="type">Quat</span>&gt;,
+    linear_velocity: <span class="type">Vec</span>&lt;<span class="type">Vec3</span>&gt;,
+    angular_velocity: <span class="type">Vec</span>&lt;<span class="type">Vec3</span>&gt;,
+    inverse_mass: <span class="type">Vec</span>&lt;<span class="type">f32</span>&gt;,
+    inverse_inertia: <span class="type">Vec</span>&lt;<span class="type">Mat3</span>&gt;,
+    aabb: <span class="type">Vec</span>&lt;<span class="type">Aabb</span>&gt;,
+    sleeping: <span class="type">Vec</span>&lt;<span class="type">bool</span>&gt;,
+}
+
+<span class="keyword">struct</span> <span class="type">BodyHandle</span> {
+    slot: <span class="type">u32</span>,
+    generation: <span class="type">u32</span>,
+}</code></pre>
+
+<p class="xref">Cross-reference: the same “dense hot arrays, sparse cold metadata” split shows up in <a href="buffers-deep-dive.html">Buffers</a> and in the scheduling discussion in <a href="concurrency-deep-dive.html">Concurrency</a>.</p>
+</section>
+
+<section id="ch3">
+<h2>3. Broad Phase: Who Might Hit Whom</h2>
+
+<p class="drop-cap">The broad phase is a liar, but a useful one. Its job is to return too many pairs, quickly. If you ask it for the exact colliding bodies, it becomes expensive. If you ask it for plausible collisions, it becomes fast enough to run every frame. Physics engines live on that compromise.</p>
+
+<h3>Common strategies</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>strategy</th>
+      <th>best for</th>
+      <th>shape</th>
+      <th>failure case</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>sweep and prune</td>
+      <td>moderate motion, many boxes</td>
+      <td>sort AABB endpoints</td>
+      <td>large resort cost after chaos</td>
+    </tr>
+    <tr>
+      <td>dynamic BVH</td>
+      <td>mixed scenes, varying sizes</td>
+      <td>tree of fat AABBs</td>
+      <td>tree quality degrades without refit</td>
+    </tr>
+    <tr>
+      <td>spatial hash</td>
+      <td>uniform worlds, many movers</td>
+      <td>grid buckets</td>
+      <td>cell-size tuning pain</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="diagram">
+<span class="diagram-label">Broad phase pipeline</span>
+<pre><code>body transforms
+      |
+      v
+expanded AABBs ("fat" bounds for temporal coherence)
+      |
+      +---- sweep / tree / hash ----+
+      |                              |
+      v                              v
+ candidate pair (3, 9)         candidate pair (9, 14)
+ candidate pair (3, 12)        candidate pair (12, 17)
+      |
+      v
+narrow phase decides what is real</code></pre>
+</div>
+
+<pre><code><span class="label">C++</span>
+<span class="keyword">for</span> (<span class="type">BodyId</span> a : activeBodies) {
+    <span class="type">Aabb</span> fat = <span class="fn">Expand</span>(world.aabb[a], world.linearVelocity[a] * dt);
+    tree.<span class="fn">UpdateProxy</span>(world.proxy[a], fat);
+}
+
+candidatePairs.<span class="fn">clear</span>();
+tree.<span class="fn">QueryOverlaps</span>(candidatePairs);
+
+<span class="comment">// Broad phase may return false positives. That is fine.</span></code></pre>
+
+<div class="insight perf">
+<div class="insight-label">Performance Rule</div>
+<p>Optimize for <em>pair count</em>, not for theoretical purity. A slightly dirty broad phase with temporal coherence usually beats a perfectly rebuilt structure every frame.</p>
+</div>
+
+<details>
+  <summary>Why use fat AABBs?</summary>
+  <div class="details-content">
+    <p>If you enlarge the proxy by a small velocity margin, tiny movements no longer force tree reinsertion every frame. You spend a few extra false positives to save a pile of maintenance work. That trade is almost always worth it.</p>
+  </div>
+</details>
+</section>
+
+<section id="ch4">
+<h2>4. Narrow Phase: Prove the Collision</h2>
+
+<p class="drop-cap">Broad phase gives you suspects. Narrow phase gives you evidence. It answers three questions: are the shapes overlapping, along which normal, and by how much? For boxes and convex polygons, the Separating Axis Theorem is the workhorse because it is simple, branchy in understandable ways, and gives you a normal you can actually use.</p>
+
+<h3>SAT in one sentence</h3>
+
+<p>If you can find <em>any</em> axis on which the projected intervals do not overlap, the shapes are not colliding. If all candidate axes overlap, they are colliding; the axis with the smallest overlap becomes the collision normal.</p>
+
+<div class="diagram">
+<span class="diagram-label">Separating Axis Theorem</span>
+<pre><code>shape A edges  -> candidate normals: n0 n1 ...
+shape B edges  -> candidate normals: m0 m1 ...
+
+project both shapes onto each axis:
+
+axis n0: [-----A-----]
+         [---B---]          overlap
+
+axis m1: [-----A-----]
+                       [---B---]   no overlap -> separated
+
+one separating axis is enough to stop</code></pre>
+</div>
+
+<pre><code><span class="label">Pseudo</span>
+<span class="keyword">bool</span> <span class="fn">SatOverlap</span>(<span class="type">Shape</span> a, <span class="type">Shape</span> b, <span class="type">Manifold</span>&amp; out) {
+    <span class="type">float</span> minDepth = INF;
+    <span class="type">Vec3</span> bestAxis;
+
+    <span class="keyword">for</span> (<span class="type">Vec3</span> axis : <span class="fn">CandidateAxes</span>(a, b)) {
+        <span class="keyword">if</span> (<span class="fn">LengthSq</span>(axis) &lt; EPSILON) <span class="keyword">continue</span>;
+        axis = <span class="fn">Normalize</span>(axis);
+
+        <span class="type">Interval</span> ia = <span class="fn">Project</span>(a, axis);
+        <span class="type">Interval</span> ib = <span class="fn">Project</span>(b, axis);
+        <span class="type">float</span> depth = <span class="fn">Overlap</span>(ia, ib);
+
+        <span class="keyword">if</span> (depth &lt;= <span class="number">0.0f</span>) <span class="keyword">return</span> <span class="keyword">false</span>;
+        <span class="keyword">if</span> (depth &lt; minDepth) {
+            minDepth = depth;
+            bestAxis = axis;
+        }
+    }
+
+    out.normal = bestAxis;
+    out.penetration = minDepth;
+    <span class="keyword">return</span> <span class="keyword">true</span>;
+}</code></pre>
+
+<div class="insight cool">
+<div class="insight-label">Precision Warning</div>
+<p>The axis with the “smallest overlap” is often separated from the runner-up by floating-point dust. Epsilon policy matters. The nasty details are in <a href="floatingpoint-deep-dive.html">Floating Point</a>; physics is one of the places where that lying arithmetic becomes visible as jitter.</p>
+</div>
+
+<p>Circles, capsules, and spheres get bespoke tests because they are cheaper and stabler than a generic convex path. Real engines mix specialized shape pairs with a convex fallback. Purity loses to frame time.</p>
+</section>
+
+<section id="ch5">
+<h2>5. Contacts Are Tiny Constraints</h2>
+
+<p class="drop-cap">A collision is not “two things touched.” A useful collision is a <em>contact manifold</em>: normal, penetration, contact points, feature ids, and accumulated impulses from the last frame. One contact point gives you separation. Two points give you rotation resistance. Four badly chosen points give you solver noise. The manifold is where geometry turns into mechanics.</p>
+
+<h3>What a manifold stores</h3>
+
+<div class="concept-map">
+  <div class="concept-card">
+    <div class="concept-name">normal</div>
+    <div class="concept-desc">The direction in which the solver pushes bodies apart.</div>
+  </div>
+  <div class="concept-card">
+    <div class="concept-name">penetration</div>
+    <div class="concept-desc">How deep the overlap is right now. Useful, but not a license to teleport.</div>
+  </div>
+  <div class="concept-card">
+    <div class="concept-name">points</div>
+    <div class="concept-desc">World-space anchors where the contact acts. Usually 1-2 in 2D, up to 4 in 3D patches.</div>
+  </div>
+  <div class="concept-card">
+    <div class="concept-name">cached impulse</div>
+    <div class="concept-desc">Warm-start data from the previous frame so the solver converges quickly.</div>
+  </div>
+</div>
+
+<pre><code><span class="label">C</span>
+<span class="keyword">struct</span> <span class="type">ContactPoint</span> {
+    <span class="type">Vec3</span> position;
+    <span class="type">float</span> normalImpulse;
+    <span class="type">float</span> tangentImpulse;
+    <span class="type">uint32_t</span> featureKey;
+};
+
+<span class="keyword">struct</span> <span class="type">Manifold</span> {
+    <span class="type">BodyId</span> a, b;
+    <span class="type">Vec3</span> normal;
+    <span class="type">float</span> penetration;
+    <span class="type">uint8_t</span> pointCount;
+    <span class="type">ContactPoint</span> points[<span class="number">4</span>];
+};</code></pre>
+
+<div class="diagram">
+<span class="diagram-label">Box resting on floor: why one point is not enough</span>
+<pre><code>single point contact
+        ┌───────┐
+        │ box   │
+        └───────┘
+           *
+------------------------ floor
+
+two point manifold
+        ┌───────┐
+        │ box   │
+        └───────┘
+         *     *
+------------------------ floor
+
+one point separates
+two points separate + resist tipping</code></pre>
+</div>
+
+<p>Manifold persistence is a hidden performance feature. Reuse feature ids across frames and you can warm-start the solver. Throw manifolds away every step and stacks become jelly.</p>
+
+<div class="power zen">
+<div class="power-label">Why A Crate Stack Stands Up</div>
+<p>Warm starting is the quiet hero of arcade physics. The solver remembers last frame’s contact impulses, starts near the old answer, and converges before the frame budget runs out. Delete that memory and every resting stack turns into soup.</p>
+</div>
+
+<p class="xref">Cross-reference: persistent contact caches are another example of “cold metadata feeding a hot loop,” the same pattern shown in <a href="buffers-deep-dive.html">Buffers</a>.</p>
+</section>
+
+<section id="ch6">
+<h2>6. Impulses: Velocity Changes in Disguise</h2>
+
+<p class="drop-cap">Most real-time engines do not integrate forces until the exact moment of truth and solve a beautiful continuous system. They cheat. They compute impulses that change velocity <em>right now</em> so that the next frame looks physically plausible. This is why game physics feels solid long before it feels correct.</p>
+
+<h3>The normal impulse</h3>
+
+<p>For a single contact, you compute the relative velocity at the point, project it onto the contact normal, and apply an impulse that cancels the closing speed, plus maybe some bounce.</p>
+
+<pre><code><span class="label">Math</span>
+vn = dot(vb + wb x rb - va - wa x ra, n)
+
+effectiveMass =
+    invMassA + invMassB +
+    dot(cross(invIA * cross(ra, n), ra), n) +
+    dot(cross(invIB * cross(rb, n), rb), n)
+
+j = -(1 + restitution) * vn / effectiveMass
+j = max(j, 0)
+
+impulse = j * n</code></pre>
+
+<pre><code><span class="label">Pseudo</span>
+<span class="keyword">void</span> <span class="fn">SolveNormal</span>(<span class="type">Contact</span>&amp; c) {
+    <span class="type">Vec3</span> rv = <span class="fn">PointVelocity</span>(c.b, c.rb) - <span class="fn">PointVelocity</span>(c.a, c.ra);
+    <span class="type">float</span> vn = <span class="fn">Dot</span>(rv, c.normal);
+    <span class="keyword">if</span> (vn &gt; <span class="number">0.0f</span>) <span class="keyword">return</span>;
+
+    <span class="type">float</span> j = -(<span class="number">1.0f</span> + c.restitution) * vn / c.normalMass;
+    <span class="type">float</span> old = c.accumulatedNormal;
+    c.accumulatedNormal = <span class="fn">max</span>(old + j, <span class="number">0.0f</span>);
+    j = c.accumulatedNormal - old;
+
+    <span class="type">Vec3</span> impulse = j * c.normal;
+    <span class="fn">ApplyImpulse</span>(c.a, -impulse, c.ra);
+    <span class="fn">ApplyImpulse</span>(c.b,  impulse, c.rb);
+}</code></pre>
+
+<div class="insight">
+<div class="insight-label">Important Lie</div>
+<p>The solver is not asking “what force acted over time?” It is asking “what velocity correction makes this frame stop looking wrong?” That framing is why sequential impulse solvers are fast enough for games.</p>
+</div>
+
+<h3>Position correction</h3>
+
+<p>Even a good velocity solver leaves tiny penetrations. Engines usually add a bias term or a post-step positional correction to keep stacks from sinking into each other. Too little correction: objects melt. Too much: objects buzz.</p>
+</section>
+
+<section id="ch7">
+<h2>7. Friction and Joints Are the Same Game</h2>
+
+<p class="drop-cap">Once you understand a contact as a constraint, the rest of the engine snaps into focus. Friction is just a constraint along the tangent. A hinge joint is a constraint on relative position and relative angle. A distance joint is a constraint on separation. Physics engines stop looking like a bag of tricks and start looking like a constraint factory.</p>
+
+<div class="flow">
+  <div class="flow-box">contact normal</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-box">1D constraint</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-box">impulse solve</div>
+</div>
+<div class="flow">
+  <div class="flow-box">friction tangent</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-box">1D constraint</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-box">clamped impulse solve</div>
+</div>
+<div class="flow">
+  <div class="flow-box">joint anchor error</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-box">constraint rows</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-box">same solver</div>
+</div>
+
+<h3>Sequential impulses, many passes</h3>
+
+<p>In practice you do not solve the entire system in one giant matrix inversion. You iterate over constraints several times, each pass nudging the world closer to consistency.</p>
+
+<pre><code><span class="label">Pseudo</span>
+<span class="keyword">for</span> (<span class="type">int</span> iteration = <span class="number">0</span>; iteration &lt; solverIterations; ++iteration) {
+    <span class="keyword">for</span> (<span class="type">ConstraintRow</span>&amp; row : normalRows)   <span class="fn">SolveRow</span>(row);
+    <span class="keyword">for</span> (<span class="type">ConstraintRow</span>&amp; row : frictionRows) <span class="fn">SolveRow</span>(row);
+    <span class="keyword">for</span> (<span class="type">ConstraintRow</span>&amp; row : jointRows)    <span class="fn">SolveRow</span>(row);
+}</code></pre>
+
+<table>
+  <thead>
+    <tr>
+      <th>constraint</th>
+      <th>goal</th>
+      <th>clamp</th>
+      <th>note</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>contact normal</td>
+      <td>prevent penetration</td>
+      <td>[0, +inf)</td>
+      <td>can only push, never pull</td>
+    </tr>
+    <tr>
+      <td>friction</td>
+      <td>resist sliding</td>
+      <td>[-muN, +muN]</td>
+      <td>depends on normal impulse</td>
+    </tr>
+    <tr>
+      <td>distance joint</td>
+      <td>maintain length</td>
+      <td>usually free</td>
+      <td>stiffness becomes tuning problem</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="insight cool">
+<div class="insight-label">Unifying Idea</div>
+<p>A mature engine has fewer “special systems” than you think. It has one solver that keeps being handed different rows.</p>
+</div>
+</section>
+
+<section id="ch8">
+<h2>8. Islands, Sleeping, and the Cheapness of Doing Nothing</h2>
+
+<p class="drop-cap">The most important optimization in physics is not SIMD, or clever trees, or fancy contact clipping. It is not solving bodies that do not matter. A crate at rest on the floor should be almost free. Engines get there with islands and sleeping: partition the active graph, solve only what is awake, and let quiet systems stay quiet.</p>
+
+<h3>Build islands from the contact graph</h3>
+
+<div class="diagram">
+<span class="diagram-label">Connected bodies become one solve island</span>
+<pre><code>[body 1]--contact--[body 2]--joint--[body 3]
+
+[body 4]--contact--[body 5]
+
+Island A: 1, 2, 3
+Island B: 4, 5
+
+If Island B sleeps, Island A keeps running.
+If body 2 wakes up, all of Island A wakes with it.</code></pre>
+</div>
+
+<pre><code><span class="label">Pseudo</span>
+<span class="keyword">for</span> (<span class="type">BodyId</span> seed : activeBodies) {
+    <span class="keyword">if</span> (visited[seed] || sleeping[seed]) <span class="keyword">continue</span>;
+
+    island.<span class="fn">clear</span>();
+    stack.<span class="fn">push_back</span>(seed);
+
+    <span class="keyword">while</span> (!stack.<span class="fn">empty</span>()) {
+        <span class="type">BodyId</span> b = stack.<span class="fn">back</span>();
+        stack.<span class="fn">pop_back</span>();
+        <span class="keyword">if</span> (visited[b]) <span class="keyword">continue</span>;
+        visited[b] = <span class="keyword">true</span>;
+        island.<span class="fn">add</span>(b);
+
+        <span class="keyword">for</span> (<span class="type">BodyId</span> n : <span class="fn">AdjacentBodies</span>(b)) {
+            <span class="keyword">if</span> (!visited[n] &amp;&amp; !sleeping[n]) stack.<span class="fn">push_back</span>(n);
+        }
+    }
+
+    <span class="fn">SolveIsland</span>(island);
+}</code></pre>
+
+<div class="insight perf">
+<div class="insight-label">Parallelism Hook</div>
+<p>Independent islands are the natural unit of concurrency. They can be dispatched to worker threads with minimal synchronization, which lines up neatly with the work-stealing and ownership patterns in <a href="concurrency-deep-dive.html">Concurrency</a>.</p>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>heuristic</th>
+      <th>typical rule</th>
+      <th>bad tuning result</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>sleep velocity</td>
+      <td>below threshold for N frames</td>
+      <td>premature freezing on slopes</td>
+    </tr>
+    <tr>
+      <td>wake on impulse</td>
+      <td>any strong contact wakes island</td>
+      <td>micro-collisions wake the world</td>
+    </tr>
+    <tr>
+      <td>wake on edit</td>
+      <td>teleport / transform change wakes body</td>
+      <td>debug tools create chaos</td>
+    </tr>
+  </tbody>
+</table>
+</section>
+
+<section id="ch9">
+<h2>9. Character Controllers Cheat on Purpose</h2>
+
+<p class="drop-cap">Rigid body simulation is great for boxes and bad for heroes. Players expect intent preservation: stairs should be climbable, slopes should be stable, tiny seams should not snag movement, and jump arcs should remain readable. That means the main character is often a kinematic controller with selective physics, not “just another dynamic body.”</p>
+
+<h3>Why avatars are special</h3>
+
+<div class="comparison">
+  <div class="compare-col good">
+    <h4>Kinematic controller</h4>
+    <p>Move by sweeps and depenetration, then resolve ground state manually. Predictable, tunable, and friendly to game feel.</p>
+  </div>
+  <div class="compare-col bad">
+    <h4>Fully dynamic hero</h4>
+    <p>Looks principled until the player catches a stair lip, bounces off a pebble, or falls over from tiny impulses.</p>
+  </div>
+</div>
+
+<pre><code><span class="label">Pseudo</span>
+<span class="keyword">void</span> <span class="fn">MoveCharacter</span>(<span class="type">Controller</span>&amp; c, <span class="type">Vec3</span> wishDelta) {
+    <span class="type">SweepHit</span> hit = <span class="fn">SweepCapsule</span>(c.shape, c.position, wishDelta);
+
+    <span class="keyword">if</span> (!hit.blocked) {
+        c.position += wishDelta;
+        <span class="keyword">return</span>;
+    }
+
+    c.position += wishDelta * hit.toi;
+    <span class="type">Vec3</span> slide = <span class="fn">Reject</span>(wishDelta * (<span class="number">1.0f</span> - hit.toi), hit.normal);
+    c.position += <span class="fn">ProjectSafeSlide</span>(slide, hit.normal);
+    c.grounded = hit.normal.y &gt; c.minGroundDot;
+}</code></pre>
+
+<div class="insight">
+<div class="insight-label">Game Feel Rule</div>
+<p>The character controller answers to the designer first and the physics engine second. That is why coyote time, step offset, snap-to-ground, and ledge forgiveness exist. The feel-side rationale lives in <a href="gamecharacter-deep-dive.html">Game Characters</a>; physics just supplies the collision queries.</p>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This Tonight</div>
+<p>Take one platformer controller and implement only two cheats: ground snap and step offset. Then remove them and feel the difference with your hands, not your eyes.</p>
+<pre><code><span class="comment">// after horizontal sweep</span>
+if (grounded_last_frame && !grounded_now) {
+    try_snap_down(max_snap_distance);
+}
+
+if (hit_short_step && step_height &lt;= max_step_height) {
+    position.y += step_height;
+    retry_horizontal_move();
+}</code></pre>
+<p>The point is not purity. The point is to notice how much “good movement” is authored on top of raw collision.</p>
+</div>
+
+<h3>Typical controller extras</h3>
+
+<div class="concept-map">
+  <div class="concept-card">
+    <div class="concept-name">step offset</div>
+    <div class="concept-desc">Treat short obstacles as climbable instead of blocking.</div>
+  </div>
+  <div class="concept-card">
+    <div class="concept-name">ground snap</div>
+    <div class="concept-desc">Stay glued to small descents so the player does not “micro-hop.”</div>
+  </div>
+  <div class="concept-card">
+    <div class="concept-name">slope limit</div>
+    <div class="concept-desc">Walk on gentle surfaces, slide on steep ones.</div>
+  </div>
+  <div class="concept-card">
+    <div class="concept-name">one-way platforms</div>
+    <div class="concept-desc">Collision filtering tied to movement intent, not pure geometry.</div>
+  </div>
+</div>
+</section>
+
+<section id="ch10">
+<h2>10. Continuous Collision Detection Is Anti-Tunneling Surgery</h2>
+
+<p class="drop-cap">Discrete simulation samples the world at ticks. Fast objects move between those samples. If the whole bullet jumps from one side of a wall to the other between frames, your overlap test never sees the intersection. That is tunneling. Continuous collision detection fixes it by asking not “are they overlapping now?” but “when, during this interval, do they first touch?”</p>
+
+<div class="diagram">
+<span class="diagram-label">Discrete miss vs continuous hit</span>
+<pre><code>tick N:    bullet --->        wall
+tick N+1:               ---> bullet passed through
+
+discrete overlap: misses
+
+swept test:
+segment / capsule cast against wall
+find TOI = 0.37 within the frame
+advance body to impact, solve there</code></pre>
+</div>
+
+<h3>Where CCD actually matters</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>body type</th>
+      <th>discrete only?</th>
+      <th>ccd advice</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>slow crates</td>
+      <td>yes</td>
+      <td>not worth the cost</td>
+    </tr>
+    <tr>
+      <td>bullets / arrows</td>
+      <td>no</td>
+      <td>ray or sweep cast</td>
+    </tr>
+    <tr>
+      <td>fast hero dash</td>
+      <td>sometimes</td>
+      <td>shape cast if the controller feels wrong</td>
+    </tr>
+    <tr>
+      <td>ragdoll debris</td>
+      <td>mostly yes</td>
+      <td>use substeps before full CCD</td>
+    </tr>
+  </tbody>
+</table>
+
+<pre><code><span class="label">Pseudo</span>
+<span class="keyword">for</span> (<span class="type">BodyId</span> b : ccdBodies) {
+    <span class="type">SweepHit</span> hit = <span class="fn">SweepShape</span>(b.shape, b.position, b.velocity * dt);
+    <span class="keyword">if</span> (!hit.blocked) <span class="keyword">continue</span>;
+
+    <span class="type">float</span> toi = <span class="fn">Clamp</span>(hit.toi - <span class="number">0.001f</span>, <span class="number">0.0f</span>, <span class="number">1.0f</span>);
+    b.position += b.velocity * (dt * toi);
+    <span class="fn">RegisterImpactContact</span>(b, hit);
+}</code></pre>
+
+<div class="insight danger">
+<div class="insight-label">Engineering Tradeoff</div>
+<p>Full CCD everywhere is expensive and destabilizes pipelines if bolted on late. Most engines apply it surgically to fast, small, gameplay-critical bodies.</p>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This Tonight</div>
+<p>Write the dumbest bullet test you can, then prove to yourself why discrete overlap misses.</p>
+<pre><code>python - &lt;&lt;'PY'
+wall_min, wall_max = 10.0, 10.2
+x0 = 0.0
+v = 80.0
+dt = 0.2
+x1 = x0 + v * dt
+
+discrete_overlap = wall_min &lt;= x1 &lt;= wall_max
+toi = (wall_min - x0) / (x1 - x0)
+
+print("x1 =", x1)
+print("discrete overlap?", discrete_overlap)
+print("time of impact inside frame =", round(toi, 3))
+PY</code></pre>
+<p>The bullet ends the frame past the wall, so a naive overlap check says “no collision.” The sweep says the hit happened 62.5% of the way through the tick. That gap is the whole reason CCD exists.</p>
+</div>
+</section>
+
+<section id="ch11">
+<h2>11. Determinism Is a Networking Problem Wearing a Physics Hat</h2>
+
+<p class="drop-cap">If the same starting state and same inputs do not produce the same result, rollback netcode is painful, client prediction drifts, replays desync, and server reconciliation gets ugly. That is why physics and networking keep colliding organizationally: the physics engine secretly controls the quality of your multiplayer architecture.</p>
+
+<h3>Why exact determinism is hard</h3>
+
+<ul>
+  <li>Floating-point order changes results.</li>
+  <li>Different SIMD paths round differently.</li>
+  <li>Hash map iteration order changes constraint order.</li>
+  <li>Threading can scramble broad-phase or island order.</li>
+</ul>
+
+<p>All of this becomes visible when paired with prediction and reconciliation in <a href="gameserver-deep-dive.html">Game Servers</a>. The problem is not “physics is inaccurate.” The problem is “physics is inconsistently inaccurate.”</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>approach</th>
+      <th>determinism quality</th>
+      <th>cost</th>
+      <th>where it fits</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>best-effort float</td>
+      <td>weak</td>
+      <td>cheap</td>
+      <td>authoritative server, client corrections</td>
+    </tr>
+    <tr>
+      <td>strict float + stable ordering</td>
+      <td>moderate</td>
+      <td>engineering discipline</td>
+      <td>rollback fighters, lockstep-ish sims</td>
+    </tr>
+    <tr>
+      <td>fixed-point / custom math</td>
+      <td>strong</td>
+      <td>high complexity</td>
+      <td>RTS lockstep, hardcore determinism</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="insight cool">
+<div class="insight-label">Stable Order Rule</div>
+<p>Determinism often dies from container iteration before it dies from floating point. Sort contacts, sort joints, sort islands. Chaos loves unspecified order.</p>
+</div>
+
+<p class="xref">Cross-reference: if you need a refresher on exactly how rounding, reassociation, and denormals betray you, read <a href="floatingpoint-deep-dive.html">Floating Point</a>.</p>
+</section>
+
+<section id="ch12">
+<h2>12. The Full Step: What We Actually Built</h2>
+
+<p class="drop-cap">At this point the engine stops being mystical. It is a pipeline: gather input, integrate velocities, update bounds, find candidate pairs, generate contacts, warm start, iterate constraints, write back transforms, put quiet bodies to sleep. The reason physics feels hard is not that any one stage is incomprehensible. It is that every stage is coupled to the next by frame budget.</p>
+
+<div class="diagram">
+<span class="diagram-label">Real-time action-game physics step</span>
+<pre><code>external forces
+    |
+    v
+integrate velocities
+    |
+    v
+update broad-phase proxies
+    |
+    v
+candidate pairs
+    |
+    v
+narrow phase + manifolds
+    |
+    v
+build constraint rows
+    |
+    v
+warm start cached impulses
+    |
+    v
+iterative solver (contacts, friction, joints)
+    |
+    v
+integrate positions
+    |
+    v
+sleep / wake bookkeeping
+    |
+    v
+render state + gameplay queries</code></pre>
+</div>
+
+<pre><code><span class="label">Pseudo</span>
+<span class="keyword">void</span> <span class="fn">StepPhysics</span>(<span class="type">World</span>&amp; world, <span class="type">float</span> dt) {
+    <span class="fn">ApplyGravity</span>(world, dt);
+    <span class="fn">IntegrateVelocities</span>(world, dt);
+    <span class="fn">UpdateBroadPhase</span>(world, dt);
+    <span class="fn">FindCandidatePairs</span>(world);
+    <span class="fn">BuildManifolds</span>(world);
+    <span class="fn">AssembleConstraintRows</span>(world);
+    <span class="fn">WarmStart</span>(world);
+
+    <span class="keyword">for</span> (<span class="type">int</span> i = <span class="number">0</span>; i &lt; world.iterations; ++i) {
+        <span class="fn">SolveContacts</span>(world);
+        <span class="fn">SolveFriction</span>(world);
+        <span class="fn">SolveJoints</span>(world);
+    }
+
+    <span class="fn">IntegratePositions</span>(world, dt);
+    <span class="fn">FinalizeSleepStates</span>(world);
+}</code></pre>
+
+<div class="insight">
+<div class="insight-label">What We Built</div>
+<p>A practical action-game physics core: fixed-step timing, dense body storage, broad phase, narrow phase, manifolds, sequential impulses, constraint solving, sleep/island management, character-controller cheats, CCD for fast movers, and a path to multiplayer sanity.</p>
+</div>
+
+<div class="insight perf">
+<div class="insight-label">What We Did Not Cover</div>
+<p>Deformables, fluid solvers, finite-element methods, advanced articulated ragdolls, GPU solvers, and editor tooling. Those are separate rabbit holes. This one was the machinery that makes a sword hit a barrel and both stay believable at 120Hz.</p>
+</div>
+</section>
+
+</div>
+</body>
+</html>

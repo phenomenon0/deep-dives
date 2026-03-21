@@ -283,7 +283,7 @@ details[open] summary { border-bottom: 1px solid var(--border); }
   <span class="cm">Example: &lambda; = 50 req/s, W = 2 seconds</span>
   <span class="cm">L = 100 concurrent requests</span>
 
-  <span class="cm">For Llama-3.1 70B (GQA, 8 KV heads) at avg 4K context:</span>
+  <span class="cm">For Llama-3.3 70B (GQA, 8 KV heads) at avg 4K context:</span>
   <span class="cm">Per-request KV: 320 KiB/token &times; 4096 = <span class="nm">1.25 GB</span></span>
   <span class="cm">100 concurrent requests: <span class="nm">125 GB</span> of KV cache alone</span>
   <span class="cm">+ 140 GB model weights = needs multiple A100s just for memory</span>
@@ -589,7 +589,7 @@ details[open] summary { border-bottom: 1px solid var(--border); }
     The same model wants different hardware depending on whether it is reading or talking.<span class="blink">_</span>
 </div>
 
-<p class="drop-cap">Chapter 10 showed that prefill and decode are two species of work. Chunked prefill manages their interference on a single GPU. Disaggregation takes the next step: separate GPU pools, each optimized for its phase. Prefill instances maximize compute throughput. Decode instances maximize bandwidth utilization. KV cache transfers between them.</p>
+<p class="drop-cap">Prefill wants compute. Decode wants bandwidth. Forcing one GPU to do both means it excels at neither &mdash; compute sits idle during decode, and decode requests freeze during long prefills. The fix is physical separation: dedicated GPU pools for each phase, connected by fast interconnect, each tuned for its workload.</p>
 
 <div class="diagram">
 <span class="diagram-label">Disaggregated architecture</span>
@@ -644,7 +644,7 @@ details[open] summary { border-bottom: 1px solid var(--border); }
 <div class="tab-panel p2">
 <div class="diagram"><span class="diagram-label">The KV transfer bottleneck</span>
 <pre><code>
-  <span class="cm">Llama-3.1 70B, 4K context, GQA 8 KV heads:</span>
+  <span class="cm">Llama-3.3 70B, 4K context, GQA 8 KV heads:</span>
   Per-token KV: 320 KiB &times; 4096 tokens = <span class="nm">1.34 GB</span>
 
   <span class="cm">Transfer time by interconnect:</span>
@@ -923,7 +923,7 @@ details[open] summary { border-bottom: 1px solid var(--border); }
     By the end, the model is only one component in the system built around it.<span class="blink">_</span>
 </div>
 
-<p class="drop-cap">A modern serving stack is a pipeline of decisions: which request goes where, what work can be reused, what engine runs the model, how memory is managed, how latency is observed, and when to scale. The model &mdash; that 27 billion numbers you traced through 64 blocks in Part I &mdash; sits in the center. Everything else exists to feed it efficiently and measure whether it&rsquo;s working.</p>
+<p class="drop-cap">A modern serving stack is a pipeline of decisions: which request goes where, what work can be reused, what engine runs the model, how memory is managed, how latency is observed, and when to scale. The model &mdash; those billions of weights &mdash; sits at the center. Everything else exists to feed it efficiently and measure whether it is working.</p>
 
 <div class="diagram">
 <span class="diagram-label">The full stack &mdash; request lifecycle</span>

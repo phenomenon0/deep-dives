@@ -1,0 +1,1104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inference Deep Dive &mdash; How LLMs Actually Run at Scale</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --accent: #00ff88;
+    --accent-dim: #00aa55;
+    --blue: #4488ff;
+    --cyan: #00ddff;
+    --pink: #ff00aa;
+    --green: #00ff88;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.72;
+    overflow-x: hidden;
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.03) 2px,
+      rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.6rem 2rem;
+    display: flex;
+    gap: 1.2rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.2s;
+  }
+  nav a:hover { color: var(--accent); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+  nav .nav-title {
+    color: var(--accent);
+    font-weight: 600;
+    margin-right: 1rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.3);
+  }
+
+  .content {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 4.8rem 2rem 6rem;
+  }
+
+  .hero {
+    text-align: center;
+    padding: 2.8rem 0 3.4rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 3.2rem;
+  }
+  .hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3.2rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.6rem;
+    letter-spacing: -0.02em;
+  }
+  .hero .subtitle {
+    font-size: 1.08rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 620px;
+    margin: 0 auto 1rem;
+  }
+  .hero .lede {
+    max-width: 710px;
+    margin: 0.8rem auto 0;
+    color: var(--text);
+  }
+  .hero .blink {
+    display: inline-block;
+    animation: blink 1s step-end infinite;
+    color: var(--accent);
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .glitch { position: relative; display: inline-block; }
+  .glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+  .glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 2s infinite linear alternate-reverse;
+    clip-path: inset(0 0 65% 0);
+  }
+  .glitch::after {
+    color: var(--pink);
+    animation: glitch-2 3s infinite linear alternate-reverse;
+    clip-path: inset(65% 0 0 0);
+  }
+  @keyframes glitch-1 {
+    0%, 95% { transform: translateX(0); }
+    96% { transform: translateX(-2px); }
+    97% { transform: translateX(2px); }
+    98% { transform: translateX(-1px); }
+    100% { transform: translateX(0); }
+  }
+  @keyframes glitch-2 {
+    0%, 93% { transform: translateX(0); }
+    94% { transform: translateX(2px); }
+    96% { transform: translateX(-2px); }
+    98% { transform: translateX(1px); }
+    100% { transform: translateX(0); }
+  }
+
+  section { margin-bottom: 4.2rem; }
+  h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.75rem;
+    color: var(--accent);
+    margin-bottom: 1.4rem;
+    padding-bottom: 0.45rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: -0.01em;
+  }
+  h3 {
+    font-size: 1.28rem;
+    color: var(--cyan);
+    margin: 2rem 0 0.9rem;
+    font-weight: 600;
+  }
+  h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.98rem;
+    color: var(--pink);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 1.5rem 0 0.8rem;
+  }
+
+  p { margin-bottom: 1rem; }
+  a { color: var(--blue); }
+
+  .drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4.1rem;
+    line-height: 0.8;
+    padding: 0.08em 0.12em 0 0;
+    color: var(--accent);
+    font-weight: 600;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+  }
+
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.84em;
+    background: var(--bg-code);
+    padding: 0.15em 0.4em;
+    border-radius: 4px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.15rem 1.35rem;
+    overflow-x: auto;
+    margin: 1.2rem 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px;
+    line-height: 1.58;
+    position: relative;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+  }
+  pre .comment { color: var(--text-dim); }
+  pre .keyword { color: var(--pink); }
+  pre .type { color: var(--cyan); }
+  pre .string { color: var(--green); }
+  pre .number { color: var(--yellow); }
+  pre .fn { color: var(--blue); }
+  pre .label {
+    position: absolute;
+    top: 0.4rem;
+    right: 0.8rem;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    opacity: 0.6;
+  }
+
+  .diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.6rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+  }
+  .diagram pre {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font-size: 12.8px;
+    line-height: 1.48;
+    color: var(--text);
+  }
+  .diagram pre code { color: var(--text); }
+  .diagram-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    margin-bottom: 0.9rem;
+    display: block;
+  }
+
+  .concept-map {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .concept-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.15rem;
+  }
+  .concept-card.full { grid-column: 1 / -1; }
+  .concept-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 0.4rem;
+  }
+  .concept-desc {
+    font-size: 0.92rem;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+
+  .insight {
+    background: var(--bg-card);
+    border-left: 3px solid var(--accent);
+    padding: 1.15rem 1.35rem;
+    margin: 1.5rem 0;
+    border-radius: 0 8px 8px 0;
+  }
+  .insight-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin-bottom: 0.4rem;
+  }
+  .insight p { margin-bottom: 0; font-size: 0.95rem; }
+  .insight.danger { border-left-color: var(--red); }
+  .insight.danger .insight-label { color: var(--red); }
+  .insight.cool { border-left-color: var(--cyan); }
+  .insight.cool .insight-label { color: var(--cyan); }
+  .insight.perf { border-left-color: var(--green); }
+  .insight.perf .insight-label { color: var(--green); }
+
+  .power {
+    background: var(--bg-card);
+    border-left: 3px solid var(--accent);
+    padding: 1.15rem 1.35rem;
+    margin: 1.5rem 0;
+    border-radius: 0 8px 8px 0;
+  }
+  .power-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    margin-bottom: 0.35rem;
+  }
+  .power p { margin-bottom: 0; font-size: 0.95rem; }
+  .power.danger { border-left-color: var(--red); }
+  .power.danger .power-label { color: var(--red); }
+  .power.hack { border-left-color: var(--pink); }
+  .power.hack .power-label { color: var(--pink); }
+  .power.wild { border-left-color: var(--yellow); }
+  .power.wild .power-label { color: var(--yellow); }
+  .power.zen { border-left-color: var(--cyan); }
+  .power.zen .power-label { color: var(--cyan); }
+
+  .try-this {
+    background: rgba(0,255,136,0.04);
+    border-left: 3px solid var(--accent-dim);
+    padding: 1rem 1.2rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .try-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    margin-bottom: 0.45rem;
+  }
+  .try-this p { font-size: 0.92rem; }
+  .try-this pre {
+    margin: 0.7rem 0 0;
+    font-size: 12.5px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.9rem;
+  }
+  th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    text-align: left;
+    padding: 0.6rem 0.8rem;
+    border-bottom: 2px solid var(--border);
+  }
+  td {
+    padding: 0.5rem 0.8rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:hover { background: rgba(230,167,86,0.04); }
+
+  details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin: 1rem 0;
+    overflow: hidden;
+  }
+  details summary {
+    padding: 0.8rem 1.1rem;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--accent);
+    user-select: none;
+  }
+  details[open] summary { border-bottom: 1px solid var(--border); }
+  details .details-content { padding: 1rem 1.1rem; }
+
+  .comparison {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .compare-col {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.1rem;
+  }
+  .compare-col.good { border-color: var(--green); }
+  .compare-col.bad { border-color: var(--red); }
+  .compare-col h4 { margin-top: 0; }
+
+  .mem-block {
+    display: flex;
+    gap: 2px;
+    margin: 0.8rem 0;
+    flex-wrap: wrap;
+  }
+  .mem-cell {
+    width: 40px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    border-radius: 3px;
+    color: var(--bg);
+    font-weight: 600;
+  }
+  .mem-cell.weights { background: var(--accent); }
+  .mem-cell.k { background: var(--blue); }
+  .mem-cell.v { background: var(--cyan); }
+  .mem-cell.act { background: var(--pink); }
+  .mem-cell.free { background: transparent; border: 1px dashed var(--border); color: var(--text-dim); }
+
+  .flow {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 1rem 0;
+    flex-wrap: wrap;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+  }
+  .flow-box {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.5rem 0.9rem;
+    white-space: nowrap;
+  }
+  .flow-arrow { color: var(--accent); font-size: 18px; }
+
+  @media (max-width: 700px) {
+    .concept-map, .comparison { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2.15rem; }
+    .content { padding: 4.2rem 1.15rem 4rem; }
+    nav { font-size: 11px; gap: 1rem; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="nav-title">&gt;_ INFERENCE</span>
+  <a href="#ch1">request</a>
+  <a href="#ch2">tokens</a>
+  <a href="#ch3">prefill</a>
+  <a href="#ch4">kv cache</a>
+  <a href="#ch5">decode</a>
+  <a href="#ch6">scheduler</a>
+  <a href="#ch7">quantize</a>
+  <a href="#ch8">context</a>
+  <a href="#ch9">api</a>
+  <a href="#ch10">ops</a>
+  <a href="#ch11">stack</a>
+</nav>
+
+<div class="content">
+  <div class="hero">
+    <h1><span class="glitch" data-text="INFERENCE">INFERENCE</span></h1>
+    <p class="subtitle">How LLMs actually run at scale: tokenization, attention, cache management, batching, streaming, and all the unpleasant latency math in between.<span class="blink">_</span></p>
+    <p class="lede">We are going to build a chat completion service that feels instant to a human and still stays upright when hundreds of users hit it at once. That means less fascination with model mysticism and more attention to what the machine is really doing: reading bytes, turning them into token IDs, moving weight tensors from HBM, allocating KV pages, scheduling decode steps, and dribbling tokens back over a socket before the caller gets impatient.</p>
+  </div>
+
+  <div class="power hack">
+    <div class="power-label">Hack: Watch The First Token</div>
+    <p>If the first token comes out late, the model is not "thinking deeply." Your stack is paying prompt debt. Somewhere upstream, bytes turned into too many tokens, the scheduler admitted a giant prefill at the wrong time, or the cache allocator started rationing survival.</p>
+  </div>
+
+  <section id="ch1">
+    <h2>01 - The Request Path</h2>
+    <p class="drop-cap">An inference server is not a model with an HTTP wrapper. It is a pipeline. The request arrives as bytes on a TCP socket, is parsed into an API shape, authenticated, templated into a prompt, tokenized, queued, prefixed through the network, decoded token by token, sampled, detokenized, and streamed back out. Miss any one layer and the whole thing feels slow, fragile, or both.</p>
+
+    <div class="flow">
+      <span class="flow-box">TLS terminate</span><span class="flow-arrow">-&gt;</span>
+      <span class="flow-box">parse JSON</span><span class="flow-arrow">-&gt;</span>
+      <span class="flow-box">chat template</span><span class="flow-arrow">-&gt;</span>
+      <span class="flow-box">tokenize</span><span class="flow-arrow">-&gt;</span>
+      <span class="flow-box">prefill</span><span class="flow-arrow">-&gt;</span>
+      <span class="flow-box">decode loop</span><span class="flow-arrow">-&gt;</span>
+      <span class="flow-box">stream tokens</span>
+    </div>
+
+    <p>The front half looks suspiciously like the problems in <a href="parsers-deep-dive.html">Parsers</a> and <a href="network-deep-dive.html">The Network Stack</a>. You are still doing framing, validation, buffering, and backpressure. The back half looks like <a href="gpu-deep-dive.html">GPU Compute</a> with a particularly expensive inner loop. That is why good inference engineers are usually good systems engineers first.</p>
+
+    <div class="concept-map">
+      <div class="concept-card">
+        <div class="concept-name">Latency budget</div>
+        <div class="concept-desc">The user perceives two different latencies: time-to-first-token and sustained tokens per second. Both matter. Fast first token with sluggish decode still feels bad.</div>
+      </div>
+      <div class="concept-card">
+        <div class="concept-name">Memory budget</div>
+        <div class="concept-desc">Weights are large, activations spike during prefill, and KV cache grows with every token. Most serving incidents are memory incidents in disguise.</div>
+      </div>
+      <div class="concept-card full">
+        <div class="concept-name">Scheduler budget</div>
+        <div class="concept-desc">Single-user benchmarks lie. Production throughput depends on how you merge short prompts, long prompts, and half-finished generations into one GPU schedule without letting one request poison everyone else.</div>
+      </div>
+    </div>
+
+    <div class="insight">
+      <div class="insight-label">Concrete target</div>
+      <p>Assume one 70B-class chat model across 8 GPUs, 8k context, streaming responses, and a product target of roughly 250ms time-to-first-token for short prompts plus 30 to 50 tokens per second once decode is underway. The exact numbers change. The shape of the problem does not.</p>
+    </div>
+  </section>
+
+  <section id="ch2">
+    <h2>02 - Tokens Before Math</h2>
+    <p class="drop-cap">The model does not see strings. It sees integer token IDs. Everything upstream of that conversion decides cost. A sloppy chat template can add hundreds of tokens. A verbose tool schema can add thousands. The most expensive prompt optimization is often not on the GPU at all. It is deleting useless text.</p>
+
+    <h3>Prompt assembly is part of inference</h3>
+    <p>Most production stacks take structured input like messages, system instructions, tool definitions, and generation parameters, then serialize them through a model-specific chat template. This step is deterministic and deeply important. Change the delimiters or role headers and you change model behavior. Change the byte layout and you change sequence length, which changes cost.</p>
+
+    <pre><span class="label">python</span><code><span class="comment"># simplified chat templating pass</span>
+<span class="keyword">def</span> <span class="fn">render_prompt</span>(messages, tools):
+    parts = [<span class="string">"&lt;s&gt;[SYSTEM]\\nYou are concise.\\n[/SYSTEM]\\n"</span>]
+    <span class="keyword">for</span> m <span class="keyword">in</span> messages:
+        role = m[<span class="string">"role"</span>].upper()
+        parts.append(<span class="string">f"[{role}]\\n{m['content']}\\n[/{role}]\\n"</span>)
+    <span class="keyword">if</span> tools:
+        parts.append(<span class="string">"[TOOLS]\\n"</span> + serialize_tools(tools) + <span class="string">"\\n[/TOOLS]\\n"</span>)
+    parts.append(<span class="string">"[ASSISTANT]\\n"</span>)
+    <span class="keyword">return</span> <span class="string">""</span>.join(parts)</code></pre>
+
+    <p>The tokenizer then greedily matches byte sequences into subword units. This is why Unicode normalization, whitespace policy, and delimiter choices matter. The byte-stream view is exactly the sort of problem described in <a href="parsers-deep-dive.html">Parsers</a>. The model may be glamorous; the front end is glorified lexical analysis.</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Prompt source</th>
+          <th>Typical failure</th>
+          <th>Why it hurts</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Verbose system prompt</td>
+          <td>Repeats policy and examples on every call</td>
+          <td>Burns prefill time and KV capacity for text the model already "knows"</td>
+        </tr>
+        <tr>
+          <td>Tool schemas</td>
+          <td>Massive JSON schemas included even when unused</td>
+          <td>Bloats prompt length and increases first-token latency</td>
+        </tr>
+        <tr>
+          <td>Conversation history</td>
+          <td>Blindly appends the entire chat</td>
+          <td>Turns every follow-up into a long-context request</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="insight cool">
+      <div class="insight-label">The boring optimization</div>
+      <p>The cheapest way to serve a model faster is to send fewer tokens into it. This sounds obvious and still gets ignored constantly because people treat prompt construction as product logic rather than infrastructure.</p>
+    </div>
+
+    <div class="try-this">
+      <div class="try-label">Try This Tonight</div>
+      <p>Measure how tiny prompt edits change token count. This is the cheapest performance experiment in the entire stack.</p>
+      <pre><code>python - &lt;&lt;'PY'
+import tiktoken
+
+enc = tiktoken.get_encoding("cl100k_base")
+samples = [
+    "Use the CRM tool if needed.",
+    "You are a careful assistant. Use the CRM tool if needed. Explain your reasoning step by step.",
+    '{"name":"search","parameters":{"type":"object","properties":{"q":{"type":"string"}}}}',
+]
+
+for s in samples:
+    print(len(enc.encode(s)), repr(s[:80]))
+PY</code></pre>
+      <p>Then append one bloated tool schema or a verbose system prompt and watch how quickly "just a little more instruction" turns into real TTFT debt.</p>
+    </div>
+  </section>
+
+  <section id="ch3">
+    <h2>03 - Prefill: Reading the Whole Prompt</h2>
+    <p class="drop-cap">Prefill is the first forward pass over the entire prompt. Every token attends to all earlier tokens, layer by layer, and the server materializes the keys and values that future decode steps will reuse. Prefill is parallel across prompt positions, which is the good news. The bad news is that long prompts scale brutally because attention cost grows with sequence length.</p>
+
+    <div class="diagram">
+      <span class="diagram-label">One request during prefill</span>
+      <pre><code>prompt tokens:  [t0][t1][t2][t3][t4][t5][t6][t7]
+
+layer 1:        full attention over visible prefix for every token
+layer 2:        full attention again, new projections, new activations
+...
+layer N:        final hidden state for token t7 becomes next-token context
+
+output:         logits for the next token
+side effect:    KV cache pages written for t0..t7 at every layer</code></pre>
+    </div>
+
+    <h3>Prefill is where prompt length hurts</h3>
+    <p>For a short prompt, prefill disappears into the noise. For a 6k-token prompt, prefill dominates time-to-first-token. This is why long-context demos look impressive on stage and miserable in production. The arithmetic is not subtle: more tokens means more attention work, more activation memory, and more KV pages to write before the user sees anything.</p>
+
+    <pre><span class="label">pseudo</span><code><span class="comment"># one transformer layer, heavily simplified</span>
+X = embed(input_ids)                  <span class="comment"># [seq, hidden]</span>
+Q = X @ Wq
+K = X @ Wk
+V = X @ Wv
+scores = (Q @ K.T) / sqrt(head_dim)  <span class="comment"># [seq, seq]</span>
+scores += causal_mask
+P = softmax(scores)
+O = P @ V
+Y = attention_out(O) + X
+Z = mlp(layer_norm(Y)) + Y
+write_kv_cache(K, V)</code></pre>
+
+    <p>The GPU work here looks a lot like the matrix-heavy world in <a href="gpu-deep-dive.html">GPU Compute</a>: fused kernels, memory bandwidth, occupancy, and painful sensitivity to data layout. Prefill is usually compute-heavy. Decode, later, becomes memory-heavy. Good serving systems respect that split.</p>
+
+    <details>
+      <summary>Why prefill and decode behave differently</summary>
+      <div class="details-content">
+        <p>Prefill processes many tokens in parallel, so the hardware has enough work to keep tensor cores busy. Decode handles one new token per sequence at a time, which means much smaller matmuls and far more time spent reading old KV state. Same model, very different bottleneck.</p>
+      </div>
+    </details>
+
+    <div class="power wild">
+      <div class="power-label">Why Long-Context Demos Feel Haunted</div>
+      <p>A stage demo with a 20k-token prompt feels magical because the audience does not see the silence before the first word. Production users do. Prefill is where wonder goes to pick up a latency bill.</p>
+    </div>
+  </section>
+
+  <section id="ch4">
+    <h2>04 - The KV Cache</h2>
+    <p class="drop-cap">The KV cache is the reason autoregressive decoding is viable at all. Without it, every new token would require recomputing keys and values for the entire prefix. With it, each decode step computes K and V only for the new token, appends them to cache, and reuses the prefix state. This saves absurd amounts of work. It also creates a giant memory management problem.</p>
+
+    <h3>What is stored</h3>
+    <p>Every transformer layer writes a key vector and a value vector per token. Multiply that by layers, heads, head dimension, batch size, and current sequence length. The result is not theoretical. It is memory pressure that can evict requests, trigger fragmentation, and quietly cap throughput long before you hit nominal FLOP limits.</p>
+
+    <div class="mem-block">
+      <div class="mem-cell weights">W</div>
+      <div class="mem-cell weights">W</div>
+      <div class="mem-cell weights">W</div>
+      <div class="mem-cell k">K0</div>
+      <div class="mem-cell v">V0</div>
+      <div class="mem-cell k">K1</div>
+      <div class="mem-cell v">V1</div>
+      <div class="mem-cell k">K2</div>
+      <div class="mem-cell v">V2</div>
+      <div class="mem-cell act">A</div>
+      <div class="mem-cell free">...</div>
+    </div>
+
+    <pre><span class="label">formula</span><code>KV bytes
+  = layers * seq_len * batch * kv_heads * head_dim * 2 * bytes_per_elem
+
+example:
+  80 layers * 8192 tokens * 1 request * 8 kv heads * 128 dim * 2 * 2 bytes
+  = ~2.68 GiB of KV for one long request</code></pre>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Technique</th>
+          <th>What it does</th>
+          <th>Why servers need it</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Paged KV</td>
+          <td>Breaks cache into fixed-size blocks</td>
+          <td>Reduces fragmentation and makes reuse/eviction tractable</td>
+        </tr>
+        <tr>
+          <td>Prefix sharing</td>
+          <td>Lets requests reuse common prompt prefixes</td>
+          <td>Saves prefill work and KV memory for repeated system prompts</td>
+        </tr>
+        <tr>
+          <td>KV quantization</td>
+          <td>Stores cache at lower precision</td>
+          <td>Trades a bit of quality for capacity and throughput</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>The allocator story here rhymes with <a href="hashtables-deep-dive.html">Hash Tables</a> and <a href="compression-deep-dive.html">Compression</a> more than most people expect. You need compact layout, predictable lookup, and good locality. Serving teams spend enormous time on block tables because random scatter over GPU memory is death by bandwidth.</p>
+
+    <div class="insight perf">
+      <div class="insight-label">Production truth</div>
+      <p>If your model weights fit but your KV cache does not, then your model does not fit. Capacity planning that ignores live sequence growth is fiction.</p>
+    </div>
+  </section>
+
+  <section id="ch5">
+    <h2>05 - Decode: One Token at a Time</h2>
+    <p class="drop-cap">After prefill, the server enters the decode loop. This is the part users watch. The system takes the current token, runs a forward pass using the cached prefix, samples one next token, appends it, and repeats until a stop condition fires. The misery is that this loop is fundamentally serial for each request. You cannot generate token 57 before token 56 exists.</p>
+
+    <pre><span class="label">python</span><code><span class="keyword">while</span> <span class="keyword">not</span> done:
+    hidden = model.forward_one_step(last_token, kv_cache)
+    logits = lm_head(hidden)
+    next_token = sample(logits, temperature, top_p)
+    emit(next_token)
+    kv_cache.append(last_token)
+    last_token = next_token
+    done = stop_condition(next_token, max_tokens)</code></pre>
+
+    <h3>Decode is a memory problem</h3>
+    <p>During decode, the new work per step is small. What dominates is reading all those old K and V tensors back out for attention. This is why serving can look underutilized on paper while still being slow. The GPU is waiting on memory traffic, not arithmetic. If you want intuition for why this hurts, read <a href="gpu-deep-dive.html">GPU Compute</a> with the phrase "global memory loads" echoing in your head.</p>
+
+    <div class="comparison">
+      <div class="compare-col good">
+        <h4>Good decode regime</h4>
+        <p>Short or medium contexts, many active sequences, continuous batching, and kernels specialized for small-step decode. The GPU stays fed and tokens stream smoothly.</p>
+      </div>
+      <div class="compare-col bad">
+        <h4>Bad decode regime</h4>
+        <p>One giant context, irregular batch shape, cache fragmentation, and frequent request cancellation. The scheduler thrashes and per-token latency spikes.</p>
+      </div>
+    </div>
+
+    <p>Sampling strategy also matters here. Greedy decode is cheap. Top-k and top-p add modest work. Structured decoding, grammar constraints, and tool-call validation add more logic in the loop. None of it is free, and all of it compounds because decode repeats for every token.</p>
+  </section>
+
+  <section id="ch6">
+    <h2>06 - Batching and Scheduling</h2>
+    <p class="drop-cap">The scheduler is the actual product. Everyone talks about models; production systems live or die by queue discipline. Your GPU wants large batches. Your user wants immediate response. Those desires are not aligned. The scheduler exists to cheat that conflict just enough that both sides remain tolerably happy.</p>
+
+    <h3>Static batching is not enough</h3>
+    <p>If you wait to form a perfect batch, first-token latency explodes. If you run every request immediately, throughput collapses. Modern servers therefore use <em>continuous batching</em>: admit new prefills while other requests are already decoding, then merge them into subsequent decode steps as cache pages become available.</p>
+
+    <div class="diagram">
+      <span class="diagram-label">Continuous batching timeline</span>
+      <pre><code>time ----&gt;
+
+req A:  [prefill........][d][d][d][d][d][d]
+req B:                  [prefill..][d][d][d]
+req C:                        [prefill....][d][d]
+
+GPU step 1: prefill A
+GPU step 2: decode A + prefill B
+GPU step 3: decode A,B + prefill C
+GPU step 4: decode A,B,C
+
+goal: keep the device busy without making later arrivals wait forever</code></pre>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Policy</th>
+          <th>Helps</th>
+          <th>Hurts</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>FCFS</td>
+          <td>Simple and fair</td>
+          <td>Long prompts block short interactive calls</td>
+        </tr>
+        <tr>
+          <td>Shortest prompt first</td>
+          <td>Improves perceived latency</td>
+          <td>Starves long-context jobs</td>
+        </tr>
+        <tr>
+          <td>Separate prefill/decode lanes</td>
+          <td>Protects streaming requests from giant prefills</td>
+          <td>More complex capacity balancing</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>The queueing problem has a family resemblance to lock contention in <a href="concurrency-deep-dive.html">Concurrency</a>. At low traffic almost any policy works. Under bursty load, tiny scheduler choices decide whether latency degrades gracefully or turns into a cliff.</p>
+
+    <div class="insight danger">
+      <div class="insight-label">Tail latency trap</div>
+      <p>Mean latency is a vanity metric for inference. A single 30k-token request can make P99 first-token latency grotesque for everyone else if it is allowed to monopolize prefill capacity.</p>
+    </div>
+
+    <div class="try-this">
+      <div class="try-label">Try This Tonight</div>
+      <p>Simulate three requests: two short chats and one monster prompt. Even this toy queue shows why "just do FCFS" is not a product strategy.</p>
+      <pre><code>python - &lt;&lt;'PY'
+jobs = [("chat-A", 200), ("monster-RAG", 12000), ("chat-B", 260)]
+
+def run(name, order):
+    t = 0
+    print(name)
+    for job, tokens in order:
+        print(f"  {job:12} starts at token-cost {t:5d}")
+        t += tokens
+
+run("fcfs", jobs)
+print()
+run("shortest-first", sorted(jobs, key=lambda x: x[1]))
+PY</code></pre>
+      <p>The simulator is crude on purpose. Real schedulers juggle prefill, decode, cancellation, and KV pages. But the core truth survives simplification: queue policy is user experience wearing math clothes.</p>
+    </div>
+  </section>
+
+  <section id="ch7">
+    <h2>07 - Quantization and Weight Layout</h2>
+    <p class="drop-cap">A model that only runs in BF16 on a giant cluster is not a serving story. It is a lab story. Production inference aggressively compresses weights because memory is the first hard ceiling you hit. The trick is to remove precision where the model can tolerate it and preserve it where it cannot.</p>
+
+    <h3>What gets quantized</h3>
+    <p>Weights are the obvious target: FP16 or BF16 becomes INT8, INT4, or specialized packed formats. Activations may stay in higher precision. KV cache may use its own precision policy. The point is not compression for its own sake. The point is fitting more useful work into the same HBM and PCIe budget.</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Format</th>
+          <th>Memory win</th>
+          <th>Typical tradeoff</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>BF16 / FP16</td>
+          <td>Baseline</td>
+          <td>Best quality, highest footprint</td>
+        </tr>
+        <tr>
+          <td>INT8</td>
+          <td>About 2x smaller than FP16</td>
+          <td>Usually safe, modest dequant overhead</td>
+        </tr>
+        <tr>
+          <td>INT4 / packed 4-bit</td>
+          <td>About 4x smaller than FP16</td>
+          <td>More quality sensitivity, kernel complexity rises</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>This is conceptually adjacent to <a href="compression-deep-dive.html">Compression</a>. In both cases you are exploiting redundancy and tolerable loss to reduce footprint. The difference is that an LLM is a decoder living on those weights, so the cost of decompression lands inside your hottest path.</p>
+
+    <pre><span class="label">pseudo</span><code><span class="comment"># blockwise int4 weight load</span>
+packed = load_128bit_block()
+scales = load_scales()
+zero_points = load_zero_points()
+w = dequantize_int4(packed, scales, zero_points)
+acc += dot(x_fragment, w)</code></pre>
+
+    <div class="insight perf">
+      <div class="insight-label">Serving heuristic</div>
+      <p>Quantization is only a win if the kernel path stays efficient. Saving bytes but destroying memory coalescing or forcing extra unpack work in the inner loop is how teams accidentally make smaller models slower.</p>
+    </div>
+  </section>
+
+  <section id="ch8">
+    <h2>08 - Context Windows and Retrieval Boundaries</h2>
+    <p class="drop-cap">"Supports 128k context" is not the same thing as "should receive 128k on every request." Long context inflates prefill cost, KV usage, and scheduler unfairness. A competent serving stack decides what belongs in the prompt, what belongs in retrieval, and what should be summarized or dropped entirely.</p>
+
+    <h3>Three places memory can live</h3>
+    <div class="concept-map">
+      <div class="concept-card">
+        <div class="concept-name">In prompt</div>
+        <div class="concept-desc">Fastest for the model to reason over semantically, most expensive for the server because every token must be prefixed and cached.</div>
+      </div>
+      <div class="concept-card">
+        <div class="concept-name">In retrieval</div>
+        <div class="concept-desc">Cheap to store outside the model. Expensive only when selected. Requires indexing, ranking, and robust chunking.</div>
+      </div>
+      <div class="concept-card full">
+        <div class="concept-name">In application state</div>
+        <div class="concept-desc">Facts, permissions, and session metadata often do not belong in the prompt at all. They belong in regular software data structures, usually keyed lookups much closer to <a href="hashtables-deep-dive.html">Hash Tables</a> than to machine learning.</div>
+      </div>
+    </div>
+
+    <p>Chunking retrieved text is another parser problem. Delimiters, sentence boundaries, and document structure all matter, which is why <a href="parsers-deep-dive.html">Parsers</a> shows up again. Garbage chunks make garbage prompts. Retrieval can save inference cost only if the selected slices are actually relevant.</p>
+
+    <div class="comparison">
+      <div class="compare-col good">
+        <h4>Healthy context policy</h4>
+        <p>Keep the system prompt short, summarize stale dialogue, retrieve only a few ranked passages, and cap tool schemas to the ones relevant for this turn.</p>
+      </div>
+      <div class="compare-col bad">
+        <h4>Unhealthy context policy</h4>
+        <p>Shove the whole chat, the whole manual, and every tool definition into every request because "the model can handle it."</p>
+      </div>
+    </div>
+
+    <div class="insight">
+      <div class="insight-label">Practical rule</div>
+      <p>If an input token does not materially improve the next answer, it is stealing latency from your user and capacity from your cluster.</p>
+    </div>
+  </section>
+
+  <section id="ch9">
+    <h2>09 - The API Surface and the Wire</h2>
+    <p class="drop-cap">Inference feels local only because the transport layer is doing its job. In reality the response is a streamed network conversation. The server must authenticate the request, enforce limits, start sending output quickly, and handle cancellation cleanly when the client disconnects. Streaming tokens over the wire is as much a network protocol problem as a model problem.</p>
+
+    <h3>Why streaming matters</h3>
+    <p>Without streaming, the user waits for the full completion and experiences the entire decode loop as dead air. With streaming, the system can hide much of that cost. Common implementations use Server-Sent Events or chunked HTTP responses because they are simpler than WebSockets for one-way token emission.</p>
+
+    <pre><span class="label">http</span><code>event: token
+data: {"id":"cmpl_123","index":0,"text":"The"}
+
+event: token
+data: {"id":"cmpl_123","index":1,"text":" scheduler"}
+
+event: done
+data: {"finish_reason":"stop"}</code></pre>
+
+    <p>The transport issues are straight out of <a href="network-deep-dive.html">The Network Stack</a>: buffering, flow control, packet loss, head-of-line behavior higher up the stack, and connection teardown. The auth and TLS story leans on <a href="crypto-deep-dive.html">Cryptography</a>. Most "model" outages in hosted APIs are really admission control failures, bad timeout policy, or backpressure bugs.</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Wire concern</th>
+          <th>Why it matters</th>
+          <th>Common mistake</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Cancellation</td>
+          <td>Freed requests should return KV pages immediately</td>
+          <td>Letting abandoned generations keep decoding</td>
+        </tr>
+        <tr>
+          <td>Rate limiting</td>
+          <td>Protects GPU time from abuse and runaway clients</td>
+          <td>Limiting only requests, not tokens or context length</td>
+        </tr>
+        <tr>
+          <td>Authentication</td>
+          <td>Prevents theft of a very expensive resource</td>
+          <td>Treating inference like a cheap stateless endpoint</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="ch10">
+    <h2>10 - Ops, Instrumentation, and Failure Modes</h2>
+    <p class="drop-cap">You cannot operate an inference system from averages and vibes. You need queue depth, admission latency, prefill latency, decode latency per token, active sequence count, cache occupancy, eviction rate, cancellation rate, and GPU memory headroom. Otherwise you are debugging anecdotes while users watch a spinner.</p>
+
+    <h3>Metrics that actually help</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Metric</th>
+          <th>What it reveals</th>
+          <th>Bad sign</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>TTFT p95 / p99</td>
+          <td>Prefill queueing and long-prompt interference</td>
+          <td>Short prompts suddenly get slow during bursts</td>
+        </tr>
+        <tr>
+          <td>Tokens/sec by batch size</td>
+          <td>Decode efficiency and scheduler health</td>
+          <td>Throughput falls as traffic rises</td>
+        </tr>
+        <tr>
+          <td>KV occupancy</td>
+          <td>Whether context growth is consuming the device</td>
+          <td>High churn or frequent forced evictions</td>
+        </tr>
+        <tr>
+          <td>Cancellation lag</td>
+          <td>Whether dead requests stop burning GPU</td>
+          <td>Large gap between client drop and GPU release</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Typical production failures</h3>
+    <p>OOM during bursty long-context traffic. Fragmented KV pages causing capacity collapse. Slow tokenizer workers starving GPUs upstream. Admission queues that grow without a hard cutoff. Tool schemas so large that prefill dominates everything. A streaming layer that buffers in memory and defeats the whole point of token streaming.</p>
+
+    <div class="insight danger">
+      <div class="insight-label">Classic outage shape</div>
+      <p>Traffic spikes, queue depth rises, long prompts enter the system, first-token latency stretches, impatient clients retry, retries amplify load, and suddenly the incident channel is full of people debating model quality when the real problem is queue collapse.</p>
+    </div>
+
+    <p>None of this is exotic. It is standard capacity engineering. The only unusual part is that the hot resource is GPU memory and the unit of work is a growing token stream rather than a fixed request body.</p>
+
+    <div class="try-this">
+      <div class="try-label">Try This Tonight</div>
+      <p>If you have a local OpenAI-compatible server, measure time-to-first-token instead of staring at the final answer.</p>
+      <pre><code>python - &lt;&lt;'PY'
+import json, time, requests
+
+t0 = time.time()
+first = None
+
+with requests.post(
+    "http://localhost:8000/v1/chat/completions",
+    headers={"Content-Type": "application/json"},
+    json={
+        "model": "your-model",
+        "stream": True,
+        "messages": [{"role": "user", "content": "Explain KV cache in 3 sentences."}],
+    },
+    stream=True,
+) as r:
+    for line in r.iter_lines():
+        if not line:
+            continue
+        if first is None:
+            first = time.time()
+            print("TTFT:", round(first - t0, 3), "seconds")
+        print(line.decode()[:120])
+PY</code></pre>
+      <p>Now change only the prompt length. Do not change the model. If TTFT jumps, you just watched prompt debt hit the wire.</p>
+    </div>
+  </section>
+
+  <section id="ch11">
+    <h2>11 - The Full Serving Stack</h2>
+    <p class="drop-cap">Put the pieces together and the architecture looks much less magical. There is an API tier, a prompt construction path, a tokenizer, a scheduler, one or more model workers, a KV memory manager, and a streaming transport back to the caller. Every layer exists because the previous abstraction leaked.</p>
+
+    <div class="diagram">
+      <span class="diagram-label">Production chat completion service</span>
+      <pre><code>                  ┌──────────────────────────────┐
+                  │        API Gateway           │
+                  │ auth, quotas, rate limits    │
+                  └──────────────┬───────────────┘
+                                 │
+                                 ▼
+                  ┌──────────────────────────────┐
+                  │      Request Frontend        │
+                  │ parse JSON, chat template,   │
+                  │ tokenize, retrieve context   │
+                  └──────────────┬───────────────┘
+                                 │
+                                 ▼
+                  ┌──────────────────────────────┐
+                  │         Scheduler            │
+                  │ queue, batch, admit, cancel  │
+                  └───────┬───────────┬──────────┘
+                          │           │
+                          ▼           ▼
+               ┌────────────────┐  ┌────────────────┐
+               │ Model Worker A │  │ Model Worker B │
+               │ prefill/decode │  │ prefill/decode │
+               │ KV page table  │  │ KV page table  │
+               └───────┬────────┘  └───────┬────────┘
+                       │                   │
+                       ▼                   ▼
+                 ┌──────────┐        ┌──────────┐
+                 │ GPU set  │        │ GPU set  │
+                 │ weights  │        │ weights  │
+                 │ KV cache │        │ KV cache │
+                 └──────────┘        └──────────┘
+                          \            /
+                           \          /
+                            ▼        ▼
+                     ┌────────────────────┐
+                     │ Stream Aggregator  │
+                     │ SSE/chunked output │
+                     └─────────┬──────────┘
+                               ▼
+                           client socket</code></pre>
+    </div>
+
+    <h3>What we built</h3>
+    <p>An inference service that accepts structured chat requests, renders a model-specific prompt, tokenizes it, optionally retrieves supporting context, runs prefill on GPU, retains KV state across decode steps, continuously batches active sequences, streams sampled tokens over HTTP, and exposes the metrics needed to survive real traffic.</p>
+
+    <h3>What we deliberately did not cover</h3>
+    <p>Training, fine-tuning pipelines, distributed optimizer states, evaluation methodology, multimodal serving, and agent orchestration. Those are neighboring systems, not this one. This dive is about the narrow but brutally consequential question: when a user asks a model for one answer, what exactly does the serving stack do with the machine?</p>
+
+    <div class="insight perf">
+      <div class="insight-label">Final mental model</div>
+      <p>Inference is not "the model thinking." It is a scheduler repeatedly buying one more token by spending memory bandwidth, cache space, and queue fairness. Once you see it that way, most serving decisions become ordinary systems tradeoffs instead of folklore.</p>
+    </div>
+  </section>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,2825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Game Servers Deep Dive — Building an MMORPG for 10K Players</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+    --white: #e8e8f0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 2rem;
+    display: flex;
+    gap: 1.2rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.2s, text-shadow 0.2s;
+    padding: 0.3rem 0;
+  }
+  nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+  nav .nav-title {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 1rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.3);
+  }
+
+  .content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+  }
+
+  .hero {
+    text-align: center;
+    padding: 4rem 0 5rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4rem;
+    position: relative;
+  }
+  .hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3.2rem;
+    font-weight: 600;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+  }
+  .hero .subtitle {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 500px;
+    margin: 0 auto;
+  }
+  .hero .blink {
+    display: inline-block;
+    animation: blink 1s step-end infinite;
+    color: var(--green);
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  section { margin-bottom: 5rem; padding-top: 1rem; }
+  h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: var(--green);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: 0.02em;
+  }
+  h3 {
+    font-size: 1.25rem;
+    color: var(--cyan);
+    margin: 2.5rem 0 1rem;
+    font-weight: 600;
+  }
+  h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 2rem 0 0.8rem;
+  }
+  p { margin-bottom: 1rem; }
+
+  .drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4rem;
+    line-height: 0.8;
+    padding: 0.1em 0.15em 0 0;
+    color: var(--green);
+    font-weight: 600;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+  }
+
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    padding: 0.12em 0.4em;
+    border-radius: 3px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem 1.4rem;
+    overflow-x: auto;
+    margin: 1.2rem 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px;
+    line-height: 1.55;
+    position: relative;
+  }
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+  }
+  .cm { color: var(--text-dim); }
+  .kw { color: var(--magenta); }
+  .ty { color: var(--cyan); }
+  .st { color: var(--green); }
+  .nm { color: var(--yellow); }
+  .fn { color: var(--blue); }
+  .pp { color: var(--orange); }
+  .label {
+    position: absolute;
+    top: 0.3rem; right: 0.7rem;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    opacity: 0.5;
+  }
+
+  .diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+  }
+  .diagram pre {
+    background: none; border: none; padding: 0; margin: 0;
+    font-size: 13px; line-height: 1.45; color: var(--text);
+  }
+  .diagram pre code { color: var(--text); }
+  .diagram-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--green-dim);
+    margin-bottom: 0.8rem;
+    display: block;
+  }
+
+  .power {
+    background: var(--bg-card);
+    border-left: 3px solid var(--green);
+    padding: 1.2rem 1.4rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .power-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.3rem;
+  }
+  .power p { margin-bottom: 0; font-size: 0.95rem; }
+  .power.danger { border-left-color: var(--red); }
+  .power.danger .power-label { color: var(--red); }
+  .power.hack { border-left-color: var(--magenta); }
+  .power.hack .power-label { color: var(--magenta); }
+  .power.wild { border-left-color: var(--orange); }
+  .power.wild .power-label { color: var(--orange); }
+  .power.zen { border-left-color: var(--cyan); }
+  .power.zen .power-label { color: var(--cyan); }
+
+  .mem-row { display: flex; gap: 1px; margin: 0.4rem 0; flex-wrap: wrap; }
+  .mc {
+    width: 30px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px; font-weight: 600; border-radius: 2px;
+  }
+  .mc.g { background: var(--green); color: var(--bg); }
+  .mc.c { background: var(--cyan); color: var(--bg); }
+  .mc.m { background: var(--magenta); color: var(--bg); }
+  .mc.o { background: var(--orange); color: var(--bg); }
+  .mc.r { background: var(--red); color: var(--bg); }
+  .mc.y { background: var(--yellow); color: var(--bg); }
+  .mc.b { background: var(--blue); color: var(--bg); }
+  .mc.d { background: var(--text-dim); color: var(--bg); opacity: 0.3; }
+  .mc.e { background: transparent; border: 1px dashed var(--border); color: var(--text-dim); }
+  .mc.w { background: var(--white); color: var(--bg); }
+  .mc.p { background: var(--purple); color: #fff; }
+  .mc.wide { width: 50px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.88rem;
+  }
+  th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    text-align: left;
+    padding: 0.5rem 0.7rem;
+    border-bottom: 2px solid var(--border);
+  }
+  td {
+    padding: 0.45rem 0.7rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:hover { background: rgba(0,255,136,0.02); }
+
+  details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1rem 0;
+    overflow: hidden;
+  }
+  details summary {
+    padding: 0.7rem 1.1rem;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--green);
+    user-select: none;
+    transition: background 0.2s;
+  }
+  details summary:hover { background: rgba(0,255,136,0.04); }
+  details[open] summary { border-bottom: 1px solid var(--border); }
+  details .det { padding: 1.1rem; }
+  details pre { margin: 0.8rem 0; }
+
+  .vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .vs-col {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.1rem;
+  }
+  .vs-col h4 { margin-top: 0; }
+
+  .glitch { position: relative; display: inline-block; }
+  .glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+  .glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 2s infinite linear alternate-reverse;
+    clip-path: inset(0 0 65% 0);
+  }
+  .glitch::after {
+    color: var(--magenta);
+    animation: glitch-2 3s infinite linear alternate-reverse;
+    clip-path: inset(65% 0 0 0);
+  }
+  @keyframes glitch-1 {
+    0%, 95% { transform: translateX(0); }
+    96% { transform: translateX(-2px); }
+    97% { transform: translateX(2px); }
+    98% { transform: translateX(-1px); }
+    100% { transform: translateX(0); }
+  }
+  @keyframes glitch-2 {
+    0%, 93% { transform: translateX(0); }
+    94% { transform: translateX(2px); }
+    96% { transform: translateX(-2px); }
+    98% { transform: translateX(1px); }
+    100% { transform: translateX(0); }
+  }
+
+  .ticker {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--green);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    display: inline-block;
+    text-shadow: 0 0 6px rgba(0,255,136,0.3);
+  }
+
+  .lang-tabs {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1.2rem 0;
+    overflow: hidden;
+  }
+  .lang-tabs input[type="radio"] { display: none; }
+  .lang-tabs label {
+    display: inline-block;
+    padding: 0.5rem 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .lang-tabs label:hover { color: var(--green); }
+  .lang-tabs .tab-bar {
+    border-bottom: 1px solid var(--border);
+    padding: 0 0.5rem;
+  }
+  .lang-tabs .tab-content { display: none; }
+  .lang-tabs .tab-content pre { margin: 0; border: none; border-radius: 0; }
+
+  .lang-tabs input.tc:checked ~ .tab-content.c,
+  .lang-tabs input.tpy:checked ~ .tab-content.py,
+  .lang-tabs input.tts:checked ~ .tab-content.ts,
+  .lang-tabs input.tgo:checked ~ .tab-content.go,
+  .lang-tabs input.trs:checked ~ .tab-content.rs { display: block; }
+
+  .lang-tabs input:nth-of-type(1):checked ~ .tab-bar label:nth-child(1),
+  .lang-tabs input:nth-of-type(2):checked ~ .tab-bar label:nth-child(2),
+  .lang-tabs input:nth-of-type(3):checked ~ .tab-bar label:nth-child(3),
+  .lang-tabs input:nth-of-type(4):checked ~ .tab-bar label:nth-child(4),
+  .lang-tabs input:nth-of-type(5):checked ~ .tab-bar label:nth-child(5) {
+    color: var(--green);
+    background: rgba(0,255,136,0.06);
+    border-bottom: 2px solid var(--green);
+  }
+
+  .try-this {
+    background: rgba(0, 255, 136, 0.04);
+    border-left: 3px solid var(--green-dim);
+    padding: 1rem 1.2rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .try-this .try-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.5rem;
+  }
+  .try-this pre {
+    margin: 0.5rem 0 0;
+    font-size: 12.5px;
+  }
+  .try-this p { font-size: 0.9rem; margin-bottom: 0.5rem; }
+
+  .lang-note {
+    background: var(--bg-card);
+    border-left: 3px solid var(--blue);
+    padding: 1rem 1.2rem;
+    margin: 1.2rem 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 0.9rem;
+  }
+  .lang-note .lang-note-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--blue);
+    margin-bottom: 0.3rem;
+  }
+
+  .run-btn {
+    position: absolute; top: 0.3rem; right: 3rem;
+    background: var(--green); color: var(--bg);
+    border: none; border-radius: 3px; cursor: pointer;
+    font: 600 10px 'JetBrains Mono', monospace; padding: 2px 8px;
+    opacity: 0.6; transition: opacity 0.2s;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    z-index: 2;
+  }
+  .run-btn:hover { opacity: 1; }
+  .run-btn.running { opacity: 0.4; cursor: wait; }
+  .run-output {
+    background: #050508; border: 1px solid var(--border);
+    border-top: none; border-radius: 0 0 6px 6px;
+    padding: 0.8rem 1rem; margin-top: -1px;
+    font: 13px/1.5 'JetBrains Mono', monospace; color: var(--green);
+    white-space: pre-wrap; max-height: 200px; overflow-y: auto;
+  }
+  .run-output.error { color: var(--red); }
+
+  @media (max-width: 700px) {
+    .vs { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2rem; }
+    .content { padding: 4rem 1rem 4rem; }
+    nav { font-size: 10px; gap: 0.8rem; padding: 0.4rem 1rem; }
+  }
+</style>
+</head>
+<body>
+<nav>
+  <span class="nav-title">&gt;_ MMORPG</span>
+  <a href="#ch1">tick</a>
+  <a href="#ch2">sockets</a>
+  <a href="#ch3">state</a>
+  <a href="#ch4">serialize</a>
+  <a href="#ch5">prediction</a>
+  <a href="#ch6">interpolation</a>
+  <a href="#ch7">lag-comp</a>
+  <a href="#ch8">chat</a>
+  <a href="#ch9">persistence</a>
+  <a href="#ch10">sharding</a>
+  <a href="#ch11">matchmaking</a>
+  <a href="#ch12">anti-cheat</a>
+  <a href="#ch13">ops</a>
+  <a href="#ch14">architecture</a>
+</nav>
+
+<div class="content">
+<div class="hero">
+  <h1><span class="glitch" data-text="GAME SERVERS">GAME SERVERS</span></h1>
+  <div class="subtitle">Building an MMORPG that handles 10,000 concurrent players<span class="blink">_</span></div>
+</div>
+
+<!-- ═══════════════════ CH 1: THE TICK ═══════════════════ -->
+<section id="ch1">
+<h2>01 &mdash; The Tick</h2>
+
+<p class="drop-cap">Every multiplayer game is a lie. You are never seeing the real world &mdash; you are seeing the server's last snapshot, smoothed and interpolated and predicted to <em>feel</em> real. The truth lives on the server, and the server speaks in ticks. Twenty times per second, it inhales every player's input, simulates the entire world forward by one step, and exhales a new snapshot to everyone connected. That heartbeat &mdash; the <strong>tick</strong> &mdash; is the atom of online game time. Everything we build in this deep dive orbits around it.</p>
+
+<h3>The Fixed Timestep Loop</h3>
+
+<p>A naive game loop ties simulation to frame rate: update physics, render, repeat. On a fast machine you get 300 updates per second; on a slow one, 30. Physics diverges. A jump that clears a gap at 60fps falls short at 30fps because gravity accumulates differently. The fix is the <strong>fixed timestep accumulator</strong>:</p>
+
+<pre><code><span class="label">Python</span>
+<span class="kw">import</span> time
+
+<span class="ty">TICK_RATE</span> = <span class="nm">20</span>            <span class="cm"># ticks per second</span>
+<span class="ty">TICK_DURATION</span> = <span class="nm">1.0</span> / <span class="ty">TICK_RATE</span>  <span class="cm"># 50ms per tick</span>
+
+accumulator = <span class="nm">0.0</span>
+previous = time.<span class="fn">time</span>()
+
+<span class="kw">while</span> <span class="kw">True</span>:
+    current = time.<span class="fn">time</span>()
+    accumulator += current - previous
+    previous = current
+
+    <span class="kw">while</span> accumulator &gt;= <span class="ty">TICK_DURATION</span>:
+        <span class="fn">process_inputs</span>()      <span class="cm"># read all buffered player inputs</span>
+        <span class="fn">simulate_world</span>()      <span class="cm"># physics, AI, game logic</span>
+        <span class="fn">broadcast_snapshots</span>() <span class="cm"># send new state to all clients</span>
+        accumulator -= <span class="ty">TICK_DURATION</span>
+
+    <span class="fn">sleep_remaining</span>(accumulator)  <span class="cm"># don't spin the CPU</span></code></pre>
+
+<p>The accumulator absorbs variable frame times. If the machine stalls for 150ms, the loop runs three ticks to catch up. If it runs fast, it sleeps. The simulation always advances in exact <code>TICK_DURATION</code> steps, so physics is deterministic regardless of hardware speed.</p>
+
+<h3>Tick Rates in the Wild</h3>
+
+<table>
+<tr><th>Game</th><th>Tick Rate</th><th>Tick Duration</th><th>Genre</th></tr>
+<tr><td>Minecraft</td><td><span class="nm">20</span> TPS</td><td><span class="nm">50</span>ms</td><td>Sandbox</td></tr>
+<tr><td>Overwatch 2</td><td><span class="nm">63</span> Hz</td><td><span class="nm">15.9</span>ms</td><td>FPS</td></tr>
+<tr><td>CS:GO (matchmaking)</td><td><span class="nm">64</span> Hz</td><td><span class="nm">15.6</span>ms</td><td>FPS</td></tr>
+<tr><td>CS:GO (competitive)</td><td><span class="nm">128</span> Hz</td><td><span class="nm">7.8</span>ms</td><td>FPS</td></tr>
+<tr><td>Valorant</td><td><span class="nm">128</span> Hz</td><td><span class="nm">7.8</span>ms</td><td>FPS</td></tr>
+<tr><td>World of Warcraft</td><td><span class="nm">20</span> Hz</td><td><span class="nm">50</span>ms</td><td>MMORPG</td></tr>
+<tr><td>Our MMORPG</td><td><span class="nm">20</span> Hz</td><td><span class="nm">50</span>ms</td><td>MMORPG</td></tr>
+</table>
+
+<p>For our MMORPG, 20Hz is the sweet spot. We have 10,000 players generating inputs, thousands of NPCs running AI, an economy ticking &mdash; all of it must complete within 50 milliseconds. Higher tick rates give smoother combat but cost linearly more CPU. At 20Hz, each tick has a generous 50ms budget. That is our contract with the hardware.</p>
+
+<h3>Server-Authoritative Model</h3>
+
+<p>The golden rule: <strong>the client proposes, the server disposes</strong>. When you press W to walk forward, your client sends "I pressed W at tick 4817." It does <em>not</em> send "I moved to position (340, 0, 782)." The server receives the input, validates it against game rules (can this player move? are they stunned? is there a wall?), applies it, and tells everyone where you actually ended up.</p>
+
+<div class="diagram">
+<span class="diagram-label">Tick Lifecycle</span>
+<pre><code>  Tick N                    Tick N+1                  Tick N+2
+  ┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
+  │ 1. Recv inputs   │      │ 1. Recv inputs   │      │ 1. Recv inputs   │
+  │ 2. Validate      │      │ 2. Validate      │      │ 2. Validate      │
+  │ 3. Simulate      │─────▶│ 3. Simulate      │─────▶│ 3. Simulate      │
+  │ 4. Snapshot      │      │ 4. Snapshot      │      │ 4. Snapshot      │
+  │ 5. Broadcast     │      │ 5. Broadcast     │      │ 5. Broadcast     │
+  └─────────────────┘      └─────────────────┘      └─────────────────┘
+  ◄──── 50ms ────▶         ◄──── 50ms ────▶         ◄──── 50ms ────▶
+
+  Client A: ──[W pressed]────────────────[Server says: pos=(341,0,782)]──▶
+  Client B: ──[Attack!]──────────────────[Server says: hit, -45 HP]──────▶</code></pre>
+</div>
+
+<p>This is non-negotiable. Any game that trusts client-reported positions gets hacked within days. Speed hacks, teleport hacks, god-mode &mdash; all trivial when the client is authoritative. Our server is the single source of truth.</p>
+
+<div class="power">
+<div class="power-label">The Authoritative Server</div>
+<p>Never trust the client. The client is a liar running in a process you do not control, on hardware you have never seen, modified by software you did not write. The server validates every input against every rule, every tick, no exceptions.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════ CH 2: THE SOCKET LAYER ═══════════════════ -->
+<section id="ch2">
+<h2>02 &mdash; The Socket Layer</h2>
+
+<p class="drop-cap">Accept connections to our world. Ten thousand players want in, and every one of them needs a pipe to the server that can carry their inputs upstream and world state downstream. The choice of transport protocol shapes everything: latency, bandwidth, reliability, and how much code you write to compensate for what the protocol does not give you.</p>
+
+<h3>TCP: The Wrong Choice for Real-Time Games</h3>
+
+<p>TCP guarantees ordered, reliable delivery. Sounds perfect &mdash; until you understand the cost. TCP's <strong>head-of-line blocking</strong> means if packet 47 is lost, packets 48, 49, and 50 sit in the kernel buffer waiting for 47's retransmission, even though they contain <em>newer</em> data that the game desperately wants. In a game running at 20Hz, a single lost packet stalls the stream for 100-300ms while TCP retransmits. The player freezes, rubber-bands, and dies.</p>
+
+<div class="diagram">
+<span class="diagram-label">TCP Head-of-Line Blocking vs UDP Packet Loss</span>
+<pre><code>  TCP (ordered, reliable):
+  ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐
+  │ 47 │ │ 48 │ │ 49 │ │ 50 │ │ 51 │  ← sent by server
+  └────┘ └────┘ └────┘ └────┘ └────┘
+     ✗      ●      ●      ●      ●    ← 47 lost in transit
+            ╔══════════════════╗
+            ║  BLOCKED waiting ║       ← 48-51 sit in buffer
+            ║  for 47 retransmit║       ← game freezes 100-300ms
+            ╚══════════════════╝
+
+  UDP (unordered, unreliable):
+  ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐
+  │ 47 │ │ 48 │ │ 49 │ │ 50 │ │ 51 │  ← sent by server
+  └────┘ └────┘ └────┘ └────┘ └────┘
+     ✗      ✓      ✓      ✓      ✓    ← 47 lost? who cares
+            │      │      │      │
+            ▼      ▼      ▼      ▼     ← game uses 51 (latest)
+         (47 was old position data anyway &mdash; worthless now)</code></pre>
+</div>
+
+<h3>UDP: Control Your Own Destiny</h3>
+
+<p>UDP gives you a raw pipe: datagrams in, datagrams out, no ordering, no retransmission, no connection state. A lost packet is simply gone. For game state, this is <em>ideal</em> &mdash; old position data is worthless once newer data arrives. But we still need <em>some</em> reliability. Chat messages must arrive. Inventory changes must not vanish. So we build a thin reliability layer on top of UDP:</p>
+
+<pre><code><span class="label">Protocol</span>
+<span class="cm">// Our custom packet header (8 bytes)</span>
+<span class="ty">struct</span> PacketHeader {
+    <span class="ty">u16</span> sequence;      <span class="cm">// this packet's sequence number</span>
+    <span class="ty">u16</span> ack;           <span class="cm">// last sequence we received from peer</span>
+    <span class="ty">u32</span> ack_bits;      <span class="cm">// bitfield: which of the 32 packets before ack we got</span>
+};
+<span class="cm">// sequence wraps at 65535 → handles ~54 minutes at 20 packets/sec</span>
+<span class="cm">// ack_bits: bit 0 = ack-1, bit 1 = ack-2, ... bit 31 = ack-32</span></code></pre>
+
+<p>Every packet carries its own sequence number <em>and</em> acknowledges what it has received from the other side. The <code>ack_bits</code> field is a sliding window &mdash; 32 bits covering the last 32 packets. If the sender sees a gap in the ack bitfield, it knows that packet was lost and can selectively retransmit just the reliable messages from that packet. No head-of-line blocking. No waiting for old data.</p>
+
+<h3>UDP Echo Server &mdash; Five Languages</h3>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-udp" id="udp-c" class="tc" checked>
+  <input type="radio" name="tabs-udp" id="udp-py" class="tpy">
+  <input type="radio" name="tabs-udp" id="udp-ts" class="tts">
+  <input type="radio" name="tabs-udp" id="udp-go" class="tgo">
+  <input type="radio" name="tabs-udp" id="udp-rs" class="trs">
+  <div class="tab-bar">
+    <label for="udp-c">C</label>
+    <label for="udp-py">Python</label>
+    <label for="udp-ts">TypeScript</label>
+    <label for="udp-go">Go</label>
+    <label for="udp-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+<pre><code><span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;string.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;arpa/inet.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;unistd.h&gt;</span>
+
+<span class="ty">int</span> <span class="fn">main</span>(<span class="ty">void</span>) {
+    <span class="ty">int</span> fd = <span class="fn">socket</span>(AF_INET, SOCK_DGRAM, <span class="nm">0</span>);
+    <span class="kw">struct</span> <span class="ty">sockaddr_in</span> addr = {
+        .sin_family = AF_INET,
+        .sin_port = <span class="fn">htons</span>(<span class="nm">7777</span>),
+        .sin_addr.s_addr = INADDR_ANY
+    };
+    <span class="fn">bind</span>(fd, (<span class="kw">struct</span> <span class="ty">sockaddr</span>*)&amp;addr, <span class="kw">sizeof</span>(addr));
+    <span class="fn">printf</span>(<span class="st">"UDP echo listening on :7777\n"</span>);
+
+    <span class="ty">char</span> buf[<span class="nm">1024</span>];
+    <span class="kw">struct</span> <span class="ty">sockaddr_in</span> client;
+    <span class="ty">socklen_t</span> clen = <span class="kw">sizeof</span>(client);
+    <span class="kw">for</span> (;;) {
+        <span class="ty">ssize_t</span> n = <span class="fn">recvfrom</span>(fd, buf, <span class="kw">sizeof</span>(buf), <span class="nm">0</span>,
+                             (<span class="kw">struct</span> <span class="ty">sockaddr</span>*)&amp;client, &amp;clen);
+        <span class="kw">if</span> (n &gt; <span class="nm">0</span>)
+            <span class="fn">sendto</span>(fd, buf, n, <span class="nm">0</span>,
+                   (<span class="kw">struct</span> <span class="ty">sockaddr</span>*)&amp;client, clen);
+    }
+    <span class="fn">close</span>(fd);
+}</code></pre>
+  </div>
+  <div class="tab-content py">
+<pre><code><span class="kw">import</span> socket
+
+sock = socket.<span class="fn">socket</span>(socket.AF_INET, socket.SOCK_DGRAM)
+sock.<span class="fn">bind</span>((<span class="st">""</span>, <span class="nm">7777</span>))
+<span class="fn">print</span>(<span class="st">"UDP echo listening on :7777"</span>)
+
+<span class="kw">while</span> <span class="kw">True</span>:
+    data, addr = sock.<span class="fn">recvfrom</span>(<span class="nm">1024</span>)
+    sock.<span class="fn">sendto</span>(data, addr)</code></pre>
+  </div>
+  <div class="tab-content ts">
+<pre><code><span class="cm">// Node.js / Deno UDP echo server</span>
+<span class="kw">import</span> dgram <span class="kw">from</span> <span class="st">'node:dgram'</span>;
+
+<span class="kw">const</span> server = dgram.<span class="fn">createSocket</span>(<span class="st">'udp4'</span>);
+
+server.<span class="fn">on</span>(<span class="st">'message'</span>, (msg, rinfo) =&gt; {
+  server.<span class="fn">send</span>(msg, rinfo.port, rinfo.address);
+});
+
+server.<span class="fn">bind</span>(<span class="nm">7777</span>, () =&gt; {
+  console.<span class="fn">log</span>(<span class="st">'UDP echo listening on :7777'</span>);
+});</code></pre>
+  </div>
+  <div class="tab-content go">
+<pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"fmt"</span>
+    <span class="st">"net"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    conn, _ := net.<span class="fn">ListenPacket</span>(<span class="st">"udp"</span>, <span class="st">":7777"</span>)
+    <span class="kw">defer</span> conn.<span class="fn">Close</span>()
+    fmt.<span class="fn">Println</span>(<span class="st">"UDP echo listening on :7777"</span>)
+
+    buf := <span class="fn">make</span>([]<span class="ty">byte</span>, <span class="nm">1024</span>)
+    <span class="kw">for</span> {
+        n, addr, _ := conn.<span class="fn">ReadFrom</span>(buf)
+        conn.<span class="fn">WriteTo</span>(buf[:n], addr)
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content rs">
+<pre><code><span class="kw">use</span> std::net::<span class="ty">UdpSocket</span>;
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> sock = <span class="ty">UdpSocket</span>::<span class="fn">bind</span>(<span class="st">"0.0.0.0:7777"</span>).<span class="fn">unwrap</span>();
+    <span class="fn">println!</span>(<span class="st">"UDP echo listening on :7777"</span>);
+
+    <span class="kw">let mut</span> buf = [<span class="nm">0u8</span>; <span class="nm">1024</span>];
+    <span class="kw">loop</span> {
+        <span class="kw">let</span> (n, src) = sock.<span class="fn">recv_from</span>(&amp;<span class="kw">mut</span> buf).<span class="fn">unwrap</span>();
+        sock.<span class="fn">send_to</span>(&amp;buf[..n], src).<span class="fn">unwrap</span>();
+    }
+}</code></pre>
+  </div>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This &mdash; Simulated Packet Sequencing</div>
+<p>Since browsers cannot send real UDP, let's simulate the sequence/ack system that sits on top of UDP in a game server:</p>
+<pre><code><span class="label">TypeScript</span>
+<span class="cm">// Simulate UDP reliable layer: sequence numbers + ack bitfield</span>
+<span class="kw">class</span> <span class="ty">ReliableUDP</span> {
+  seq = <span class="nm">0</span>;
+  remoteSeq = <span class="nm">0</span>;
+  ackBits = <span class="nm">0</span>;
+  sent = <span class="kw">new</span> <span class="ty">Map</span>();
+  acked = <span class="kw">new</span> <span class="ty">Set</span>();
+
+  <span class="fn">send</span>(payload) {
+    <span class="kw">const</span> pkt = { seq: <span class="kw">this</span>.seq, ack: <span class="kw">this</span>.remoteSeq, ackBits: <span class="kw">this</span>.ackBits, payload };
+    <span class="kw">this</span>.sent.<span class="fn">set</span>(<span class="kw">this</span>.seq, payload);
+    <span class="kw">this</span>.seq++;
+    <span class="kw">return</span> pkt;
+  }
+
+  <span class="fn">receive</span>(pkt) {
+    <span class="cm">// Update our ack state</span>
+    <span class="kw">if</span> (pkt.seq &gt; <span class="kw">this</span>.remoteSeq) {
+      <span class="kw">const</span> shift = pkt.seq - <span class="kw">this</span>.remoteSeq;
+      <span class="kw">this</span>.ackBits = (<span class="kw">this</span>.ackBits &lt;&lt; shift) | (<span class="nm">1</span> &lt;&lt; (shift - <span class="nm">1</span>));
+      <span class="kw">this</span>.remoteSeq = pkt.seq;
+    }
+    <span class="cm">// Check which of our packets were acked</span>
+    <span class="kw">this</span>.acked.<span class="fn">add</span>(pkt.ack);
+    <span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">0</span>; i &lt; <span class="nm">32</span>; i++) {
+      <span class="kw">if</span> (pkt.ackBits &amp; (<span class="nm">1</span> &lt;&lt; i)) <span class="kw">this</span>.acked.<span class="fn">add</span>(pkt.ack - <span class="nm">1</span> - i);
+    }
+    <span class="kw">return</span> pkt.payload;
+  }
+}
+
+<span class="kw">const</span> client = <span class="kw">new</span> <span class="ty">ReliableUDP</span>();
+<span class="kw">const</span> server = <span class="kw">new</span> <span class="ty">ReliableUDP</span>();
+
+<span class="cm">// Client sends 5 packets</span>
+<span class="kw">const</span> packets = [];
+<span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">0</span>; i &lt; <span class="nm">5</span>; i++) {
+  packets.<span class="fn">push</span>(client.<span class="fn">send</span>(<span class="st">`input_tick_</span>${i}<span class="st">`</span>));
+}
+
+<span class="cm">// Simulate: packet 2 is lost, others arrive</span>
+<span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">0</span>; i &lt; <span class="nm">5</span>; i++) {
+  <span class="kw">if</span> (i === <span class="nm">2</span>) { console.<span class="fn">log</span>(<span class="st">`  packet ${i}: LOST`</span>); <span class="kw">continue</span>; }
+  <span class="kw">const</span> data = server.<span class="fn">receive</span>(packets[i]);
+  console.<span class="fn">log</span>(<span class="st">`  packet ${i}: received "${data}"`</span>);
+}
+
+<span class="cm">// Server sends ack back</span>
+<span class="kw">const</span> reply = server.<span class="fn">send</span>(<span class="st">"world_state"</span>);
+client.<span class="fn">receive</span>(reply);
+
+console.<span class="fn">log</span>(<span class="st">`\nClient knows acked: [${[...client.acked].sort()}]`</span>);
+console.<span class="fn">log</span>(<span class="st">`Packet 2 acked? ${client.acked.has(2)}`</span>);
+console.<span class="fn">log</span>(<span class="st">"→ Packet 2 needs retransmission!"</span>);</code></pre>
+</div>
+
+<div class="power">
+<div class="power-label">The UDP Tradeoff</div>
+<p>You manage reliability yourself, but you control latency. TCP gives you a black box that sometimes stalls for 300ms. UDP gives you raw materials and says "build what you need." Every serious multiplayer game chooses UDP &mdash; or a protocol built on top of it (ENet, KCP, QUIC).</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════ CH 3: STATE AND SNAPSHOTS ═══════════════════ -->
+<section id="ch3">
+<h2>03 &mdash; State and Snapshots</h2>
+
+<p class="drop-cap">How do we represent 10,000 players and a million objects in memory so the server can simulate them all in under 50 milliseconds? The answer is the Entity-Component-System architecture &mdash; a design pattern that trades object-oriented elegance for raw speed. In an MMORPG, speed is not optional.</p>
+
+<h3>Entity-Component-System (ECS)</h3>
+
+<p>In traditional OOP, a Player object inherits from Entity, has a Position field, a Health field, an Inventory field, and methods like <code>move()</code> and <code>attack()</code>. This works fine for 100 players. At 10,000, the CPU cache weeps. Each Player object is scattered across the heap. Iterating over all positions to do collision detection means chasing pointers through megabytes of cold memory.</p>
+
+<p>ECS inverts the model. <strong>Entities</strong> are just IDs &mdash; unsigned 32-bit integers. <strong>Components</strong> are plain data structs stored in contiguous arrays, one array per component type. <strong>Systems</strong> are functions that iterate over component arrays. When the movement system runs, it reads the Position array and Velocity array sequentially &mdash; cache line after cache line, no pointer chasing, no vtable lookups.</p>
+
+<div class="diagram">
+<span class="diagram-label">ECS Memory Layout: Struct-of-Arrays vs Array-of-Structs</span>
+<pre><code>  Array-of-Structs (traditional OOP):
+  ┌──────────────────────────┐  ← Player 0
+  │ pos.x│pos.y│hp│mana│inv… │
+  ├──────────────────────────┤  ← Player 1
+  │ pos.x│pos.y│hp│mana│inv… │  Each object = scattered fields
+  ├──────────────────────────┤    Cache loads 64B but only uses 8B (pos)
+  │ pos.x│pos.y│hp│mana│inv… │
+  └──────────────────────────┘
+
+  Struct-of-Arrays (ECS):
+  Position[]: [x0,y0│x1,y1│x2,y2│x3,y3│x4,y4│...]  ← cache-perfect
+  Velocity[]: [vx0,vy0│vx1,vy1│vx2,vy2│...]          ← sequential read
+  Health[]:   [hp0│hp1│hp2│hp3│hp4│...]                ← no waste
+
+  Movement system: for i in 0..N: pos[i] += vel[i] * dt
+  → Reads two arrays linearly. CPU prefetcher is ecstatic.</code></pre>
+</div>
+
+<h3>Spatial Hashing for Interest Management</h3>
+
+<p>A player standing in the forest does not need to know about a battle happening three continents away. <strong>Interest management</strong> filters the world so each client only receives entities within their area of interest. The cheapest way to do this is a <strong>spatial hash</strong>: divide the world into a grid, hash each entity's position to a cell, and only send entities from nearby cells.</p>
+
+<div class="diagram">
+<span class="diagram-label">Spatial Hash Grid &mdash; Interest Management</span>
+<pre><code>  World divided into 100m x 100m cells:
+  ┌─────┬─────┬─────┬─────┬─────┬─────┐
+  │     │     │  ○  │     │     │     │
+  ├─────┼─────┼─────┼─────┼─────┼─────┤
+  │  ○  │  ●A │  ○  │     │     │     │  ● = Player A
+  ├─────┼─────┼─────┼─────┼─────┼─────┤  ○ = entities in interest area
+  │     │  ○  │  ○  │     │  ▲B │     │  ▲ = Player B (different zone)
+  ├─────┼─────┼─────┼─────┼─────┼─────┤  ■ = entities B cares about
+  │     │     │     │     │  ■  │  ■  │
+  ├─────┼─────┼─────┼─────┼─────┼─────┤
+  │     │     │     │     │     │  ■  │
+  └─────┴─────┴─────┴─────┴─────┴─────┘
+
+  Player A sees: 3x3 neighborhood = 9 cells → ~40 entities
+  Player B sees: 3x3 neighborhood = 9 cells → ~25 entities
+  Neither sees the other's entities → bandwidth saved</code></pre>
+</div>
+
+<h3>ECS with Spatial Hashing &mdash; Five Languages</h3>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-ecs" id="ecs-c" class="tc" checked>
+  <input type="radio" name="tabs-ecs" id="ecs-py" class="tpy">
+  <input type="radio" name="tabs-ecs" id="ecs-ts" class="tts">
+  <input type="radio" name="tabs-ecs" id="ecs-go" class="tgo">
+  <input type="radio" name="tabs-ecs" id="ecs-rs" class="trs">
+  <div class="tab-bar">
+    <label for="ecs-c">C</label>
+    <label for="ecs-py">Python</label>
+    <label for="ecs-ts">TypeScript</label>
+    <label for="ecs-go">Go</label>
+    <label for="ecs-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+<pre><code><span class="pp">#define</span> MAX_ENTITIES <span class="nm">10000</span>
+<span class="pp">#define</span> CELL_SIZE    <span class="nm">100.0f</span>
+
+<span class="kw">typedef struct</span> { <span class="ty">float</span> x, y; } <span class="ty">Vec2</span>;
+
+<span class="cm">// Struct-of-Arrays: each component in its own array</span>
+<span class="ty">Vec2</span>  positions[MAX_ENTITIES];
+<span class="ty">Vec2</span>  velocities[MAX_ENTITIES];
+<span class="ty">int</span>   health[MAX_ENTITIES];
+<span class="ty">int</span>   entity_count = <span class="nm">0</span>;
+
+<span class="cm">// Spatial hash: cell → list of entity IDs</span>
+<span class="ty">int</span> <span class="fn">cell_key</span>(<span class="ty">float</span> x, <span class="ty">float</span> y) {
+    <span class="ty">int</span> cx = (<span class="ty">int</span>)(x / CELL_SIZE);
+    <span class="ty">int</span> cy = (<span class="ty">int</span>)(y / CELL_SIZE);
+    <span class="kw">return</span> (cx * <span class="nm">73856093</span>) ^ (cy * <span class="nm">19349663</span>);
+}
+
+<span class="cm">// Movement system: update all positions from velocities</span>
+<span class="ty">void</span> <span class="fn">system_move</span>(<span class="ty">float</span> dt) {
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i &lt; entity_count; i++) {
+        positions[i].x += velocities[i].x * dt;
+        positions[i].y += velocities[i].y * dt;
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content py">
+<pre><code><span class="kw">import</span> math
+
+CELL_SIZE = <span class="nm">100.0</span>
+
+<span class="cm"># Struct-of-Arrays style using parallel lists</span>
+pos_x = []
+pos_y = []
+vel_x = []
+vel_y = []
+health = []
+
+<span class="kw">def</span> <span class="fn">spawn</span>(x, y, vx, vy, hp):
+    pos_x.<span class="fn">append</span>(x); pos_y.<span class="fn">append</span>(y)
+    vel_x.<span class="fn">append</span>(vx); vel_y.<span class="fn">append</span>(vy)
+    health.<span class="fn">append</span>(hp)
+    <span class="kw">return</span> <span class="fn">len</span>(pos_x) - <span class="nm">1</span>
+
+<span class="kw">def</span> <span class="fn">cell_key</span>(x, y):
+    cx = <span class="fn">int</span>(x // CELL_SIZE)
+    cy = <span class="fn">int</span>(y // CELL_SIZE)
+    <span class="kw">return</span> (cx, cy)
+
+<span class="kw">def</span> <span class="fn">system_move</span>(dt):
+    <span class="kw">for</span> i <span class="kw">in</span> <span class="fn">range</span>(<span class="fn">len</span>(pos_x)):
+        pos_x[i] += vel_x[i] * dt
+        pos_y[i] += vel_y[i] * dt
+
+<span class="kw">def</span> <span class="fn">nearby_entities</span>(x, y):
+    cx, cy = <span class="fn">cell_key</span>(x, y)
+    result = []
+    <span class="kw">for</span> i <span class="kw">in</span> <span class="fn">range</span>(<span class="fn">len</span>(pos_x)):
+        ecx, ecy = <span class="fn">cell_key</span>(pos_x[i], pos_y[i])
+        <span class="kw">if</span> <span class="fn">abs</span>(ecx - cx) &lt;= <span class="nm">1</span> <span class="kw">and</span> <span class="fn">abs</span>(ecy - cy) &lt;= <span class="nm">1</span>:
+            result.<span class="fn">append</span>(i)
+    <span class="kw">return</span> result
+
+<span class="cm"># Demo</span>
+<span class="kw">for</span> i <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">100</span>):
+    <span class="fn">spawn</span>(i * <span class="nm">10.0</span>, i * <span class="nm">5.0</span>, <span class="nm">1.0</span>, <span class="nm">0.5</span>, <span class="nm">100</span>)
+
+<span class="fn">system_move</span>(<span class="nm">0.05</span>)
+near = <span class="fn">nearby_entities</span>(<span class="nm">50.0</span>, <span class="nm">25.0</span>)
+<span class="fn">print</span>(<span class="st">f"Entities near (50,25): {len(near)} of {len(pos_x)}"</span>)</code></pre>
+  </div>
+  <div class="tab-content ts">
+<pre><code><span class="kw">const</span> CELL_SIZE = <span class="nm">100</span>;
+
+<span class="cm">// Struct-of-Arrays</span>
+<span class="kw">const</span> posX: <span class="ty">number</span>[] = [];
+<span class="kw">const</span> posY: <span class="ty">number</span>[] = [];
+<span class="kw">const</span> velX: <span class="ty">number</span>[] = [];
+<span class="kw">const</span> velY: <span class="ty">number</span>[] = [];
+<span class="kw">const</span> hp: <span class="ty">number</span>[] = [];
+
+<span class="kw">function</span> <span class="fn">spawn</span>(x, y, vx, vy, h) {
+  posX.<span class="fn">push</span>(x); posY.<span class="fn">push</span>(y);
+  velX.<span class="fn">push</span>(vx); velY.<span class="fn">push</span>(vy);
+  hp.<span class="fn">push</span>(h);
+  <span class="kw">return</span> posX.length - <span class="nm">1</span>;
+}
+
+<span class="kw">function</span> <span class="fn">cellKey</span>(x, y) {
+  <span class="kw">return</span> <span class="st">`${</span>Math.<span class="fn">floor</span>(x / CELL_SIZE)}<span class="st">,${</span>Math.<span class="fn">floor</span>(y / CELL_SIZE)}<span class="st">`</span>;
+}
+
+<span class="kw">function</span> <span class="fn">systemMove</span>(dt) {
+  <span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">0</span>; i &lt; posX.length; i++) {
+    posX[i] += velX[i] * dt;
+    posY[i] += velY[i] * dt;
+  }
+}
+
+<span class="kw">function</span> <span class="fn">nearbyEntities</span>(x, y) {
+  <span class="kw">const</span> cx = Math.<span class="fn">floor</span>(x / CELL_SIZE);
+  <span class="kw">const</span> cy = Math.<span class="fn">floor</span>(y / CELL_SIZE);
+  <span class="kw">const</span> result = [];
+  <span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">0</span>; i &lt; posX.length; i++) {
+    <span class="kw">const</span> ecx = Math.<span class="fn">floor</span>(posX[i] / CELL_SIZE);
+    <span class="kw">const</span> ecy = Math.<span class="fn">floor</span>(posY[i] / CELL_SIZE);
+    <span class="kw">if</span> (Math.<span class="fn">abs</span>(ecx - cx) &lt;= <span class="nm">1</span> &amp;&amp; Math.<span class="fn">abs</span>(ecy - cy) &lt;= <span class="nm">1</span>)
+      result.<span class="fn">push</span>(i);
+  }
+  <span class="kw">return</span> result;
+}
+
+<span class="cm">// Demo</span>
+<span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">0</span>; i &lt; <span class="nm">100</span>; i++) <span class="fn">spawn</span>(i * <span class="nm">10</span>, i * <span class="nm">5</span>, <span class="nm">1</span>, <span class="nm">0.5</span>, <span class="nm">100</span>);
+<span class="fn">systemMove</span>(<span class="nm">0.05</span>);
+<span class="kw">const</span> near = <span class="fn">nearbyEntities</span>(<span class="nm">50</span>, <span class="nm">25</span>);
+console.<span class="fn">log</span>(<span class="st">`Entities near (50,25): ${near.length} of ${posX.length}`</span>);</code></pre>
+  </div>
+  <div class="tab-content go">
+<pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"fmt"</span>
+    <span class="st">"math"</span>
+)
+
+<span class="kw">const</span> cellSize = <span class="nm">100.0</span>
+
+<span class="kw">var</span> (
+    posX, posY []<span class="ty">float64</span>
+    velX, velY []<span class="ty">float64</span>
+    hp         []<span class="ty">int</span>
+)
+
+<span class="kw">func</span> <span class="fn">spawn</span>(x, y, vx, vy <span class="ty">float64</span>, h <span class="ty">int</span>) <span class="ty">int</span> {
+    posX = <span class="fn">append</span>(posX, x); posY = <span class="fn">append</span>(posY, y)
+    velX = <span class="fn">append</span>(velX, vx); velY = <span class="fn">append</span>(velY, vy)
+    hp = <span class="fn">append</span>(hp, h)
+    <span class="kw">return</span> <span class="fn">len</span>(posX) - <span class="nm">1</span>
+}
+
+<span class="kw">func</span> <span class="fn">systemMove</span>(dt <span class="ty">float64</span>) {
+    <span class="kw">for</span> i := <span class="nm">0</span>; i &lt; <span class="fn">len</span>(posX); i++ {
+        posX[i] += velX[i] * dt
+        posY[i] += velY[i] * dt
+    }
+}
+
+<span class="kw">func</span> <span class="fn">nearbyEntities</span>(x, y <span class="ty">float64</span>) []<span class="ty">int</span> {
+    cx := math.<span class="fn">Floor</span>(x / cellSize)
+    cy := math.<span class="fn">Floor</span>(y / cellSize)
+    <span class="kw">var</span> result []<span class="ty">int</span>
+    <span class="kw">for</span> i := <span class="nm">0</span>; i &lt; <span class="fn">len</span>(posX); i++ {
+        ecx := math.<span class="fn">Floor</span>(posX[i] / cellSize)
+        ecy := math.<span class="fn">Floor</span>(posY[i] / cellSize)
+        <span class="kw">if</span> math.<span class="fn">Abs</span>(ecx-cx) &lt;= <span class="nm">1</span> &amp;&amp; math.<span class="fn">Abs</span>(ecy-cy) &lt;= <span class="nm">1</span> {
+            result = <span class="fn">append</span>(result, i)
+        }
+    }
+    <span class="kw">return</span> result
+}
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="kw">for</span> i := <span class="nm">0</span>; i &lt; <span class="nm">100</span>; i++ {
+        <span class="fn">spawn</span>(<span class="ty">float64</span>(i)*<span class="nm">10</span>, <span class="ty">float64</span>(i)*<span class="nm">5</span>, <span class="nm">1</span>, <span class="nm">0.5</span>, <span class="nm">100</span>)
+    }
+    <span class="fn">systemMove</span>(<span class="nm">0.05</span>)
+    near := <span class="fn">nearbyEntities</span>(<span class="nm">50</span>, <span class="nm">25</span>)
+    fmt.<span class="fn">Printf</span>(<span class="st">"Entities near (50,25): %d of %d\n"</span>, <span class="fn">len</span>(near), <span class="fn">len</span>(posX))
+}</code></pre>
+  </div>
+  <div class="tab-content rs">
+<pre><code><span class="kw">const</span> CELL_SIZE: <span class="ty">f64</span> = <span class="nm">100.0</span>;
+
+<span class="kw">struct</span> <span class="ty">World</span> {
+    pos_x: <span class="ty">Vec</span>&lt;<span class="ty">f64</span>&gt;, pos_y: <span class="ty">Vec</span>&lt;<span class="ty">f64</span>&gt;,
+    vel_x: <span class="ty">Vec</span>&lt;<span class="ty">f64</span>&gt;, vel_y: <span class="ty">Vec</span>&lt;<span class="ty">f64</span>&gt;,
+    hp: <span class="ty">Vec</span>&lt;<span class="ty">i32</span>&gt;,
+}
+
+<span class="kw">impl</span> <span class="ty">World</span> {
+    <span class="kw">fn</span> <span class="fn">spawn</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, x: <span class="ty">f64</span>, y: <span class="ty">f64</span>, vx: <span class="ty">f64</span>, vy: <span class="ty">f64</span>, h: <span class="ty">i32</span>) {
+        <span class="kw">self</span>.pos_x.<span class="fn">push</span>(x); <span class="kw">self</span>.pos_y.<span class="fn">push</span>(y);
+        <span class="kw">self</span>.vel_x.<span class="fn">push</span>(vx); <span class="kw">self</span>.vel_y.<span class="fn">push</span>(vy);
+        <span class="kw">self</span>.hp.<span class="fn">push</span>(h);
+    }
+
+    <span class="kw">fn</span> <span class="fn">system_move</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, dt: <span class="ty">f64</span>) {
+        <span class="kw">for</span> i <span class="kw">in</span> <span class="nm">0</span>..<span class="kw">self</span>.pos_x.<span class="fn">len</span>() {
+            <span class="kw">self</span>.pos_x[i] += <span class="kw">self</span>.vel_x[i] * dt;
+            <span class="kw">self</span>.pos_y[i] += <span class="kw">self</span>.vel_y[i] * dt;
+        }
+    }
+
+    <span class="kw">fn</span> <span class="fn">nearby</span>(&amp;<span class="kw">self</span>, x: <span class="ty">f64</span>, y: <span class="ty">f64</span>) -&gt; <span class="ty">Vec</span>&lt;<span class="ty">usize</span>&gt; {
+        <span class="kw">let</span> cx = (x / CELL_SIZE).<span class="fn">floor</span>();
+        <span class="kw">let</span> cy = (y / CELL_SIZE).<span class="fn">floor</span>();
+        (<span class="nm">0</span>..<span class="kw">self</span>.pos_x.<span class="fn">len</span>()).<span class="fn">filter</span>(|&amp;i| {
+            <span class="kw">let</span> ecx = (<span class="kw">self</span>.pos_x[i] / CELL_SIZE).<span class="fn">floor</span>();
+            <span class="kw">let</span> ecy = (<span class="kw">self</span>.pos_y[i] / CELL_SIZE).<span class="fn">floor</span>();
+            (ecx - cx).<span class="fn">abs</span>() &lt;= <span class="nm">1.0</span> &amp;&amp; (ecy - cy).<span class="fn">abs</span>() &lt;= <span class="nm">1.0</span>
+        }).<span class="fn">collect</span>()
+    }
+}
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let mut</span> w = <span class="ty">World</span> {
+        pos_x: <span class="fn">vec!</span>[], pos_y: <span class="fn">vec!</span>[],
+        vel_x: <span class="fn">vec!</span>[], vel_y: <span class="fn">vec!</span>[], hp: <span class="fn">vec!</span>[],
+    };
+    <span class="kw">for</span> i <span class="kw">in</span> <span class="nm">0</span>..<span class="nm">100</span> {
+        w.<span class="fn">spawn</span>(i <span class="kw">as</span> <span class="ty">f64</span> * <span class="nm">10.0</span>, i <span class="kw">as</span> <span class="ty">f64</span> * <span class="nm">5.0</span>, <span class="nm">1.0</span>, <span class="nm">0.5</span>, <span class="nm">100</span>);
+    }
+    w.<span class="fn">system_move</span>(<span class="nm">0.05</span>);
+    <span class="kw">let</span> near = w.<span class="fn">nearby</span>(<span class="nm">50.0</span>, <span class="nm">25.0</span>);
+    <span class="fn">println!</span>(<span class="st">"Entities near (50,25): {} of {}"</span>, near.<span class="fn">len</span>(), w.pos_x.<span class="fn">len</span>());
+}</code></pre>
+  </div>
+</div>
+
+<div class="power zen">
+<div class="power-label">Interest Management</div>
+<p>The art of not sending data nobody needs. With 10,000 players, full-world broadcasts would require 10,000 &times; 10,000 = 100 million entity updates per tick. Interest management cuts this to 10,000 &times; ~50 = 500,000. That is the difference between needing a supercomputer and running on commodity hardware.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════ CH 4: SERIALIZATION ═══════════════════ -->
+<section id="ch4">
+<h2>04 &mdash; Serialization</h2>
+
+<p class="drop-cap">Encode the world in as few bytes as possible. Every tick, the server must serialize snapshots for thousands of clients. JSON is out of the question &mdash; field names like <code>"position_x"</code> repeated 10,000 times waste bandwidth that should carry actual data. Binary protocols with bit-packing are how real game servers communicate.</p>
+
+<h3>Why JSON Kills Game Servers</h3>
+
+<p>Consider a single player state in JSON:</p>
+
+<pre><code><span class="label">JSON</span>
+{<span class="st">"id"</span>:<span class="nm">4817</span>,<span class="st">"x"</span>:<span class="nm">341.25</span>,<span class="st">"y"</span>:<span class="nm">0.0</span>,<span class="st">"z"</span>:<span class="nm">782.50</span>,<span class="st">"hp"</span>:<span class="nm">85</span>,<span class="st">"flags"</span>:<span class="nm">5</span>}</code></pre>
+
+<p>That is 65 bytes. The actual <em>data</em> is: 2 bytes for ID, 6 bytes for position (bit-packed), 1 byte for health, 1 byte for flags = <strong>10 bytes</strong>. JSON wastes 55 bytes on field names, quotes, colons, and commas. Multiply by 50 nearby entities per client, 10,000 clients, 20 ticks per second: JSON costs <strong>650 MB/s</strong>. Bit-packed binary costs <strong>100 MB/s</strong>. That is the difference between a $50/month server and a $500/month server.</p>
+
+<h3>Bit-Packing</h3>
+
+<p>Instead of using a full 32-bit float for health (0.0-100.0), we use 7 bits (0-127). Instead of a 32-bit int for weapon ID when there are only 16 weapons, we use 4 bits. A boolean costs 1 bit, not 1 byte. The key insight: <strong>we know the range of every field at compile time</strong>, so we can pack perfectly.</p>
+
+<h3>Bit-Packing a Player State &mdash; Five Languages</h3>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-pack" id="pack-c" class="tc" checked>
+  <input type="radio" name="tabs-pack" id="pack-py" class="tpy">
+  <input type="radio" name="tabs-pack" id="pack-ts" class="tts">
+  <input type="radio" name="tabs-pack" id="pack-go" class="tgo">
+  <input type="radio" name="tabs-pack" id="pack-rs" class="trs">
+  <div class="tab-bar">
+    <label for="pack-c">C</label>
+    <label for="pack-py">Python</label>
+    <label for="pack-ts">TypeScript</label>
+    <label for="pack-go">Go</label>
+    <label for="pack-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+<pre><code><span class="pp">#include</span> <span class="st">&lt;stdint.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;string.h&gt;</span>
+
+<span class="kw">typedef struct</span> {
+    <span class="ty">uint8_t</span>  *buf;
+    <span class="ty">int</span>       bit_pos;
+} <span class="ty">BitWriter</span>;
+
+<span class="ty">void</span> <span class="fn">write_bits</span>(<span class="ty">BitWriter</span> *w, <span class="ty">uint32_t</span> val, <span class="ty">int</span> bits) {
+    <span class="kw">for</span> (<span class="ty">int</span> i = bits - <span class="nm">1</span>; i &gt;= <span class="nm">0</span>; i--) {
+        <span class="ty">int</span> byte_idx = w-&gt;bit_pos / <span class="nm">8</span>;
+        <span class="ty">int</span> bit_idx  = <span class="nm">7</span> - (w-&gt;bit_pos % <span class="nm">8</span>);
+        <span class="kw">if</span> (val &amp; (<span class="nm">1u</span> &lt;&lt; i))
+            w-&gt;buf[byte_idx] |= (<span class="nm">1</span> &lt;&lt; bit_idx);
+        w-&gt;bit_pos++;
+    }
+}
+
+<span class="cm">// Pack: entity_id(16) + x(12) + y(12) + z(12) + hp(7) + weapon(4) + alive(1) = 64 bits = 8 bytes</span>
+<span class="ty">void</span> <span class="fn">pack_player</span>(<span class="ty">BitWriter</span> *w, <span class="ty">uint16_t</span> id,
+                  <span class="ty">float</span> x, <span class="ty">float</span> y, <span class="ty">float</span> z,
+                  <span class="ty">int</span> hp, <span class="ty">int</span> weapon, <span class="ty">int</span> alive) {
+    <span class="fn">write_bits</span>(w, id, <span class="nm">16</span>);
+    <span class="fn">write_bits</span>(w, (<span class="ty">uint32_t</span>)(x / <span class="nm">4096.0f</span> * <span class="nm">4095</span>), <span class="nm">12</span>); <span class="cm">// 0-4096m in 12 bits</span>
+    <span class="fn">write_bits</span>(w, (<span class="ty">uint32_t</span>)(y / <span class="nm">256.0f</span> * <span class="nm">4095</span>), <span class="nm">12</span>);  <span class="cm">// 0-256m height</span>
+    <span class="fn">write_bits</span>(w, (<span class="ty">uint32_t</span>)(z / <span class="nm">4096.0f</span> * <span class="nm">4095</span>), <span class="nm">12</span>);
+    <span class="fn">write_bits</span>(w, hp &amp; <span class="nm">0x7F</span>, <span class="nm">7</span>);      <span class="cm">// 0-127 HP</span>
+    <span class="fn">write_bits</span>(w, weapon &amp; <span class="nm">0xF</span>, <span class="nm">4</span>);   <span class="cm">// 16 weapons</span>
+    <span class="fn">write_bits</span>(w, alive &amp; <span class="nm">1</span>, <span class="nm">1</span>);      <span class="cm">// dead or alive</span>
+}</code></pre>
+  </div>
+  <div class="tab-content py">
+<pre><code><span class="kw">class</span> <span class="ty">BitWriter</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self):
+        self.bits = []
+
+    <span class="kw">def</span> <span class="fn">write</span>(self, val, n_bits):
+        <span class="kw">for</span> i <span class="kw">in</span> <span class="fn">range</span>(n_bits - <span class="nm">1</span>, -<span class="nm">1</span>, -<span class="nm">1</span>):
+            self.bits.<span class="fn">append</span>((val &gt;&gt; i) &amp; <span class="nm">1</span>)
+
+    <span class="kw">def</span> <span class="fn">to_bytes</span>(self):
+        <span class="kw">while</span> <span class="fn">len</span>(self.bits) % <span class="nm">8</span>:
+            self.bits.<span class="fn">append</span>(<span class="nm">0</span>)
+        result = <span class="fn">bytearray</span>()
+        <span class="kw">for</span> i <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">0</span>, <span class="fn">len</span>(self.bits), <span class="nm">8</span>):
+            byte = <span class="nm">0</span>
+            <span class="kw">for</span> b <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">8</span>):
+                byte = (byte &lt;&lt; <span class="nm">1</span>) | self.bits[i + b]
+            result.<span class="fn">append</span>(byte)
+        <span class="kw">return</span> <span class="fn">bytes</span>(result)
+
+<span class="kw">def</span> <span class="fn">pack_player</span>(w, eid, x, y, z, hp, weapon, alive):
+    w.<span class="fn">write</span>(eid, <span class="nm">16</span>)
+    w.<span class="fn">write</span>(<span class="fn">int</span>(x / <span class="nm">4096</span> * <span class="nm">4095</span>), <span class="nm">12</span>)
+    w.<span class="fn">write</span>(<span class="fn">int</span>(y / <span class="nm">256</span> * <span class="nm">4095</span>), <span class="nm">12</span>)
+    w.<span class="fn">write</span>(<span class="fn">int</span>(z / <span class="nm">4096</span> * <span class="nm">4095</span>), <span class="nm">12</span>)
+    w.<span class="fn">write</span>(hp, <span class="nm">7</span>)
+    w.<span class="fn">write</span>(weapon, <span class="nm">4</span>)
+    w.<span class="fn">write</span>(alive, <span class="nm">1</span>)
+
+w = <span class="ty">BitWriter</span>()
+<span class="fn">pack_player</span>(w, <span class="nm">4817</span>, <span class="nm">341.25</span>, <span class="nm">12.0</span>, <span class="nm">782.5</span>, <span class="nm">85</span>, <span class="nm">3</span>, <span class="nm">1</span>)
+packed = w.<span class="fn">to_bytes</span>()
+<span class="fn">print</span>(<span class="st">f"Packed: {len(packed)} bytes → {packed.hex()}"</span>)
+<span class="fn">print</span>(<span class="st">f"JSON equivalent: ~65 bytes"</span>)
+<span class="fn">print</span>(<span class="st">f"Savings: {65 - len(packed)} bytes per entity per tick"</span>)</code></pre>
+  </div>
+  <div class="tab-content ts">
+<pre><code><span class="kw">class</span> <span class="ty">BitWriter</span> {
+  bits: <span class="ty">number</span>[] = [];
+
+  <span class="fn">write</span>(val: <span class="ty">number</span>, nBits: <span class="ty">number</span>) {
+    <span class="kw">for</span> (<span class="kw">let</span> i = nBits - <span class="nm">1</span>; i &gt;= <span class="nm">0</span>; i--)
+      <span class="kw">this</span>.bits.<span class="fn">push</span>((val &gt;&gt;&gt; i) &amp; <span class="nm">1</span>);
+  }
+
+  <span class="fn">toBytes</span>() {
+    <span class="kw">while</span> (<span class="kw">this</span>.bits.length % <span class="nm">8</span>) <span class="kw">this</span>.bits.<span class="fn">push</span>(<span class="nm">0</span>);
+    <span class="kw">const</span> out = [];
+    <span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">0</span>; i &lt; <span class="kw">this</span>.bits.length; i += <span class="nm">8</span>) {
+      <span class="kw">let</span> byte = <span class="nm">0</span>;
+      <span class="kw">for</span> (<span class="kw">let</span> b = <span class="nm">0</span>; b &lt; <span class="nm">8</span>; b++) byte = (byte &lt;&lt; <span class="nm">1</span>) | <span class="kw">this</span>.bits[i + b];
+      out.<span class="fn">push</span>(byte);
+    }
+    <span class="kw">return</span> out;
+  }
+}
+
+<span class="kw">function</span> <span class="fn">packPlayer</span>(w, id, x, y, z, hp, weapon, alive) {
+  w.<span class="fn">write</span>(id, <span class="nm">16</span>);
+  w.<span class="fn">write</span>(Math.<span class="fn">floor</span>(x / <span class="nm">4096</span> * <span class="nm">4095</span>), <span class="nm">12</span>);
+  w.<span class="fn">write</span>(Math.<span class="fn">floor</span>(y / <span class="nm">256</span> * <span class="nm">4095</span>), <span class="nm">12</span>);
+  w.<span class="fn">write</span>(Math.<span class="fn">floor</span>(z / <span class="nm">4096</span> * <span class="nm">4095</span>), <span class="nm">12</span>);
+  w.<span class="fn">write</span>(hp, <span class="nm">7</span>);
+  w.<span class="fn">write</span>(weapon, <span class="nm">4</span>);
+  w.<span class="fn">write</span>(alive, <span class="nm">1</span>);
+}
+
+<span class="kw">const</span> w = <span class="kw">new</span> <span class="ty">BitWriter</span>();
+<span class="fn">packPlayer</span>(w, <span class="nm">4817</span>, <span class="nm">341.25</span>, <span class="nm">12.0</span>, <span class="nm">782.5</span>, <span class="nm">85</span>, <span class="nm">3</span>, <span class="nm">1</span>);
+<span class="kw">const</span> packed = w.<span class="fn">toBytes</span>();
+console.<span class="fn">log</span>(<span class="st">`Packed: ${packed.length} bytes → [${packed.map(b =&gt; b.toString(16).padStart(2,'0')).join(' ')}]`</span>);
+console.<span class="fn">log</span>(<span class="st">`JSON equivalent: ~65 bytes`</span>);
+console.<span class="fn">log</span>(<span class="st">`Savings: ${65 - packed.length} bytes per entity per tick`</span>);</code></pre>
+  </div>
+  <div class="tab-content go">
+<pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> <span class="st">"fmt"</span>
+
+<span class="kw">type</span> <span class="ty">BitWriter</span> <span class="kw">struct</span> {
+    buf    []<span class="ty">byte</span>
+    bitPos <span class="ty">int</span>
+}
+
+<span class="kw">func</span> (w *<span class="ty">BitWriter</span>) <span class="fn">Write</span>(val <span class="ty">uint32</span>, bits <span class="ty">int</span>) {
+    <span class="kw">for</span> i := bits - <span class="nm">1</span>; i &gt;= <span class="nm">0</span>; i-- {
+        byteIdx := w.bitPos / <span class="nm">8</span>
+        <span class="kw">for</span> byteIdx &gt;= <span class="fn">len</span>(w.buf) { w.buf = <span class="fn">append</span>(w.buf, <span class="nm">0</span>) }
+        bitIdx := <span class="ty">uint</span>(<span class="nm">7</span> - (w.bitPos % <span class="nm">8</span>))
+        <span class="kw">if</span> val&amp;(<span class="nm">1</span>&lt;&lt;<span class="ty">uint</span>(i)) != <span class="nm">0</span> {
+            w.buf[byteIdx] |= <span class="nm">1</span> &lt;&lt; bitIdx
+        }
+        w.bitPos++
+    }
+}
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    w := &amp;<span class="ty">BitWriter</span>{}
+    w.<span class="fn">Write</span>(<span class="nm">4817</span>, <span class="nm">16</span>)
+    w.<span class="fn">Write</span>(<span class="ty">uint32</span>(<span class="nm">341.25</span>/<span class="nm">4096</span>*<span class="nm">4095</span>), <span class="nm">12</span>)
+    w.<span class="fn">Write</span>(<span class="ty">uint32</span>(<span class="nm">12.0</span>/<span class="nm">256</span>*<span class="nm">4095</span>), <span class="nm">12</span>)
+    w.<span class="fn">Write</span>(<span class="ty">uint32</span>(<span class="nm">782.5</span>/<span class="nm">4096</span>*<span class="nm">4095</span>), <span class="nm">12</span>)
+    w.<span class="fn">Write</span>(<span class="nm">85</span>, <span class="nm">7</span>)
+    w.<span class="fn">Write</span>(<span class="nm">3</span>, <span class="nm">4</span>)
+    w.<span class="fn">Write</span>(<span class="nm">1</span>, <span class="nm">1</span>)
+    fmt.<span class="fn">Printf</span>(<span class="st">"Packed: %d bytes → %x\n"</span>, <span class="fn">len</span>(w.buf), w.buf)
+    fmt.<span class="fn">Println</span>(<span class="st">"JSON equivalent: ~65 bytes"</span>)
+}</code></pre>
+  </div>
+  <div class="tab-content rs">
+<pre><code><span class="kw">struct</span> <span class="ty">BitWriter</span> {
+    bits: <span class="ty">Vec</span>&lt;<span class="ty">u8</span>&gt;,
+}
+
+<span class="kw">impl</span> <span class="ty">BitWriter</span> {
+    <span class="kw">fn</span> <span class="fn">new</span>() -&gt; <span class="ty">Self</span> { <span class="ty">BitWriter</span> { bits: <span class="fn">vec!</span>[] } }
+
+    <span class="kw">fn</span> <span class="fn">write</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, val: <span class="ty">u32</span>, n_bits: <span class="ty">u32</span>) {
+        <span class="kw">for</span> i <span class="kw">in</span> (<span class="nm">0</span>..n_bits).<span class="fn">rev</span>() {
+            <span class="kw">self</span>.bits.<span class="fn">push</span>(((val &gt;&gt; i) &amp; <span class="nm">1</span>) <span class="kw">as</span> <span class="ty">u8</span>);
+        }
+    }
+
+    <span class="kw">fn</span> <span class="fn">to_bytes</span>(&amp;<span class="kw">self</span>) -&gt; <span class="ty">Vec</span>&lt;<span class="ty">u8</span>&gt; {
+        <span class="kw">let mut</span> out = <span class="fn">vec!</span>[];
+        <span class="kw">for</span> chunk <span class="kw">in</span> <span class="kw">self</span>.bits.<span class="fn">chunks</span>(<span class="nm">8</span>) {
+            <span class="kw">let mut</span> byte = <span class="nm">0u8</span>;
+            <span class="kw">for</span> (i, &amp;b) <span class="kw">in</span> chunk.<span class="fn">iter</span>().<span class="fn">enumerate</span>() {
+                byte |= b &lt;&lt; (<span class="nm">7</span> - i);
+            }
+            out.<span class="fn">push</span>(byte);
+        }
+        out
+    }
+}
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let mut</span> w = <span class="ty">BitWriter</span>::<span class="fn">new</span>();
+    w.<span class="fn">write</span>(<span class="nm">4817</span>, <span class="nm">16</span>);
+    w.<span class="fn">write</span>((<span class="nm">341.25_f64</span> / <span class="nm">4096.0</span> * <span class="nm">4095.0</span>) <span class="kw">as</span> <span class="ty">u32</span>, <span class="nm">12</span>);
+    w.<span class="fn">write</span>((<span class="nm">12.0_f64</span> / <span class="nm">256.0</span> * <span class="nm">4095.0</span>) <span class="kw">as</span> <span class="ty">u32</span>, <span class="nm">12</span>);
+    w.<span class="fn">write</span>((<span class="nm">782.5_f64</span> / <span class="nm">4096.0</span> * <span class="nm">4095.0</span>) <span class="kw">as</span> <span class="ty">u32</span>, <span class="nm">12</span>);
+    w.<span class="fn">write</span>(<span class="nm">85</span>, <span class="nm">7</span>);
+    w.<span class="fn">write</span>(<span class="nm">3</span>, <span class="nm">4</span>);
+    w.<span class="fn">write</span>(<span class="nm">1</span>, <span class="nm">1</span>);
+    <span class="kw">let</span> packed = w.<span class="fn">to_bytes</span>();
+    <span class="fn">println!</span>(<span class="st">"Packed: {} bytes"</span>, packed.<span class="fn">len</span>());
+}</code></pre>
+  </div>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This &mdash; Pack vs JSON Size Comparison</div>
+<p>Pack a player state and compare the byte cost against JSON:</p>
+<pre><code><span class="label">Python</span>
+<span class="kw">import</span> json
+
+<span class="cm"># JSON representation</span>
+player = {<span class="st">"id"</span>: <span class="nm">4817</span>, <span class="st">"x"</span>: <span class="nm">341.25</span>, <span class="st">"y"</span>: <span class="nm">12.0</span>, <span class="st">"z"</span>: <span class="nm">782.5</span>,
+          <span class="st">"hp"</span>: <span class="nm">85</span>, <span class="st">"weapon"</span>: <span class="nm">3</span>, <span class="st">"alive"</span>: <span class="kw">True</span>}
+json_bytes = <span class="fn">len</span>(json.<span class="fn">dumps</span>(player))
+
+<span class="cm"># Bit-packed: 16+12+12+12+7+4+1 = 64 bits = 8 bytes</span>
+packed_bits = <span class="nm">16</span> + <span class="nm">12</span> + <span class="nm">12</span> + <span class="nm">12</span> + <span class="nm">7</span> + <span class="nm">4</span> + <span class="nm">1</span>
+packed_bytes = (packed_bits + <span class="nm">7</span>) // <span class="nm">8</span>
+
+nearby = <span class="nm">50</span>
+clients = <span class="nm">10000</span>
+tps = <span class="nm">20</span>
+
+json_bw = json_bytes * nearby * clients * tps
+pack_bw = packed_bytes * nearby * clients * tps
+
+<span class="fn">print</span>(<span class="st">f"Per entity:  JSON={json_bytes}B  Packed={packed_bytes}B  Ratio={json_bytes/packed_bytes:.1f}x"</span>)
+<span class="fn">print</span>(<span class="st">f"Per tick:    JSON={json_bytes*nearby*clients/1e6:.1f}MB  Packed={packed_bytes*nearby*clients/1e6:.1f}MB"</span>)
+<span class="fn">print</span>(<span class="st">f"Per second:  JSON={json_bw/1e6:.0f}MB/s  Packed={pack_bw/1e6:.0f}MB/s"</span>)
+<span class="fn">print</span>(<span class="st">f"Savings:     {(json_bw-pack_bw)/1e6:.0f}MB/s bandwidth saved"</span>)</code></pre>
+</div>
+
+<h3>Delta Compression</h3>
+
+<p>Even with bit-packing, sending full state for 50 entities every tick is wasteful when most of them have not moved. <strong>Delta compression</strong> sends only what changed since the last acknowledged snapshot. If a player is standing still, their position delta is zero &mdash; we send a single "no change" bit. Quake III Arena famously used delta compression to reduce per-player bandwidth from ~100 KB/s to ~14 KB/s.</p>
+
+<div class="power">
+<div class="power-label">Delta Compression</div>
+<p>Quake III sent 14 KB/s per player, down from 100 KB/s, by only transmitting fields that changed since the last acknowledged snapshot. For an MMORPG where most entities are idle most of the time, delta compression often achieves 90%+ reduction.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════ CH 5: CLIENT PREDICTION ═══════════════════ -->
+<section id="ch5">
+<h2>05 &mdash; Client Prediction</h2>
+
+<p class="drop-cap">Make it feel instant even with 80ms latency. Without prediction, every keypress travels to the server (40ms), gets processed, and the result travels back (40ms). That is 80ms of input lag at minimum &mdash; enough to make movement feel sluggish and combat feel unresponsive. The solution: don't wait. Apply the input locally <em>immediately</em>, then reconcile when the server's authoritative answer arrives.</p>
+
+<h3>The Prediction Loop</h3>
+
+<p>Client-side prediction works in three steps. First, when the player presses a key, apply the movement locally using the same physics code the server runs. Second, buffer every input with its tick number and send it to the server. Third, when the server sends back the authoritative state for a given tick, compare it to our predicted state at that tick. If they match, great. If they differ, snap to the server state and <strong>replay</strong> all inputs from that tick forward to arrive at a corrected present state.</p>
+
+<div class="diagram">
+<span class="diagram-label">Client Prediction &mdash; Input Buffer and Reconciliation</span>
+<pre><code>  Client input buffer:
+  ┌──────┬──────┬──────┬──────┬──────┬──────┐
+  │ T=50 │ T=51 │ T=52 │ T=53 │ T=54 │ T=55 │  ← buffered inputs
+  │  W   │  W   │ W+A  │  W   │  W   │ W+D  │
+  └──────┴──────┴──────┴──────┴──────┴──────┘
+                    ▲
+                    │ Server ack: "At T=52, you were at (340, 782)"
+                    │ Client predicted: (340.1, 782)  ← close enough?
+
+  If mismatch &gt; threshold:
+  1. Snap to server position at T=52: (340, 782)
+  2. Re-simulate T=53 input (W) → (341, 782)
+  3. Re-simulate T=54 input (W) → (342, 782)
+  4. Re-simulate T=55 input (W+D) → (343, 783)
+  5. Now at corrected present state</code></pre>
+</div>
+
+<div class="diagram">
+<span class="diagram-label">Predicted vs Server Position Over Time</span>
+<pre><code>  Position
+  ▲
+  │        predicted ╱─── ─ ─ ─ (what client shows)
+  │                ╱
+  │    server ───╱──────────── (ground truth)
+  │            ╱  ↑
+  │          ╱    correction: smooth blend over 100ms
+  │        ╱      (player barely notices)
+  │──────╱
+  └──────────────────────────────────────▶ Time
+         T=50   T=52      T=55   T=58</code></pre>
+</div>
+
+<p>The key insight from the Source engine (Half-Life 2, CS:GO, TF2): keep an <strong>unacknowledged input buffer</strong>. Every input you send gets a sequence number. When the server acknowledges tick N, discard all inputs up to N, and replay everything after N from the server's corrected state. This runs every frame and is invisible to the player when prediction is accurate &mdash; which it usually is, because client and server run the same physics code.</p>
+
+<div class="power hack">
+<div class="power-label">Prediction Error</div>
+<p>When client and server disagree, never teleport the player. Smooth the correction over 100-200ms by interpolating between the wrong position and the corrected position. The player feels a gentle "drift" instead of a jarring snap. Overwatch calls this "favor the shooter" on the attack side, but on the movement side it is simply good prediction smoothing.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════ CH 6: INTERPOLATION ═══════════════════ -->
+<section id="ch6">
+<h2>06 &mdash; Entity Interpolation</h2>
+
+<p class="drop-cap">Make other players look smooth. The server sends updates at 20Hz, but we render at 60fps &mdash; three frames between each server update. Without interpolation, other players would teleport between positions 20 times per second, looking like a slideshow. We fix this by rendering other entities in the <em>past</em>, interpolating between two known server states.</p>
+
+<h3>The Interpolation Buffer</h3>
+
+<p>We maintain a buffer of the last several server snapshots, each timestamped. Instead of rendering at "now," we render other entities at <code>now - 100ms</code>. At any moment, we have two snapshots that bracket our render time, and we linearly interpolate between them.</p>
+
+<div class="diagram">
+<span class="diagram-label">Interpolation Timeline</span>
+<pre><code>  Server snapshots arrive every 50ms (20Hz):
+  ──┬──────────┬──────────┬──────────┬──────────┬──▶ time
+    S1         S2         S3         S4         S5
+    t=0ms      t=50ms     t=100ms    t=150ms    t=200ms
+
+  Client renders at 60fps, but 100ms in the past:
+  Current time: 200ms → Render time: 100ms
+
+  Render time 100ms falls exactly on S3 → use S3 position
+  Render time 125ms falls between S3 and S4:
+    lerp(S3.pos, S4.pos, (125-100)/(150-100)) = lerp(S3, S4, 0.5)
+
+  ┌─────────────────────────────────────────────┐
+  │ What you see: smooth motion between S3→S4   │
+  │ What is real: entity is already at S5        │
+  │ Delay: ~100ms (the price of smooth visuals) │
+  └─────────────────────────────────────────────┘</code></pre>
+</div>
+
+<h3>Why Not Predict Other Players?</h3>
+
+<p>You might wonder: why not predict other players the same way we predict ourselves? Because we have our <em>own</em> inputs &mdash; we know exactly what we intend to do. We do <em>not</em> have other players' inputs. Predicting their movement means guessing, and guesses are wrong every time they change direction. A mispredicted enemy would jitter and snap constantly. Interpolation with a 100ms delay is far smoother than inaccurate prediction.</p>
+
+<h3>Jitter Absorption</h3>
+
+<p>Network jitter means snapshots do not arrive at perfectly regular intervals. One might come after 45ms, the next after 62ms. The 100ms interpolation delay acts as a <strong>jitter buffer</strong> &mdash; even if a snapshot is 30ms late, we still have enough buffered data to interpolate smoothly. If the buffer runs dry (extreme lag), we extrapolate briefly and hope the next snapshot arrives before the error becomes visible.</p>
+
+<div class="power">
+<div class="power-label">The 100ms Tradeoff</div>
+<p>Everything you see about other players happened 100 milliseconds ago. This is the price of smooth rendering. In an MMORPG running at 20Hz, 100ms is exactly two tick intervals &mdash; the minimum delay that guarantees we always have two snapshots to interpolate between. Competitive shooters at 128Hz reduce this to ~16ms, but for an MMO, 100ms is imperceptible.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════ CH 7: LAG COMPENSATION ═══════════════════ -->
+<section id="ch7">
+<h2>07 &mdash; Lag Compensation</h2>
+
+<p class="drop-cap">Fair combat for players with different pings. You aimed your crosshair at the enemy, you clicked at exactly the right moment, and the shot should hit. But the enemy you see on your screen is 100ms in the past (interpolation delay) plus your own network latency. On the server, that enemy has already moved. Without lag compensation, every shot would miss by the distance an enemy travels in 100-200ms. The game would feel broken.</p>
+
+<h3>Rewind and Replay</h3>
+
+<p>The server stores a history of world states &mdash; one per tick, typically the last 400ms worth. When a "fire" input arrives from a client, it carries a timestamp: "I fired at tick 4820." The server rewinds the world to tick 4820, positions all entities where they were at that moment, performs the hit detection, then fast-forwards back to the present and applies the damage.</p>
+
+<div class="diagram">
+<span class="diagram-label">Lag Compensation &mdash; Three Perspectives</span>
+<pre><code>  Player A (shooter, 60ms ping) fires at tick T=100:
+
+  What A sees (T=100, rendered at T-100ms):
+  ┌──────────────────┐
+  │     [B]←target   │  B is at position X=500 on A's screen
+  │  [A]○────────→   │  A fires at X=500
+  └──────────────────┘
+
+  What the server sees (T=100, real time):
+  ┌──────────────────┐
+  │         [B]      │  B has moved to X=520 (moved during A's latency)
+  │  [A]             │  A's shot at X=500 would MISS in real time
+  └──────────────────┘
+
+  Lag compensation (server rewinds to A's perspective):
+  ┌──────────────────┐
+  │     [B]          │  Rewind B to where B was at T=100 - 60ms - 100ms
+  │  [A]○────────→   │  Check hit: YES, B was at X=500 → HIT
+  └──────────────────┘
+
+  What B sees: got hit "around a corner" (B already moved behind cover)
+  This is the fundamental tension of lag compensation.</code></pre>
+</div>
+
+<div class="diagram">
+<span class="diagram-label">Server Rewind Buffer</span>
+<pre><code>  History ring buffer (400ms at 20Hz = 8 snapshots):
+  ┌────┬────┬────┬────┬────┬────┬────┬────┐
+  │T=93│T=94│T=95│T=96│T=97│T=98│T=99│T=100│
+  └────┴────┴────┴────┴────┴────┴────┴────┘
+                    ▲
+                    │ A's shot timestamp: T=96.8
+                    │ Interpolate between T=96 and T=97
+                    │ Check hitboxes at that interpolated state
+                    │ Hit confirmed → apply 45 damage at T=100</code></pre>
+</div>
+
+<h3>The Compensation Window</h3>
+
+<p>Most games cap the lag compensation window at 200-250ms. Beyond that, the rewind is so far in the past that hits feel unfair to the victim. If a player's effective latency (ping + interpolation delay) exceeds the window, their shots start missing &mdash; the server refuses to rewind that far. This is why high-ping players in competitive games are at a genuine disadvantage.</p>
+
+<div class="try-this">
+<div class="try-label">Try This &mdash; Lag Compensation Simulation</div>
+<p>See how rewind changes whether a shot hits or misses:</p>
+<pre><code><span class="label">TypeScript</span>
+<span class="cm">// Simulate lag compensation hit detection</span>
+<span class="kw">function</span> <span class="fn">simulate</span>(shooterPing, interpDelay, targetSpeed) {
+  <span class="kw">const</span> tickRate = <span class="nm">20</span>;
+  <span class="kw">const</span> tickMs = <span class="nm">1000</span> / tickRate;
+
+  <span class="cm">// Target moves right at targetSpeed units/sec</span>
+  <span class="kw">const</span> targetPosAtTime = (t) =&gt; <span class="nm">500</span> + targetSpeed * (t / <span class="nm">1000</span>);
+
+  <span class="cm">// Shooter fires at T=1000ms</span>
+  <span class="kw">const</span> fireTime = <span class="nm">1000</span>;
+
+  <span class="cm">// What shooter SAW (past state due to ping + interpolation)</span>
+  <span class="kw">const</span> perceivedTime = fireTime - shooterPing - interpDelay;
+  <span class="kw">const</span> perceivedTargetPos = <span class="fn">targetPosAtTime</span>(perceivedTime);
+
+  <span class="cm">// Shooter aimed at perceived position</span>
+  <span class="kw">const</span> aimPos = perceivedTargetPos;
+
+  <span class="cm">// Where target ACTUALLY is when server processes shot</span>
+  <span class="kw">const</span> serverTime = fireTime + shooterPing / <span class="nm">2</span>;
+  <span class="kw">const</span> actualTargetPos = <span class="fn">targetPosAtTime</span>(serverTime);
+
+  <span class="cm">// Without lag comp: check hit at server time</span>
+  <span class="kw">const</span> hitboxRadius = <span class="nm">20</span>;
+  <span class="kw">const</span> noCompHit = Math.<span class="fn">abs</span>(aimPos - actualTargetPos) &lt; hitboxRadius;
+
+  <span class="cm">// WITH lag comp: rewind to shooter's perceived time</span>
+  <span class="kw">const</span> rewindTargetPos = <span class="fn">targetPosAtTime</span>(perceivedTime);
+  <span class="kw">const</span> lagCompHit = Math.<span class="fn">abs</span>(aimPos - rewindTargetPos) &lt; hitboxRadius;
+
+  console.<span class="fn">log</span>(<span class="st">`Shooter ping: ${shooterPing}ms, interp delay: ${interpDelay}ms`</span>);
+  console.<span class="fn">log</span>(<span class="st">`Target speed: ${targetSpeed} units/sec`</span>);
+  console.<span class="fn">log</span>(<span class="st">`Shooter aimed at: X=${aimPos.toFixed(1)}`</span>);
+  console.<span class="fn">log</span>(<span class="st">`Target actually at: X=${actualTargetPos.toFixed(1)}`</span>);
+  console.<span class="fn">log</span>(<span class="st">`Without lag comp: ${noCompHit ? "HIT" : "MISS"} (distance: ${Math.abs(aimPos - actualTargetPos).toFixed(1)})`</span>);
+  console.<span class="fn">log</span>(<span class="st">`With lag comp:    ${lagCompHit ? "HIT" : "MISS"} (distance: ${Math.abs(aimPos - rewindTargetPos).toFixed(1)})`</span>);
+  console.<span class="fn">log</span>(<span class="st">""</span>);
+}
+
+console.<span class="fn">log</span>(<span class="st">"=== Low ping player ==="</span>);
+<span class="fn">simulate</span>(<span class="nm">30</span>, <span class="nm">100</span>, <span class="nm">200</span>);
+
+console.<span class="fn">log</span>(<span class="st">"=== High ping player ==="</span>);
+<span class="fn">simulate</span>(<span class="nm">150</span>, <span class="nm">100</span>, <span class="nm">200</span>);
+
+console.<span class="fn">log</span>(<span class="st">"=== Extreme: 300ms ping (beyond comp window) ==="</span>);
+<span class="fn">simulate</span>(<span class="nm">300</span>, <span class="nm">100</span>, <span class="nm">200</span>);</code></pre>
+</div>
+
+<div class="power danger">
+<div class="power-label">Peeker's Advantage</div>
+<p>The attacker always sees you before you see them. A player rounding a corner sees their opponent <em>before</em> the opponent's screen shows the attacker, because the attacker's movement data hasn't reached the defender yet. This is an unavoidable consequence of finite speed-of-light latency. Lag compensation makes it less punishing, but peeker's advantage is physics, not a bug.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════ CH 8: CHAT SYSTEM ═══════════════════ -->
+<section id="ch8">
+<h2>08 &mdash; The Chat System</h2>
+
+<p class="drop-cap">In-game messaging for ten thousand simultaneous players. Chat seems simple until you consider: global channels with thousands of listeners, guild channels that span server shards, whispers that must find a player on any zone server, rate limiting to prevent spam floods, content filtering to block abuse, and a moderation pipeline that flags suspicious messages for human review. Chat is a distributed messaging system that happens to live inside a game.</p>
+
+<h3>Channel Architecture</h3>
+
+<p>Our MMORPG has five channel types: <strong>global</strong> (all players on the server cluster), <strong>zone</strong> (all players in the current zone), <strong>guild</strong> (persistent group across all zones), <strong>party</strong> (temporary group, 2-6 players), and <strong>whisper</strong> (direct messages). Each type has different routing, persistence, and rate-limit rules.</p>
+
+<div class="diagram">
+<span class="diagram-label">Chat Message Flow</span>
+<pre><code>  Player sends: "/g Hey guild, need healer for dungeon"
+
+  ┌─────────┐    ┌──────────┐    ┌─────────────┐    ┌──────────────┐
+  │ Sanitize │───▶│ Rate     │───▶│ Content     │───▶│ Channel      │
+  │ &amp; Escape │    │ Limiter  │    │ Filter      │    │ Router       │
+  └─────────┘    └──────────┘    └─────────────┘    └──────────────┘
+                  │ drop if                           │
+                  │ over limit     ┌──────────┐       ├─▶ /g → Guild members
+                  ▼                │ ML Flag  │       ├─▶ /z → Zone players
+               ┌──────┐           │ (async)  │       ├─▶ /p → Party members
+               │ 429  │           └──────────┘       ├─▶ /w → Target player
+               │ reply │                              └─▶ /a → All (global)
+               └──────┘
+  Guild router: lookup guild_id → member list → filter online → fan out
+  Cross-shard: if members on different zone servers, route via message bus</code></pre>
+</div>
+
+<h3>Rate Limiting with Token Buckets</h3>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-chat" id="chat-c" class="tc" checked>
+  <input type="radio" name="tabs-chat" id="chat-py" class="tpy">
+  <input type="radio" name="tabs-chat" id="chat-ts" class="tts">
+  <input type="radio" name="tabs-chat" id="chat-go" class="tgo">
+  <input type="radio" name="tabs-chat" id="chat-rs" class="trs">
+  <div class="tab-bar">
+    <label for="chat-c">C</label>
+    <label for="chat-py">Python</label>
+    <label for="chat-ts">TypeScript</label>
+    <label for="chat-go">Go</label>
+    <label for="chat-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+<pre><code><span class="pp">#include</span> <span class="st">&lt;time.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdbool.h&gt;</span>
+
+<span class="kw">typedef struct</span> {
+    <span class="ty">double</span> tokens;
+    <span class="ty">double</span> max_tokens;
+    <span class="ty">double</span> refill_rate;  <span class="cm">// tokens per second</span>
+    <span class="ty">double</span> last_time;
+} <span class="ty">TokenBucket</span>;
+
+<span class="ty">void</span> <span class="fn">bucket_init</span>(<span class="ty">TokenBucket</span> *b, <span class="ty">double</span> max, <span class="ty">double</span> rate) {
+    b-&gt;tokens = max;
+    b-&gt;max_tokens = max;
+    b-&gt;refill_rate = rate;
+    <span class="kw">struct</span> <span class="ty">timespec</span> ts;
+    <span class="fn">clock_gettime</span>(CLOCK_MONOTONIC, &amp;ts);
+    b-&gt;last_time = ts.tv_sec + ts.tv_nsec / <span class="nm">1e9</span>;
+}
+
+<span class="ty">bool</span> <span class="fn">bucket_consume</span>(<span class="ty">TokenBucket</span> *b, <span class="ty">double</span> cost) {
+    <span class="kw">struct</span> <span class="ty">timespec</span> ts;
+    <span class="fn">clock_gettime</span>(CLOCK_MONOTONIC, &amp;ts);
+    <span class="ty">double</span> now = ts.tv_sec + ts.tv_nsec / <span class="nm">1e9</span>;
+    b-&gt;tokens += (now - b-&gt;last_time) * b-&gt;refill_rate;
+    <span class="kw">if</span> (b-&gt;tokens &gt; b-&gt;max_tokens) b-&gt;tokens = b-&gt;max_tokens;
+    b-&gt;last_time = now;
+    <span class="kw">if</span> (b-&gt;tokens &gt;= cost) { b-&gt;tokens -= cost; <span class="kw">return true</span>; }
+    <span class="kw">return false</span>;
+}
+
+<span class="cm">// Per player: 5 messages max, refill 1/sec</span>
+<span class="cm">// bucket_consume(&player_bucket, 1.0) → true=allow, false=rate-limited</span></code></pre>
+  </div>
+  <div class="tab-content py">
+<pre><code><span class="kw">import</span> time
+
+<span class="kw">class</span> <span class="ty">TokenBucket</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, max_tokens, refill_rate):
+        self.tokens = max_tokens
+        self.max_tokens = max_tokens
+        self.refill_rate = refill_rate
+        self.last_time = time.<span class="fn">monotonic</span>()
+
+    <span class="kw">def</span> <span class="fn">consume</span>(self, cost=<span class="nm">1.0</span>):
+        now = time.<span class="fn">monotonic</span>()
+        self.tokens += (now - self.last_time) * self.refill_rate
+        self.tokens = <span class="fn">min</span>(self.tokens, self.max_tokens)
+        self.last_time = now
+        <span class="kw">if</span> self.tokens &gt;= cost:
+            self.tokens -= cost
+            <span class="kw">return True</span>
+        <span class="kw">return False</span>
+
+<span class="cm"># Demo: player spamming chat</span>
+bucket = <span class="ty">TokenBucket</span>(max_tokens=<span class="nm">5</span>, refill_rate=<span class="nm">1.0</span>)
+<span class="kw">for</span> i <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">8</span>):
+    allowed = bucket.<span class="fn">consume</span>()
+    <span class="fn">print</span>(<span class="st">f"Message {i+1}: {'SENT' if allowed else 'RATE LIMITED'}"</span>)</code></pre>
+  </div>
+  <div class="tab-content ts">
+<pre><code><span class="kw">class</span> <span class="ty">TokenBucket</span> {
+  tokens: <span class="ty">number</span>;
+  maxTokens: <span class="ty">number</span>;
+  refillRate: <span class="ty">number</span>;
+  lastTime: <span class="ty">number</span>;
+
+  <span class="kw">constructor</span>(max: <span class="ty">number</span>, rate: <span class="ty">number</span>) {
+    <span class="kw">this</span>.tokens = max;
+    <span class="kw">this</span>.maxTokens = max;
+    <span class="kw">this</span>.refillRate = rate;
+    <span class="kw">this</span>.lastTime = Date.<span class="fn">now</span>() / <span class="nm">1000</span>;
+  }
+
+  <span class="fn">consume</span>(cost = <span class="nm">1</span>) {
+    <span class="kw">const</span> now = Date.<span class="fn">now</span>() / <span class="nm">1000</span>;
+    <span class="kw">this</span>.tokens = Math.<span class="fn">min</span>(
+      <span class="kw">this</span>.maxTokens,
+      <span class="kw">this</span>.tokens + (now - <span class="kw">this</span>.lastTime) * <span class="kw">this</span>.refillRate
+    );
+    <span class="kw">this</span>.lastTime = now;
+    <span class="kw">if</span> (<span class="kw">this</span>.tokens &gt;= cost) { <span class="kw">this</span>.tokens -= cost; <span class="kw">return true</span>; }
+    <span class="kw">return false</span>;
+  }
+}
+
+<span class="cm">// Demo: burst of 8 messages</span>
+<span class="kw">const</span> bucket = <span class="kw">new</span> <span class="ty">TokenBucket</span>(<span class="nm">5</span>, <span class="nm">1.0</span>);
+<span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">0</span>; i &lt; <span class="nm">8</span>; i++) {
+  <span class="kw">const</span> ok = bucket.<span class="fn">consume</span>();
+  console.<span class="fn">log</span>(<span class="st">`Message ${i + 1}: ${ok ? "SENT" : "RATE LIMITED"}`</span>);
+}</code></pre>
+  </div>
+  <div class="tab-content go">
+<pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"fmt"</span>
+    <span class="st">"time"</span>
+)
+
+<span class="kw">type</span> <span class="ty">TokenBucket</span> <span class="kw">struct</span> {
+    tokens    <span class="ty">float64</span>
+    maxTokens <span class="ty">float64</span>
+    rate      <span class="ty">float64</span>
+    lastTime  time.<span class="ty">Time</span>
+}
+
+<span class="kw">func</span> <span class="fn">NewBucket</span>(max, rate <span class="ty">float64</span>) *<span class="ty">TokenBucket</span> {
+    <span class="kw">return</span> &amp;<span class="ty">TokenBucket</span>{max, max, rate, time.<span class="fn">Now</span>()}
+}
+
+<span class="kw">func</span> (b *<span class="ty">TokenBucket</span>) <span class="fn">Consume</span>(cost <span class="ty">float64</span>) <span class="ty">bool</span> {
+    now := time.<span class="fn">Now</span>()
+    elapsed := now.<span class="fn">Sub</span>(b.lastTime).<span class="fn">Seconds</span>()
+    b.tokens += elapsed * b.rate
+    <span class="kw">if</span> b.tokens &gt; b.maxTokens { b.tokens = b.maxTokens }
+    b.lastTime = now
+    <span class="kw">if</span> b.tokens &gt;= cost { b.tokens -= cost; <span class="kw">return true</span> }
+    <span class="kw">return false</span>
+}
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    b := <span class="fn">NewBucket</span>(<span class="nm">5</span>, <span class="nm">1.0</span>)
+    <span class="kw">for</span> i := <span class="nm">0</span>; i &lt; <span class="nm">8</span>; i++ {
+        ok := b.<span class="fn">Consume</span>(<span class="nm">1.0</span>)
+        status := <span class="st">"SENT"</span>
+        <span class="kw">if</span> !ok { status = <span class="st">"RATE LIMITED"</span> }
+        fmt.<span class="fn">Printf</span>(<span class="st">"Message %d: %s\n"</span>, i+<span class="nm">1</span>, status)
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content rs">
+<pre><code><span class="kw">use</span> std::time::<span class="ty">Instant</span>;
+
+<span class="kw">struct</span> <span class="ty">TokenBucket</span> {
+    tokens: <span class="ty">f64</span>,
+    max_tokens: <span class="ty">f64</span>,
+    rate: <span class="ty">f64</span>,
+    last: <span class="ty">Instant</span>,
+}
+
+<span class="kw">impl</span> <span class="ty">TokenBucket</span> {
+    <span class="kw">fn</span> <span class="fn">new</span>(max: <span class="ty">f64</span>, rate: <span class="ty">f64</span>) -&gt; <span class="ty">Self</span> {
+        <span class="ty">TokenBucket</span> { tokens: max, max_tokens: max, rate, last: <span class="ty">Instant</span>::<span class="fn">now</span>() }
+    }
+    <span class="kw">fn</span> <span class="fn">consume</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, cost: <span class="ty">f64</span>) -&gt; <span class="ty">bool</span> {
+        <span class="kw">let</span> now = <span class="ty">Instant</span>::<span class="fn">now</span>();
+        <span class="kw">let</span> elapsed = now.<span class="fn">duration_since</span>(<span class="kw">self</span>.last).<span class="fn">as_secs_f64</span>();
+        <span class="kw">self</span>.tokens = (<span class="kw">self</span>.tokens + elapsed * <span class="kw">self</span>.rate).<span class="fn">min</span>(<span class="kw">self</span>.max_tokens);
+        <span class="kw">self</span>.last = now;
+        <span class="kw">if</span> <span class="kw">self</span>.tokens &gt;= cost { <span class="kw">self</span>.tokens -= cost; <span class="kw">true</span> }
+        <span class="kw">else</span> { <span class="kw">false</span> }
+    }
+}
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let mut</span> b = <span class="ty">TokenBucket</span>::<span class="fn">new</span>(<span class="nm">5.0</span>, <span class="nm">1.0</span>);
+    <span class="kw">for</span> i <span class="kw">in</span> <span class="nm">0</span>..<span class="nm">8</span> {
+        <span class="kw">let</span> ok = b.<span class="fn">consume</span>(<span class="nm">1.0</span>);
+        <span class="fn">println!</span>(<span class="st">"Message {}: {}"</span>, i + <span class="nm">1</span>,
+            <span class="kw">if</span> ok { <span class="st">"SENT"</span> } <span class="kw">else</span> { <span class="st">"RATE LIMITED"</span> });
+    }
+}</code></pre>
+  </div>
+</div>
+
+<div class="power">
+<div class="power-label">Trust Nothing</div>
+<p>Never render raw user text in any client. Always sanitize: strip HTML tags, escape special characters, enforce maximum message length (256 bytes is generous for chat). A chat message is an attack vector &mdash; XSS, format string exploits, Unicode homoglyph phishing. Sanitize server-side before routing to any recipient.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════ CH 9: PERSISTENCE ═══════════════════ -->
+<section id="ch9">
+<h2>09 &mdash; Persistence</h2>
+
+<p class="drop-cap">Save the world &mdash; literally. Our MMORPG has player inventories, skill progressions, guild rosters, auction house listings, crafted structures, and a global economy. If the server crashes and all of that vanishes, players leave. Persistence is the contract that says: your progress is real, and we will not lose it.</p>
+
+<h3>What Needs Saving</h3>
+
+<table>
+<tr><th>Data Type</th><th>Write Frequency</th><th>Storage</th><th>Consistency</th></tr>
+<tr><td>Player position</td><td>Every 5s (or on zone change)</td><td>Redis / in-memory</td><td>Eventual</td></tr>
+<tr><td>Inventory</td><td>On change (batched)</td><td>PostgreSQL</td><td>Strong</td></tr>
+<tr><td>Character stats</td><td>On change (batched)</td><td>PostgreSQL</td><td>Strong</td></tr>
+<tr><td>Chat history</td><td>Streaming</td><td>Append-only log</td><td>Eventual</td></tr>
+<tr><td>Auction house</td><td>On transaction</td><td>PostgreSQL (SERIALIZABLE)</td><td>Strong</td></tr>
+<tr><td>World structures</td><td>Every 30s (batched)</td><td>PostgreSQL</td><td>Eventual</td></tr>
+<tr><td>Analytics/metrics</td><td>Streaming</td><td>Column store</td><td>Eventual</td></tr>
+</table>
+
+<h3>Write-Ahead Log (WAL)</h3>
+
+<p>We never write directly to the database from the game loop &mdash; database writes are slow and unpredictable. Instead, every state change appends to a <strong>Write-Ahead Log</strong>: a sequential, append-only file on fast local storage. A background writer drains the WAL into the database in batches. If the server crashes mid-tick, we replay the WAL on restart to recover everything up to the last completed write.</p>
+
+<div class="diagram">
+<span class="diagram-label">Persistence Pipeline</span>
+<pre><code>  Game Tick (50ms budget):
+  ┌────────────────────────────────┐
+  │ 1. Process inputs              │
+  │ 2. Simulate world              │
+  │ 3. Detect state changes        │──▶ WAL append (fast, sequential)
+  │ 4. Broadcast snapshots         │    │
+  └────────────────────────────────┘    │
+                                        ▼
+  Background Writer (async):      ┌──────────┐
+  ┌─────────────────────────┐     │   WAL    │
+  │ Every 100ms:            │◀────│ (disk)   │
+  │   Read WAL entries      │     └──────────┘
+  │   Batch into SQL        │
+  │   INSERT/UPDATE          │──▶ PostgreSQL
+  │   Truncate consumed WAL │
+  └─────────────────────────┘
+
+  Crash recovery:
+  1. Read uncommitted WAL entries
+  2. Replay into database
+  3. Resume from consistent state
+  4. Maximum data loss: ~100ms (one batch interval)</code></pre>
+</div>
+
+<h3>The Five-Second Rule</h3>
+
+<p>Our persistence target: if the server crashes, a player loses at most 5 seconds of progress. Position saves every 5 seconds. Inventory and stats batch-write every 1-2 seconds via WAL. This means the WAL must be on durable storage (not tmpfs), and we must <code>fsync</code> after each batch append. The cost is ~1ms per fsync on NVMe &mdash; well within our tick budget since it happens off the game thread.</p>
+
+<div class="power">
+<div class="power-label">The 5-Second Rule</div>
+<p>If the server crashes, you lose at most 5 seconds of progress. This is the persistence contract. It means: WAL on durable storage with fsync, background batch writes every 1-2 seconds, position snapshots every 5 seconds, and crash recovery that replays the WAL before accepting new connections.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════ CH 10: SHARDING ═══════════════════ -->
+<section id="ch10">
+<h2>10 &mdash; Sharding the World</h2>
+
+<p class="drop-cap">One server cannot hold 10,000 players. A single core processes the game loop sequentially &mdash; every entity every tick. At 10,000 players with 50 nearby entities each, that is 500,000 interest-management checks, 10,000 input validations, thousands of physics updates, all in 50ms. Even modern hardware struggles. The answer: split the world across multiple servers.</p>
+
+<h3>Zone-Based Sharding</h3>
+
+<p>The simplest sharding model: divide the game world into geographic zones, and assign each zone to its own server process. A forest zone runs on server A, a desert zone on server B, a dungeon on server C. Each server handles only the players and NPCs in its zone. With 20 zones averaging 500 players each, no single server exceeds its tick budget.</p>
+
+<div class="diagram">
+<span class="diagram-label">World Map &mdash; Zone Sharding</span>
+<pre><code>  ┌──────────────┬──────────────┬──────────────┐
+  │   FOREST     │   PLAINS     │   DESERT     │
+  │  Server A    │  Server B    │  Server C    │
+  │  ~800 players│  ~1200 players│  ~600 players│
+  ├──────────────┼──────────────┼──────────────┤
+  │   SWAMP      │   CITY       │   MOUNTAINS  │
+  │  Server D    │  Server E    │  Server F    │
+  │  ~400 players│  ~2000 players│  ~300 players│
+  ├──────────────┼──────────────┼──────────────┤
+  │   COAST      │   DUNGEON×10 │   ARENA×50   │
+  │  Server G    │  Servers H-Q │  Servers R+  │
+  │  ~700 players│  ~50 each    │  ~10 each    │
+  └──────────────┴──────────────┴──────────────┘
+
+  Total: ~10,000 players across ~70 server processes
+  Central services: Auth, Chat bus, Auction house, Guild DB</code></pre>
+</div>
+
+<h3>The Boundary Problem</h3>
+
+<p>What happens when Player A stands at the edge of the Forest zone and Player B stands at the edge of the Plains zone, 20 meters apart? They should see each other. But A is on Server A and B is on Server B. Neither server knows about the other's entities.</p>
+
+<p>The solution is a <strong>boundary overlap</strong>: each zone server loads entities within 100m of its borders from neighboring zones. These "ghost" entities are read-only copies updated via a fast inter-server channel. When Player A approaches the boundary, Server A starts receiving B's position from Server B. When A crosses the boundary, a <strong>handoff</strong> occurs:</p>
+
+<div class="diagram">
+<span class="diagram-label">Zone Boundary Handoff Protocol</span>
+<pre><code>  Player moving from Forest (Server A) → Plains (Server B):
+
+  T=0:  A is at x=990 (Forest zone: 0-1000)
+        Server A owns A. Server B has ghost copy.
+
+  T=1:  A crosses x=1000 boundary
+        Server A: "Initiating handoff for player A to Server B"
+        ┌────────────────────────────────────────┐
+        │ 1. Server A serializes A's full state  │
+        │ 2. Server A sends state to Server B    │
+        │ 3. Server B creates authoritative A    │
+        │ 4. Server B sends "ready" to Server A  │
+        │ 5. Server A tells client: "connect B"  │
+        │ 6. Client opens UDP to Server B        │
+        │ 7. Client confirms connection          │
+        │ 8. Server A removes A (keeps ghost)    │
+        └────────────────────────────────────────┘
+
+  Client experience: seamless. No loading screen.
+  Latency spike: ~50-100ms during handoff.
+  Dual-connection window: client talks to both servers briefly.</code></pre>
+</div>
+
+<h3>EVE Online's Time Dilation</h3>
+
+<p>What happens when 6,000 players converge on a single zone for a massive battle? The zone server cannot simulate 6,000 players in 50ms. EVE Online's solution is elegant and radical: <strong>slow down time</strong>. When a zone is overloaded, TiDi (Time Dilation) reduces the tick rate. At 10% TiDi, one second of game time takes 10 real seconds. Everything moves in slow motion, but nothing drops, nothing lags, and every action is processed fairly.</p>
+
+<div class="power wild">
+<div class="power-label">Time Dilation</div>
+<p>EVE Online runs battles at 10% speed rather than dropping players. When the zone server cannot maintain its tick rate, it dilates time &mdash; the entire zone runs in slow motion. It is a brilliant trade: players accept slow-motion combat because the alternative (disconnections, rubber-banding, lost actions) is worse. Time is not sacred; fairness is.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════ CH 11: MATCHMAKING ═══════════════════ -->
+<section id="ch11">
+<h2>11 &mdash; Matchmaking</h2>
+
+<p class="drop-cap">Get players into fair games. Whether it is an arena match, a dungeon group, or a PvP battleground, players expect opponents of similar skill. Too hard and they quit in frustration; too easy and they get bored. Matchmaking walks a tightrope between match quality and queue time, using rating systems borrowed from chess and refined by decades of game development.</p>
+
+<h3>Elo Rating</h3>
+
+<p>The Elo system, invented for chess, is the foundation. Each player has a numeric rating (starting at 1000 or 1500). After a match, the winner gains points and the loser loses points. The amount depends on the expected outcome: beating a higher-rated player earns more points than beating a weaker one.</p>
+
+<p>The expected score for player A against player B:</p>
+
+<pre><code><span class="label">Math</span>
+E_A = 1 / (1 + 10^((R_B - R_A) / 400))
+
+<span class="cm">// If R_A = 1500, R_B = 1700:</span>
+<span class="cm">// E_A = 1 / (1 + 10^(200/400)) = 1 / (1 + 3.16) = 0.24</span>
+<span class="cm">// A is expected to win 24% of the time</span>
+<span class="cm">// If A wins: new_R_A = 1500 + K * (1 - 0.24) = 1500 + 32*0.76 = 1524</span>
+<span class="cm">// If A loses: new_R_A = 1500 + K * (0 - 0.24) = 1500 - 7.7 = 1492</span></code></pre>
+
+<h3>Elo Rating Update &mdash; Five Languages</h3>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-elo" id="elo-c" class="tc" checked>
+  <input type="radio" name="tabs-elo" id="elo-py" class="tpy">
+  <input type="radio" name="tabs-elo" id="elo-ts" class="tts">
+  <input type="radio" name="tabs-elo" id="elo-go" class="tgo">
+  <input type="radio" name="tabs-elo" id="elo-rs" class="trs">
+  <div class="tab-bar">
+    <label for="elo-c">C</label>
+    <label for="elo-py">Python</label>
+    <label for="elo-ts">TypeScript</label>
+    <label for="elo-go">Go</label>
+    <label for="elo-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+<pre><code><span class="pp">#include</span> <span class="st">&lt;math.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+
+<span class="kw">typedef struct</span> { <span class="ty">double</span> rating; <span class="kw">const</span> <span class="ty">char</span> *name; } <span class="ty">Player</span>;
+
+<span class="ty">double</span> <span class="fn">expected</span>(<span class="ty">double</span> ra, <span class="ty">double</span> rb) {
+    <span class="kw">return</span> <span class="nm">1.0</span> / (<span class="nm">1.0</span> + <span class="fn">pow</span>(<span class="nm">10.0</span>, (rb - ra) / <span class="nm">400.0</span>));
+}
+
+<span class="ty">void</span> <span class="fn">update_elo</span>(<span class="ty">Player</span> *winner, <span class="ty">Player</span> *loser, <span class="ty">double</span> K) {
+    <span class="ty">double</span> ew = <span class="fn">expected</span>(winner-&gt;rating, loser-&gt;rating);
+    <span class="ty">double</span> el = <span class="fn">expected</span>(loser-&gt;rating, winner-&gt;rating);
+    winner-&gt;rating += K * (<span class="nm">1.0</span> - ew);
+    loser-&gt;rating  += K * (<span class="nm">0.0</span> - el);
+}
+
+<span class="ty">int</span> <span class="fn">main</span>() {
+    <span class="ty">Player</span> a = {<span class="nm">1500</span>, <span class="st">"Alice"</span>};
+    <span class="ty">Player</span> b = {<span class="nm">1700</span>, <span class="st">"Bob"</span>};
+    <span class="fn">printf</span>(<span class="st">"Before: %s=%.0f %s=%.0f\n"</span>, a.name, a.rating, b.name, b.rating);
+    <span class="fn">update_elo</span>(&amp;a, &amp;b, <span class="nm">32</span>); <span class="cm">// Alice (underdog) beats Bob</span>
+    <span class="fn">printf</span>(<span class="st">"After:  %s=%.0f %s=%.0f\n"</span>, a.name, a.rating, b.name, b.rating);
+    <span class="kw">return</span> <span class="nm">0</span>;
+}</code></pre>
+  </div>
+  <div class="tab-content py">
+<pre><code><span class="kw">import</span> math
+
+<span class="kw">def</span> <span class="fn">expected</span>(ra, rb):
+    <span class="kw">return</span> <span class="nm">1.0</span> / (<span class="nm">1.0</span> + math.<span class="fn">pow</span>(<span class="nm">10</span>, (rb - ra) / <span class="nm">400</span>))
+
+<span class="kw">def</span> <span class="fn">update_elo</span>(ra, rb, winner, K=<span class="nm">32</span>):
+    ea = <span class="fn">expected</span>(ra, rb)
+    eb = <span class="fn">expected</span>(rb, ra)
+    sa = <span class="nm">1.0</span> <span class="kw">if</span> winner == <span class="st">"a"</span> <span class="kw">else</span> <span class="nm">0.0</span>
+    sb = <span class="nm">1.0</span> - sa
+    <span class="kw">return</span> ra + K * (sa - ea), rb + K * (sb - eb)
+
+<span class="cm"># Simulate 10 matches: underdog Alice vs favorite Bob</span>
+alice, bob = <span class="nm">1500.0</span>, <span class="nm">1700.0</span>
+results = [<span class="st">"b"</span>,<span class="st">"b"</span>,<span class="st">"a"</span>,<span class="st">"b"</span>,<span class="st">"a"</span>,<span class="st">"a"</span>,<span class="st">"b"</span>,<span class="st">"a"</span>,<span class="st">"a"</span>,<span class="st">"a"</span>]
+
+<span class="fn">print</span>(<span class="st">f"Start: Alice={alice:.0f} Bob={bob:.0f}"</span>)
+<span class="kw">for</span> i, winner <span class="kw">in</span> <span class="fn">enumerate</span>(results):
+    alice, bob = <span class="fn">update_elo</span>(alice, bob, winner)
+    <span class="fn">print</span>(<span class="st">f"  Match {i+1}: {'Alice' if winner=='a' else 'Bob':5s} wins → Alice={alice:.0f} Bob={bob:.0f}"</span>)
+<span class="fn">print</span>(<span class="st">f"Final: Alice={alice:.0f} Bob={bob:.0f}"</span>)</code></pre>
+  </div>
+  <div class="tab-content ts">
+<pre><code><span class="kw">function</span> <span class="fn">expected</span>(ra, rb) {
+  <span class="kw">return</span> <span class="nm">1</span> / (<span class="nm">1</span> + Math.<span class="fn">pow</span>(<span class="nm">10</span>, (rb - ra) / <span class="nm">400</span>));
+}
+
+<span class="kw">function</span> <span class="fn">updateElo</span>(ra, rb, aWins, K = <span class="nm">32</span>) {
+  <span class="kw">const</span> ea = <span class="fn">expected</span>(ra, rb);
+  <span class="kw">const</span> eb = <span class="fn">expected</span>(rb, ra);
+  <span class="kw">const</span> sa = aWins ? <span class="nm">1</span> : <span class="nm">0</span>;
+  <span class="kw">return</span> [ra + K * (sa - ea), rb + K * ((<span class="nm">1</span> - sa) - eb)];
+}
+
+<span class="cm">// Simulate: underdog Alice vs favorite Bob</span>
+<span class="kw">let</span> alice = <span class="nm">1500</span>, bob = <span class="nm">1700</span>;
+<span class="kw">const</span> results = [<span class="kw">false</span>,<span class="kw">false</span>,<span class="kw">true</span>,<span class="kw">false</span>,<span class="kw">true</span>,<span class="kw">true</span>,<span class="kw">false</span>,<span class="kw">true</span>,<span class="kw">true</span>,<span class="kw">true</span>];
+
+console.<span class="fn">log</span>(<span class="st">`Start: Alice=${alice} Bob=${bob}`</span>);
+results.<span class="fn">forEach</span>((aWins, i) =&gt; {
+  [alice, bob] = <span class="fn">updateElo</span>(alice, bob, aWins);
+  <span class="kw">const</span> w = aWins ? <span class="st">"Alice"</span> : <span class="st">"Bob  "</span>;
+  console.<span class="fn">log</span>(<span class="st">`  Match ${i+1}: ${w} wins → Alice=${Math.round(alice)} Bob=${Math.round(bob)}`</span>);
+});
+console.<span class="fn">log</span>(<span class="st">`Final: Alice=${Math.round(alice)} Bob=${Math.round(bob)}`</span>);</code></pre>
+  </div>
+  <div class="tab-content go">
+<pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"fmt"</span>
+    <span class="st">"math"</span>
+)
+
+<span class="kw">func</span> <span class="fn">expected</span>(ra, rb <span class="ty">float64</span>) <span class="ty">float64</span> {
+    <span class="kw">return</span> <span class="nm">1.0</span> / (<span class="nm">1.0</span> + math.<span class="fn">Pow</span>(<span class="nm">10</span>, (rb-ra)/<span class="nm">400</span>))
+}
+
+<span class="kw">func</span> <span class="fn">updateElo</span>(ra, rb <span class="ty">float64</span>, aWins <span class="ty">bool</span>, K <span class="ty">float64</span>) (<span class="ty">float64</span>, <span class="ty">float64</span>) {
+    ea := <span class="fn">expected</span>(ra, rb)
+    eb := <span class="fn">expected</span>(rb, ra)
+    sa := <span class="nm">0.0</span>
+    <span class="kw">if</span> aWins { sa = <span class="nm">1.0</span> }
+    <span class="kw">return</span> ra + K*(sa-ea), rb + K*((<span class="nm">1</span>-sa)-eb)
+}
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    alice, bob := <span class="nm">1500.0</span>, <span class="nm">1700.0</span>
+    results := []<span class="ty">bool</span>{<span class="kw">false</span>,<span class="kw">false</span>,<span class="kw">true</span>,<span class="kw">false</span>,<span class="kw">true</span>,<span class="kw">true</span>,<span class="kw">false</span>,<span class="kw">true</span>,<span class="kw">true</span>,<span class="kw">true</span>}
+    fmt.<span class="fn">Printf</span>(<span class="st">"Start: Alice=%.0f Bob=%.0f\n"</span>, alice, bob)
+    <span class="kw">for</span> i, aWins := <span class="kw">range</span> results {
+        alice, bob = <span class="fn">updateElo</span>(alice, bob, aWins, <span class="nm">32</span>)
+        w := <span class="st">"Bob  "</span>
+        <span class="kw">if</span> aWins { w = <span class="st">"Alice"</span> }
+        fmt.<span class="fn">Printf</span>(<span class="st">"  Match %d: %s wins → Alice=%.0f Bob=%.0f\n"</span>, i+<span class="nm">1</span>, w, alice, bob)
+    }
+}</code></pre>
+  </div>
+  <div class="tab-content rs">
+<pre><code><span class="kw">fn</span> <span class="fn">expected</span>(ra: <span class="ty">f64</span>, rb: <span class="ty">f64</span>) -&gt; <span class="ty">f64</span> {
+    <span class="nm">1.0</span> / (<span class="nm">1.0</span> + <span class="nm">10.0_f64</span>.<span class="fn">powf</span>((rb - ra) / <span class="nm">400.0</span>))
+}
+
+<span class="kw">fn</span> <span class="fn">update_elo</span>(ra: <span class="ty">f64</span>, rb: <span class="ty">f64</span>, a_wins: <span class="ty">bool</span>, k: <span class="ty">f64</span>) -&gt; (<span class="ty">f64</span>, <span class="ty">f64</span>) {
+    <span class="kw">let</span> ea = <span class="fn">expected</span>(ra, rb);
+    <span class="kw">let</span> eb = <span class="fn">expected</span>(rb, ra);
+    <span class="kw">let</span> sa = <span class="kw">if</span> a_wins { <span class="nm">1.0</span> } <span class="kw">else</span> { <span class="nm">0.0</span> };
+    (ra + k * (sa - ea), rb + k * ((<span class="nm">1.0</span> - sa) - eb))
+}
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let mut</span> alice = <span class="nm">1500.0_f64</span>;
+    <span class="kw">let mut</span> bob = <span class="nm">1700.0_f64</span>;
+    <span class="kw">let</span> results = [<span class="kw">false</span>,<span class="kw">false</span>,<span class="kw">true</span>,<span class="kw">false</span>,<span class="kw">true</span>,<span class="kw">true</span>,<span class="kw">false</span>,<span class="kw">true</span>,<span class="kw">true</span>,<span class="kw">true</span>];
+    <span class="fn">println!</span>(<span class="st">"Start: Alice={:.0} Bob={:.0}"</span>, alice, bob);
+    <span class="kw">for</span> (i, &amp;a_wins) <span class="kw">in</span> results.<span class="fn">iter</span>().<span class="fn">enumerate</span>() {
+        <span class="kw">let</span> (a, b) = <span class="fn">update_elo</span>(alice, bob, a_wins, <span class="nm">32.0</span>);
+        alice = a; bob = b;
+        <span class="kw">let</span> w = <span class="kw">if</span> a_wins { <span class="st">"Alice"</span> } <span class="kw">else</span> { <span class="st">"Bob  "</span> };
+        <span class="fn">println!</span>(<span class="st">"  Match {}: {} wins → Alice={:.0} Bob={:.0}"</span>, i+<span class="nm">1</span>, w, alice, bob);
+    }
+}</code></pre>
+  </div>
+</div>
+
+<div class="try-this">
+<div class="try-label">Try This &mdash; Elo Convergence</div>
+<p>Watch how ratings converge as the matchmaker gathers more data:</p>
+<pre><code><span class="label">TypeScript</span>
+<span class="cm">// Simulate 50 matches where Alice's true skill is 1600</span>
+<span class="kw">function</span> <span class="fn">expected</span>(ra, rb) { <span class="kw">return</span> <span class="nm">1</span> / (<span class="nm">1</span> + Math.<span class="fn">pow</span>(<span class="nm">10</span>, (rb - ra) / <span class="nm">400</span>)); }
+
+<span class="kw">let</span> rating = <span class="nm">1000</span>;  <span class="cm">// starts at default</span>
+<span class="kw">const</span> trueSkill = <span class="nm">1600</span>;
+<span class="kw">const</span> K = <span class="nm">32</span>;
+
+console.<span class="fn">log</span>(<span class="st">"Alice starts at 1000, true skill ~1600"</span>);
+console.<span class="fn">log</span>(<span class="st">"Playing against opponents matched to her current rating:\n"</span>);
+
+<span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">1</span>; i &lt;= <span class="nm">50</span>; i++) {
+  <span class="cm">// Opponent matched at similar rating</span>
+  <span class="kw">const</span> opponent = rating + (Math.<span class="fn">random</span>() * <span class="nm">100</span> - <span class="nm">50</span>);
+  <span class="cm">// Win probability based on true skill vs opponent</span>
+  <span class="kw">const</span> winProb = <span class="fn">expected</span>(trueSkill, opponent);
+  <span class="kw">const</span> won = Math.<span class="fn">random</span>() &lt; winProb;
+  <span class="kw">const</span> e = <span class="fn">expected</span>(rating, opponent);
+  rating += K * ((won ? <span class="nm">1</span> : <span class="nm">0</span>) - e);
+
+  <span class="kw">if</span> (i % <span class="nm">10</span> === <span class="nm">0</span> || i &lt;= <span class="nm">3</span>)
+    console.<span class="fn">log</span>(<span class="st">`  After ${String(i).padStart(2)} games: rating = ${Math.round(rating)} (${won ? "W" : "L"})`</span>);
+}
+console.<span class="fn">log</span>(<span class="st">`\nFinal rating: ${Math.round(rating)} (true skill: ${trueSkill})`</span>);
+console.<span class="fn">log</span>(<span class="st">`Convergence error: ${Math.abs(Math.round(rating) - trueSkill)} points`</span>);</code></pre>
+</div>
+
+<div class="diagram">
+<span class="diagram-label">Matchmaking Queue Expansion</span>
+<pre><code>  Player queues at rating 1500:
+
+  Wait 0-10s:   Search ±50  → [1450, 1550]    (tight match)
+  Wait 10-30s:  Search ±100 → [1400, 1600]    (good match)
+  Wait 30-60s:  Search ±200 → [1300, 1700]    (acceptable)
+  Wait 60-120s: Search ±300 → [1200, 1800]    (loose match)
+  Wait 120s+:   Search ±500 → [1000, 2000]    (any match)
+
+  ┌─────────────────────────────────────────────┐
+  │   Quality ▲                                  │
+  │           │ ████                              │
+  │           │ ████████                          │
+  │           │ ████████████                      │
+  │           │ ████████████████                  │
+  │           │ ████████████████████              │
+  │           └────────────────────────▶ Wait     │
+  │           0s    30s    60s    120s            │
+  └─────────────────────────────────────────────┘</code></pre>
+</div>
+
+<div class="power">
+<div class="power-label">The Queue Dilemma</div>
+<p>Tight skill matching means long wait times. Loose matching means stomps. Every matchmaker balances this trade: start with a narrow skill range and widen it over time. The art is choosing the right expansion curve. Competitive games favor quality (wait 2 minutes for a fair game). Casual modes favor speed (wait 10 seconds, accept wider skill gaps).</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════ CH 12: ANTI-CHEAT ═══════════════════ -->
+<section id="ch12">
+<h2>12 &mdash; Anti-Cheat</h2>
+
+<p class="drop-cap">Trust nothing from the client. Every packet that arrives at the server is a potential lie. Speed hacks report movement faster than allowed. Teleport hacks send impossible position deltas. Aimbots produce inhuman aim patterns. Wallhacks exploit the fact that the server sends data about enemies the client should not see. Our job is to detect, prevent, and punish &mdash; knowing we can never win completely.</p>
+
+<h3>Server-Side Detection</h3>
+
+<p>The most reliable anti-cheat runs on the server, where cheaters cannot tamper with it. Every tick, we validate:</p>
+
+<table>
+<tr><th>Cheat Type</th><th>Detection Method</th><th>Response</th></tr>
+<tr><td>Speed hack</td><td><code>distance / time &gt; max_speed * 1.1</code></td><td>Reject move, flag account</td></tr>
+<tr><td>Teleport</td><td>Position delta &gt; possible in one tick</td><td>Snap to last valid position</td></tr>
+<tr><td>Noclip</td><td>Position inside solid geometry</td><td>Reject, teleport to spawn</td></tr>
+<tr><td>Item duplication</td><td>Transaction audit: sum of items before &ne; after</td><td>Rollback, ban</td></tr>
+<tr><td>Damage hack</td><td>Damage output &gt; weapon max &times; fire rate</td><td>Ignore excess damage</td></tr>
+</table>
+
+<h3>Wallhack Mitigation: Visibility Culling</h3>
+
+<p>The best defense against wallhacks is to <strong>never send hidden players to the client</strong>. If an enemy is behind a wall, the server performs a visibility check (raycast or PVS &mdash; Potentially Visible Set) and simply omits that player from the snapshot. The client cannot render what it never received. This costs CPU on the server (raycasts are expensive), but it completely eliminates wallhacks for occluded players.</p>
+
+<div class="diagram">
+<span class="diagram-label">Server-Side Visibility Culling</span>
+<pre><code>  Full world state (what server knows):
+  ┌───────────────────────────────┐
+  │  A ●          ████████  ○ C  │   A = our player
+  │               ████████       │   B = behind wall (hidden)
+  │        ○ D    ████████  ● B  │   C = visible (line of sight)
+  │               ████████       │   D = visible (no obstruction)
+  │               ████████       │
+  └───────────────────────────────┘
+
+  What server sends to Player A:
+  ┌───────────────────────────────┐
+  │  A ●          ████████  ○ C  │   B is OMITTED from packet
+  │               ████████       │   → wallhack shows nothing
+  │        ○ D    ████████       │   → because B's data was
+  │               ████████       │      never sent to A's client
+  │               ████████       │
+  └───────────────────────────────┘</code></pre>
+</div>
+
+<h3>Aimbot Detection: Statistical Analysis</h3>
+
+<p>Aimbots produce aim patterns that are statistically inhuman. A detection system records aim metrics over hundreds of engagements and flags anomalies:</p>
+
+<div class="diagram">
+<span class="diagram-label">Aimbot Detection Pipeline</span>
+<pre><code>  Per-engagement metrics:
+  ┌──────────────────────────────────────┐
+  │ • Time-to-target: how fast crosshair │
+  │   snaps to enemy (humans: 200-400ms, │
+  │   aimbots: &lt;50ms)                    │
+  │ • Angle snap: degrees moved in one   │
+  │   frame (humans: smooth curve,       │
+  │   aimbots: instant jump)             │
+  │ • Tracking error: deviation from     │
+  │   perfect aim (humans: ±5-15°,       │
+  │   aimbots: ±0-2°)                    │
+  │ • Headshot %: (humans: 15-40%,       │
+  │   aimbots: 80-100%)                  │
+  └──────────────────────────────────────┘
+          │
+          ▼
+  ┌──────────────────────────────────────┐
+  │ Statistical model:                   │
+  │   Score each metric against          │
+  │   population distribution            │
+  │   Flag if &gt;3σ on multiple metrics    │
+  │   Queue flagged accounts for review  │
+  └──────────────────────────────────────┘
+          │
+          ▼
+  ┌──────────────────────────────────────┐
+  │ Human review / replay system:        │
+  │   Moderator watches server-side      │
+  │   replay of flagged sessions         │
+  │   Confirm → ban. False positive →    │
+  │   adjust model thresholds.           │
+  └──────────────────────────────────────┘</code></pre>
+</div>
+
+<div class="power danger">
+<div class="power-label">The Arms Race</div>
+<p>Cheaters will always exist. Anti-cheat is mitigation, not prevention. Kernel-level anti-cheat (Vanguard, EAC, BattlEye) catches more by running at ring 0, but it is controversial &mdash; players rightly question why a game needs kernel access. The best approach is defense in depth: server-side validation catches the obvious hacks, statistical detection catches the subtle ones, and replay analysis catches the rest. No single layer is sufficient.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════ CH 13: OPS AND MONITORING ═══════════════════ -->
+<section id="ch13">
+<h2>13 &mdash; Ops and Monitoring</h2>
+
+<p class="drop-cap">Keep the MMORPG running. Ten thousand players are online. The economy is humming, guilds are raiding, PvP arenas are firing. One bad deploy, one memory leak, one database hiccup, and the entire world stutters. Operations is the discipline that keeps it all alive &mdash; metrics, alerts, deploys, and the ability to fix things without kicking everyone off.</p>
+
+<h3>Essential Metrics</h3>
+
+<table>
+<tr><th>Metric</th><th>Target</th><th>Alert Threshold</th><th>Why It Matters</th></tr>
+<tr><td>Tick duration</td><td>&lt;40ms (of 50ms budget)</td><td>&gt;45ms</td><td>Server falling behind = stutter</td></tr>
+<tr><td>Tick rate</td><td>20 Hz</td><td>&lt;18 Hz</td><td>Consistent game speed</td></tr>
+<tr><td>Player count</td><td>10,000 total</td><td>&gt;12,000</td><td>Capacity planning</td></tr>
+<tr><td>Latency P50</td><td>&lt;50ms</td><td>&gt;80ms</td><td>Player experience</td></tr>
+<tr><td>Latency P99</td><td>&lt;150ms</td><td>&gt;250ms</td><td>Tail latency = worst experience</td></tr>
+<tr><td>Entity count/zone</td><td>&lt;2000</td><td>&gt;3000</td><td>Zone overload</td></tr>
+<tr><td>Memory RSS</td><td>&lt;8GB</td><td>&gt;12GB</td><td>OOM incoming</td></tr>
+<tr><td>WAL depth</td><td>&lt;100 entries</td><td>&gt;500</td><td>Persistence falling behind</td></tr>
+</table>
+
+<h3>Tick Rate Monitor &mdash; Five Languages</h3>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-metrics" id="metrics-c" class="tc" checked>
+  <input type="radio" name="tabs-metrics" id="metrics-py" class="tpy">
+  <input type="radio" name="tabs-metrics" id="metrics-ts" class="tts">
+  <input type="radio" name="tabs-metrics" id="metrics-go" class="tgo">
+  <input type="radio" name="tabs-metrics" id="metrics-rs" class="trs">
+  <div class="tab-bar">
+    <label for="metrics-c">C</label>
+    <label for="metrics-py">Python</label>
+    <label for="metrics-ts">TypeScript</label>
+    <label for="metrics-go">Go</label>
+    <label for="metrics-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+<pre><code><span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdlib.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;string.h&gt;</span>
+
+<span class="pp">#define</span> HIST_SIZE <span class="nm">1000</span>
+
+<span class="kw">typedef struct</span> {
+    <span class="ty">double</span> samples[HIST_SIZE];
+    <span class="ty">int</span>    count;
+    <span class="ty">int</span>    head;
+} <span class="ty">TickMonitor</span>;
+
+<span class="ty">void</span> <span class="fn">record</span>(<span class="ty">TickMonitor</span> *m, <span class="ty">double</span> ms) {
+    m-&gt;samples[m-&gt;head % HIST_SIZE] = ms;
+    m-&gt;head++;
+    <span class="kw">if</span> (m-&gt;count &lt; HIST_SIZE) m-&gt;count++;
+}
+
+<span class="ty">int</span> <span class="fn">cmp_double</span>(<span class="kw">const</span> <span class="ty">void</span> *a, <span class="kw">const</span> <span class="ty">void</span> *b) {
+    <span class="ty">double</span> da = *(<span class="ty">double</span>*)a, db = *(<span class="ty">double</span>*)b;
+    <span class="kw">return</span> (da &gt; db) - (da &lt; db);
+}
+
+<span class="ty">double</span> <span class="fn">percentile</span>(<span class="ty">TickMonitor</span> *m, <span class="ty">double</span> pct) {
+    <span class="ty">double</span> sorted[HIST_SIZE];
+    <span class="fn">memcpy</span>(sorted, m-&gt;samples, m-&gt;count * <span class="kw">sizeof</span>(<span class="ty">double</span>));
+    <span class="fn">qsort</span>(sorted, m-&gt;count, <span class="kw">sizeof</span>(<span class="ty">double</span>), cmp_double);
+    <span class="ty">int</span> idx = (<span class="ty">int</span>)(pct / <span class="nm">100.0</span> * (m-&gt;count - <span class="nm">1</span>));
+    <span class="kw">return</span> sorted[idx];
+}
+
+<span class="cm">// Usage: record(monitor, tick_duration_ms) each tick</span>
+<span class="cm">// Alert if percentile(monitor, 99) > 45.0</span></code></pre>
+  </div>
+  <div class="tab-content py">
+<pre><code><span class="kw">import</span> random
+
+<span class="kw">class</span> <span class="ty">TickMonitor</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, window=<span class="nm">1000</span>):
+        self.samples = []
+        self.window = window
+
+    <span class="kw">def</span> <span class="fn">record</span>(self, ms):
+        self.samples.<span class="fn">append</span>(ms)
+        <span class="kw">if</span> <span class="fn">len</span>(self.samples) &gt; self.window:
+            self.samples.<span class="fn">pop</span>(<span class="nm">0</span>)
+
+    <span class="kw">def</span> <span class="fn">percentile</span>(self, pct):
+        s = <span class="fn">sorted</span>(self.samples)
+        idx = <span class="fn">int</span>(pct / <span class="nm">100</span> * (<span class="fn">len</span>(s) - <span class="nm">1</span>))
+        <span class="kw">return</span> s[idx]
+
+    <span class="kw">def</span> <span class="fn">report</span>(self):
+        <span class="kw">return</span> {
+            <span class="st">"p50"</span>: self.<span class="fn">percentile</span>(<span class="nm">50</span>),
+            <span class="st">"p95"</span>: self.<span class="fn">percentile</span>(<span class="nm">95</span>),
+            <span class="st">"p99"</span>: self.<span class="fn">percentile</span>(<span class="nm">99</span>),
+            <span class="st">"max"</span>: <span class="fn">max</span>(self.samples),
+        }
+
+<span class="cm"># Simulate 1000 ticks with occasional spikes</span>
+mon = <span class="ty">TickMonitor</span>()
+<span class="kw">for</span> _ <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">1000</span>):
+    base = random.<span class="fn">gauss</span>(<span class="nm">32</span>, <span class="nm">5</span>)  <span class="cm"># normal: ~32ms ± 5ms</span>
+    spike = random.<span class="fn">random</span>() &lt; <span class="nm">0.02</span>  <span class="cm"># 2% chance of GC spike</span>
+    ms = base + (<span class="nm">15</span> <span class="kw">if</span> spike <span class="kw">else</span> <span class="nm">0</span>)
+    mon.<span class="fn">record</span>(<span class="fn">max</span>(<span class="nm">0</span>, ms))
+
+r = mon.<span class="fn">report</span>()
+<span class="fn">print</span>(<span class="st">f"Tick duration (1000 samples):"</span>)
+<span class="fn">print</span>(<span class="st">f"  P50: {r['p50']:.1f}ms"</span>)
+<span class="fn">print</span>(<span class="st">f"  P95: {r['p95']:.1f}ms"</span>)
+<span class="fn">print</span>(<span class="st">f"  P99: {r['p99']:.1f}ms  {'⚠ ALERT' if r['p99'] > 45 else '✓ OK'}"</span>)
+<span class="fn">print</span>(<span class="st">f"  Max: {r['max']:.1f}ms  {'⚠ ALERT' if r['max'] > 50 else '✓ OK'}"</span>)</code></pre>
+  </div>
+  <div class="tab-content ts">
+<pre><code><span class="kw">class</span> <span class="ty">TickMonitor</span> {
+  samples: <span class="ty">number</span>[] = [];
+  window: <span class="ty">number</span>;
+
+  <span class="kw">constructor</span>(window = <span class="nm">1000</span>) { <span class="kw">this</span>.window = window; }
+
+  <span class="fn">record</span>(ms) {
+    <span class="kw">this</span>.samples.<span class="fn">push</span>(ms);
+    <span class="kw">if</span> (<span class="kw">this</span>.samples.length &gt; <span class="kw">this</span>.window) <span class="kw">this</span>.samples.<span class="fn">shift</span>();
+  }
+
+  <span class="fn">percentile</span>(pct) {
+    <span class="kw">const</span> s = [...<span class="kw">this</span>.samples].<span class="fn">sort</span>((a, b) =&gt; a - b);
+    <span class="kw">return</span> s[Math.<span class="fn">floor</span>(pct / <span class="nm">100</span> * (s.length - <span class="nm">1</span>))];
+  }
+
+  <span class="fn">report</span>() {
+    <span class="kw">return</span> {
+      p50: <span class="kw">this</span>.<span class="fn">percentile</span>(<span class="nm">50</span>),
+      p95: <span class="kw">this</span>.<span class="fn">percentile</span>(<span class="nm">95</span>),
+      p99: <span class="kw">this</span>.<span class="fn">percentile</span>(<span class="nm">99</span>),
+      max: Math.<span class="fn">max</span>(...<span class="kw">this</span>.samples),
+    };
+  }
+}
+
+<span class="kw">const</span> mon = <span class="kw">new</span> <span class="ty">TickMonitor</span>();
+<span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">0</span>; i &lt; <span class="nm">1000</span>; i++) {
+  <span class="kw">const</span> base = <span class="nm">32</span> + (Math.<span class="fn">random</span>() - <span class="nm">0.5</span>) * <span class="nm">10</span>;
+  <span class="kw">const</span> spike = Math.<span class="fn">random</span>() &lt; <span class="nm">0.02</span> ? <span class="nm">15</span> : <span class="nm">0</span>;
+  mon.<span class="fn">record</span>(Math.<span class="fn">max</span>(<span class="nm">0</span>, base + spike));
+}
+
+<span class="kw">const</span> r = mon.<span class="fn">report</span>();
+console.<span class="fn">log</span>(<span class="st">"Tick duration (1000 samples):"</span>);
+console.<span class="fn">log</span>(<span class="st">`  P50: ${r.p50.toFixed(1)}ms`</span>);
+console.<span class="fn">log</span>(<span class="st">`  P95: ${r.p95.toFixed(1)}ms`</span>);
+console.<span class="fn">log</span>(<span class="st">`  P99: ${r.p99.toFixed(1)}ms  ${r.p99 > 45 ? "ALERT" : "OK"}`</span>);
+console.<span class="fn">log</span>(<span class="st">`  Max: ${r.max.toFixed(1)}ms  ${r.max > 50 ? "ALERT" : "OK"}`</span>);</code></pre>
+  </div>
+  <div class="tab-content go">
+<pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"fmt"</span>
+    <span class="st">"math/rand"</span>
+    <span class="st">"sort"</span>
+)
+
+<span class="kw">type</span> <span class="ty">TickMonitor</span> <span class="kw">struct</span> {
+    samples []<span class="ty">float64</span>
+    window  <span class="ty">int</span>
+}
+
+<span class="kw">func</span> (m *<span class="ty">TickMonitor</span>) <span class="fn">Record</span>(ms <span class="ty">float64</span>) {
+    m.samples = <span class="fn">append</span>(m.samples, ms)
+    <span class="kw">if</span> <span class="fn">len</span>(m.samples) &gt; m.window {
+        m.samples = m.samples[<span class="nm">1</span>:]
+    }
+}
+
+<span class="kw">func</span> (m *<span class="ty">TickMonitor</span>) <span class="fn">Percentile</span>(pct <span class="ty">float64</span>) <span class="ty">float64</span> {
+    s := <span class="fn">make</span>([]<span class="ty">float64</span>, <span class="fn">len</span>(m.samples))
+    <span class="fn">copy</span>(s, m.samples)
+    sort.<span class="fn">Float64s</span>(s)
+    idx := <span class="ty">int</span>(pct / <span class="nm">100</span> * <span class="ty">float64</span>(<span class="fn">len</span>(s)-<span class="nm">1</span>))
+    <span class="kw">return</span> s[idx]
+}
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    m := &amp;<span class="ty">TickMonitor</span>{window: <span class="nm">1000</span>}
+    <span class="kw">for</span> i := <span class="nm">0</span>; i &lt; <span class="nm">1000</span>; i++ {
+        base := <span class="nm">32.0</span> + rand.<span class="fn">NormFloat64</span>()*<span class="nm">5.0</span>
+        spike := <span class="nm">0.0</span>
+        <span class="kw">if</span> rand.<span class="fn">Float64</span>() &lt; <span class="nm">0.02</span> { spike = <span class="nm">15.0</span> }
+        ms := base + spike
+        <span class="kw">if</span> ms &lt; <span class="nm">0</span> { ms = <span class="nm">0</span> }
+        m.<span class="fn">Record</span>(ms)
+    }
+    fmt.<span class="fn">Printf</span>(<span class="st">"P50: %.1fms\n"</span>, m.<span class="fn">Percentile</span>(<span class="nm">50</span>))
+    fmt.<span class="fn">Printf</span>(<span class="st">"P95: %.1fms\n"</span>, m.<span class="fn">Percentile</span>(<span class="nm">95</span>))
+    fmt.<span class="fn">Printf</span>(<span class="st">"P99: %.1fms\n"</span>, m.<span class="fn">Percentile</span>(<span class="nm">99</span>))
+}</code></pre>
+  </div>
+  <div class="tab-content rs">
+<pre><code><span class="kw">struct</span> <span class="ty">TickMonitor</span> {
+    samples: <span class="ty">Vec</span>&lt;<span class="ty">f64</span>&gt;,
+    window: <span class="ty">usize</span>,
+}
+
+<span class="kw">impl</span> <span class="ty">TickMonitor</span> {
+    <span class="kw">fn</span> <span class="fn">new</span>(window: <span class="ty">usize</span>) -&gt; <span class="ty">Self</span> {
+        <span class="ty">TickMonitor</span> { samples: <span class="fn">vec!</span>[], window }
+    }
+    <span class="kw">fn</span> <span class="fn">record</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, ms: <span class="ty">f64</span>) {
+        <span class="kw">self</span>.samples.<span class="fn">push</span>(ms);
+        <span class="kw">if</span> <span class="kw">self</span>.samples.<span class="fn">len</span>() &gt; <span class="kw">self</span>.window {
+            <span class="kw">self</span>.samples.<span class="fn">remove</span>(<span class="nm">0</span>);
+        }
+    }
+    <span class="kw">fn</span> <span class="fn">percentile</span>(&amp;<span class="kw">self</span>, pct: <span class="ty">f64</span>) -&gt; <span class="ty">f64</span> {
+        <span class="kw">let mut</span> s = <span class="kw">self</span>.samples.<span class="fn">clone</span>();
+        s.<span class="fn">sort_by</span>(|a, b| a.<span class="fn">partial_cmp</span>(b).<span class="fn">unwrap</span>());
+        <span class="kw">let</span> idx = (pct / <span class="nm">100.0</span> * (s.<span class="fn">len</span>() - <span class="nm">1</span>) <span class="kw">as</span> <span class="ty">f64</span>) <span class="kw">as</span> <span class="ty">usize</span>;
+        s[idx]
+    }
+}
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let mut</span> m = <span class="ty">TickMonitor</span>::<span class="fn">new</span>(<span class="nm">1000</span>);
+    <span class="kw">for</span> _ <span class="kw">in</span> <span class="nm">0</span>..<span class="nm">1000</span> {
+        <span class="kw">let</span> base = <span class="nm">32.0</span> + (<span class="fn">rand</span>() <span class="kw">as</span> <span class="ty">f64</span> / <span class="ty">f64</span>::MAX * <span class="nm">10.0</span> - <span class="nm">5.0</span>);
+        m.<span class="fn">record</span>(base.<span class="fn">max</span>(<span class="nm">0.0</span>));
+    }
+    <span class="fn">println!</span>(<span class="st">"P50: {:.1}ms"</span>, m.<span class="fn">percentile</span>(<span class="nm">50.0</span>));
+    <span class="fn">println!</span>(<span class="st">"P99: {:.1}ms"</span>, m.<span class="fn">percentile</span>(<span class="nm">99.0</span>));
+}</code></pre>
+  </div>
+</div>
+
+<h3>Deployment Without Downtime</h3>
+
+<div class="diagram">
+<span class="diagram-label">Blue-Green Deployment Pipeline</span>
+<pre><code>  ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐
+  │  Build   │───▶│  Test   │───▶│ Canary  │───▶│ Rollout │
+  │ (CI/CD)  │    │ (auto)  │    │ (1 zone)│    │ (all)   │
+  └─────────┘    └─────────┘    └─────────┘    └─────────┘
+                                     │
+                                     ▼
+                               Monitor 10min:
+                               tick rate OK? ──▶ Promote to all zones
+                               tick rate bad? ──▶ Rollback canary
+                               errors spike?  ──▶ Rollback + alert
+
+  Zone-by-zone rollout:
+  1. Pick zone with lowest player count
+  2. Drain: stop new connections, let players leave naturally
+  3. Save all state to database
+  4. Restart with new binary
+  5. Verify tick rate + error rate for 2 minutes
+  6. Open for new connections
+  7. Repeat for next zone</code></pre>
+</div>
+
+<h3>Graceful Shutdown</h3>
+
+<p>When a zone server needs to restart, it follows a strict sequence: stop accepting new connections, broadcast "server restarting in 60s" to all players, continue processing ticks normally, at T-10s begin saving all player state to the database (bypassing the WAL for direct writes), at T-0 close all connections and exit. Players reconnect to a fresh instance that loads their state from the database. Total downtime per player: 5-15 seconds.</p>
+
+<div class="power zen">
+<div class="power-label">The Tick Budget</div>
+<p>If your tick takes longer than 50ms, the game stutters. Every feature you add to the game loop &mdash; AI, physics, interest management, anti-cheat checks &mdash; steals from this budget. Profile every tick. Know where every millisecond goes. When you hit 40ms average, stop adding features and start optimizing. The tick budget is the hard ceiling of your server's capability.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════ CH 14: ARCHITECTURE ═══════════════════ -->
+<section id="ch14">
+<h2>14 &mdash; The Full Architecture</h2>
+
+<p class="drop-cap">The full picture. Fourteen chapters of networking, state management, prediction, serialization, persistence, sharding, matchmaking, anti-cheat, and operations &mdash; all woven together into one system that handles 10,000 concurrent players in a living, persistent world. Let us trace every major flow through the complete architecture.</p>
+
+<div class="diagram">
+<span class="diagram-label">Complete MMORPG Architecture</span>
+<pre><code>
+                        ┌─────────────────────┐
+                        │    Load Balancer     │
+                        └──────────┬──────────┘
+                                   │
+              ┌────────────────────┼────────────────────┐
+              ▼                    ▼                    ▼
+     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+     │  Auth Server │     │  Matchmaker │     │  Chat Bus   │
+     │   (Ch. 9)   │     │   (Ch. 11)  │     │   (Ch. 8)   │
+     └──────┬──────┘     └──────┬──────┘     └──────┬──────┘
+            │                   │                    │
+            ▼                   ▼                    │
+     ┌──────────────────────────────────────┐        │
+     │         Zone Server Cluster          │        │
+     │  ┌────────┐ ┌────────┐ ┌────────┐   │◀───────┘
+     │  │Zone A  │ │Zone B  │ │Zone C  │   │
+     │  │ Tick   │ │ Tick   │ │ Tick   │   │ ◀─ Game loop (Ch. 1)
+     │  │ ECS    │ │ ECS    │ │ ECS    │   │ ◀─ State (Ch. 3)
+     │  │ UDP IO │ │ UDP IO │ │ UDP IO │   │ ◀─ Sockets (Ch. 2)
+     │  │ Serial │ │ Serial │ │ Serial │   │ ◀─ Serialization (Ch. 4)
+     │  │ LagCmp │ │ LagCmp │ │ LagCmp │   │ ◀─ Lag comp (Ch. 7)
+     │  │ Cheat  │ │ Cheat  │ │ Cheat  │   │ ◀─ Anti-cheat (Ch. 12)
+     │  │ WAL    │ │ WAL    │ │ WAL    │   │ ◀─ Persistence (Ch. 9)
+     │  └───┬────┘ └───┬────┘ └───┬────┘   │
+     │      │  Handoff  │  (Ch.10) │        │
+     │      └─────┬─────┴─────┬───┘        │
+     └────────────┼───────────┼────────────┘
+                  ▼           ▼
+          ┌──────────┐  ┌──────────┐
+          │PostgreSQL │  │  Redis   │
+          │(accounts, │  │(sessions,│
+          │ inventory)│  │ position)│
+          └──────────┘  └──────────┘
+
+  Client Side:
+  ┌─────────────────────────────────────────┐
+  │  UDP connect (Ch. 2)                     │
+  │  → Receive snapshots                     │
+  │  → Deserialize (Ch. 4)                   │
+  │  → Interpolate other entities (Ch. 6)    │
+  │  → Predict own movement (Ch. 5)          │
+  │  → Render                                │
+  └─────────────────────────────────────────┘
+
+  Monitoring (Ch. 13):
+  ┌─────────────────────────────────────────┐
+  │  Metrics → Prometheus → Grafana → Alert │
+  │  Tick rate, latency, entity count, WAL  │
+  │  Blue-green deploy, canary, rollback    │
+  └─────────────────────────────────────────┘</code></pre>
+</div>
+
+<h3>Login Flow</h3>
+
+<p>A player launches the game client. The client connects to the <strong>auth server</strong> (Chapter 9) over HTTPS, authenticates with username/password or OAuth, and receives a session token. The auth server queries PostgreSQL for the player's last known zone and position. The client is directed to the appropriate <strong>zone server</strong> (Chapter 10). The client opens a UDP connection (Chapter 2) to that zone server, presenting the session token. The zone server verifies the token with Redis, spawns the player entity in the ECS (Chapter 3), and begins including them in the tick loop (Chapter 1).</p>
+
+<h3>Play Flow</h3>
+
+<p>Every tick (Chapter 1), the zone server reads all buffered UDP inputs (Chapter 2), validates them against game rules and anti-cheat checks (Chapter 12), advances the ECS simulation (Chapter 3), performs interest management to determine who sees what, serializes per-client snapshots with delta compression (Chapter 4), and broadcasts them over UDP. The client deserializes the snapshot, interpolates other entities (Chapter 6), reconciles its own predicted position (Chapter 5), and renders the frame.</p>
+
+<h3>Combat Flow</h3>
+
+<p>A player fires their weapon. The client predicts a hit locally (Chapter 5) and sends the input with a timestamp to the server. The server receives the input, rewinds the world to the shooter's timestamp (Chapter 7), performs server-side hit detection against rewound hitboxes, validates the damage against anti-cheat rules (Chapter 12), applies the damage to the target's health component in the ECS (Chapter 3), and broadcasts the result in the next snapshot. The target's client interpolates the health change (Chapter 6).</p>
+
+<h3>Chat Flow</h3>
+
+<p>A player types "/g Need healer for raid." The message hits the zone server, which sanitizes input, applies the rate limiter (Chapter 8), and routes it to the chat bus. The chat bus looks up guild membership in PostgreSQL, determines which zone servers host online guild members, and fans the message out. Each zone server delivers it to the relevant clients in their next snapshot.</p>
+
+<h3>Save Flow</h3>
+
+<p>State changes (inventory updates, quest progress, position) append to the zone server's WAL (Chapter 9). A background writer batches WAL entries and writes to PostgreSQL every 1-2 seconds. Position snapshots write to Redis every 5 seconds. On crash, the replacement zone server replays the WAL to recover all state up to the last batch.</p>
+
+<h3>Monitor Flow</h3>
+
+<p>Every zone server exports tick duration, entity count, player count, and latency percentiles to Prometheus (Chapter 13). Grafana dashboards visualize all zones. Alerts fire when tick rate drops below 18Hz or P99 latency exceeds 250ms. Deploys roll out zone-by-zone with canary testing. The ops team can time-dilate an overloaded zone (Chapter 10) or spin up additional dungeon instances from the matchmaker (Chapter 11).</p>
+
+<div class="power">
+<div class="power-label">What We Built</div>
+<p>A server-authoritative MMORPG handling 10,000 concurrent players across sharded zones, with UDP networking, ECS state management, binary serialization with delta compression, client-side prediction and entity interpolation, lag-compensated combat, rate-limited chat, WAL-backed persistence, Elo-based matchmaking, server-side anti-cheat, and zero-downtime deploys. Every piece exists because the one before it was not enough.</p>
+</div>
+
+<div class="power wild">
+<div class="power-label">What We Didn't Cover</div>
+<p><a href="gamephysics-deep-dive.html" style="color:var(--green)">Physics engines</a> (Bullet, PhysX) for collision and ragdoll. Audio spatialization (3D sound positioning over the network). Streaming open worlds (loading terrain and assets dynamically as players move). Player-driven economies (auction houses, crafting markets, inflation control). Modding and scripting (Lua/WASM sandboxes for user-generated content). <a href="navigation-deep-dive.html" style="color:var(--green)">AI navigation</a> (navmeshes, pathfinding for thousands of NPCs). Each of these is its own deep dive. The server architecture we built is the foundation they all sit on.</p>
+</div>
+
+</section>
+
+</div><!-- .content -->
+
+<script>
+(function() {
+  'use strict';
+
+  function detectLang(codeEl, pre) {
+    const tc = pre.closest('.tab-content');
+    if (tc) {
+      if (tc.classList.contains('c')) return 'c';
+      if (tc.classList.contains('py')) return 'python';
+      if (tc.classList.contains('ts')) return 'typescript';
+      if (tc.classList.contains('go')) return 'go';
+      if (tc.classList.contains('rs')) return 'rust';
+    }
+    const label = pre.querySelector('.label');
+    if (label) {
+      const t = label.textContent.toLowerCase();
+      if (t.includes('python')) return 'python';
+      if (t.includes('typescript') || t === 'ts') return 'typescript';
+      if (t.includes('rust') || t === 'rs') return 'rust';
+      if (t.includes('go') || t === 'go') return 'go';
+      if (t.match(/^c(\s|$)/i) || t.includes('c —') || t.includes('c –')) return 'c';
+    }
+    if (pre.closest('.try-this')) {
+      const code = codeEl.textContent;
+      if (code.startsWith('python3') || code.includes('import ')) return 'python';
+    }
+    return null;
+  }
+
+  function isRunnable(pre, codeEl, lang) {
+    if (!lang) return false;
+    if (lang === 'c' || lang === 'go' || lang === 'rust') return false;
+    if (pre.closest('.diagram')) return false;
+    if (pre.closest('.try-this')) return true;
+    if (pre.closest('.tab-content')) return true;
+    const code = codeEl.textContent;
+    if (pre.querySelector('.label')) {
+      if (code.match(/\b(def |fn |func |function |int main|void |printf|println|print\(|console\.log|fmt\.)/)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function getCode(codeEl) {
+    const clone = codeEl.cloneNode(true);
+    clone.querySelectorAll('.label').forEach(el => el.remove());
+    return clone.textContent;
+  }
+
+  function getOrCreateOutput(pre) {
+    let out = pre.nextElementSibling;
+    if (out && out.classList.contains('run-output')) return out;
+    out = document.createElement('div');
+    out.className = 'run-output';
+    pre.insertAdjacentElement('afterend', out);
+    return out;
+  }
+
+  let pyodideReady = null;
+  async function loadPyodide_() {
+    if (pyodideReady) return pyodideReady;
+    pyodideReady = (async () => {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/pyodide/v0.27.4/full/pyodide.js';
+      document.head.appendChild(script);
+      await new Promise((res, rej) => { script.onload = res; script.onerror = rej; });
+      return await loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.27.4/full/' });
+    })();
+    return pyodideReady;
+  }
+
+  async function runPython(code, out) {
+    out.textContent = 'Loading Python runtime...';
+    out.classList.remove('error');
+    try {
+      const py = await loadPyodide_();
+      py.runPython(`import sys, io; sys.stdout = io.StringIO()`);
+      py.runPython(code);
+      const stdout = py.runPython('sys.stdout.getvalue()');
+      out.textContent = stdout || '(no output)';
+    } catch (e) {
+      out.textContent = String(e.message || e);
+      out.classList.add('error');
+    }
+  }
+
+  async function runPythonOneLiner(code, out) {
+    const m = code.match(/^python3?\s+-c\s+["']([\s\S]+)["']\s*$/);
+    if (m) return runPython(m[1], out);
+    const m2 = code.match(/^python3?\s+-c\s+["']([\s\S]+?)["']/);
+    if (m2) return runPython(m2[1], out);
+    return runPython(code, out);
+  }
+
+  function stripTS(code) {
+    return code
+      .replace(/:\s*(?:string|number|boolean|void|any|never|unknown|undefined|null|bigint|symbol)\b(\[\])?/g, '')
+      .replace(/:\s*(?:Record|Map|Set|Array|Promise|Partial|Required|Readonly)<[^>]+>/g, '')
+      .replace(/<(?:string|number|boolean|void|any|never|unknown|T|U|K|V)(?:\[\])?(?:\s*,\s*(?:string|number|boolean|void|any|never|unknown|T|U|K|V)(?:\[\])?)*>/g, '')
+      .replace(/\bas\s+\w+/g, '')
+      .replace(/^\s*(?:export|import)\s+type\s+.*$/gm, '')
+      .replace(/^\s*interface\s+\w+\s*\{[\s\S]*?\n\}/gm, '')
+      .replace(/^\s*type\s+\w+\s*=.*$/gm, '');
+  }
+
+  async function runJS(code, out) {
+    out.classList.remove('error');
+    const logs = [];
+    const origLog = console.log;
+    const origWarn = console.warn;
+    const origError = console.error;
+    console.log = (...args) => logs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' '));
+    console.warn = console.log;
+    console.error = (...args) => logs.push('ERROR: ' + args.map(String).join(' '));
+    try {
+      const cleaned = stripTS(code);
+      const fn = new Function(cleaned);
+      const result = fn();
+      if (result instanceof Promise) await result;
+      out.textContent = logs.join('\n') || '(no output)';
+    } catch (e) {
+      out.textContent = logs.join('\n') + (logs.length ? '\n' : '') + String(e);
+      out.classList.add('error');
+    } finally {
+      console.log = origLog;
+      console.warn = origWarn;
+      console.error = origError;
+    }
+  }
+
+  function snippetId(codeEl, pre) {
+    if (codeEl.dataset.snippetId) return codeEl.dataset.snippetId;
+    const path = location.pathname;
+    const fname = path.split('/').pop().replace(/-deep-dive\.html$/, '').replace(/\.html$/, '');
+    const prefix = fname.substring(0, 5);
+
+    const tc = pre.closest('.tab-content');
+    if (tc) {
+      const tabs = tc.closest('.lang-tabs');
+      const radio = tabs ? tabs.querySelector('input[type="radio"]') : null;
+      const groupName = radio ? radio.name.replace('tabs-', '') : 'unknown';
+      const langClass = ['c','py','ts','go','rs'].find(c => tc.classList.contains(c)) || 'x';
+      const id = prefix + '-' + groupName + '-' + langClass;
+      codeEl.dataset.snippetId = id;
+      return id;
+    }
+
+    const label = pre.querySelector('.label');
+    if (label) {
+      const slug = label.textContent.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').substring(0, 20);
+      const id = prefix + '-' + slug;
+      codeEl.dataset.snippetId = id;
+      return id;
+    }
+
+    const id = prefix + '-anon-' + Math.random().toString(36).substring(2, 8);
+    codeEl.dataset.snippetId = id;
+    return id;
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('pre > code, pre code').forEach(function(codeEl) {
+      const pre = codeEl.closest('pre');
+      if (!pre) return;
+      const lang = detectLang(codeEl, pre);
+      if (!isRunnable(pre, codeEl, lang)) return;
+
+      const btn = document.createElement('button');
+      btn.className = 'run-btn';
+      btn.textContent = '\u25B6 Run';
+      btn.title = 'Run this code';
+      pre.style.position = 'relative';
+      pre.appendChild(btn);
+
+      btn.addEventListener('click', async function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (btn.classList.contains('running')) return;
+        btn.classList.add('running');
+        btn.textContent = '\u25B6 ...';
+
+        let outputAnchor = pre;
+        const tabContent = pre.closest('.tab-content');
+        if (tabContent) {
+          outputAnchor = tabContent.closest('.lang-tabs');
+        }
+        const out = getOrCreateOutput(outputAnchor);
+        out.style.display = 'block';
+
+        const code = getCode(codeEl);
+        try {
+          switch (lang) {
+            case 'python':
+              if (pre.closest('.try-this') && code.match(/^python3?\s/)) {
+                await runPythonOneLiner(code, out);
+              } else {
+                await runPython(code, out);
+              }
+              break;
+            case 'typescript':
+            case 'javascript':
+              await runJS(code, out);
+              break;
+          }
+        } catch (e) {
+          out.textContent = String(e);
+          out.classList.add('error');
+        }
+
+        btn.classList.remove('running');
+        btn.textContent = '\u25B6 Run';
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

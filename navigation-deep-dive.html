@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Navigation Deep Dive &mdash; Localization, Mapping, and Planning Under Noise</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+    --white: #e8e8f0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.03) 2px,
+      rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 2rem;
+    display: flex;
+    gap: 1.2rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.2s, text-shadow 0.2s;
+    padding: 0.3rem 0;
+  }
+  nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+  nav .nav-title {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 1rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.3);
+  }
+
+  .content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+  }
+
+  .hero {
+    text-align: center;
+    padding: 4rem 0 5rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4rem;
+    position: relative;
+  }
+  .hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3.2rem;
+    font-weight: 600;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+  }
+  .hero .subtitle {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 620px;
+    margin: 0 auto;
+  }
+  .hero .blink {
+    display: inline-block;
+    animation: blink 1s step-end infinite;
+    color: var(--green);
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .glitch { position: relative; display: inline-block; }
+  .glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+  .glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 2s infinite linear alternate-reverse;
+    clip-path: inset(0 0 65% 0);
+  }
+  .glitch::after {
+    color: var(--magenta);
+    animation: glitch-2 3s infinite linear alternate-reverse;
+    clip-path: inset(65% 0 0 0);
+  }
+  @keyframes glitch-1 {
+    0%, 95% { transform: translateX(0); }
+    96% { transform: translateX(-2px); }
+    97% { transform: translateX(2px); }
+    98% { transform: translateX(-1px); }
+    100% { transform: translateX(0); }
+  }
+  @keyframes glitch-2 {
+    0%, 93% { transform: translateX(0); }
+    94% { transform: translateX(2px); }
+    96% { transform: translateX(-2px); }
+    98% { transform: translateX(1px); }
+    100% { transform: translateX(0); }
+  }
+
+  section {
+    margin-bottom: 5rem;
+    padding-top: 1rem;
+    scroll-margin-top: 4.5rem;
+  }
+  h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: var(--green);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: 0.02em;
+  }
+  h3 {
+    font-size: 1.25rem;
+    color: var(--cyan);
+    margin: 2.5rem 0 1rem;
+    font-weight: 600;
+  }
+  h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 2rem 0 0.8rem;
+  }
+
+  p { margin-bottom: 1rem; }
+  ul { margin: 1rem 0 1rem 1.2rem; }
+  li { margin-bottom: 0.55rem; }
+  a { color: var(--blue); }
+
+  .drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4rem;
+    line-height: 0.8;
+    padding: 0.1em 0.15em 0 0;
+    color: var(--green);
+    font-weight: 600;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+  }
+
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    padding: 0.12em 0.4em;
+    border-radius: 3px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem 1.4rem;
+    overflow-x: auto;
+    margin: 1.2rem 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px;
+    line-height: 1.55;
+    position: relative;
+  }
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+  }
+  .comment { color: var(--text-dim); }
+  .keyword { color: var(--magenta); }
+  .type { color: var(--cyan); }
+  .string { color: var(--green); }
+  .number { color: var(--yellow); }
+  .fn { color: var(--blue); }
+  .label {
+    position: absolute;
+    top: 0.3rem; right: 0.7rem;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    opacity: 0.5;
+  }
+
+  .diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+  }
+  .diagram pre {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text);
+  }
+  .diagram pre code { color: var(--text); }
+  .diagram-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--green-dim);
+    margin-bottom: 0.8rem;
+    display: block;
+  }
+
+  .insight {
+    background: var(--bg-card);
+    border-left: 3px solid var(--green);
+    padding: 1.2rem 1.4rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .insight-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.3rem;
+  }
+  .insight p { margin-bottom: 0; font-size: 0.95rem; }
+  .insight.danger { border-left-color: var(--red); }
+  .insight.danger .insight-label { color: var(--red); }
+  .insight.cool { border-left-color: var(--cyan); }
+  .insight.cool .insight-label { color: var(--cyan); }
+  .insight.good { border-left-color: var(--orange); }
+  .insight.good .insight-label { color: var(--orange); }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.88rem;
+  }
+  th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    text-align: left;
+    padding: 0.5rem 0.7rem;
+    border-bottom: 2px solid var(--border);
+  }
+  td {
+    padding: 0.45rem 0.7rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:hover { background: rgba(0,255,136,0.02); }
+
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.1rem;
+  }
+  .card h4 { margin-top: 0; }
+
+  .xref {
+    color: var(--text-dim);
+    font-size: 0.96rem;
+    font-style: italic;
+  }
+
+  @media (max-width: 700px) {
+    .two-col { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2rem; }
+    .content { padding: 4rem 1rem 4rem; }
+    nav { font-size: 10px; gap: 0.8rem; padding: 0.4rem 1rem; }
+  }
+</style>
+</head>
+<body>
+<nav>
+  <span class="nav-title">&gt;_ NAVIGATION</span>
+  <a href="#ch1">frames</a>
+  <a href="#ch2">odometry</a>
+  <a href="#ch3">maps</a>
+  <a href="#ch4">fusion</a>
+  <a href="#ch5">loc</a>
+  <a href="#ch6">slam</a>
+  <a href="#ch7">global</a>
+  <a href="#ch8">local</a>
+  <a href="#ch9">control</a>
+  <a href="#ch10">latency</a>
+  <a href="#ch11">recovery</a>
+</nav>
+
+<div class="content">
+  <div class="hero">
+    <h1><span class="glitch" data-text="NAVIGATION">NAVIGATION</span></h1>
+    <p class="subtitle">Localization, mapping, and planning under noise. We are going to build the stack that lets a robot know where it is, decide where to go, and recover when the world refuses to stay still.<span class="blink">_</span></p>
+  </div>
+
+  <section id="ch1">
+    <h2>01 -- Frames Before Motion</h2>
+    <p class="drop-cap">A robot does not move through a world. It moves through a stack of coordinate frames that are only temporarily pretending to agree with each other. <code>base_link</code> is where the chassis thinks it is. <code>odom</code> is where dead reckoning thinks it is. <code>map</code> is where the long-term world model thinks it is. The first hard problem in navigation is not path planning. It is keeping those stories coherent long enough to act.</p>
+    <p>If this sounds abstract, watch what breaks when you skip it. Mount a lidar five centimeters off-center and forget the transform: walls appear to curve. Apply wheel odometry in the wrong frame: the robot drifts sideways while your logs insist it is going straight. Feed a controller target points in map frame while the controller expects body frame: the robot spins like it has lost its mind. This is why mature robotics stacks make transforms first-class.</p>
+
+    <div class="diagram">
+      <span class="diagram-label">Transform Graph</span>
+      <pre><code>map
+ |
+ +-- odom  <span class="comment">slowly corrected by localization</span>
+      |
+      +-- base_link  <span class="comment">robot body frame</span>
+            |
+            +-- imu_link
+            +-- laser_link
+            +-- camera_link
+
+Goal pose:
+T_map_goal
+
+Controller input:
+T_base_goal = inverse(T_map_base) * T_map_goal</code></pre>
+    </div>
+
+    <pre><span class="label">SE(2)</span><code><span class="keyword">struct</span> <span class="type">Pose2</span> {
+  x: <span class="type">f64</span>,
+  y: <span class="type">f64</span>,
+  theta: <span class="type">f64</span>,
+}
+
+<span class="keyword">fn</span> <span class="fn">compose</span>(a: Pose2, b: Pose2) -&gt; Pose2 {
+  <span class="keyword">let</span> c = a.theta.cos();
+  <span class="keyword">let</span> s = a.theta.sin();
+  Pose2 {
+    x: a.x + c * b.x - s * b.y,
+    y: a.y + s * b.x + c * b.y,
+    theta: a.theta + b.theta,
+  }
+}</code></pre>
+
+    <p class="xref">Cross-reference: the numerical stability of repeated pose composition lives in the same world as <a href="floatingpoint-deep-dive.html">floating-point error</a>. Your map will inherit every tiny lie.</p>
+  </section>
+
+  <section id="ch2">
+    <h2>02 -- Odometry Is a Necessary Lie</h2>
+    <p>Odometry is the robot's first draft of reality. Wheel encoders count rotations. IMUs integrate angular velocity and acceleration. Legged robots integrate contact events and joint encoders. Every one of these estimates is local, cheap, and doomed to drift. But you still need them because they are the only signals fast enough to close the control loop at tens or hundreds of hertz.</p>
+    <p>The right mental model is not "odometry is wrong, so we should replace it." The right model is "odometry is high-rate but low-trust." It gives the controller continuity between slower corrections from lidar, vision, or loop closure. Navigation stacks that feel stable treat odometry as a prediction and global localization as a correction.</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Source</th>
+          <th>What It Measures Well</th>
+          <th>Failure Mode</th>
+          <th>Update Rate</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Wheel encoders</td>
+          <td>Short-term planar motion</td>
+          <td>Slip, uneven terrain, wheel radius error</td>
+          <td>50-500 Hz</td>
+        </tr>
+        <tr>
+          <td>IMU gyro</td>
+          <td>Angular velocity</td>
+          <td>Bias drift, vibration</td>
+          <td>100-1000 Hz</td>
+        </tr>
+        <tr>
+          <td>Visual odometry</td>
+          <td>Relative motion in textured scenes</td>
+          <td>Lighting change, motion blur, textureless walls</td>
+          <td>10-60 Hz</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <pre><span class="label">Differential Drive</span><code><span class="comment">// encoder deltas in meters for one control step</span>
+dl = r * delta_left
+dr = r * delta_right
+
+ds     = (dl + dr) / 2
+dtheta = (dr - dl) / wheel_base
+
+x += ds * cos(theta + dtheta / 2)
+y += ds * sin(theta + dtheta / 2)
+theta += dtheta</code></pre>
+
+    <div class="insight danger">
+      <div class="insight-label">Failure Mode</div>
+      <p>The ugliest odometry bug is silent frame mismatch. The second ugliest is assuming wheel slip is a rare event. On polished concrete, carpet transitions, gravel, or ramps, slip is not an exception. It is the environment speaking.</p>
+    </div>
+  </section>
+
+  <section id="ch3">
+    <h2>03 -- Maps Are Probability, Not Geometry</h2>
+    <p>Humans imagine maps as clean line drawings. Robots do not get that luxury. They see a world through sparse, noisy, delayed measurements. The simplest useful representation is the occupancy grid: carve the world into cells and assign each one a belief about whether it is occupied. This is crude, memory hungry, and absurdly effective.</p>
+    <p>Why not just store line segments or meshes? Because navigation needs more than surface geometry. It needs uncertainty and cost. An occupancy grid naturally extends into a costmap: inflate obstacles by the robot radius, then layer in semantic penalties like "slow near glass walls" or "avoid this pallet lane during peak traffic." The map that drives motion is not the map you render in a slide deck.</p>
+
+    <pre><span class="label">Log Odds</span><code><span class="comment">// each cell stores log-odds rather than raw probability</span>
+L_t(cell) = L_{t-1}(cell) + inverse_sensor_model(z_t, cell) - L_0
+
+<span class="comment">// convert back when needed</span>
+P(occupied) = 1 - 1 / (1 + exp(L_t))</code></pre>
+
+    <div class="two-col">
+      <div class="card">
+        <h4>Static Map</h4>
+        <p>Great for known warehouses, offices, and labs. Cheap to plan on. Bad at handling chairs, carts, and humans unless paired with a dynamic obstacle layer.</p>
+      </div>
+      <div class="card">
+        <h4>Rolling Costmap</h4>
+        <p>Tracks the local world around the robot at high frequency. Short memory. Excellent for obstacle avoidance. Terrible as a long-term truth source by itself.</p>
+      </div>
+    </div>
+
+    <p class="xref">Cross-reference: occupancy grids turn sensor streams into mutable arrays. The memory layout questions start to rhyme with <a href="buffers-deep-dive.html">buffers</a> the moment your map becomes large enough to thrash cache.</p>
+  </section>
+
+  <section id="ch4">
+    <h2>04 -- Sensor Fusion Means Structured Skepticism</h2>
+    <p>A navigation stack wins by trusting each sensor only where it deserves trust. Encoders are great until the wheels slip. IMUs are great until bias accumulates. Lidar is great until smoke, glass, or rain. Cameras are great until the lighting changes or the hallway has no texture. Sensor fusion is not averaging. It is a disciplined argument about what to believe right now.</p>
+    <p>In practice this often means a state estimator: an extended Kalman filter, an unscented filter, or a factor graph back end. The estimator maintains a state vector and covariance, predicts forward with motion, and corrects with measurements. The mathematics matters, but the engineering lesson matters more: every measurement must declare not just a value, but confidence.</p>
+
+    <pre><span class="label">EKF Step</span><code><span class="comment">// predict</span>
+x_hat = f(x_prev, u)
+P_hat = F * P_prev * F^T + Q
+
+<span class="comment">// update</span>
+y = z - h(x_hat)
+S = H * P_hat * H^T + R
+K = P_hat * H^T * inverse(S)
+x = x_hat + K * y
+P = (I - K * H) * P_hat</code></pre>
+
+    <div class="insight cool">
+      <div class="insight-label">Engineering Rule</div>
+      <p>If you cannot explain where the covariance numbers came from, you are not doing sensor fusion. You are decorating guesswork with matrices.</p>
+    </div>
+  </section>
+
+  <section id="ch5">
+    <h2>05 -- Localization: Where Am I, Really?</h2>
+    <p>Localization takes a map and a stream of observations and asks which pose makes those observations most plausible. In a tidy corridor this seems easy. Then you deploy into a symmetric warehouse aisle and discover that half the world looks identical. Localization is not a single estimate. It is a probability distribution over plausible poses, sometimes broad, sometimes multimodal, sometimes embarrassingly wrong.</p>
+    <p>This is why particle filters remain so popular. Instead of forcing a single Gaussian belief, they track many hypotheses at once. Predict each particle forward using motion. Score it against the latest scan. Resample toward the plausible regions. When the robot gets kidnapped and moved across the building, a well-tuned particle filter can actually recover. A brittle point estimate cannot.</p>
+
+    <pre><span class="label">Particle Filter</span><code><span class="comment">// particles carry pose + weight</span>
+for p in particles:
+  p.pose = sample_motion_model(p.pose, odom_delta)
+  p.weight = scan_likelihood(map, p.pose, laser_scan)
+
+normalize(particles)
+particles = resample_low_variance(particles)</code></pre>
+
+    <div class="diagram">
+      <span class="diagram-label">Why Symmetry Hurts</span>
+      <pre><code>[ aisle A ]  [ aisle B ]  [ aisle C ]
+    ||           ||           ||
+    ||           ||           ||
+    ||           ||           ||
+
+laser sees: parallel walls + pallet gaps
+
+Without a distinctive landmark, three different poses
+can produce nearly identical scans.</code></pre>
+    </div>
+
+    <p class="xref">If your scan matcher is parallelized on GPU or SIMD, the performance behavior starts to overlap with <a href="gpu-deep-dive.html">GPU compute</a> and cache-sensitive search in <a href="concurrency-deep-dive.html">concurrency</a>.</p>
+  </section>
+
+  <section id="ch6">
+    <h2>06 -- SLAM Is What Happens When the Map Also Moves</h2>
+    <p>Localization assumes a map already exists. Simultaneous localization and mapping throws away that comfort. The robot must estimate its pose while building the map it needs in order to estimate its pose. This circular dependency is why SLAM literature looks like a small religion. But the core idea is straightforward: accumulate relative constraints, then optimize them jointly.</p>
+    <p>Front ends extract local constraints: scan matching, visual features, inertial preintegration. Back ends solve the global consistency problem with pose graphs or bundle adjustment. The dramatic moment is loop closure. You revisit a place from twenty minutes ago, recognize it, and suddenly a long warped corridor snaps into alignment. Everything before that was provisional.</p>
+
+    <pre><span class="label">Pose Graph</span><code><span class="comment">// nodes are robot poses, edges are relative constraints</span>
+minimize sum over edges(i, j):
+  || z_ij - relative_pose(x_i, x_j) ||_{Omega_ij}^2
+
+<span class="comment">// solve iteratively with Gauss-Newton / Levenberg-Marquardt</span></code></pre>
+
+    <div class="insight">
+      <div class="insight-label">Loop Closure</div>
+      <p>SLAM feels magical only because humans underestimate how much error a robot can quietly accumulate before it recognizes a familiar doorway and corrects the last ten minutes of confidence.</p>
+    </div>
+  </section>
+
+  <section id="ch7">
+    <h2>07 -- Global Planning Is Search Over Cost</h2>
+    <p>Once the robot knows roughly where it is, global planning solves a simpler problem: from this pose to that pose, through which free cells should we travel? The most common answer is still some flavor of graph search over a costmap. A* works because the world is mostly boring, and a good heuristic keeps the boredom cheap.</p>
+    <p>The real engineering choice is not A* versus not A*. It is what cost you search over. Euclidean distance alone produces paths that scrape walls and thread absurdly tight gaps. Add obstacle inflation, lane preferences, turn penalties, semantic keep-out zones, and suddenly the planner begins to look less like geometry and more like policy.</p>
+
+    <pre><span class="label">A*</span><code>f(n) = g(n) + h(n)
+
+g(n): cost from start to n
+h(n): heuristic estimate to goal
+
+Typical navigation cost:
+g = distance
+  + obstacle_inflation_penalty
+  + turn_penalty
+  + terrain_penalty
+  + semantic_zone_penalty</code></pre>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Planner</th>
+          <th>Best At</th>
+          <th>Weakness</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>A*</td>
+          <td>Static or slowly changing grids</td>
+          <td>Replans expensively when the world changes a lot</td>
+        </tr>
+        <tr>
+          <td>D* / D* Lite</td>
+          <td>Incremental replanning</td>
+          <td>More bookkeeping, harder to debug</td>
+        </tr>
+        <tr>
+          <td>PRM / RRT*</td>
+          <td>High-dimensional motion spaces</td>
+          <td>Can produce awkward paths without smoothing</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="ch8">
+    <h2>08 -- Local Planning Is About Dynamics and Panic</h2>
+    <p>A global path is an intention, not a control signal. The local planner must turn that path into actual velocities while reacting to obstacles that were not in the static map. This is where robots stop looking like search algorithms and start looking like physical bodies with momentum, wheel slip, blind spots, and braking distance.</p>
+    <p>For differential drive robots, Dynamic Window Approach is still common: sample feasible linear and angular velocities, roll them forward briefly, score them for goal progress, path alignment, and obstacle clearance, then pick the best. More sophisticated systems use model predictive control, but the shape of the problem stays the same. You are optimizing a short future while the long future stays fuzzy.</p>
+
+    <pre><span class="label">DWA Style Scoring</span><code>score(v, w) =
+  alpha * heading_alignment(v, w) +
+  beta  * obstacle_clearance(v, w) +
+  gamma * forward_velocity(v, w) -
+  delta * oscillation_penalty(v, w)
+
+choose argmax over dynamically feasible (v, w)</code></pre>
+
+    <div class="insight danger">
+      <div class="insight-label">Common Failure</div>
+      <p>The robot freezes not because planning failed, but because every candidate trajectory looks slightly bad and the scoring function quietly prefers paralysis. Humans call this "being careful." Warehouses call it downtime.</p>
+    </div>
+  </section>
+
+  <section id="ch9">
+    <h2>09 -- The Controller Lives in the Fast Loop</h2>
+    <p>Planning can run at 1 to 20 Hz. Control usually cannot. The low-level controller consumes a target trajectory or pose error and produces wheel torques, motor commands, or steering angles at much higher rate. This is where the stack touches hardware, and hardware is far less patient than your simulator.</p>
+    <p>A classic stack looks like this: estimator publishes pose, global planner publishes a coarse path, local planner publishes a short horizon trajectory, controller tracks that trajectory, motor firmware closes the inner torque or velocity loop. Each layer runs at its own cadence. Good systems make these rate mismatches explicit instead of pretending the whole robot ticks together.</p>
+
+    <pre><span class="label">Trajectory Tracking</span><code><span class="comment">// controller works in robot frame</span>
+error_x = cos(theta) * dx + sin(theta) * dy
+error_y = -sin(theta) * dx + cos(theta) * dy
+error_theta = wrap(goal_theta - theta)
+
+v = kx * error_x
+w = ky * error_y + kth * error_theta</code></pre>
+
+    <p class="xref">The scheduling problem here starts to resemble systems work in <a href="concurrency-deep-dive.html">concurrency</a>. Estimation, planning, control, and sensor IO are separate loops with different deadlines and failure costs.</p>
+  </section>
+
+  <section id="ch10">
+    <h2>10 -- Latency Turns a Good Stack Into a Bad Robot</h2>
+    <p>Navigation bugs often masquerade as algorithm bugs when they are really timing bugs. The lidar scan is stamped late. The camera pipeline buffers three frames. The planner uses a costmap from 180 milliseconds ago. The controller happily tracks a path that was valid for a world that no longer exists. Everything looks mathematically reasonable in isolation. The robot still clips the corner.</p>
+    <p>This is one reason distributed robotics feels harder than desktop robotics. The moment your sensors, estimator, planner, and supervisor live on different processes or machines, you need synchronized clocks, explicit message timestamps, bounded queues, and back-pressure. Otherwise the robot becomes an accidental historian.</p>
+
+    <div class="diagram">
+      <span class="diagram-label">Timing Budget</span>
+      <pre><code>lidar capture       0 ms
+driver decode       8 ms
+scan matcher       22 ms
+localization pub   28 ms
+costmap update     40 ms
+planner step       55 ms
+controller act     65 ms
+wheel response     80 ms
+
+Obstacle moving at 1.5 m/s:
+in 80 ms it has moved 12 cm.</code></pre>
+    </div>
+
+    <p>That is why robotics middleware obsesses over timestamps. It is not bureaucracy. It is causal hygiene. The moment you move navigation over Ethernet, Wi-Fi, or a fleet network, you inherit the same queuing and transport problems you already know from <a href="network-deep-dive.html">networking</a>.</p>
+  </section>
+
+  <section id="ch11">
+    <h2>11 -- Recovery Behavior Is Part of Navigation</h2>
+    <p>The clean academic diagram ends at "follow the path." The real robot needs another box: "what do we do when confidence collapses?" Navigation is not complete until recovery is explicit. Clear the local costmap. Back up. Rotate to acquire features. Slow down under localization uncertainty. Ask for remote help. Enter a safe stop. These are not edge cases. They are the difference between a lab demo and a deployable system.</p>
+    <p>The deepest design choice is not which recovery behaviors you implement. It is what evidence triggers them. If localization covariance spikes, maybe you should reinitialize. If wheel slip exceeds threshold, maybe you should reduce trust in encoders. If the local planner rejects all trajectories for two seconds, maybe the problem is not blocked motion but an overinflated costmap. Recovery logic is diagnosis under pressure.</p>
+
+    <div class="insight good">
+      <div class="insight-label">What We Built</div>
+      <p>A navigation stack with explicit transforms, dead reckoning, occupancy-grid mapping, probabilistic localization, pose-graph SLAM, global and local planners, a fast controller handoff, timestamp-aware transport, and failure recovery. Every layer exists because the layer below it cannot carry the full truth by itself.</p>
+    </div>
+
+    <p>This subsystem is the bridge between robotics and the rest of the repo. The map is a mutable buffer. The estimator is floating-point error management with better branding. The planner is graph search under deadlines. The transport is distributed systems. The acceleration path often lands on GPU. That is why navigation is such a good deep dive: it is one build, but it forces you to think in every layer at once.</p>
+  </section>
+</div>
+</body>
+</html>

@@ -1,0 +1,1319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inference Engines &mdash; Part III: Serving at Scale</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+    --white: #e8e8f0;
+}
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+}
+
+body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.03) 2px,
+        rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 1000;
+}
+
+nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 1.5rem;
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.2s, text-shadow 0.2s;
+    padding: 0.3rem 0;
+}
+nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+nav .nav-title {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 0.5rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.3);
+    flex-shrink: 0;
+}
+
+.content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+}
+
+.hero {
+    text-align: center;
+    padding: 4rem 0 5rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4rem;
+    position: relative;
+}
+.hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3rem;
+    font-weight: 600;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+}
+.hero .subtitle {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 620px;
+    margin: 0 auto;
+}
+.hero .blink {
+    display: inline-block;
+    animation: blink 1s step-end infinite;
+    color: var(--green);
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+.glitch { position: relative; display: inline-block; }
+.glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+}
+.glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 3s infinite linear alternate-reverse;
+    clip-path: inset(0 0 80% 0);
+}
+.glitch::after {
+    color: var(--magenta);
+    animation: glitch-2 2.5s infinite linear alternate-reverse;
+    clip-path: inset(80% 0 0 0);
+}
+@keyframes glitch-1 {
+    0%, 90% { transform: translate(0); }
+    92% { transform: translate(-3px, 1px); }
+    94% { transform: translate(3px, -1px); }
+    96% { transform: translate(-2px, 2px); }
+    100% { transform: translate(0); }
+}
+@keyframes glitch-2 {
+    0%, 88% { transform: translate(0); }
+    90% { transform: translate(2px, -1px); }
+    93% { transform: translate(-3px, 2px); }
+    96% { transform: translate(1px, -2px); }
+    100% { transform: translate(0); }
+}
+
+section { margin-bottom: 5rem; padding-top: 1rem; }
+
+h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: var(--green);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: 0.02em;
+}
+
+h3 {
+    font-size: 1.25rem;
+    color: var(--cyan);
+    margin: 2.5rem 0 1rem;
+    font-weight: 600;
+}
+
+h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 2rem 0 0.8rem;
+}
+
+p { margin-bottom: 1rem; }
+
+a { color: var(--cyan); text-decoration: none; }
+a:hover { text-decoration: underline; }
+strong { color: var(--white); }
+
+.drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4rem;
+    line-height: 0.8;
+    padding: 0.1em 0.15em 0 0;
+    color: var(--green);
+    font-weight: 700;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+}
+
+code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.15em 0.4em;
+}
+
+pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    margin: 1.2rem 0;
+    position: relative;
+}
+pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+}
+
+.cm { color: var(--text-dim); }
+.kw { color: var(--magenta); }
+.ty { color: var(--cyan); }
+.st { color: var(--green); }
+.nm { color: var(--yellow); }
+.fn { color: var(--blue); }
+.pp { color: var(--orange); }
+
+.label {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.8rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+}
+
+.diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+}
+.diagram pre {
+    border: none;
+    margin: 0;
+    padding: 0;
+    background: none;
+    font-size: 12.5px;
+    line-height: 1.45;
+}
+.diagram-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    margin-bottom: 0.8rem;
+    display: block;
+}
+
+.power {
+    border-left: 3px solid var(--green-dim);
+    background: rgba(0,255,136,0.04);
+    padding: 1rem 1.2rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+}
+.power.danger { border-left-color: var(--red); background: rgba(255,51,68,0.04); }
+.power.hack { border-left-color: var(--magenta); background: rgba(255,0,170,0.04); }
+.power.wild { border-left-color: var(--orange); background: rgba(255,136,0,0.04); }
+.power.zen { border-left-color: var(--cyan); background: rgba(0,221,255,0.04); }
+.power.purple { border-left-color: var(--purple); background: rgba(170,68,255,0.04); }
+
+.power-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--green);
+    margin-bottom: 0.5rem;
+}
+.power.danger .power-label { color: var(--red); }
+.power.hack .power-label { color: var(--magenta); }
+.power.wild .power-label { color: var(--orange); }
+.power.zen .power-label { color: var(--cyan); }
+.power.purple .power-label { color: var(--purple); }
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.92rem;
+}
+th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--green);
+    text-align: left;
+    padding: 0.6rem 0.8rem;
+    border-bottom: 2px solid var(--border);
+}
+td {
+    padding: 0.5rem 0.8rem;
+    border-bottom: 1px solid var(--border);
+}
+tr:hover td { background: rgba(0,255,136,0.03); }
+
+details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1.2rem 0;
+}
+summary {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--green);
+    padding: 0.8rem 1.2rem;
+    cursor: pointer;
+}
+details[open] summary { border-bottom: 1px solid var(--border); }
+details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
+
+.vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+}
+
+.mem-row { display: flex; gap: 1px; margin: 0.5rem 0; flex-wrap: wrap; }
+.mc {
+    width: 30px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    border-radius: 2px;
+}
+.mc.g { background: rgba(0,255,136,0.25); color: var(--green); }
+.mc.c { background: rgba(0,221,255,0.25); color: var(--cyan); }
+.mc.m { background: rgba(255,0,170,0.25); color: var(--magenta); }
+.mc.o { background: rgba(255,136,0,0.25); color: var(--orange); }
+.mc.r { background: rgba(255,51,68,0.25); color: var(--red); }
+.mc.y { background: rgba(255,221,0,0.25); color: var(--yellow); }
+.mc.b { background: rgba(68,136,255,0.25); color: var(--blue); }
+.mc.d { background: rgba(106,106,126,0.15); color: var(--text-dim); }
+.mc.e { background: rgba(106,106,126,0.06); color: var(--text-dim); }
+.mc.w { background: rgba(232,232,240,0.15); color: var(--white); }
+.mc.p { background: rgba(170,68,255,0.25); color: var(--purple); }
+
+.perf-bar {
+    height: 18px;
+    border-radius: 3px;
+    display: inline-block;
+    vertical-align: middle;
+    margin-right: 0.5rem;
+}
+
+.ticker {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--green);
+    text-shadow: 0 0 8px rgba(0,255,136,0.3);
+}
+
+.viz-container {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+}
+.viz-container svg {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+.viz-controls {
+    display: flex;
+    gap: 1.5rem;
+    margin-top: 1rem;
+    align-items: center;
+    flex-wrap: wrap;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+}
+.viz-controls label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--cyan);
+    display: block;
+    margin-bottom: 0.3rem;
+}
+.viz-controls select, .viz-controls input[type="range"] {
+    background: var(--bg-code);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 0.3rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    border-radius: 4px;
+}
+.viz-controls .val {
+    color: var(--green);
+    font-size: 13px;
+}
+.viz-controls button {
+    background: var(--green-dim);
+    color: var(--bg);
+    border: none;
+    padding: 0.4rem 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    border-radius: 4px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.viz-controls button:hover { background: var(--green); }
+.viz-controls button.secondary {
+    background: var(--border);
+    color: var(--text);
+}
+
+/* ── Tabbed panels ── */
+.tabbed { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; margin: 1.2rem 0; overflow: hidden; }
+.tabbed input[type="radio"] { display: none; }
+.tabbed .tab-bar { border-bottom: 1px solid var(--border); padding: 0 0.5rem; display: flex; }
+.tabbed .tab-bar label {
+    display: inline-block; padding: 0.55rem 1.4rem;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--text-dim); cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
+}
+.tabbed .tab-bar label:hover { color: var(--green); }
+.tabbed .tab-panel { display: none; }
+.tabbed .tab-panel > pre { margin: 0; border: none; border-radius: 0; }
+.tabbed .tab-panel > .diagram { margin: 0; border: none; border-radius: 0; }
+.tabbed .tab-panel > div, .tabbed .tab-panel > p { padding: 1rem 1.4rem; }
+
+/* Wire up to 3 tabs per group via unique name prefix */
+.tabbed input.t1:checked ~ .tab-bar label[for$="-t1"] { color: var(--green); border-bottom-color: var(--green); }
+.tabbed input.t2:checked ~ .tab-bar label[for$="-t2"] { color: var(--green); border-bottom-color: var(--green); }
+.tabbed input.t3:checked ~ .tab-bar label[for$="-t3"] { color: var(--green); border-bottom-color: var(--green); }
+.tabbed input.t1:checked ~ .tab-panel.p1 { display: block; }
+.tabbed input.t2:checked ~ .tab-panel.p2 { display: block; }
+.tabbed input.t3:checked ~ .tab-panel.p3 { display: block; }
+
+.act-break {
+    text-align: center;
+    padding: 3rem 0;
+    margin: 3rem 0;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+}
+.act-break .act-number { font-family: 'JetBrains Mono', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.15em; color: var(--text-dim); margin-bottom: 0.3rem; }
+.act-break .act-title { font-family: 'JetBrains Mono', monospace; font-size: 1.3rem; color: var(--green); text-shadow: 0 0 20px rgba(0,255,136,0.15); margin-bottom: 0.5rem; }
+.act-break .act-subtitle { font-size: 0.95rem; color: var(--text-dim); font-style: italic; }
+
+@media (max-width: 700px) {
+    .hero h1 { font-size: 2rem; }
+    .vs { grid-template-columns: 1fr; }
+    nav { font-size: 9px; gap: 0.7rem; }
+    body { font-size: 16px; }
+    pre { font-size: 11.5px; padding: 0.8rem; }
+    .mc { width: 22px; height: 18px; font-size: 7px; }
+}
+</style>
+</head>
+
+<body>
+
+<nav>
+    <span class="nav-title">&gt;_ INFERENCE III</span>
+    <a href="inference-engine-deep-dive-2.html" style="color:var(--orange)">&larr; Part II</a>
+    <span style="color:var(--border)">&middot;</span>
+    <a href="#ch14">one to many</a>
+    <a href="#ch15">the scheduler</a>
+    <a href="#ch16">paged memory</a>
+    <a href="#ch17">disaggregation</a>
+    <a href="#ch18">parallelism</a>
+    <a href="#ch19">multi-tenant</a>
+    <a href="#ch20">metrics</a>
+    <a href="#ch21">the stack</a>
+    <span style="color:var(--border)">&middot;</span>
+    <a href="inference-engine-deep-dive.html" style="color:var(--text-dim)">Part I</a>
+</nav>
+
+<div class="content">
+
+<div class="hero">
+    <h1><span class="glitch" data-text="INFERENCE ENGINES">INFERENCE ENGINES</span></h1>
+    <div class="subtitle">
+        One user is a solved problem. A thousand concurrent users is a systems problem.<br>
+        This is where inference becomes infrastructure.<span class="blink">_</span>
+    </div>
+    <div style="margin-top:1.2rem; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.1em;">Part III &mdash; Serving at Scale</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 14: FROM ONE USER TO MANY                               -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch14">
+<h2>// 14 &mdash; From One User to Many</h2>
+
+<p class="drop-cap">The first user is a benchmark. The hundredth is a policy problem. Part II ended with a fast single-user engine: quantized weights, cached keys and values, tiled attention, speculative decoding &mdash; 45 tokens per second on your 3090. Beautiful. Now add 999 more users. Each one arrives at a random time, sends a prompt of unpredictable length, expects a response of unpredictable length, and has no intention of waiting for anyone else.</p>
+
+<p>The clean pipeline from Part I turns into queuing theory. The careful optimizations from Part II turn into resource allocation. The GPU that was beautifully tuned for one user is now a shared bus where every passenger wants the window seat.</p>
+
+<h3>Why It's Harder Than It Looks</h3>
+
+<div class="diagram">
+<span class="diagram-label">The serving problem &mdash; what arrives at the engine</span>
+<pre><code>
+  <span style="color:var(--green)">User A:</span>  20-token prompt,    20-token output
+  <span style="color:var(--cyan)">User B:</span>  4,000-token prompt, 2-token output     <span class="cm">&larr; huge prefill, tiny decode</span>
+  <span style="color:var(--magenta)">User C:</span>  200-token prompt,   800-token output    <span class="cm">&larr; small prefill, long decode</span>
+  <span style="color:var(--orange)">User D:</span>  8,000-token prompt, 50-token output     <span class="cm">&larr; massive prefill</span>
+  <span style="color:var(--yellow)">User E:</span>  100-token prompt,   2,000-token output   <span class="cm">&larr; monster decode</span>
+
+  All arrive within the same second.
+  Same engine. Same GPU. Same KV cache budget.
+
+  <span class="cm">B's prefill alone would stall everyone else for 200ms.</span>
+  <span class="cm">E's decode will hold a KV cache slot for 44 seconds.</span>
+  <span class="cm">A should be done in under a second.</span>
+
+  <span style="color:var(--yellow)">How do you keep them all happy?</span>
+</code></pre>
+</div>
+
+<p>The answer is: you can't keep them <em>all</em> happy simultaneously. Serving is about tradeoffs. Every decision favors one user or metric at the expense of another. Long prompts block short ones. Large batches improve throughput but increase per-request latency. Prefix caching helps repeated patterns but costs memory. The scheduler's job is to make these tradeoffs well &mdash; and that's why it deserves its own chapter.</p>
+
+<h3>Three Resources, All Contended</h3>
+
+<pre><code><span class="label">What the scheduler manages</span>
+<span class="nm">1.</span> <span class="kw">Compute</span> (FLOPS)
+   Prefill eats compute. Many concurrent prefills saturate the GPU.
+   Decode barely touches compute &mdash; it's bandwidth-bound.
+
+<span class="nm">2.</span> <span class="kw">Memory bandwidth</span> (GB/s)
+   Every decode token reads the entire model.
+   Bigger batches amortize this (32 tokens for one model read).
+   But each decode also reads its KV cache &mdash; and that grows.
+
+<span class="nm">3.</span> <span class="kw">KV cache memory</span> (GB)
+   Each active request holds KV cache proportional to its sequence length.
+   A 3090 with 15 GB model has ~9 GB left for all users' caches.
+   At 256 KB per token: ~36K tokens total.
+   That's 9 users at 4K context, or 1 user at 32K context.
+   <span style="color:var(--red)">KV cache is usually the binding constraint.</span>
+
+<span class="cm">The scheduler balances all three, iteration by iteration.</span>
+</code></pre>
+
+<div class="power zen">
+<div class="power-label">The Shift</div>
+<p>Part II was about making one forward pass fast. Part III is about deciding <em>which</em> forward passes to run, <em>when</em> to run them, and <em>whose work to pause</em> when resources run out. The model is no longer the hard part. The hard part is traffic.</p>
+</div>
+
+</section>
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 15: THE SCHEDULER                                       -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch15">
+<h2>// 15 &mdash; The Scheduler</h2>
+
+<p class="drop-cap">Kernels make a model fast. Schedulers decide who gets served. In a continuous batching engine, the scheduler runs between every single forward pass &mdash; hundreds of times per second. It decides which requests enter the batch, which ones wait, and which ones get evicted when memory runs tight. A good scheduler keeps the GPU full without starving anyone. A bad one has the GPU idle while users wait.</p>
+
+<h3>Admission Control</h3>
+
+<p>Before a request can generate tokens, it needs two things: compute time for its prefill, and KV cache blocks for its entire lifetime. The scheduler's first question is: <em>can I afford this request?</em></p>
+
+<pre><code><span class="label">Admission logic (simplified)</span>
+<span class="kw">def</span> <span class="fn">can_admit</span>(request, current_batch, kv_pool):
+    <span class="cm"># 1. Token budget: will the prefill fit in this iteration?</span>
+    tokens_this_step = sum(1 for r in current_batch)  <span class="cm"># one decode tok each</span>
+    prefill_tokens = len(request.prompt)
+    <span class="kw">if</span> tokens_this_step + prefill_tokens > max_num_batched_tokens:
+        <span class="kw">return</span> False  <span class="cm"># chunk it or wait</span>
+
+    <span class="cm"># 2. Memory: can we allocate KV blocks?</span>
+    blocks_needed = ceil(len(request.prompt) / block_size)
+    <span class="kw">if</span> kv_pool.free_blocks < blocks_needed:
+        <span class="kw">return</span> False  <span class="cm"># no room — wait or preempt someone</span>
+
+    <span class="kw">return</span> True
+</code></pre>
+
+<p>vLLM V1's scheduler iterates over decode requests first (one token each), then admits prefill requests from the waiting queue until the token budget is exhausted. This decode-first policy protects inter-token latency &mdash; ongoing conversations never stall because a new prefill jumped the line.</p>
+
+<h3>Preemption: When the Cache Is Full</h3>
+
+<p>The hardest scheduler decision is what to do when KV cache memory runs out. A new request arrives, but every block is occupied. Something has to give.</p>
+
+<div class="diagram">
+<span class="diagram-label">Preemption strategies</span>
+<pre><code>
+  <span style="color:var(--green)">Strategy 1: RECOMPUTE</span> (vLLM V1 default)
+
+  Evict lowest-priority request.
+  Free all its KV blocks.
+  Reset its num_computed_tokens to 0.
+  Put it back in the waiting queue.
+  When readmitted, it re-prefills from scratch.
+
+  <span style="color:var(--cyan)">Pro:</span>  Simple. No CPU memory needed. No H2D transfer.
+  <span style="color:var(--orange)">Con:</span>  Evicted request pays full prefill cost again.
+        Wasteful for long prompts.
+
+  <span style="color:var(--border)">&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;</span>
+
+  <span style="color:var(--green)">Strategy 2: SWAP</span> (vLLM V0 default, removed in V1)
+
+  Copy KV blocks to CPU RAM.
+  Free GPU blocks.
+  When readmitted, copy back (H2D transfer).
+
+  <span style="color:var(--cyan)">Pro:</span>  No recomputation. Preserves work.
+  <span style="color:var(--orange)">Con:</span>  Requires PCIe bandwidth. CPU memory budget.
+        Complex to manage. Slower to re-admit.
+
+  <span style="color:var(--border)">&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;</span>
+
+  <span class="cm">vLLM V1 chose recompute. The reasoning: for typical</span>
+  <span class="cm">sequence lengths, re-prefilling is faster than managing</span>
+  <span class="cm">the complexity of CPU swap and H2D transfers.</span>
+</code></pre>
+</div>
+
+<h3>Scheduling Policies</h3>
+
+<p>Who gets evicted when memory is tight? Who gets admitted first when memory frees up? The policy determines fairness, tail latency, and throughput.</p>
+
+<pre><code><span class="label">Common policies</span>
+<span style="color:var(--green)">FCFS (First Come, First Served)</span>
+  vLLM default. Simple. Fair on average.
+  Problem: a 32K-context request admitted first can hold
+  blocks for minutes, starving short requests behind it.
+
+<span style="color:var(--cyan)">Priority-based</span>
+  Assign priority scores. Higher-priority requests survive eviction.
+  API tiers (paid users first), short-request priority, SLA-aware.
+  vLLM supports via --scheduling-policy priority.
+
+<span style="color:var(--orange)">Shortest Job First</span>
+  Admit requests with shortest expected output first.
+  Excellent for average latency. Terrible for long requests
+  (starvation). Hard to estimate output length in advance.
+
+<span class="cm">No policy is universally best. The choice depends on your</span>
+<span class="cm">traffic shape, SLA contracts, and willingness to starve someone.</span>
+</code></pre>
+
+<div class="power zen">
+<div class="power-label">The Scheduler Is the Product</div>
+<p>At scale, users don't experience your model. They experience your scheduler. A 70B model with a bad scheduler feels slower than a 7B model with a good one. Tail latency &mdash; the P99 &mdash; is almost entirely a scheduling story. The scheduler decides who waits, who gets evicted, and who gets the next free slot. Everything else is just math.</p>
+</div>
+
+</section>
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 16: PAGEDATTENTION & PREFIX CACHING                     -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch16">
+<h2>// 16 &mdash; Virtual Memory for Attention</h2>
+
+<p class="drop-cap">In 1961, the Atlas computer at the University of Manchester introduced virtual memory. Sixty-two years later, in June 2023, the vLLM team at UC Berkeley applied the same idea to KV cache management, and it was just as revolutionary the second time around. <strong>PagedAttention</strong> divides KV cache memory into fixed-size blocks (typically 16 tokens each). Each request gets a block table that maps logical token positions to physical blocks. Blocks are allocated on demand as the sequence grows. When a request finishes, its blocks are freed immediately.</p>
+
+<div class="diagram">
+<span class="diagram-label">PagedAttention block allocator</span>
+<pre><code>
+  <span class="ty">Block Tables</span> (logical &rarr; physical mapping):
+
+  Req A: [<span class="st">P7</span>] [<span class="st">P2</span>] [<span class="st">P11</span>]         <span class="cm">3 blocks, 48 tokens used</span>
+  Req B: [<span class="fn">P1</span>] [<span class="fn">P5</span>] [<span class="fn">P3</span>] [<span class="fn">P9</span>]    <span class="cm">4 blocks, 64 tokens used</span>
+  Req C: [<span class="kw">P4</span>]                      <span class="cm">1 block, 10 tokens used</span>
+
+  <span class="pp">Physical GPU Memory</span>:
+  &#x250C;&#x2500;&#x2500;&#x2500;&#x2500;&#x252C;&#x2500;&#x2500;&#x2500;&#x2500;&#x252C;&#x2500;&#x2500;&#x2500;&#x2500;&#x252C;&#x2500;&#x2500;&#x2500;&#x2500;&#x252C;&#x2500;&#x2500;&#x2500;&#x2500;&#x252C;&#x2500;&#x2500;&#x2500;&#x2500;&#x252C;&#x2500;&#x2500;&#x2500;&#x2500;&#x252C;&#x2500;&#x2500;&#x2500;&#x2500;&#x252C;&#x2500;&#x2500;&#x2500;&#x2500;&#x252C;&#x2500;&#x2500;&#x2500;&#x2500;&#x252C;&#x2500;&#x2500;&#x2500;&#x2500;&#x252C;&#x2500;&#x2500;&#x2500;&#x2500;&#x2510;
+  &#x2502; <span class="fn">P1</span> &#x2502; <span class="st">P2</span> &#x2502; <span class="fn">P3</span> &#x2502; <span class="kw">P4</span> &#x2502; <span class="fn">P5</span> &#x2502;FREE&#x2502; <span class="st">P7</span> &#x2502;FREE&#x2502; <span class="fn">P9</span> &#x2502;FREE&#x2502; <span class="st">P11</span>&#x2502;FREE&#x2502;
+  &#x2514;&#x2500;&#x2500;&#x2500;&#x2500;&#x2534;&#x2500;&#x2500;&#x2500;&#x2500;&#x2534;&#x2500;&#x2500;&#x2500;&#x2500;&#x2534;&#x2500;&#x2500;&#x2500;&#x2500;&#x2534;&#x2500;&#x2500;&#x2500;&#x2500;&#x2534;&#x2500;&#x2500;&#x2500;&#x2500;&#x2534;&#x2500;&#x2500;&#x2500;&#x2500;&#x2534;&#x2500;&#x2500;&#x2500;&#x2500;&#x2534;&#x2500;&#x2500;&#x2500;&#x2500;&#x2534;&#x2500;&#x2500;&#x2500;&#x2500;&#x2534;&#x2500;&#x2500;&#x2500;&#x2500;&#x2534;&#x2500;&#x2500;&#x2500;&#x2500;&#x2518;
+
+  <span class="cm">Blocks are non-contiguous in physical memory.</span>
+  <span class="cm">The kernel follows the page table &mdash; just like an OS.</span>
+</code></pre>
+</div>
+
+<h3>The Paged Attention Kernel</h3>
+
+<pre><code><span class="label">Pseudocode</span>
+<span class="kw">def</span> <span class="fn">paged_attention_kernel</span>(query, block_table, k_cache, v_cache):
+    <span class="cm"># query: [1, n_heads, head_dim] &mdash; single decode token</span>
+    <span class="cm"># block_table: [max_blocks] &mdash; maps logical&rarr;physical block indices</span>
+
+    output = zeros(n_heads, head_dim)
+    m = -inf; l = <span class="nm">0</span>    <span class="cm"># online softmax accumulators</span>
+
+    <span class="kw">for</span> logical_block <span class="kw">in</span> range(num_used_blocks):
+        phys_idx = block_table[logical_block]   <span class="cm"># indirection!</span>
+        k_block = k_cache[phys_idx]             <span class="cm"># [block_size, head_dim]</span>
+        v_block = v_cache[phys_idx]
+
+        scores = query @ k_block.T / sqrt(head_dim)
+        m_new = max(m, max(scores))
+        correction = exp(m - m_new)
+        l = correction * l + sum(exp(scores - m_new))
+        output = correction * output + exp(scores - m_new) @ v_block
+        m = m_new
+
+    <span class="kw">return</span> output / l
+
+<span class="cm"># The block_table indirection is the key: physical memory is scattered,</span>
+<span class="cm"># but the kernel traverses it through the page table. Just like an OS.</span>
+</code></pre>
+
+<h3>Prefix Sharing: The Free Lunch</h3>
+
+<p>If 100 requests share the same system prompt, they share the same physical KV blocks for that prefix. Blocks are reference-counted and only copied when a request diverges. This is copy-on-write, straight from operating systems.</p>
+
+<pre><code><span class="label">Prefix sharing economics</span>
+<span class="cm"># System prompt: "You are a helpful assistant." &rarr; blocks S1, S2</span>
+
+Req A: [<span class="st">S1</span>] [<span class="st">S2</span>] [<span class="kw">A1</span>] [<span class="kw">A2</span>]    <span class="cm">&larr; shares S1, S2</span>
+Req B: [<span class="st">S1</span>] [<span class="st">S2</span>] [<span class="fn">B1</span>]           <span class="cm">&larr; shares S1, S2</span>
+Req C: [<span class="st">S1</span>] [<span class="st">S2</span>] [<span class="pp">C1</span>] [<span class="pp">C2</span>] [<span class="pp">C3</span>]
+
+<span class="cm">S1, S2 exist ONCE in physical memory. ref_count = 3.</span>
+<span class="cm">A 1,000-token system prompt &times; 100 users: 100 MB instead of 10 GB.</span>
+
+<span style="color:var(--yellow)">Production impact:</span>
+  Anthropic Claude: prefix caching = <span style="color:var(--green)">90% cost reduction, 85% latency reduction</span>
+  OpenAI: automatic caching = 50% cost savings on cached tokens
+  SGLang RadixAttention: 85&ndash;95% cache hit rate on few-shot workloads
+                         vs 15&ndash;25% for block-level matching
+</code></pre>
+
+<p><strong>SGLang's RadixAttention</strong> takes prefix caching further. Instead of simple block-level hash matching (vLLM's approach), SGLang organizes the entire KV cache as a radix tree keyed on token sequences. When a new request arrives, the scheduler traverses the tree to find the longest matching prefix. Shared system prompts, few-shot examples, multi-turn conversation prefixes &mdash; all become near-free cache hits. The radix tree evicts LRU leaf nodes when memory fills, preserving the most-reused prefixes.</p>
+
+<div class="power">
+<div class="power-label">PagedAttention Impact</div>
+<p><strong>2&ndash;4&times; throughput improvement</strong>, entirely from better memory utilization. No algorithmic change, no approximation, no quality loss. Just virtual memory. Prefix caching is nearly free on top: shared system prompts across 100 users cost the same as one. The lesson: sometimes the biggest wins come from systems engineering, not ML research.</p>
+</div>
+
+</section>
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 17: DISAGGREGATED PREFILL/DECODE                        -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch17">
+<h2>// 17 &mdash; Disaggregated Prefill / Decode</h2>
+
+<p class="drop-cap">One cluster reads the book. Another speaks the sentence. Chapter 11 showed that prefill and decode are different species of work: prefill is compute-bound, decode is bandwidth-bound. Chunked prefill is a compromise &mdash; interleave them on the same GPU, neither perfectly served. The 2024&ndash;2025 frontier takes the logical next step: <em>put them on different GPUs</em>.</p>
+
+<h3>The Architecture</h3>
+
+<div class="diagram">
+<span class="diagram-label">Disaggregated serving &mdash; separate pools for separate workloads</span>
+<pre><code>
+  <span class="st">Client Request</span>
+       &darr;
+  <span class="kw">Router / Proxy</span>
+       &darr;
+  ┌─────────────────────┐     ┌─────────────────────┐
+  &boxv;  <span style="color:var(--green)">Prefill Pool</span>         &boxv;     &boxv;  <span style="color:var(--orange)">Decode Pool</span>          &boxv;
+  &boxv;  High-FLOPS GPUs      &boxv;     &boxv;  High-bandwidth GPUs   &boxv;
+  &boxv;  Optimized for TTFT   &boxv;     &boxv;  Optimized for ITL     &boxv;
+  &boxv;  Large batch prefill  &boxv;     &boxv;  Many concurrent users &boxv;
+  &boxv;  GPU utilization: 70% &boxv;     &boxv;  Bandwidth util: 80%   &boxv;
+  └──────────&darr;────────────┘     └──────────&uarr;────────────┘
+             &boxv;                            &boxv;
+             └───── KV cache transfer ──────┘
+                   (NVLink / RDMA / NCCL)
+</code></pre>
+</div>
+
+<h3>How KV Gets Transferred</h3>
+
+<p>After prefill, the KV cache blocks need to move from the prefill GPU to the decode GPU. The transfer mechanism matters enormously &mdash; a 4K-token prompt at 256 KB/token = 1 GB of KV data.</p>
+
+<pre><code><span class="label">KV transfer approaches</span>
+<span style="color:var(--green)">DistServe (OSDI 2024)</span>
+  Co-locates prefill and decode within the same node.
+  Uses NVLink/NVSwitch for intra-node transfer.
+  Transfer overhead: small relative to compute time.
+  Result: 7.4&times; higher goodput vs co-located baseline.
+
+<span style="color:var(--cyan)">Splitwise (ISCA 2024, Microsoft)</span>
+  Heterogeneous hardware: H100s for prefill, A100s for decode.
+  A100s are cheaper per GB of HBM and sufficient for bandwidth-bound decode.
+  Transfer overhead: &lt;7% of prefill time with GPU-Direct.
+  Key insight: you don't need the same GPU for both phases.
+
+<span style="color:var(--magenta)">Mooncake (FAST '25, Moonshot AI)</span>
+  KV-cache-centric architecture. Global distributed cache store.
+  Streams KV blocks incrementally during prefill (not bulk at end).
+  RDMA transfer engine with topology-aware path selection.
+  Scale: thousands of nodes, 100B+ tokens/day for Kimi.
+  Result: 59&ndash;498% increase in effective capacity.
+
+<span style="color:var(--orange)">vLLM disagg_prefill</span>
+  Configure via --kv-transfer-config JSON.
+  Supports NixlConnector (RDMA), P2pNcclConnector (NCCL), Mooncake.
+  GPU-to-GPU direct transfer bypassing CPU.
+  Experimental but production-targeted.
+
+<span style="color:var(--yellow)">SGLang --disaggregation-mode</span>
+  Three processes: prefill server + decode server + router.
+  Mooncake backend (default) or NIXL (UCX).
+  Supports incremental KV streaming during prefill.
+</code></pre>
+
+<div class="power zen">
+<div class="power-label">Why This Matters</div>
+<p>Disaggregation lets you tune TTFT and ITL independently. Prefill pool: large batches, maximum GPU compute utilization. Decode pool: many concurrent users, maximum memory bandwidth utilization. Each pool scales independently based on traffic shape. The price: KV transfer overhead and architectural complexity. But for high-traffic services where TTFT and ITL SLOs are both tight, disaggregation is increasingly the answer.</p>
+</div>
+
+</section>
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 18: PARALLELISM                                         -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch18">
+<h2>// 18 &mdash; Going Wide</h2>
+
+<p class="drop-cap">When one GPU isn't enough, split the model across multiple GPUs. <strong>Tensor parallelism</strong> splits individual matrix multiplications (all GPUs work on every layer together). <strong>Pipeline parallelism</strong> assigns entire layers to different GPUs (each GPU handles a portion of the depth). The choice depends on your interconnect speed and your tolerance for bubbles.</p>
+
+<h3>Tensor Parallelism: Cut Horizontally</h3>
+
+<p>For attention, the split is natural: GPU 0 gets heads 0-11, GPU 1 gets heads 12-23. Each GPU computes attention independently, then an <strong>all-reduce</strong> combines results after the output projection.</p>
+
+<pre><code><span class="label">Per transformer block with TP=2</span>
+<span class="nm">1.</span> Column-split Q,K,V projections &rarr; <span class="st">no communication</span>
+<span class="nm">2.</span> Each GPU computes attention for its heads
+<span class="nm">3.</span> Row-split output projection &rarr; <span class="kw">all-reduce</span> (combine partial sums)
+<span class="nm">4.</span> Column-split FFN gate+up &rarr; <span class="st">no communication</span>
+<span class="nm">5.</span> Row-split FFN down &rarr; <span class="kw">all-reduce</span>
+
+<span class="cm">Total: 2 all-reduces per block, 128 per forward pass (64 layers)</span>
+<span class="cm">Each all-reduce sends ~16 KB (the hidden state vector)</span>
+<span class="cm">On NVLink (450 GB/s): 5.7 &mu;s per all-reduce &rarr; negligible</span>
+<span class="cm">On PCIe 4.0 (32 GB/s): 80 &mu;s per all-reduce &rarr; 12.8 ms total &rarr; noticeable</span>
+</code></pre>
+
+<h3>Pipeline Parallelism: Cut Vertically</h3>
+
+<p>Assign entire layers to different GPUs. GPU 0: layers 0-19, GPU 1: layers 20-39, etc. Communication happens once per boundary (just the hidden state), but you get <strong>pipeline bubbles</strong> where GPUs wait for the previous stage.</p>
+
+<div class="diagram">
+<span class="diagram-label">Pipeline parallelism bubble (PP=4, 3 microbatches)</span>
+<pre><code>
+  Time &rarr;   1    2    3    4    5    6    7    8    9    10
+  GPU 0:  [<span class="st">M1</span>] [<span class="fn">M2</span>] [<span class="kw">M3</span>] <span class="cm">idle idle idle</span> [<span class="st">M1</span>] [<span class="fn">M2</span>] [<span class="kw">M3</span>]
+  GPU 1:  <span class="cm">idle</span> [<span class="st">M1</span>] [<span class="fn">M2</span>] [<span class="kw">M3</span>] <span class="cm">idle idle idle</span> [<span class="st">M1</span>] [<span class="fn">M2</span>]
+  GPU 2:  <span class="cm">idle idle</span> [<span class="st">M1</span>] [<span class="fn">M2</span>] [<span class="kw">M3</span>] <span class="cm">idle idle idle</span> [<span class="st">M1</span>]
+  GPU 3:  <span class="cm">idle idle idle</span> [<span class="st">M1</span>] [<span class="fn">M2</span>] [<span class="kw">M3</span>] <span class="cm">idle idle idle</span>
+
+  <span class="cm">Bubble = (PP - 1) / (PP + M - 1) of total time</span>
+  <span class="cm">With 4 stages, 3 microbatches: bubble = 3/6 = 50% wasted</span>
+  <span class="cm">With 4 stages, 12 microbatches: bubble = 3/15 = 20%</span>
+</code></pre>
+</div>
+
+<h3>Expert Parallelism: MoE's Special Case</h3>
+
+<p>DeepSeek-V3 is a 671B parameter Mixture-of-Experts model, but only 37B parameters are active per token. It has 1 shared expert (always active) and 256 routed experts (8 activated per token). Naive tensor parallelism creates load imbalance &mdash; some GPUs get 12 tokens, others get 2. Expert Parallelism (EP) distributes experts across GPUs and uses ALL-TO-ALL communication to route tokens to the right expert.</p>
+
+<pre><code><span class="label">DeepSeek-V3 flow per block</span>
+  All tokens &rarr; Attention (TP across GPUs)
+  All tokens &rarr; Shared Expert (TP)
+  Each token &rarr; Route to 8/256 experts &rarr; <span class="kw">ALL-TO-ALL</span> &rarr; Expert GPU
+  Expert computation (local, embarrassingly parallel)
+  Results &rarr; <span class="kw">ALL-TO-ALL</span> &rarr; back to token's home GPU
+  Combine shared + routed expert outputs
+
+<span class="cm">671B parameters but only 37B active per token.</span>
+<span class="cm">At FP8: ~37 GB active per token &mdash; fits on a single H100.</span>
+<span class="cm">But you need ~9&times; H100s to HOLD all 671B parameters.</span>
+<span class="cm">DeepSeek reports inference costs ~3&times; cheaper than dense equivalents.</span>
+</code></pre>
+
+<h3>The Rule</h3>
+
+<table>
+<tr><th>Setup</th><th>Interconnect</th><th>Best For</th><th>72B Q4 tok/s</th></tr>
+<tr><td>1&times; 3090</td><td>&mdash;</td><td>7B-27B fully on GPU</td><td>~8 (split CPU)</td></tr>
+<tr><td>2&times; 3090 NVLink</td><td>112 GB/s</td><td>72B Q4 fits in 48 GB</td><td>~35-40</td></tr>
+<tr><td>2&times; 3090 PCIe</td><td>32 GB/s</td><td>Same model, slower comms</td><td>~20-25</td></tr>
+<tr><td>8&times; H100 NVLink</td><td>450 GB/s</td><td>671B MoE, full TP+EP</td><td>~160</td></tr>
+</table>
+
+<div class="power">
+<div class="power-label">The Rule</div>
+<p><strong>Tensor parallelism within a node</strong> (NVLink, low latency). <strong>Pipeline parallelism across nodes</strong> (network, tolerates higher latency). <strong>Expert parallelism for MoE</strong> (route tokens to experts wherever they live). A typical 8-GPU, 2-node deployment: TP=4 within each node, PP=2 across nodes.</p>
+</div>
+
+</section>
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 19: LORA AND MULTI-TENANCY                              -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch19">
+<h2>// 19 &mdash; LoRA and Multi-Tenancy</h2>
+
+<p class="drop-cap">You don't always serve one model. Sometimes you serve one trunk wearing many masks. A customer support bot, a legal assistant, a code copilot, and a creative writer &mdash; all running the same base Qwen-27B, each with a different LoRA adapter that cost a few hundred dollars to train. The question is: can you serve them all from the same GPU without loading four copies of the model?</p>
+
+<h3>How LoRA Adapters Work at Inference</h3>
+
+<p>A LoRA adapter is a pair of small matrices (A and B) for each target layer. Instead of computing <code>y = W&middot;x</code>, you compute <code>y = W&middot;x + B&middot;A&middot;x</code>. Matrix A has shape [rank, d_in] and B has shape [d_out, rank]. At rank 64 on Qwen-27B, a single adapter is ~243 MB &mdash; just 1.6% of the base model. You can fit dozens on one GPU alongside the base weights.</p>
+
+<h3>The Batching Problem</h3>
+
+<p>Naive multi-LoRA serving loads one adapter at a time: process all requests for adapter A, swap to adapter B, process those, etc. This serializes work and destroys batching efficiency. The breakthrough was the <strong>SGMV kernel</strong> (Segmented Gather Matrix-Vector), developed for Punica and used in S-LoRA:</p>
+
+<div class="diagram">
+<span class="diagram-label">Multi-LoRA batching with SGMV</span>
+<pre><code>
+  Batch of 8 requests, 3 different adapters:
+
+  Req 1: adapter A     &boxv;
+  Req 2: adapter A     &boxv; &rarr; <span style="color:var(--green)">Base model matmul</span> (one big GEMM, all 8 requests)
+  Req 3: adapter B     &boxv;
+  Req 4: adapter A     &boxv;    Then:
+  Req 5: base only     &boxv;
+  Req 6: adapter C     &boxv; &rarr; <span style="color:var(--cyan)">SGMV kernel</span> (one fused call, per-request adapter)
+  Req 7: adapter B     &boxv;    Each segment indexes its own (A, B) matrices
+  Req 8: adapter C     &boxv;    Req 5 gets zero delta (base only)
+
+  <span class="cm">Result: base model throughput is unchanged.</span>
+  <span class="cm">The LoRA delta is a small add-on, not a separate pass.</span>
+  <span class="cm">S-LoRA: 4&times; higher throughput, supports 2,000+ adapters.</span>
+</code></pre>
+</div>
+
+<h3>Memory Management</h3>
+
+<pre><code><span class="label">Adapter lifecycle</span>
+<span style="color:var(--green)">GPU memory</span>: holds --max-loras active adapters (vLLM)
+                   or --max-loras-per-batch (SGLang)
+<span style="color:var(--cyan)">CPU memory</span>: holds --max-cpu-loras adapters (vLLM)
+                   or --max-loaded-loras (SGLang)
+<span style="color:var(--text-dim)">Disk</span>:       everything else
+
+Eviction: LRU (default) or FIFO (SGLang configurable)
+Load time: rank-64 adapter on LLaMA-7B = ~30&ndash;45 ms (H2D transfer)
+
+SGLang special: --enable-lora-overlap-loading
+  Hides adapter H2D transfer behind GPU compute.
+  Result: adapter swap is nearly invisible in the pipeline.
+
+SGLang special: pinned adapters (pinned: true in config)
+  Never evicted. For high-traffic adapters.
+  Capped at max-loras-per-batch - 1 to prevent starvation.
+</code></pre>
+
+<div class="power zen">
+<div class="power-label">The Economics of Multi-Tenancy</div>
+<p>One base model + 50 LoRA adapters = 50 different products from one GPU. Each adapter is 1&ndash;3% of the base model size. The SGMV kernel ensures batching efficiency is preserved across heterogeneous adapter requests. For SaaS products with per-customer fine-tuning, this changes the math from "one GPU per customer" to "one GPU per fifty customers."</p>
+</div>
+
+</section>
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 20: METRICS THAT MATTER                                 -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch20">
+<h2>// 20 &mdash; Metrics That Matter</h2>
+
+<p class="drop-cap">A fast demo is not a service. You can show 45 tok/s on your 3090 to one user and call it fast. Put 50 users on it and the P99 latency is 3 seconds. The metrics that matter for serving are not the metrics that matter for benchmarking, and confusing them is how you build systems that demo well and fail in production.</p>
+
+<h3>The Core Metrics</h3>
+
+<table>
+<tr><th>Metric</th><th>What It Measures</th><th>Target (chat)</th></tr>
+<tr><td><strong>TTFT</strong></td><td>Time from request to first output token</td><td>&lt; 500ms (interactive), &lt; 100ms (autocomplete)</td></tr>
+<tr><td><strong>ITL / TPOT</strong></td><td>Average time between consecutive output tokens</td><td>&lt; 50ms (P90 SLO), &lt; 30ms (fast feel)</td></tr>
+<tr><td><strong>Throughput</strong></td><td>Total output tokens per second across all users</td><td>Depends on batch size and hardware</td></tr>
+<tr><td><strong>P99 latency</strong></td><td>Worst 1% of requests &mdash; the tail</td><td>&lt; 3&times; median. If not, scheduler problem.</td></tr>
+<tr><td><strong>Goodput</strong></td><td>Max request rate where P90 TTFT AND P90 TPOT meet SLO</td><td>The <em>real</em> capacity metric (from DistServe)</td></tr>
+</table>
+
+<h3>The Operational Metrics</h3>
+
+<pre><code><span class="label">What to monitor in production</span>
+<span style="color:var(--green)">GPU utilization</span>
+  Prefill: should be 60&ndash;90%. Below 50% = admission too conservative.
+  Decode: usually 1&ndash;5%. This is normal. It's bandwidth-bound.
+
+<span style="color:var(--cyan)">Batch occupancy</span>
+  Active requests per iteration. Higher = better throughput.
+  If consistently low, scheduler is admitting too slowly.
+
+<span style="color:var(--magenta)">Cache hit rate</span>
+  Prefix cache hits / total requests. Higher = lower TTFT, lower cost.
+  SGLang RadixAttention: 85&ndash;95% on few-shot workloads.
+  vLLM APC: lower but still significant for shared system prompts.
+
+<span style="color:var(--orange)">Preemption rate</span>
+  How often the scheduler evicts running requests.
+  High rate = KV cache too small for traffic. Add memory or reduce max_seq.
+
+<span style="color:var(--yellow)">Queue depth</span>
+  Waiting requests. Growing queue = falling behind.
+  Steady queue = at capacity. Empty = has headroom.
+
+<span style="color:var(--red)">Cost per million tokens</span>
+  H100 at $2.50/hr, serving 4,000 tok/s aggregate:
+  = $0.17 per million output tokens
+  With prefix caching (90% hit): effective cost drops &sim;5&times; for cached prefixes.
+</code></pre>
+
+<h3>Benchmarking Tools</h3>
+
+<p>Don't roll your own. Use the standard tools:</p>
+
+<pre><code><span class="label">Benchmarking commands</span>
+<span style="color:var(--green)">vLLM:</span>
+  python benchmarks/benchmark_serving.py \
+    --model Qwen/Qwen3.5-27B-Instruct \
+    --request-rate 10 --num-prompts 1000
+
+<span style="color:var(--cyan)">SGLang:</span>
+  python -m sglang.bench_serving \
+    --backend sglang --num-prompts 1000 \
+    --request-rate 10
+
+<span style="color:var(--orange)">NVIDIA AIPerf (genai-perf):</span>
+  aiperf llm --model Qwen3.5-27B \
+    --concurrency 32 --input-tokens 500 \
+    --output-tokens 200
+
+<span class="cm">All produce: TTFT distribution, ITL distribution, P50/P90/P99,</span>
+<span class="cm">throughput (tok/s), and per-request latency breakdowns.</span>
+</code></pre>
+
+<div class="power danger">
+<div class="power-label">The Cost Trajectory</div>
+<p>Late 2022: GPT-4-class inference &asymp; $20 per million tokens. Early 2026: equivalent quality &asymp; $0.40 per million tokens or less. That's roughly <strong>50&times; cheaper in three years</strong>. The combination of quantization, FlashAttention, continuous batching, prefix caching, and speculative decoding &mdash; every technique in this deep dive &mdash; contributed to that collapse. And it's not over.</p>
+</div>
+
+</section>
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 21: THE MODERN SERVING STACK                            -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch21">
+<h2>// 21 &mdash; The Modern Serving Stack</h2>
+
+<p class="drop-cap">By the end, the model is only one component in the system built around it. A modern serving stack is a pipeline of decisions: which request goes where, what work can be reused, what engine runs the model, how memory is managed, how latency is observed, and when to scale.</p>
+
+<div class="diagram">
+<span class="diagram-label">The complete serving stack &mdash; from user to silicon</span>
+<pre><code>
+  &#x250C;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2510;
+  &#x2502;  <span class="ty">Client</span>                                                   &#x2502;
+  &#x2502;  Chat UI, API consumer, agent framework                    &#x2502;
+  &#x251C;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2524;
+  &#x2502;  <span class="kw">Gateway / Load Balancer</span>                                  &#x2502;
+  &#x2502;  Route by model, adapter, priority, prefix                  &#x2502;
+  &#x251C;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2524;
+  &#x2502;  <span class="fn">Prefix Cache Layer</span>                                       &#x2502;
+  &#x2502;  RadixAttention (SGLang) or APC (vLLM)                      &#x2502;
+  &#x2502;  Skip redundant prefill. Reuse shared system prompts.       &#x2502;
+  &#x251C;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2524;
+  &#x2502;  <span class="st">Scheduler</span>                                                &#x2502;
+  &#x2502;  Admit, preempt, chunk prefill, balance TTFT vs ITL        &#x2502;
+  &#x251C;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2524;
+  &#x2502;  <span class="pp">Engine Runtime</span>                                            &#x2502;
+  &#x2502;  Continuous batching + PagedAttention + FlashAttention      &#x2502;
+  &#x2502;  + Speculative decoding + LoRA dispatch + Quantized GEMM    &#x2502;
+  &#x251C;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2524;
+  &#x2502;  <span style="color:var(--cyan)">GPU(s)</span>                                                   &#x2502;
+  &#x2502;  TP / PP / EP across devices. HBM &rarr; L2 &rarr; SRAM &rarr; ALUs    &#x2502;
+  &#x251C;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2524;
+  &#x2502;  <span style="color:var(--yellow)">Metrics / Autoscaling</span>                                    &#x2502;
+  &#x2502;  TTFT, ITL, throughput, cache hit rate, preemption rate     &#x2502;
+  &#x2502;  Scale up on queue depth. Scale down on idle.               &#x2502;
+  &#x2514;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2500;&#x2518;
+</code></pre>
+</div>
+
+<h3>The Evolution Thread</h3>
+
+<p>The field got here in stages. Each era solved one pain and revealed the next:</p>
+
+<pre><code><span class="label">The arc of inference engineering</span>
+<span style="color:var(--red)">Era 1 &mdash; Just make it run</span> (2020&ndash;2022)
+  Naive forward pass. No cache. Single request. Slow.
+
+<span style="color:var(--orange)">Era 2 &mdash; Make it fit</span> (2022&ndash;2023)
+  GPTQ, K-quants, llama.cpp. Run 70B on a consumer GPU.
+
+<span style="color:var(--yellow)">Era 3 &mdash; Fix attention IO</span> (2022&ndash;2023)
+  FlashAttention. Same math, 2&ndash;3&times; faster. The IO-awareness revolution.
+
+<span style="color:var(--green)">Era 4 &mdash; Fix the KV cache</span> (2023)
+  PagedAttention. Virtual memory for attention. 2&ndash;4&times; memory efficiency.
+
+<span style="color:var(--cyan)">Era 5 &mdash; Keep the batch full</span> (2023&ndash;2024)
+  Continuous batching. Chunked prefill. Prefix caching. GPU never idle.
+
+<span style="color:var(--blue)">Era 6 &mdash; Split the system by phase</span> (2024&ndash;2025)
+  Disaggregated prefill/decode. Different hardware for different work.
+
+<span style="color:var(--purple)">Era 7 &mdash; Cheat the serial loop</span> (2023&ndash;2025)
+  Speculative decoding. EAGLE-3. Draft fast, verify once.
+
+<span style="color:var(--magenta)">Era 8 &mdash; Treat serving as scheduling</span> (2025&ndash;)
+  Preemption-aware schedulers. Multi-LoRA batching. SLO-driven policy.
+  The model is fast. The system is the product.
+</code></pre>
+
+<p>Inference began as a forward pass. It became a memory problem, then a caching problem, then a scheduling problem, then a distributed systems problem. At scale, it becomes city planning.</p>
+
+<div class="power">
+<div class="power-label">The Complete Machine, Revisited</div>
+<p>Part I asked: what happens when you type something and words appear? The answer was 448 learned projections through 64 transformer blocks, a probability distribution, one random draw. Part II asked: how do you make that fast? The answer was quantization, caching, tiling, batching, and speculation. Part III asked: how do you make it survive a thousand users? The answer was scheduling, virtual memory, prefix reuse, disaggregation, and the metrics to know when it's working. Every token you've ever received from an LLM traveled through a stack like this one. Now you know what happens at every layer.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- APPENDIX A: BUILD ONE                                           -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="build-one">
+<h2>// Appendix A &mdash; Build One</h2>
+
+<p class="drop-cap">In Part I, Chapter 2 we wrote the forward pass for GPT-2 in NumPy. That was the toy. Now let's make it real: load actual GPT-2 124M weights, add a KV cache, and generate text. Then we'll show what llama.cpp does differently for each line &mdash; mapping the toy to production.</p>
+
+<h3>Load Real GPT-2 Weights</h3>
+
+<pre><code><span class="label">Python</span>
+<span class="kw">import</span> numpy <span class="kw">as</span> np, json, struct, os
+
+<span class="kw">def</span> <span class="fn">load_gpt2_weights</span>(model_dir):
+    <span class="st">"""Load GPT-2 124M from safetensors format."""</span>
+    <span class="kw">with</span> open(os.path.join(model_dir, <span class="st">"model.safetensors"</span>), <span class="st">"rb"</span>) <span class="kw">as</span> f:
+        header_len = struct.unpack(<span class="st">"&lt;Q"</span>, f.read(<span class="nm">8</span>))[<span class="nm">0</span>]
+        header = json.loads(f.read(header_len))
+        data_start = <span class="nm">8</span> + header_len
+        tensors = {}
+        <span class="kw">for</span> name, info <span class="kw">in</span> header.items():
+            <span class="kw">if</span> name == <span class="st">"__metadata__"</span>: <span class="kw">continue</span>
+            dtype_map = {<span class="st">"F16"</span>: np.float16, <span class="st">"F32"</span>: np.float32}
+            dtype = dtype_map[info[<span class="st">"dtype"</span>]]
+            start, end = info[<span class="st">"data_offsets"</span>]
+            f.seek(data_start + start)
+            tensors[name] = np.frombuffer(
+                f.read(end - start), dtype=dtype
+            ).reshape(info[<span class="st">"shape"</span>]).astype(np.float32)
+    <span class="kw">return</span> tensors
+</code></pre>
+
+<h3>The Complete Generate Loop (with KV Cache)</h3>
+
+<pre><code><span class="label">Python</span>
+<span class="kw">def</span> <span class="fn">generate_with_cache</span>(prompt_tokens, model, max_tokens=<span class="nm">100</span>, temp=<span class="nm">0.8</span>):
+    n_layers, d = <span class="nm">12</span>, <span class="nm">768</span>
+    cache = {
+        <span class="st">'k'</span>: np.zeros((n_layers, <span class="nm">1024</span>, d), dtype=np.float32),
+        <span class="st">'v'</span>: np.zeros((n_layers, <span class="nm">1024</span>, d), dtype=np.float32),
+    }
+    <span class="cm"># Memory: 72 MB for GPT-2. For Qwen-27B at 128K: 32 GB.</span>
+
+    tokens = list(prompt_tokens)
+    <span class="cm"># PREFILL: process all prompt tokens</span>
+    <span class="kw">for</span> pos, tok <span class="kw">in</span> enumerate(tokens):
+        logits = forward_with_cache(model, tok, pos, cache)
+
+    <span class="cm"># DECODE: generate one token at a time</span>
+    <span class="kw">for</span> i <span class="kw">in</span> range(max_tokens):
+        probs = softmax(logits[-<span class="nm">1</span>] / temp)
+        next_tok = np.random.choice(len(probs), p=probs)
+        <span class="kw">if</span> next_tok == eos_token: <span class="kw">break</span>
+        tokens.append(next_tok)
+        print(detokenize(next_tok), end=<span class="st">""</span>, flush=<span class="kw">True</span>)
+        logits = forward_with_cache(model, next_tok, len(tokens)-<span class="nm">1</span>, cache)
+    <span class="kw">return</span> tokens
+
+<span class="cm"># NumPy on CPU: ~5 tok/s. llama.cpp on same model: ~200 tok/s.</span>
+<span class="cm"># The code is the same. The engineering is everything.</span>
+</code></pre>
+
+<h3>Toy vs Production</h3>
+
+<table>
+<tr><th>Our Toy Engine</th><th>llama.cpp</th><th>Why It's Different</th></tr>
+<tr><td><code>np.frombuffer()</code></td><td><code>mmap()</code></td><td>No copy. Pages fault in on demand.</td></tr>
+<tr><td>FP32 weights</td><td>Q4_K_M (4.5 bits)</td><td>4&times; smaller, SIMD dot product.</td></tr>
+<tr><td><code>x @ w_qkv</code></td><td><code>ggml_mul_mat (fused)</code></td><td>Quantize activation, fused int dot.</td></tr>
+<tr><td>LayerNorm</td><td>RMSNorm</td><td>Simpler, no mean subtraction.</td></tr>
+<tr><td>Learned positions</td><td>RoPE</td><td>No lookup table, extends to any length.</td></tr>
+<tr><td>GELU</td><td>SiLU/SwiGLU</td><td>Gated FFN with 3 matrices.</td></tr>
+<tr><td><code>softmax(Q@K.T)</code></td><td>FlashAttention</td><td>Tiled in SRAM, never materializes N&times;N.</td></tr>
+<tr><td>Contiguous cache</td><td>Ring buffer</td><td>Fixed memory, wraps around.</td></tr>
+</table>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- APPENDIX B: DEPLOYMENT RECIPES                                  -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="recipes">
+<h2>// Appendix B &mdash; Deployment Recipes</h2>
+
+<p>Concrete configurations for common scenarios. Copy, adapt, deploy.</p>
+
+<h3>Recipe 1: Your RTX 3090 (Local Chat)</h3>
+
+<pre><code><span class="label">Shell</span>
+<span class="cm"># Hardware: RTX 3090 (24 GB VRAM, 936 GB/s), 64 GB RAM</span>
+
+<span class="cm"># Best quality that fits fully (the sweet spot)</span>
+$ ./llama-server \
+    -m qwen3.5-27b-Q4_K_M.gguf \
+    -ngl <span class="nm">99</span> \            <span class="cm"># all layers on GPU (~15 GB)</span>
+    -c <span class="nm">16384</span> \           <span class="cm"># 16K context</span>
+    -fa \                <span class="cm"># FlashAttention</span>
+    --host <span class="nm">0.0.0.0</span> --port <span class="nm">8080</span>
+<span class="cm"># Result: ~45 tok/s. 27B fully on GPU.</span>
+</code></pre>
+
+<h3>Recipe 2: Production API (Multi-User, vLLM)</h3>
+
+<pre><code><span class="label">Shell</span>
+<span class="cm"># Hardware: 4&times; H100 80GB with NVLink</span>
+$ vllm serve Qwen/Qwen3.5-27B-Instruct \
+    --tensor-parallel-size <span class="nm">4</span> \
+    --max-model-len <span class="nm">8192</span> \
+    --gpu-memory-utilization <span class="nm">0.92</span> \
+    --enable-prefix-caching \
+    --enable-chunked-prefill \
+    --kv-cache-dtype fp8 \
+    --port <span class="nm">8000</span>
+<span class="cm"># Expected: TTFT ~150ms, ITL ~25ms, ~2000 tok/s total</span>
+</code></pre>
+
+<h3>Recipe 3: Production API (Multi-User, SGLang)</h3>
+
+<pre><code><span class="label">Shell</span>
+<span class="cm"># Hardware: 4&times; H100 80GB with NVLink</span>
+$ python -m sglang.launch_server \
+    --model-path Qwen/Qwen3.5-27B-Instruct \
+    --tp <span class="nm">4</span> \
+    --enable-mixed-chunk \
+    --port <span class="nm">8000</span>
+<span class="cm"># RadixAttention prefix caching enabled by default.</span>
+<span class="cm"># Expected: ~16K tok/s aggregate throughput, stable ITL.</span>
+</code></pre>
+
+<h3>Recipe 4: M4 Ultra (Mac Local)</h3>
+
+<pre><code><span class="label">Shell</span>
+<span class="cm"># Hardware: M4 Ultra, 192 GB unified memory</span>
+$ ./llama-server \
+    -m qwen3.5-27b-Q5_K_M.gguf \
+    -ngl <span class="nm">99</span> -c <span class="nm">16384</span> -fa \
+    --host <span class="nm">0.0.0.0</span> --port <span class="nm">8080</span>
+<span class="cm"># Result: ~40 tok/s. Whole 27B model, no split, on a Mac.</span>
+</code></pre>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- FOOTER                                                         -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<div style="text-align:center; padding:3rem 0 1rem; border-top:1px solid var(--border);">
+    <div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.12em; color:var(--text-dim); margin-bottom:1rem;">End of Part III</div>
+    <div style="font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--text-dim); line-height:1.8; margin-bottom:1.5rem;">
+        <span style="color:var(--green)">Ch 14</span> From One User to Many &middot;
+        <span style="color:var(--green)">Ch 15</span> The Scheduler &middot;
+        <span style="color:var(--green)">Ch 16</span> Virtual Memory &middot;
+        <span style="color:var(--green)">Ch 17</span> Disaggregation &middot;
+        <span style="color:var(--green)">Ch 18</span> Parallelism &middot;
+        <span style="color:var(--green)">Ch 19</span> Multi-Tenancy &middot;
+        <span style="color:var(--green)">Ch 20</span> Metrics &middot;
+        <span style="color:var(--green)">Ch 21</span> The Stack
+    </div>
+    <div style="display:flex; justify-content:center; gap:2rem;">
+        <a href="inference-engine-deep-dive.html" style="font-family:'JetBrains Mono',monospace; font-size:0.85rem; color:var(--text-dim); text-decoration:none;">
+            &larr; Part I: The Machine
+        </a>
+        <a href="inference-engine-deep-dive-2.html" style="font-family:'JetBrains Mono',monospace; font-size:0.85rem; color:var(--text-dim); text-decoration:none;">
+            &larr; Part II: Making It Fast
+        </a>
+    </div>
+</div>
+
+<section style="padding-top: 1.5rem; text-align: center;">
+    <p style="color: var(--text-dim); font-family: 'JetBrains Mono', monospace; font-size: 0.85rem;">
+        <span class="ticker">INFERENCE_ENGINE_DEEP_DIVE</span><br>
+        Part III &middot; 8 chapters + 2 appendices<br>
+        Scheduling &bull; PagedAttention &bull; Disaggregation &bull; Parallelism<br>
+        LoRA &bull; Metrics &bull; The Modern Stack<br><br>
+        <span style="color: var(--text-dim);">Every token you've ever received from an LLM<br>
+        traveled through a stack like the one described here.<br>
+        Now you know what happens at every layer.</span>
+    </p>
+</section>
+
+</div>
+</body>
+</html>

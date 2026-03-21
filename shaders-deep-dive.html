@@ -1,0 +1,2441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shaders — Painting with Math</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+    --white: #e8e8f0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 2rem;
+    display: flex;
+    gap: 1.2rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.2s, text-shadow 0.2s;
+    padding: 0.3rem 0;
+  }
+  nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+  nav .nav-title {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 1rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.3);
+  }
+
+  .content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+  }
+
+  .hero {
+    text-align: center;
+    padding: 4rem 0 5rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4rem;
+    position: relative;
+  }
+  .hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3.2rem;
+    font-weight: 600;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+  }
+  .hero .subtitle {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 500px;
+    margin: 0 auto;
+  }
+  .hero .blink {
+    display: inline-block;
+    animation: blink 1s step-end infinite;
+    color: var(--green);
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  section { margin-bottom: 5rem; padding-top: 1rem; }
+  h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: var(--green);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: 0.02em;
+  }
+  h3 {
+    font-size: 1.25rem;
+    color: var(--cyan);
+    margin: 2.5rem 0 1rem;
+    font-weight: 600;
+  }
+  h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 2rem 0 0.8rem;
+  }
+  p { margin-bottom: 1rem; }
+
+  .drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4rem;
+    line-height: 0.8;
+    padding: 0.1em 0.15em 0 0;
+    color: var(--green);
+    font-weight: 600;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+  }
+
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    padding: 0.12em 0.4em;
+    border-radius: 3px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem 1.4rem;
+    overflow-x: auto;
+    margin: 1.2rem 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px;
+    line-height: 1.55;
+    position: relative;
+  }
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+  }
+  .cm { color: var(--text-dim); }
+  .kw { color: var(--magenta); }
+  .ty { color: var(--cyan); }
+  .st { color: var(--green); }
+  .nm { color: var(--yellow); }
+  .fn { color: var(--blue); }
+  .pp { color: var(--orange); }
+  .label {
+    position: absolute;
+    top: 0.3rem; right: 0.7rem;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    opacity: 0.5;
+  }
+
+  .diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+  }
+  .diagram pre {
+    background: none; border: none; padding: 0; margin: 0;
+    font-size: 13px; line-height: 1.45; color: var(--text);
+  }
+  .diagram pre code { color: var(--text); }
+  .diagram-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--green-dim);
+    margin-bottom: 0.8rem;
+    display: block;
+  }
+
+  .power {
+    background: var(--bg-card);
+    border-left: 3px solid var(--green);
+    padding: 1.2rem 1.4rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .power-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.3rem;
+  }
+  .power p { margin-bottom: 0; font-size: 0.95rem; }
+  .power.danger { border-left-color: var(--red); }
+  .power.danger .power-label { color: var(--red); }
+  .power.hack { border-left-color: var(--magenta); }
+  .power.hack .power-label { color: var(--magenta); }
+  .power.wild { border-left-color: var(--orange); }
+  .power.wild .power-label { color: var(--orange); }
+  .power.zen { border-left-color: var(--cyan); }
+  .power.zen .power-label { color: var(--cyan); }
+
+  .mem-row { display: flex; gap: 1px; margin: 0.4rem 0; flex-wrap: wrap; }
+  .mc {
+    width: 30px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px; font-weight: 600; border-radius: 2px;
+  }
+  .mc.g { background: var(--green); color: var(--bg); }
+  .mc.c { background: var(--cyan); color: var(--bg); }
+  .mc.m { background: var(--magenta); color: var(--bg); }
+  .mc.o { background: var(--orange); color: var(--bg); }
+  .mc.r { background: var(--red); color: var(--bg); }
+  .mc.y { background: var(--yellow); color: var(--bg); }
+  .mc.b { background: var(--blue); color: var(--bg); }
+  .mc.d { background: var(--text-dim); color: var(--bg); opacity: 0.3; }
+  .mc.e { background: transparent; border: 1px dashed var(--border); color: var(--text-dim); }
+  .mc.w { background: var(--white); color: var(--bg); }
+  .mc.p { background: var(--purple); color: #fff; }
+  .mc.wide { width: 50px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.88rem;
+  }
+  th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    text-align: left;
+    padding: 0.5rem 0.7rem;
+    border-bottom: 2px solid var(--border);
+  }
+  td {
+    padding: 0.45rem 0.7rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:hover { background: rgba(0,255,136,0.02); }
+
+  details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1rem 0;
+    overflow: hidden;
+  }
+  details summary {
+    padding: 0.7rem 1.1rem;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--green);
+    user-select: none;
+    transition: background 0.2s;
+  }
+  details summary:hover { background: rgba(0,255,136,0.04); }
+  details[open] summary { border-bottom: 1px solid var(--border); }
+  details .det { padding: 1.1rem; }
+  details pre { margin: 0.8rem 0; }
+
+  .vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .vs-col {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.1rem;
+  }
+  .vs-col h4 { margin-top: 0; }
+
+  .glitch { position: relative; display: inline-block; }
+  .glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+  .glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 2s infinite linear alternate-reverse;
+    clip-path: inset(0 0 65% 0);
+  }
+  .glitch::after {
+    color: var(--magenta);
+    animation: glitch-2 3s infinite linear alternate-reverse;
+    clip-path: inset(65% 0 0 0);
+  }
+  @keyframes glitch-1 {
+    0%, 95% { transform: translateX(0); }
+    96% { transform: translateX(-2px); }
+    97% { transform: translateX(2px); }
+    98% { transform: translateX(-1px); }
+    100% { transform: translateX(0); }
+  }
+  @keyframes glitch-2 {
+    0%, 93% { transform: translateX(0); }
+    94% { transform: translateX(2px); }
+    96% { transform: translateX(-2px); }
+    98% { transform: translateX(1px); }
+    100% { transform: translateX(0); }
+  }
+
+  .ticker {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--green);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    display: inline-block;
+    text-shadow: 0 0 6px rgba(0,255,136,0.3);
+  }
+
+  /* === LANGUAGE TABS === */
+  .lang-tabs {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1.2rem 0;
+    overflow: hidden;
+  }
+  .lang-tabs input[type="radio"] { display: none; }
+  .lang-tabs label {
+    display: inline-block;
+    padding: 0.5rem 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .lang-tabs label:hover { color: var(--green); }
+  .lang-tabs .tab-bar {
+    border-bottom: 1px solid var(--border);
+    padding: 0 0.5rem;
+  }
+  .lang-tabs .tab-content { display: none; }
+  .lang-tabs .tab-content pre { margin: 0; border: none; border-radius: 0; }
+
+  .lang-tabs input.tc:checked ~ .tab-content.c,
+  .lang-tabs input.tpy:checked ~ .tab-content.py,
+  .lang-tabs input.tts:checked ~ .tab-content.ts,
+  .lang-tabs input.tgo:checked ~ .tab-content.go,
+  .lang-tabs input.trs:checked ~ .tab-content.rs { display: block; }
+
+  .lang-tabs input:nth-of-type(1):checked ~ .tab-bar label:nth-child(1),
+  .lang-tabs input:nth-of-type(2):checked ~ .tab-bar label:nth-child(2),
+  .lang-tabs input:nth-of-type(3):checked ~ .tab-bar label:nth-child(3),
+  .lang-tabs input:nth-of-type(4):checked ~ .tab-bar label:nth-child(4),
+  .lang-tabs input:nth-of-type(5):checked ~ .tab-bar label:nth-child(5) {
+    color: var(--green);
+    background: rgba(0,255,136,0.06);
+    border-bottom: 2px solid var(--green);
+  }
+
+  /* === TRY-THIS BOX === */
+  .try-this {
+    background: rgba(0, 255, 136, 0.04);
+    border-left: 3px solid var(--green-dim);
+    padding: 1rem 1.2rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .try-this .try-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.5rem;
+  }
+  .try-this pre {
+    margin: 0.5rem 0 0;
+    font-size: 12.5px;
+  }
+  .try-this p { font-size: 0.9rem; margin-bottom: 0.5rem; }
+
+  /* === LANG-NOTE BOX === */
+  .lang-note {
+    background: var(--bg-card);
+    border-left: 3px solid var(--blue);
+    padding: 1rem 1.2rem;
+    margin: 1.2rem 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 0.9rem;
+  }
+  .lang-note .lang-note-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--blue);
+    margin-bottom: 0.3rem;
+  }
+
+  /* === RUN BUTTON + OUTPUT === */
+  .run-btn {
+    position: absolute; top: 0.3rem; right: 3rem;
+    background: var(--green); color: var(--bg);
+    border: none; border-radius: 3px; cursor: pointer;
+    font: 600 10px 'JetBrains Mono', monospace; padding: 2px 8px;
+    opacity: 0.6; transition: opacity 0.2s;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    z-index: 2;
+  }
+  .run-btn:hover { opacity: 1; }
+  .run-btn.running { opacity: 0.4; cursor: wait; }
+  .run-output {
+    background: #050508; border: 1px solid var(--border);
+    border-top: none; border-radius: 0 0 6px 6px;
+    padding: 0.8rem 1rem; margin-top: -1px;
+    font: 13px/1.5 'JetBrains Mono', monospace; color: var(--green);
+    white-space: pre-wrap; max-height: 200px; overflow-y: auto;
+  }
+  .run-output.error { color: var(--red); }
+
+  @media (max-width: 700px) {
+    .vs { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2rem; }
+    .content { padding: 4rem 1rem 4rem; }
+    nav { font-size: 10px; gap: 0.8rem; padding: 0.4rem 1rem; }
+  }
+
+  /* === SHADER-SPECIFIC === */
+  .preset-btn {
+    background: var(--bg-code); color: var(--green); border: 1px solid var(--border);
+    border-radius: 4px; padding: 0.3rem 0.8rem; cursor: pointer;
+    font: 500 11px 'JetBrains Mono', monospace; text-transform: uppercase;
+    transition: background 0.2s, border-color 0.2s;
+  }
+  .preset-btn:hover { border-color: var(--green); background: rgba(0,255,136,0.08); }
+  .preset-btn.active { background: var(--green); color: var(--bg); }
+  .demo-box {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+    padding: 1.5rem; margin: 1.5rem 0;
+  }
+  .demo-box h4 { margin-top: 0; }
+  .demo-controls { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; margin: 0.8rem 0; }
+  .demo-controls label { font: 500 11px 'JetBrains Mono', monospace; color: var(--text-dim); text-transform: uppercase; }
+  .demo-controls input[type="range"] { width: 120px; accent-color: var(--green); }
+  .demo-controls select {
+    background: var(--bg-code); color: var(--green); border: 1px solid var(--border);
+    border-radius: 4px; padding: 0.3rem 0.5rem; font: 12px 'JetBrains Mono', monospace;
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="nav-title">&gt;_ SHADERS</span>
+  <a href="#ch1">pipeline</a><a href="#ch2">vertex</a><a href="#ch3">fragment</a>
+  <a href="#ch4">glsl</a><a href="#ch5">uv</a><a href="#ch6">patterns</a>
+  <a href="#ch7">noise</a><a href="#ch8">sdf</a><a href="#ch9">lighting</a>
+  <a href="#ch10">postfx</a><a href="#ch11">demoscene</a><a href="#ch12">performance</a>
+</nav>
+
+<div class="content">
+
+<div class="hero">
+  <h1><span class="glitch" data-text="SHADERS">SHADERS</span></h1>
+  <div class="subtitle">Painting with math. Every pixel on your screen exists because a tiny program ran millions of times per frame, turning coordinates into colors.<span class="blink">_</span></div>
+</div>
+
+<!-- ============================================================ -->
+<section id="ch1">
+<h2>// 01 &mdash; The Rendering Pipeline</h2>
+
+<p class="drop-cap">Every frame your GPU draws begins as a river of data flowing through a fixed sequence of stages. This is the rendering pipeline &mdash; the assembly line that transforms raw vertex coordinates into the colored pixels you see on screen. Understanding it is the prerequisite to writing any shader, because a shader is simply a programmable stage within this pipeline. You are not painting pixels directly; you are writing tiny programs that the GPU executes thousands of times in parallel at specific points in this flow.</p>
+
+<p>The modern pipeline has both <strong>fixed-function</strong> stages (you configure them but cannot reprogram them) and <strong>programmable</strong> stages (you supply the actual code). The two most important programmable stages are the <em>vertex shader</em> and the <em>fragment shader</em>.</p>
+
+<h3>The Full Stage Sequence</h3>
+
+<div class="diagram">
+<span class="diagram-label">GPU Rendering Pipeline</span>
+<pre><code>  <span class="ty">Vertex Data</span>              Raw positions, normals, UVs in buffers
+       │
+       ▼
+  ┌─────────────────┐
+  │  <span class="fn">Vertex Shader</span>   │    <span class="cm">← PROGRAMMABLE: transform each vertex</span>
+  └────────┬────────┘
+           ▼
+  ┌─────────────────┐
+  │  <span class="fn">Rasterizer</span>      │    <span class="cm">← FIXED: convert triangles → fragments</span>
+  └────────┬────────┘
+           ▼
+  ┌─────────────────┐
+  │ <span class="fn">Fragment Shader</span>  │    <span class="cm">← PROGRAMMABLE: compute color per pixel</span>
+  └────────┬────────┘
+           ▼
+  ┌─────────────────┐
+  │  <span class="fn">Framebuffer</span>     │    <span class="cm">← OUTPUT: depth test, blend, write pixel</span>
+  └─────────────────┘</code></pre>
+</div>
+
+<p><strong>Vertex Data:</strong> Your application uploads arrays of vertex attributes to the GPU &mdash; positions (<code>vec3</code>), normals (<code>vec3</code>), texture coordinates (<code>vec2</code>), and whatever custom data you need. These sit in <em>vertex buffer objects</em> (VBOs) in GPU memory.</p>
+
+<p><strong>Vertex Shader:</strong> Runs once per vertex. Its primary job is to transform the vertex position from <em>model space</em> through <em>world space</em> and <em>view space</em> into <em>clip space</em>. It can also pass data (colors, UVs, normals) downstream to the fragment shader via <em>varyings</em>.</p>
+
+<p><strong>Rasterizer:</strong> This fixed-function stage takes the transformed triangles and determines which pixels on screen they cover. For each covered pixel, it generates a <em>fragment</em> &mdash; a candidate pixel with interpolated attributes. The interpolation is perspective-correct by default.</p>
+
+<p><strong>Fragment Shader:</strong> Runs once per fragment. It receives the interpolated data from the rasterizer and outputs a final color. This is where texturing, lighting, shadows, and every visual effect happen. If the vertex shader bends space, the fragment shader paints it.</p>
+
+<p><strong>Framebuffer Operations:</strong> After the fragment shader, the GPU performs depth testing (is this fragment in front of what is already there?), stencil testing, and blending (for transparency). Survivors get written to the framebuffer and eventually displayed.</p>
+
+<p>For a deeper look at how the GPU executes all of this in parallel across thousands of cores, see the <a href="gpu-deep-dive.html" style="color: var(--cyan);">GPU compute deep dive</a>.</p>
+
+<div class="power zen">
+<div class="power-label">The Fixed-Function Past</div>
+<p>Before shaders existed, GPUs had a completely fixed pipeline. You could configure parameters &mdash; set a light position, enable fog, choose a texture blend mode &mdash; but you could not write custom code. OpenGL 1.x and DirectX 7 were entirely this way. The introduction of programmable shaders (GeForce 3 / DirectX 8, circa 2001) was the single biggest revolution in real-time graphics. Suddenly every developer had a parallel processor they could program however they wanted.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch2">
+<h2>// 02 &mdash; Vertex Shaders: Bending Space</h2>
+
+<p class="drop-cap">Vertices are the skeleton of every 3D scene. A mesh is nothing more than a cloud of points connected by edges into triangles. The vertex shader&rsquo;s job is to take each of these points and transform it from its original <em>model-space</em> position into the final <em>clip-space</em> coordinate that the rasterizer needs. This single operation &mdash; multiplying a position by a chain of matrices &mdash; is the beating heart of all 3D rendering.</p>
+
+<p>The transform chain involves three matrices, typically combined into a single <strong>MVP</strong> matrix:</p>
+
+<h3>The MVP Transform Chain</h3>
+
+<div class="diagram">
+<span class="diagram-label">Model-View-Projection Transform</span>
+<pre><code>  <span class="ty">Model Matrix</span> (M)        <span class="cm">Object → World space</span>
+  ├── Translation         Move the object in the world
+  ├── Rotation            Orient the object
+  └── Scale               Resize the object
+
+  <span class="ty">View Matrix</span> (V)         <span class="cm">World → Camera space</span>
+  └── Inverse of camera   "Move the world so the camera
+       transform           is at the origin looking down -Z"
+
+  <span class="ty">Projection Matrix</span> (P)   <span class="cm">Camera → Clip space</span>
+  ├── Perspective          Distant objects shrink (frustum → cube)
+  └── Orthographic         No foreshortening (box → cube)
+
+  <span class="fn">gl_Position</span> = P * V * M * <span class="ty">vec4</span>(position, <span class="nm">1.0</span>)
+
+  ┌───────────┐   M   ┌───────────┐   V   ┌───────────┐   P   ┌───────────┐
+  │Model Space│ ────▶  │World Space│ ────▶  │View Space │ ────▶  │Clip Space │
+  └───────────┘       └───────────┘       └───────────┘       └───────────┘</code></pre>
+</div>
+
+<p>After the vertex shader outputs <code>gl_Position</code> in clip space, the GPU performs <em>perspective division</em> (dividing by <code>w</code>) to get <em>normalized device coordinates</em> (NDC), then maps those to screen pixels via the viewport transform. You never write code for these steps &mdash; they are fixed-function.</p>
+
+<h3>A Minimal Vertex Shader</h3>
+
+<pre><code><span class="label">GLSL</span>
+<span class="pp">#version 300 es</span>
+<span class="kw">precision</span> <span class="kw">highp</span> <span class="ty">float</span>;
+
+<span class="cm">// Attributes — per-vertex input from buffers</span>
+<span class="kw">in</span> <span class="ty">vec3</span> aPosition;
+<span class="kw">in</span> <span class="ty">vec3</span> aNormal;
+<span class="kw">in</span> <span class="ty">vec2</span> aTexCoord;
+
+<span class="cm">// Uniforms — constant for the whole draw call</span>
+<span class="kw">uniform</span> <span class="ty">mat4</span> uModel;
+<span class="kw">uniform</span> <span class="ty">mat4</span> uView;
+<span class="kw">uniform</span> <span class="ty">mat4</span> uProjection;
+
+<span class="cm">// Varyings — interpolated and passed to fragment shader</span>
+<span class="kw">out</span> <span class="ty">vec3</span> vWorldNormal;
+<span class="kw">out</span> <span class="ty">vec2</span> vTexCoord;
+
+<span class="kw">void</span> <span class="fn">main</span>() {
+    <span class="cm">// Transform position through the MVP chain</span>
+    <span class="fn">gl_Position</span> = uProjection * uView * uModel * <span class="ty">vec4</span>(aPosition, <span class="nm">1.0</span>);
+
+    <span class="cm">// Transform normal to world space (use inverse-transpose for non-uniform scale)</span>
+    vWorldNormal = <span class="fn">normalize</span>(<span class="ty">mat3</span>(uModel) * aNormal);
+
+    <span class="cm">// Pass texture coordinates through unchanged</span>
+    vTexCoord = aTexCoord;
+}</code></pre>
+
+<p>Notice the pattern: the vertex shader receives <em>attributes</em> (per-vertex data), reads <em>uniforms</em> (per-draw-call constants), and writes <em>varyings</em> (outputs that get interpolated across the triangle for the fragment shader). This input/output contract is the fundamental interface between your application and the GPU.</p>
+
+<h3>Beyond Transforms: Vertex Displacement</h3>
+
+<p>Vertex shaders are not limited to rigid transforms. You can <em>displace</em> vertices procedurally &mdash; wave animations on water, terrain deformation, skeletal animation, cloth simulation. The key insight is that you can modify <code>aPosition</code> before multiplying by the MVP matrix:</p>
+
+<pre><code><span class="label">GLSL</span>
+<span class="cm">// Simple wave displacement</span>
+<span class="ty">float</span> wave = <span class="fn">sin</span>(aPosition.x * <span class="nm">4.0</span> + uTime * <span class="nm">2.0</span>) * <span class="nm">0.3</span>;
+<span class="ty">vec3</span> displaced = aPosition + <span class="ty">vec3</span>(<span class="nm">0.0</span>, wave, <span class="nm">0.0</span>);
+<span class="fn">gl_Position</span> = uProjection * uView * uModel * <span class="ty">vec4</span>(displaced, <span class="nm">1.0</span>);</code></pre>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch3">
+<h2>// 03 &mdash; Fragment Shaders: Painting Pixels</h2>
+
+<p class="drop-cap">Fragment shaders are where the magic happens. While the vertex shader deals with geometry &mdash; where things are &mdash; the fragment shader deals with appearance &mdash; what things look like. It runs once for every fragment (potential pixel) that the rasterizer produces, and it outputs a single color. At 1920&times;1080 resolution, that means up to two million fragment shader invocations per frame, per layer of geometry. At 60 FPS, you are looking at over 120 million shader executions per second &mdash; and the GPU handles them all in parallel.</p>
+
+<p>The fragment shader receives <em>interpolated varyings</em> from the vertex shader. If three vertices of a triangle have colors red, green, and blue, a fragment in the center gets a smooth blend of all three. This interpolation is automatic and perspective-correct.</p>
+
+<h3>Live Shader Playground</h3>
+
+<div class="demo-box">
+<h4>Fragment Shader Editor</h4>
+<p>Edit the GLSL fragment shader below and watch the result update in real time. The uniforms <code>u_time</code> (seconds), <code>u_resolution</code> (canvas size), and <code>u_mouse</code> (mouse position) are provided automatically.</p>
+<div class="demo-controls">
+  <button class="preset-btn active" data-preset="gradient">Gradient</button>
+  <button class="preset-btn" data-preset="checkerboard">Checkerboard</button>
+  <button class="preset-btn" data-preset="circle">Circle SDF</button>
+  <button class="preset-btn" data-preset="plasma">Plasma</button>
+</div>
+<div style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-start;">
+  <textarea id="shader-editor" spellcheck="false" style="
+    width: 400px; height: 400px;
+    background: var(--bg-code); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 1rem; font: 13px/1.5 'JetBrains Mono', monospace;
+    resize: none; outline: none;
+  ">precision mediump float;
+uniform float u_time;
+uniform vec2 u_resolution;
+
+void main() {
+    vec2 uv = gl_FragCoord.xy / u_resolution;
+    gl_FragColor = vec4(uv.x, uv.y, 0.5 + 0.5 * sin(u_time), 1.0);
+}</textarea>
+  <canvas id="shader-canvas" width="400" height="400" style="
+    border: 1px solid var(--border); border-radius: 6px;
+    background: #000;
+  "></canvas>
+</div>
+<div id="shader-error" style="
+  font: 12px/1.4 'JetBrains Mono', monospace;
+  color: var(--red); margin-top: 0.5rem;
+  min-height: 1.2em; white-space: pre-wrap;
+"></div>
+</div>
+
+<div class="power hack">
+<div class="power-label">The Fullscreen Quad Trick</div>
+<p>Most shader art and post-processing effects do not use 3D geometry at all. They render a single quad (two triangles) that covers the entire screen, and the fragment shader does all the work using <code>gl_FragCoord</code> to know which pixel it is computing. Shadertoy, The Book of Shaders, and countless demoscene entries all use this technique. The vertex shader becomes trivially simple &mdash; just pass through the corner positions &mdash; and the fragment shader becomes the entire program. You are essentially writing a function <code>f(x, y, t) &rarr; color</code> that runs for every pixel on screen.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch4">
+<h2>// 04 &mdash; GLSL: The Language of Light</h2>
+
+<p class="drop-cap">GLSL (OpenGL Shading Language) is a C-like language purpose-built for GPU execution. It looks familiar if you know C, but it has first-class support for vectors, matrices, and the kinds of math operations that graphics programmers use constantly. There are no pointers, no dynamic allocation, no recursion &mdash; these constraints exist because GPU hardware is designed for massive parallelism, not general-purpose computing.</p>
+
+<h3>Core Types</h3>
+
+<p>GLSL&rsquo;s type system is small but powerful. Vectors and matrices are built-in primitives, not library types:</p>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-types" id="types-c" class="tc" checked>
+  <input type="radio" name="tabs-types" id="types-py" class="tpy">
+  <input type="radio" name="tabs-types" id="types-ts" class="tts">
+  <input type="radio" name="tabs-types" id="types-go" class="tgo">
+  <input type="radio" name="tabs-types" id="types-rs" class="trs">
+  <div class="tab-bar">
+    <label for="types-c">GLSL</label>
+    <label for="types-py">Python</label>
+    <label for="types-ts">TypeScript</label>
+    <label for="types-go">Go</label>
+    <label for="types-rs">Rust</label>
+  </div>
+  <div class="tab-content c"><pre><code><span class="label">GLSL</span>
+<span class="cm">// Scalar types</span>
+<span class="ty">float</span> brightness = <span class="nm">0.8</span>;
+<span class="ty">int</span>   count      = <span class="nm">42</span>;
+<span class="ty">bool</span>  visible    = <span class="kw">true</span>;
+
+<span class="cm">// Vector types — 2, 3, or 4 components</span>
+<span class="ty">vec2</span> uv       = <span class="ty">vec2</span>(<span class="nm">0.5</span>, <span class="nm">0.7</span>);           <span class="cm">// 2D coordinate</span>
+<span class="ty">vec3</span> color    = <span class="ty">vec3</span>(<span class="nm">1.0</span>, <span class="nm">0.0</span>, <span class="nm">0.5</span>);      <span class="cm">// RGB color</span>
+<span class="ty">vec4</span> position = <span class="ty">vec4</span>(<span class="nm">1.0</span>, <span class="nm">2.0</span>, <span class="nm">3.0</span>, <span class="nm">1.0</span>); <span class="cm">// homogeneous coordinate</span>
+
+<span class="cm">// Matrix types — column-major</span>
+<span class="ty">mat4</span> transform = <span class="ty">mat4</span>(<span class="nm">1.0</span>);               <span class="cm">// 4x4 identity matrix</span>
+
+<span class="cm">// Sampler types — texture handles</span>
+<span class="kw">uniform</span> <span class="ty">sampler2D</span> uTexture;               <span class="cm">// 2D texture</span>
+
+<span class="cm">// Swizzling — reorder/repeat components</span>
+<span class="ty">vec3</span> rgb = color.rgb;                      <span class="cm">// same as color</span>
+<span class="ty">vec3</span> bgr = color.bgr;                      <span class="cm">// reversed</span>
+<span class="ty">vec2</span> xx  = color.xx;                        <span class="cm">// repeat x twice</span></code></pre></div>
+  <div class="tab-content py"><pre><code><span class="label">Python</span>
+<span class="pp">import</span> numpy <span class="pp">as</span> np
+
+<span class="cm"># Scalar types</span>
+brightness = np.<span class="ty">float32</span>(<span class="nm">0.8</span>)
+count      = np.<span class="ty">int32</span>(<span class="nm">42</span>)
+visible    = <span class="kw">True</span>
+
+<span class="cm"># Vector types — numpy arrays</span>
+uv       = <span class="fn">np.array</span>([<span class="nm">0.5</span>, <span class="nm">0.7</span>], dtype=np.<span class="ty">float32</span>)           <span class="cm"># vec2</span>
+color    = <span class="fn">np.array</span>([<span class="nm">1.0</span>, <span class="nm">0.0</span>, <span class="nm">0.5</span>], dtype=np.<span class="ty">float32</span>)      <span class="cm"># vec3</span>
+position = <span class="fn">np.array</span>([<span class="nm">1.0</span>, <span class="nm">2.0</span>, <span class="nm">3.0</span>, <span class="nm">1.0</span>], dtype=np.<span class="ty">float32</span>) <span class="cm"># vec4</span>
+
+<span class="cm"># Matrix types — 4x4 identity</span>
+transform = <span class="fn">np.eye</span>(<span class="nm">4</span>, dtype=np.<span class="ty">float32</span>)                      <span class="cm"># mat4</span>
+
+<span class="cm"># No direct sampler equivalent — use PIL/OpenCV for textures</span>
+
+<span class="cm"># Swizzling — manual indexing</span>
+rgb = color[[<span class="nm">0</span>, <span class="nm">1</span>, <span class="nm">2</span>]]    <span class="cm"># same as color</span>
+bgr = color[[<span class="nm">2</span>, <span class="nm">1</span>, <span class="nm">0</span>]]    <span class="cm"># reversed</span>
+xx  = color[[<span class="nm">0</span>, <span class="nm">0</span>]]        <span class="cm"># repeat x twice</span></code></pre></div>
+  <div class="tab-content ts"><pre><code><span class="label">TypeScript</span>
+<span class="pp">import</span> { vec2, vec3, vec4, mat4 } <span class="pp">from</span> <span class="st">'gl-matrix'</span>;
+
+<span class="cm">// Scalar types</span>
+<span class="kw">const</span> brightness: number = <span class="nm">0.8</span>;
+<span class="kw">const</span> count: number = <span class="nm">42</span>;
+<span class="kw">const</span> visible: boolean = <span class="kw">true</span>;
+
+<span class="cm">// Vector types — Float32Array wrappers</span>
+<span class="kw">const</span> uv       = <span class="fn">vec2.fromValues</span>(<span class="nm">0.5</span>, <span class="nm">0.7</span>);           <span class="cm">// vec2</span>
+<span class="kw">const</span> color    = <span class="fn">vec3.fromValues</span>(<span class="nm">1.0</span>, <span class="nm">0.0</span>, <span class="nm">0.5</span>);      <span class="cm">// vec3</span>
+<span class="kw">const</span> position = <span class="fn">vec4.fromValues</span>(<span class="nm">1.0</span>, <span class="nm">2.0</span>, <span class="nm">3.0</span>, <span class="nm">1.0</span>); <span class="cm">// vec4</span>
+
+<span class="cm">// Matrix types — 4x4 identity</span>
+<span class="kw">const</span> transform = <span class="fn">mat4.create</span>();                       <span class="cm">// mat4 identity</span>
+
+<span class="cm">// Sampler equivalent — WebGL texture object</span>
+<span class="cm">// const texture: WebGLTexture = gl.createTexture();</span>
+
+<span class="cm">// No swizzling — manual component access</span>
+<span class="kw">const</span> bgr = <span class="fn">vec3.fromValues</span>(color[<span class="nm">2</span>], color[<span class="nm">1</span>], color[<span class="nm">0</span>]);</code></pre></div>
+  <div class="tab-content go"><pre><code><span class="label">Go</span>
+<span class="pp">import</span> <span class="st">"github.com/go-gl/mathgl/mgl32"</span>
+
+<span class="cm">// Scalar types</span>
+<span class="kw">var</span> brightness <span class="ty">float32</span> = <span class="nm">0.8</span>
+<span class="kw">var</span> count <span class="ty">int32</span> = <span class="nm">42</span>
+<span class="kw">var</span> visible <span class="ty">bool</span> = <span class="kw">true</span>
+
+<span class="cm">// Vector types — mgl32 structs</span>
+uv       := mgl32.<span class="ty">Vec2</span>{<span class="nm">0.5</span>, <span class="nm">0.7</span>}            <span class="cm">// vec2</span>
+color    := mgl32.<span class="ty">Vec3</span>{<span class="nm">1.0</span>, <span class="nm">0.0</span>, <span class="nm">0.5</span>}       <span class="cm">// vec3</span>
+position := mgl32.<span class="ty">Vec4</span>{<span class="nm">1.0</span>, <span class="nm">2.0</span>, <span class="nm">3.0</span>, <span class="nm">1.0</span>} <span class="cm">// vec4</span>
+
+<span class="cm">// Matrix types — 4x4 identity</span>
+transform := mgl32.<span class="fn">Ident4</span>()                  <span class="cm">// mat4</span>
+
+<span class="cm">// No direct sampler — textures handled via OpenGL bindings</span>
+
+<span class="cm">// No swizzling — access fields directly</span>
+bgr := mgl32.<span class="ty">Vec3</span>{color[<span class="nm">2</span>], color[<span class="nm">1</span>], color[<span class="nm">0</span>]}</code></pre></div>
+  <div class="tab-content rs"><pre><code><span class="label">Rust</span>
+<span class="kw">use</span> glam::{Vec2, Vec3, Vec4, Mat4};
+
+<span class="cm">// Scalar types</span>
+<span class="kw">let</span> brightness: <span class="ty">f32</span> = <span class="nm">0.8</span>;
+<span class="kw">let</span> count: <span class="ty">i32</span> = <span class="nm">42</span>;
+<span class="kw">let</span> visible: <span class="ty">bool</span> = <span class="kw">true</span>;
+
+<span class="cm">// Vector types — glam structs</span>
+<span class="kw">let</span> uv       = <span class="fn">Vec2::new</span>(<span class="nm">0.5</span>, <span class="nm">0.7</span>);            <span class="cm">// vec2</span>
+<span class="kw">let</span> color    = <span class="fn">Vec3::new</span>(<span class="nm">1.0</span>, <span class="nm">0.0</span>, <span class="nm">0.5</span>);       <span class="cm">// vec3</span>
+<span class="kw">let</span> position = <span class="fn">Vec4::new</span>(<span class="nm">1.0</span>, <span class="nm">2.0</span>, <span class="nm">3.0</span>, <span class="nm">1.0</span>); <span class="cm">// vec4</span>
+
+<span class="cm">// Matrix types — 4x4 identity</span>
+<span class="kw">let</span> transform = <span class="fn">Mat4::IDENTITY</span>;                <span class="cm">// mat4</span>
+
+<span class="cm">// No direct sampler — textures via wgpu/glow bindings</span>
+
+<span class="cm">// Swizzling — glam supports it natively</span>
+<span class="kw">let</span> rgb = color.<span class="fn">truncate</span>();                     <span class="cm">// Vec2 from Vec3</span>
+<span class="kw">let</span> yx  = <span class="fn">Vec2::new</span>(uv.y, uv.x);               <span class="cm">// manual swizzle</span></code></pre></div>
+</div>
+
+<h3>Swizzling</h3>
+
+<p>Swizzling is GLSL&rsquo;s killer feature for writing concise vector code. You can access any components in any order using <code>.xyzw</code>, <code>.rgba</code>, or <code>.stpq</code> notation &mdash; they are aliases for the same indices:</p>
+
+<pre><code><span class="label">GLSL</span>
+<span class="ty">vec4</span> v = <span class="ty">vec4</span>(<span class="nm">1.0</span>, <span class="nm">2.0</span>, <span class="nm">3.0</span>, <span class="nm">4.0</span>);
+
+v.xy      <span class="cm">// vec2(1.0, 2.0)</span>
+v.zyx     <span class="cm">// vec3(3.0, 2.0, 1.0)</span>
+v.www     <span class="cm">// vec3(4.0, 4.0, 4.0)</span>
+v.rgb     <span class="cm">// vec3(1.0, 2.0, 3.0)  — same as v.xyz</span>
+v.rr      <span class="cm">// vec2(1.0, 1.0)</span></code></pre>
+
+<h3>Essential Built-in Functions</h3>
+
+<table>
+<tr><th>Function</th><th>Description</th><th>Example</th></tr>
+<tr><td><code>mix(a, b, t)</code></td><td>Linear interpolation</td><td><code><span class="fn">mix</span>(<span class="nm">0.0</span>, <span class="nm">1.0</span>, <span class="nm">0.5</span>) = <span class="nm">0.5</span></code></td></tr>
+<tr><td><code>clamp(x, lo, hi)</code></td><td>Clamp to range</td><td><code><span class="fn">clamp</span>(<span class="nm">1.5</span>, <span class="nm">0.0</span>, <span class="nm">1.0</span>) = <span class="nm">1.0</span></code></td></tr>
+<tr><td><code>step(edge, x)</code></td><td>0 if x &lt; edge, else 1</td><td><code><span class="fn">step</span>(<span class="nm">0.5</span>, <span class="nm">0.7</span>) = <span class="nm">1.0</span></code></td></tr>
+<tr><td><code>smoothstep(a, b, x)</code></td><td>Hermite interpolation</td><td>Smooth threshold between a and b</td></tr>
+<tr><td><code>normalize(v)</code></td><td>Unit-length vector</td><td><code><span class="fn">length</span>(<span class="fn">normalize</span>(v)) = <span class="nm">1.0</span></code></td></tr>
+<tr><td><code>dot(a, b)</code></td><td>Dot product</td><td>Projection, lighting angle</td></tr>
+<tr><td><code>cross(a, b)</code></td><td>Cross product (vec3)</td><td>Surface normal computation</td></tr>
+<tr><td><code>length(v)</code></td><td>Vector magnitude</td><td>Distance from origin</td></tr>
+<tr><td><code>distance(a, b)</code></td><td><code>length(a - b)</code></td><td>Distance between two points</td></tr>
+<tr><td><code>fract(x)</code></td><td>Fractional part</td><td><code><span class="fn">fract</span>(<span class="nm">3.7</span>) = <span class="nm">0.7</span></code></td></tr>
+<tr><td><code>mod(x, y)</code></td><td>Modulo</td><td>Repeating patterns</td></tr>
+<tr><td><code>abs(x)</code></td><td>Absolute value</td><td>Symmetry, distance</td></tr>
+</table>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch5">
+<h2>// 05 &mdash; UV Coordinates and Color Math</h2>
+
+<p class="drop-cap">UV coordinates are the bridge between 2D textures and 3D geometry. Every vertex in a mesh carries a <code>vec2</code> called its UV coordinate (also called texture coordinate), which maps that vertex to a point in a 2D texture. The convention is that <code>(0,0)</code> is one corner and <code>(1,1)</code> is the opposite corner. The rasterizer interpolates UVs across each triangle, giving every fragment a unique position in texture space.</p>
+
+<p>But UVs are not just for textures. In fullscreen-quad shaders, we normalize <code>gl_FragCoord</code> into a 0&ndash;1 range and treat it exactly like a UV. This normalized coordinate becomes the input to every procedural pattern, distance function, and color calculation.</p>
+
+<h3>UV Space</h3>
+
+<div class="diagram">
+<span class="diagram-label">UV Coordinate Space</span>
+<pre><code>  (0,1) ──────────────── (1,1)
+    │                      │
+    │    UV Space           │
+    │    (0,0) = bottom-left│
+    │    (1,1) = top-right  │
+    │                      │
+    │    Normalizing:       │
+    │    uv = gl_FragCoord.xy / u_resolution;
+    │                      │
+  (0,0) ──────────────── (1,0)</code></pre>
+</div>
+
+<h3>Color Mixing and Lerp</h3>
+
+<p>The <code>mix()</code> function in GLSL performs linear interpolation (lerp) between two values. It is the single most-used function in shader programming:</p>
+
+<pre><code><span class="label">GLSL</span>
+<span class="cm">// mix(a, b, t) = a * (1.0 - t) + b * t</span>
+
+<span class="ty">vec3</span> red   = <span class="ty">vec3</span>(<span class="nm">1.0</span>, <span class="nm">0.0</span>, <span class="nm">0.0</span>);
+<span class="ty">vec3</span> blue  = <span class="ty">vec3</span>(<span class="nm">0.0</span>, <span class="nm">0.0</span>, <span class="nm">1.0</span>);
+<span class="ty">vec3</span> blend = <span class="fn">mix</span>(red, blue, <span class="nm">0.5</span>);  <span class="cm">// purple: (0.5, 0.0, 0.5)</span>
+
+<span class="cm">// Gradient across the screen:</span>
+<span class="ty">vec3</span> gradient = <span class="fn">mix</span>(red, blue, uv.x); <span class="cm">// red on left, blue on right</span></code></pre>
+
+<h3>Gamma Correction</h3>
+
+<p>Displays are nonlinear. A pixel value of 0.5 does not produce half the brightness of 1.0 &mdash; it produces roughly 22% brightness on a typical monitor (gamma ~2.2). If you blend colors in <em>sRGB space</em> (the default), your gradients will have dark bands in the midtones. The fix is to work in <em>linear space</em> and convert back at the end:</p>
+
+<pre><code><span class="label">GLSL</span>
+<span class="cm">// sRGB → linear (approximate)</span>
+<span class="ty">vec3</span> toLinear(<span class="ty">vec3</span> srgb) {
+    <span class="kw">return</span> <span class="fn">pow</span>(srgb, <span class="ty">vec3</span>(<span class="nm">2.2</span>));
+}
+
+<span class="cm">// linear → sRGB (approximate)</span>
+<span class="ty">vec3</span> toSRGB(<span class="ty">vec3</span> linear) {
+    <span class="kw">return</span> <span class="fn">pow</span>(linear, <span class="ty">vec3</span>(<span class="nm">1.0</span> / <span class="nm">2.2</span>));
+}</code></pre>
+
+<h3>UV Visualizer</h3>
+
+<div class="demo-box">
+<h4>UV Transform Demo</h4>
+<p>Adjust the sliders to see how UV transforms affect coordinate space. The red channel shows <code>u</code>, green shows <code>v</code>.</p>
+<canvas id="uv-canvas" width="400" height="400" style="
+  border: 1px solid var(--border); border-radius: 6px;
+  background: #000; display: block; margin: 0.5rem 0;
+"></canvas>
+<div class="demo-controls">
+  <label>Scale</label>
+  <input type="range" id="uv-scale" min="0.5" max="5" step="0.1" value="1">
+  <label>Offset X</label>
+  <input type="range" id="uv-offsetX" min="-1" max="1" step="0.05" value="0">
+  <label>Rotation</label>
+  <input type="range" id="uv-rotation" min="0" max="6.28" step="0.05" value="0">
+</div>
+</div>
+
+<h3>Color Blending Across Languages</h3>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-color" id="color-c" class="tc" checked>
+  <input type="radio" name="tabs-color" id="color-py" class="tpy">
+  <input type="radio" name="tabs-color" id="color-ts" class="tts">
+  <input type="radio" name="tabs-color" id="color-go" class="tgo">
+  <input type="radio" name="tabs-color" id="color-rs" class="trs">
+  <div class="tab-bar">
+    <label for="color-c">GLSL</label>
+    <label for="color-py">Python</label>
+    <label for="color-ts">TypeScript</label>
+    <label for="color-go">Go</label>
+    <label for="color-rs">Rust</label>
+  </div>
+  <div class="tab-content c"><pre><code><span class="label">GLSL</span>
+<span class="cm">// Linear interpolation between two colors</span>
+<span class="ty">vec3</span> colorA = <span class="ty">vec3</span>(<span class="nm">1.0</span>, <span class="nm">0.2</span>, <span class="nm">0.0</span>);  <span class="cm">// orange</span>
+<span class="ty">vec3</span> colorB = <span class="ty">vec3</span>(<span class="nm">0.0</span>, <span class="nm">0.4</span>, <span class="nm">1.0</span>);  <span class="cm">// blue</span>
+<span class="ty">float</span> t = uv.x;                     <span class="cm">// 0 → 1 across screen</span>
+
+<span class="cm">// mix() is the GLSL lerp — works on scalars, vec2, vec3, vec4</span>
+<span class="ty">vec3</span> result = <span class="fn">mix</span>(colorA, colorB, t);
+
+<span class="cm">// Smooth blending with smoothstep</span>
+<span class="ty">float</span> smooth_t = <span class="fn">smoothstep</span>(<span class="nm">0.3</span>, <span class="nm">0.7</span>, uv.x);
+<span class="ty">vec3</span> smooth_result = <span class="fn">mix</span>(colorA, colorB, smooth_t);</code></pre></div>
+  <div class="tab-content py"><pre><code><span class="label">Python</span>
+<span class="pp">import</span> numpy <span class="pp">as</span> np
+
+<span class="kw">def</span> <span class="fn">lerp</span>(a: np.ndarray, b: np.ndarray, t: <span class="ty">float</span>) -> np.ndarray:
+    <span class="st">"""Linear interpolation between two color arrays."""</span>
+    <span class="kw">return</span> a * (<span class="nm">1.0</span> - t) + b * t
+
+color_a = <span class="fn">np.array</span>([<span class="nm">1.0</span>, <span class="nm">0.2</span>, <span class="nm">0.0</span>], dtype=np.<span class="ty">float32</span>)  <span class="cm"># orange</span>
+color_b = <span class="fn">np.array</span>([<span class="nm">0.0</span>, <span class="nm">0.4</span>, <span class="nm">1.0</span>], dtype=np.<span class="ty">float32</span>)  <span class="cm"># blue</span>
+
+<span class="cm"># Blend at t = 0.5</span>
+result = <span class="fn">lerp</span>(color_a, color_b, <span class="nm">0.5</span>)
+<span class="fn">print</span>(result)  <span class="cm"># [0.5 0.3 0.5]</span>
+
+<span class="cm"># Smoothstep equivalent</span>
+<span class="kw">def</span> <span class="fn">smoothstep</span>(edge0: <span class="ty">float</span>, edge1: <span class="ty">float</span>, x: <span class="ty">float</span>) -> <span class="ty">float</span>:
+    t = np.<span class="fn">clip</span>((x - edge0) / (edge1 - edge0), <span class="nm">0.0</span>, <span class="nm">1.0</span>)
+    <span class="kw">return</span> t * t * (<span class="nm">3.0</span> - <span class="nm">2.0</span> * t)</code></pre></div>
+  <div class="tab-content ts"><pre><code><span class="label">TypeScript</span>
+<span class="kw">function</span> <span class="fn">lerp</span>(a: number[], b: number[], t: number): number[] {
+  <span class="kw">return</span> a.<span class="fn">map</span>((v, i) => v * (<span class="nm">1</span> - t) + b[i] * t);
+}
+
+<span class="kw">function</span> <span class="fn">smoothstep</span>(edge0: number, edge1: number, x: number): number {
+  <span class="kw">const</span> t = Math.<span class="fn">max</span>(<span class="nm">0</span>, Math.<span class="fn">min</span>(<span class="nm">1</span>, (x - edge0) / (edge1 - edge0)));
+  <span class="kw">return</span> t * t * (<span class="nm">3</span> - <span class="nm">2</span> * t);
+}
+
+<span class="kw">const</span> colorA = [<span class="nm">1.0</span>, <span class="nm">0.2</span>, <span class="nm">0.0</span>];  <span class="cm">// orange</span>
+<span class="kw">const</span> colorB = [<span class="nm">0.0</span>, <span class="nm">0.4</span>, <span class="nm">1.0</span>];  <span class="cm">// blue</span>
+
+<span class="kw">const</span> result = <span class="fn">lerp</span>(colorA, colorB, <span class="nm">0.5</span>);
+<span class="fn">console.log</span>(result);  <span class="cm">// [0.5, 0.3, 0.5]</span>
+
+<span class="cm">// Smooth blend</span>
+<span class="kw">const</span> t = <span class="fn">smoothstep</span>(<span class="nm">0.3</span>, <span class="nm">0.7</span>, <span class="nm">0.5</span>);
+<span class="kw">const</span> smooth = <span class="fn">lerp</span>(colorA, colorB, t);</code></pre></div>
+  <div class="tab-content go"><pre><code><span class="label">Go</span>
+<span class="pp">import</span> <span class="st">"math"</span>
+
+<span class="kw">type</span> Vec3 [<span class="nm">3</span>]<span class="ty">float32</span>
+
+<span class="kw">func</span> <span class="fn">Lerp</span>(a, b Vec3, t <span class="ty">float32</span>) Vec3 {
+    <span class="kw">return</span> Vec3{
+        a[<span class="nm">0</span>]*(<span class="nm">1</span>-t) + b[<span class="nm">0</span>]*t,
+        a[<span class="nm">1</span>]*(<span class="nm">1</span>-t) + b[<span class="nm">1</span>]*t,
+        a[<span class="nm">2</span>]*(<span class="nm">1</span>-t) + b[<span class="nm">2</span>]*t,
+    }
+}
+
+<span class="kw">func</span> <span class="fn">Smoothstep</span>(edge0, edge1, x <span class="ty">float32</span>) <span class="ty">float32</span> {
+    t := (x - edge0) / (edge1 - edge0)
+    <span class="kw">if</span> t < <span class="nm">0</span> { t = <span class="nm">0</span> }
+    <span class="kw">if</span> t > <span class="nm">1</span> { t = <span class="nm">1</span> }
+    <span class="kw">return</span> t * t * (<span class="nm">3</span> - <span class="nm">2</span>*t)
+}
+
+colorA := Vec3{<span class="nm">1.0</span>, <span class="nm">0.2</span>, <span class="nm">0.0</span>}
+colorB := Vec3{<span class="nm">0.0</span>, <span class="nm">0.4</span>, <span class="nm">1.0</span>}
+result := <span class="fn">Lerp</span>(colorA, colorB, <span class="nm">0.5</span>)
+<span class="fn">fmt.Println</span>(result) <span class="cm">// [0.5 0.3 0.5]</span></code></pre></div>
+  <div class="tab-content rs"><pre><code><span class="label">Rust</span>
+<span class="kw">use</span> glam::Vec3;
+
+<span class="kw">fn</span> <span class="fn">lerp</span>(a: Vec3, b: Vec3, t: <span class="ty">f32</span>) -> Vec3 {
+    a * (<span class="nm">1.0</span> - t) + b * t
+}
+
+<span class="kw">fn</span> <span class="fn">smoothstep</span>(edge0: <span class="ty">f32</span>, edge1: <span class="ty">f32</span>, x: <span class="ty">f32</span>) -> <span class="ty">f32</span> {
+    <span class="kw">let</span> t = ((x - edge0) / (edge1 - edge0)).<span class="fn">clamp</span>(<span class="nm">0.0</span>, <span class="nm">1.0</span>);
+    t * t * (<span class="nm">3.0</span> - <span class="nm">2.0</span> * t)
+}
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> color_a = <span class="fn">Vec3::new</span>(<span class="nm">1.0</span>, <span class="nm">0.2</span>, <span class="nm">0.0</span>); <span class="cm">// orange</span>
+    <span class="kw">let</span> color_b = <span class="fn">Vec3::new</span>(<span class="nm">0.0</span>, <span class="nm">0.4</span>, <span class="nm">1.0</span>); <span class="cm">// blue</span>
+
+    <span class="kw">let</span> result = <span class="fn">lerp</span>(color_a, color_b, <span class="nm">0.5</span>);
+    <span class="fn">println!</span>(<span class="st">"{:?}"</span>, result); <span class="cm">// Vec3(0.5, 0.3, 0.5)</span>
+
+    <span class="kw">let</span> t = <span class="fn">smoothstep</span>(<span class="nm">0.3</span>, <span class="nm">0.7</span>, <span class="nm">0.5</span>);
+    <span class="kw">let</span> smooth = <span class="fn">lerp</span>(color_a, color_b, t);
+}</code></pre></div>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch6">
+<h2>// 06 &mdash; Procedural Patterns</h2>
+
+<p class="drop-cap">Stripes, checkerboards, circles, grids &mdash; the building blocks of every shader effect can be generated from pure math. No textures needed. The key insight is that periodic functions like <code>sin()</code>, <code>mod()</code>, and <code>floor()</code> naturally create repeating patterns when applied to UV coordinates. A checkerboard is nothing more than <code>floor(uv.x) + floor(uv.y)</code> passed through <code>mod 2</code>. Stripes are a <code>sin()</code> or <code>step()</code> on one axis. Circles are a distance function from a center point.</p>
+
+<p>The beauty of procedural patterns is that they have <em>infinite resolution</em>. Zoom in and they remain perfectly crisp, because you are evaluating a mathematical function at each pixel, not sampling from a finite grid of texels. They also cost zero memory &mdash; the &ldquo;texture&rdquo; exists only as instructions.</p>
+
+<h3>The Checkerboard: Hello World of Shaders</h3>
+
+<p>The classic checkerboard is the shader equivalent of &ldquo;Hello World.&rdquo; It combines scaling, <code>floor()</code>, and <code>mod()</code> in a pattern that every shader programmer should be able to write from memory:</p>
+
+<pre><code><span class="label">GLSL</span>
+<span class="cm">// Checkerboard pattern</span>
+<span class="ty">vec2</span> scaled = uv * <span class="nm">8.0</span>;                      <span class="cm">// 8x8 grid</span>
+<span class="ty">float</span> check = <span class="fn">mod</span>(<span class="fn">floor</span>(scaled.x) + <span class="fn">floor</span>(scaled.y), <span class="nm">2.0</span>);
+<span class="ty">vec3</span> color = <span class="ty">vec3</span>(check);                     <span class="cm">// black and white</span></code></pre>
+
+<h3>Procedural Checkerboard Across Languages</h3>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-pattern" id="pattern-c" class="tc" checked>
+  <input type="radio" name="tabs-pattern" id="pattern-py" class="tpy">
+  <input type="radio" name="tabs-pattern" id="pattern-ts" class="tts">
+  <input type="radio" name="tabs-pattern" id="pattern-go" class="tgo">
+  <input type="radio" name="tabs-pattern" id="pattern-rs" class="trs">
+  <div class="tab-bar">
+    <label for="pattern-c">GLSL</label>
+    <label for="pattern-py">Python</label>
+    <label for="pattern-ts">TypeScript</label>
+    <label for="pattern-go">Go</label>
+    <label for="pattern-rs">Rust</label>
+  </div>
+  <div class="tab-content c"><pre><code><span class="label">GLSL</span>
+<span class="pp">#version 300 es</span>
+<span class="kw">precision</span> <span class="kw">mediump</span> <span class="ty">float</span>;
+<span class="kw">uniform</span> <span class="ty">vec2</span> u_resolution;
+<span class="kw">out</span> <span class="ty">vec4</span> fragColor;
+
+<span class="kw">void</span> <span class="fn">main</span>() {
+    <span class="ty">vec2</span> uv = gl_FragCoord.xy / u_resolution;
+    <span class="ty">float</span> scale = <span class="nm">8.0</span>;
+    <span class="ty">vec2</span> grid = <span class="fn">floor</span>(uv * scale);
+    <span class="ty">float</span> check = <span class="fn">mod</span>(grid.x + grid.y, <span class="nm">2.0</span>);
+    fragColor = <span class="ty">vec4</span>(<span class="ty">vec3</span>(check), <span class="nm">1.0</span>);
+}</code></pre></div>
+  <div class="tab-content py"><pre><code><span class="label">Python</span>
+<span class="pp">import</span> numpy <span class="pp">as</span> np
+<span class="pp">from</span> PIL <span class="pp">import</span> Image
+
+width, height = <span class="nm">512</span>, <span class="nm">512</span>
+scale = <span class="nm">8</span>
+
+<span class="cm"># Create coordinate grids</span>
+y, x = np.<span class="fn">mgrid</span>[<span class="nm">0</span>:height, <span class="nm">0</span>:width]
+u = x / width
+v = y / height
+
+<span class="cm"># Checkerboard: floor(u*scale) + floor(v*scale) mod 2</span>
+grid_x = np.<span class="fn">floor</span>(u * scale).<span class="fn">astype</span>(np.<span class="ty">int32</span>)
+grid_y = np.<span class="fn">floor</span>(v * scale).<span class="fn">astype</span>(np.<span class="ty">int32</span>)
+check = (grid_x + grid_y) % <span class="nm">2</span>
+
+<span class="cm"># Convert to 8-bit image</span>
+pixels = (check * <span class="nm">255</span>).<span class="fn">astype</span>(np.<span class="ty">uint8</span>)
+img = Image.<span class="fn">fromarray</span>(pixels, mode=<span class="st">'L'</span>)
+img.<span class="fn">save</span>(<span class="st">'checkerboard.png'</span>)</code></pre></div>
+  <div class="tab-content ts"><pre><code><span class="label">TypeScript</span>
+<span class="kw">const</span> canvas = document.<span class="fn">createElement</span>(<span class="st">'canvas'</span>);
+canvas.width = <span class="nm">512</span>;
+canvas.height = <span class="nm">512</span>;
+<span class="kw">const</span> ctx = canvas.<span class="fn">getContext</span>(<span class="st">'2d'</span>)!;
+<span class="kw">const</span> imageData = ctx.<span class="fn">createImageData</span>(<span class="nm">512</span>, <span class="nm">512</span>);
+<span class="kw">const</span> data = imageData.data;
+<span class="kw">const</span> scale = <span class="nm">8</span>;
+
+<span class="kw">for</span> (<span class="kw">let</span> y = <span class="nm">0</span>; y < <span class="nm">512</span>; y++) {
+  <span class="kw">for</span> (<span class="kw">let</span> x = <span class="nm">0</span>; x < <span class="nm">512</span>; x++) {
+    <span class="kw">const</span> u = x / <span class="nm">512</span>;
+    <span class="kw">const</span> v = y / <span class="nm">512</span>;
+    <span class="kw">const</span> gx = Math.<span class="fn">floor</span>(u * scale);
+    <span class="kw">const</span> gy = Math.<span class="fn">floor</span>(v * scale);
+    <span class="kw">const</span> check = (gx + gy) % <span class="nm">2</span>;
+    <span class="kw">const</span> c = check * <span class="nm">255</span>;
+    <span class="kw">const</span> i = (y * <span class="nm">512</span> + x) * <span class="nm">4</span>;
+    data[i] = data[i+<span class="nm">1</span>] = data[i+<span class="nm">2</span>] = c;
+    data[i+<span class="nm">3</span>] = <span class="nm">255</span>;
+  }
+}
+ctx.<span class="fn">putImageData</span>(imageData, <span class="nm">0</span>, <span class="nm">0</span>);</code></pre></div>
+  <div class="tab-content go"><pre><code><span class="label">Go</span>
+<span class="pp">import</span> (
+    <span class="st">"image"</span>
+    <span class="st">"image/color"</span>
+    <span class="st">"image/png"</span>
+    <span class="st">"math"</span>
+    <span class="st">"os"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="kw">const</span> size = <span class="nm">512</span>
+    <span class="kw">const</span> scale = <span class="nm">8.0</span>
+    img := image.<span class="fn">NewGray</span>(image.<span class="fn">Rect</span>(<span class="nm">0</span>, <span class="nm">0</span>, size, size))
+
+    <span class="kw">for</span> y := <span class="nm">0</span>; y < size; y++ {
+        <span class="kw">for</span> x := <span class="nm">0</span>; x < size; x++ {
+            u := <span class="ty">float64</span>(x) / <span class="ty">float64</span>(size)
+            v := <span class="ty">float64</span>(y) / <span class="ty">float64</span>(size)
+            gx := math.<span class="fn">Floor</span>(u * scale)
+            gy := math.<span class="fn">Floor</span>(v * scale)
+            check := <span class="ty">int</span>(gx+gy) % <span class="nm">2</span>
+            c := <span class="ty">uint8</span>(check * <span class="nm">255</span>)
+            img.<span class="fn">SetGray</span>(x, y, color.Gray{Y: c})
+        }
+    }
+
+    f, _ := os.<span class="fn">Create</span>(<span class="st">"checkerboard.png"</span>)
+    <span class="kw">defer</span> f.<span class="fn">Close</span>()
+    png.<span class="fn">Encode</span>(f, img)
+}</code></pre></div>
+  <div class="tab-content rs"><pre><code><span class="label">Rust</span>
+<span class="kw">use</span> image::{ImageBuffer, Luma};
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> size: <span class="ty">u32</span> = <span class="nm">512</span>;
+    <span class="kw">let</span> scale: <span class="ty">f32</span> = <span class="nm">8.0</span>;
+
+    <span class="kw">let</span> img = ImageBuffer::from_fn(size, size, |x, y| {
+        <span class="kw">let</span> u = x <span class="kw">as</span> <span class="ty">f32</span> / size <span class="kw">as</span> <span class="ty">f32</span>;
+        <span class="kw">let</span> v = y <span class="kw">as</span> <span class="ty">f32</span> / size <span class="kw">as</span> <span class="ty">f32</span>;
+        <span class="kw">let</span> gx = (u * scale).<span class="fn">floor</span>() <span class="kw">as</span> <span class="ty">i32</span>;
+        <span class="kw">let</span> gy = (v * scale).<span class="fn">floor</span>() <span class="kw">as</span> <span class="ty">i32</span>;
+        <span class="kw">let</span> check = ((gx + gy) % <span class="nm">2</span>).<span class="fn">unsigned_abs</span>() <span class="kw">as</span> <span class="ty">u8</span>;
+        Luma([check * <span class="nm">255</span>])
+    });
+
+    img.<span class="fn">save</span>(<span class="st">"checkerboard.png"</span>).<span class="fn">unwrap</span>();
+}</code></pre></div>
+</div>
+
+<h3>Other Fundamental Patterns</h3>
+
+<pre><code><span class="label">GLSL</span>
+<span class="cm">// Vertical stripes</span>
+<span class="ty">float</span> stripes = <span class="fn">step</span>(<span class="nm">0.5</span>, <span class="fn">fract</span>(uv.x * <span class="nm">10.0</span>));
+
+<span class="cm">// Concentric circles</span>
+<span class="ty">float</span> d = <span class="fn">length</span>(uv - <span class="nm">0.5</span>);
+<span class="ty">float</span> rings = <span class="fn">step</span>(<span class="nm">0.5</span>, <span class="fn">fract</span>(d * <span class="nm">10.0</span>));
+
+<span class="cm">// Diagonal stripes</span>
+<span class="ty">float</span> diag = <span class="fn">step</span>(<span class="nm">0.5</span>, <span class="fn">fract</span>((uv.x + uv.y) * <span class="nm">8.0</span>));
+
+<span class="cm">// Polka dots</span>
+<span class="ty">vec2</span> cell = <span class="fn">fract</span>(uv * <span class="nm">6.0</span>) - <span class="nm">0.5</span>;
+<span class="ty">float</span> dots = <span class="nm">1.0</span> - <span class="fn">step</span>(<span class="nm">0.25</span>, <span class="fn">length</span>(cell));
+
+<span class="cm">// Grid lines</span>
+<span class="ty">vec2</span> grid = <span class="fn">abs</span>(<span class="fn">fract</span>(uv * <span class="nm">10.0</span>) - <span class="nm">0.5</span>);
+<span class="ty">float</span> lines = <span class="nm">1.0</span> - <span class="fn">step</span>(<span class="nm">0.02</span>, <span class="fn">min</span>(grid.x, grid.y));</code></pre>
+
+<div class="power wild">
+<div class="power-label">Infinite Resolution</div>
+<p>Procedural patterns never pixelate. A texture-based checkerboard at 256&times;256 pixels will show aliasing artifacts when you zoom in. A procedural checkerboard stays razor-sharp at any zoom level, because each pixel recomputes the function from scratch. The trade-off is that procedural patterns require GPU computation every frame, while textures just do a memory lookup. In practice, the GPU is so fast at math that procedural generation is often cheaper than the memory bandwidth cost of sampling a large texture.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch7">
+<h2>// 07 &mdash; Noise: Controlled Chaos</h2>
+
+<p class="drop-cap">Nature is messy. Clouds, terrain, fire, marble &mdash; none of these have clean geometric shapes. To simulate organic randomness in shaders, we need <strong>noise functions</strong>: deterministic functions that look random but are smooth and continuous. Ken Perlin invented the first practical one in 1983 for <em>Tron</em>, and noise has been the backbone of procedural graphics ever since.</p>
+
+<h3>Value Noise</h3>
+<p>The simplest approach: assign random values to grid points, then interpolate between them. The result is smooth, organic-looking variation.</p>
+
+<h3>Perlin and Simplex Noise</h3>
+<p>Perlin noise uses <strong>gradient vectors</strong> at each grid point instead of scalar values, eliminating blocky artifacts. Simplex noise (also by Perlin, 2001) uses a simplex grid for better performance.</p>
+
+<h3>Fractal Brownian Motion (fBm)</h3>
+<p>Layer multiple octaves of noise at different frequencies and amplitudes to create complex, natural-looking detail.</p>
+
+<div class="demo-box">
+<h4>Noise Explorer</h4>
+<div class="demo-controls">
+  <label>Type <select id="noise-type"><option value="0">Value</option><option value="1">Simplex</option><option value="2">Worley</option></select></label>
+  <label>Freq <input type="range" id="noise-freq" min="1" max="20" value="5" step="0.5"><span id="noise-freq-val">5</span></label>
+  <label>Octaves <input type="range" id="noise-oct" min="1" max="8" value="4" step="1"><span id="noise-oct-val">4</span></label>
+  <label><input type="checkbox" id="noise-animate" checked> Animate</label>
+</div>
+<canvas id="noise-canvas" width="400" height="400" style="width:100%;max-width:400px;display:block;margin:0.5rem auto;border:1px solid var(--border);border-radius:4px;"></canvas>
+</div>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-noise" id="noise-c" class="tc" checked>
+  <input type="radio" name="tabs-noise" id="noise-py" class="tpy">
+  <input type="radio" name="tabs-noise" id="noise-ts" class="tts">
+  <input type="radio" name="tabs-noise" id="noise-go" class="tgo">
+  <input type="radio" name="tabs-noise" id="noise-rs" class="trs">
+  <div class="tab-bar">
+    <label for="noise-c">GLSL</label>
+    <label for="noise-py">Python</label>
+    <label for="noise-ts">TypeScript</label>
+    <label for="noise-go">Go</label>
+    <label for="noise-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+    <pre><code><span class="cm">// 2D value noise</span>
+<span class="ty">float</span> <span class="fn">hash</span>(<span class="ty">vec2</span> p) {
+    <span class="kw">return</span> <span class="fn">fract</span>(<span class="fn">sin</span>(<span class="fn">dot</span>(p, <span class="ty">vec2</span>(<span class="nm">127.1</span>, <span class="nm">311.7</span>))) * <span class="nm">43758.5453</span>);
+}
+<span class="ty">float</span> <span class="fn">valueNoise</span>(<span class="ty">vec2</span> p) {
+    <span class="ty">vec2</span> i = <span class="fn">floor</span>(p), f = <span class="fn">fract</span>(p);
+    <span class="ty">vec2</span> u = f*f*(<span class="nm">3.0</span>-<span class="nm">2.0</span>*f);
+    <span class="kw">return</span> <span class="fn">mix</span>(<span class="fn">mix</span>(<span class="fn">hash</span>(i),<span class="fn">hash</span>(i+<span class="ty">vec2</span>(<span class="nm">1</span>,<span class="nm">0</span>)),u.x),
+               <span class="fn">mix</span>(<span class="fn">hash</span>(i+<span class="ty">vec2</span>(<span class="nm">0</span>,<span class="nm">1</span>)),<span class="fn">hash</span>(i+<span class="ty">vec2</span>(<span class="nm">1</span>,<span class="nm">1</span>)),u.x),u.y);
+}
+<span class="label">GLSL &mdash; value noise</span></code></pre>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">import</span> math
+<span class="kw">def</span> <span class="fn">hash2d</span>(x, y):
+    n = x*<span class="nm">374761393</span> + y*<span class="nm">668265263</span>
+    n = (n ^ (n >> <span class="nm">13</span>)) * <span class="nm">1274126177</span>
+    <span class="kw">return</span> (n & <span class="nm">0x7fffffff</span>) / <span class="nm">0x7fffffff</span>
+<span class="kw">def</span> <span class="fn">value_noise</span>(x, y):
+    ix, iy = <span class="fn">int</span>(math.<span class="fn">floor</span>(x)), <span class="fn">int</span>(math.<span class="fn">floor</span>(y))
+    fx, fy = x-ix, y-iy
+    sx, sy = fx*fx*(<span class="nm">3</span>-<span class="nm">2</span>*fx), fy*fy*(<span class="nm">3</span>-<span class="nm">2</span>*fy)
+    a, b = <span class="fn">hash2d</span>(ix,iy), <span class="fn">hash2d</span>(ix+<span class="nm">1</span>,iy)
+    c, d = <span class="fn">hash2d</span>(ix,iy+<span class="nm">1</span>), <span class="fn">hash2d</span>(ix+<span class="nm">1</span>,iy+<span class="nm">1</span>)
+    <span class="kw">return</span> (a+sx*(b-a)) + sy*((c+sx*(d-c))-(a+sx*(b-a)))
+<span class="kw">for</span> y <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">4</span>):
+    <span class="fn">print</span>(<span class="st">" "</span>.<span class="fn">join</span>(<span class="fn">f</span><span class="st">"{<span class="fn">value_noise</span>(x*0.3,y*0.3):.2f}"</span> <span class="kw">for</span> x <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">8</span>)))
+<span class="label">Python &mdash; value noise</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="kw">function</span> <span class="fn">hash2d</span>(x: <span class="ty">number</span>, y: <span class="ty">number</span>): <span class="ty">number</span> {
+    <span class="kw">let</span> n = (x*<span class="nm">374761393</span> + y*<span class="nm">668265263</span>)|<span class="nm">0</span>;
+    n = ((n ^ (n >>> <span class="nm">13</span>)) * <span class="nm">1274126177</span>) >>> <span class="nm">0</span>;
+    <span class="kw">return</span> (n & <span class="nm">0x7fffffff</span>) / <span class="nm">0x7fffffff</span>;
+}
+<span class="kw">function</span> <span class="fn">valueNoise</span>(x: <span class="ty">number</span>, y: <span class="ty">number</span>): <span class="ty">number</span> {
+    <span class="kw">const</span> ix=Math.<span class="fn">floor</span>(x), iy=Math.<span class="fn">floor</span>(y);
+    <span class="kw">const</span> fx=x-ix, fy=y-iy;
+    <span class="kw">const</span> sx=fx*fx*(<span class="nm">3</span>-<span class="nm">2</span>*fx), sy=fy*fy*(<span class="nm">3</span>-<span class="nm">2</span>*fy);
+    <span class="kw">const</span> a=<span class="fn">hash2d</span>(ix,iy), b=<span class="fn">hash2d</span>(ix+<span class="nm">1</span>,iy);
+    <span class="kw">const</span> c=<span class="fn">hash2d</span>(ix,iy+<span class="nm">1</span>), d=<span class="fn">hash2d</span>(ix+<span class="nm">1</span>,iy+<span class="nm">1</span>);
+    <span class="kw">return</span> (a+sx*(b-a)) + sy*((c+sx*(d-c))-(a+sx*(b-a)));
+}
+<span class="kw">for</span>(<span class="kw">let</span> y=<span class="nm">0</span>;y<<span class="nm">4</span>;y++){
+    <span class="kw">const</span> r=[];
+    <span class="kw">for</span>(<span class="kw">let</span> x=<span class="nm">0</span>;x<<span class="nm">8</span>;x++) r.<span class="fn">push</span>(<span class="fn">valueNoise</span>(x*<span class="nm">.3</span>,y*<span class="nm">.3</span>).<span class="fn">toFixed</span>(<span class="nm">2</span>));
+    <span class="fn">console.log</span>(r.<span class="fn">join</span>(<span class="st">" "</span>));
+}
+<span class="label">TypeScript &mdash; value noise</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="kw">package</span> main
+<span class="kw">import</span> (<span class="st">"fmt"</span>;<span class="st">"math"</span>)
+<span class="kw">func</span> <span class="fn">hash2d</span>(x,y <span class="ty">int</span>) <span class="ty">float64</span> {
+    n:=x*<span class="nm">374761393</span>+y*<span class="nm">668265263</span>
+    n=(n^(n>><span class="nm">13</span>))*<span class="nm">1274126177</span>
+    <span class="kw">return</span> <span class="ty">float64</span>(n&<span class="nm">0x7fffffff</span>)/<span class="nm">0x7fffffff</span>
+}
+<span class="kw">func</span> <span class="fn">valueNoise</span>(x,y <span class="ty">float64</span>) <span class="ty">float64</span> {
+    ix,iy:=<span class="ty">int</span>(math.<span class="fn">Floor</span>(x)),<span class="ty">int</span>(math.<span class="fn">Floor</span>(y))
+    fx,fy:=x-<span class="ty">float64</span>(ix),y-<span class="ty">float64</span>(iy)
+    sx:=fx*fx*(<span class="nm">3</span>-<span class="nm">2</span>*fx); sy:=fy*fy*(<span class="nm">3</span>-<span class="nm">2</span>*fy)
+    a,b:=<span class="fn">hash2d</span>(ix,iy),<span class="fn">hash2d</span>(ix+<span class="nm">1</span>,iy)
+    c,d:=<span class="fn">hash2d</span>(ix,iy+<span class="nm">1</span>),<span class="fn">hash2d</span>(ix+<span class="nm">1</span>,iy+<span class="nm">1</span>)
+    ab:=a+sx*(b-a); cd:=c+sx*(d-c)
+    <span class="kw">return</span> ab+sy*(cd-ab)
+}
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="kw">for</span> y:=<span class="nm">0</span>;y<<span class="nm">4</span>;y++ {
+        <span class="kw">for</span> x:=<span class="nm">0</span>;x<<span class="nm">8</span>;x++ { fmt.<span class="fn">Printf</span>(<span class="st">"%.2f "</span>,<span class="fn">valueNoise</span>(<span class="ty">float64</span>(x)*<span class="nm">.3</span>,<span class="ty">float64</span>(y)*<span class="nm">.3</span>)) }
+        fmt.<span class="fn">Println</span>()
+    }
+}
+<span class="label">Go &mdash; value noise</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="kw">fn</span> <span class="fn">hash2d</span>(x:<span class="ty">i32</span>,y:<span class="ty">i32</span>)-><span class="ty">f64</span>{
+    <span class="kw">let</span> <span class="kw">mut</span> n=x.<span class="fn">wrapping_mul</span>(<span class="nm">374761393</span>).<span class="fn">wrapping_add</span>(y.<span class="fn">wrapping_mul</span>(<span class="nm">668265263</span>));
+    n=(n^(n>><span class="nm">13</span>)).<span class="fn">wrapping_mul</span>(<span class="nm">1274126177</span>);
+    (n&<span class="nm">0x7fffffff</span>) <span class="kw">as</span> <span class="ty">f64</span>/<span class="nm">0x7fffffff_u32</span> <span class="kw">as</span> <span class="ty">f64</span>
+}
+<span class="kw">fn</span> <span class="fn">value_noise</span>(x:<span class="ty">f64</span>,y:<span class="ty">f64</span>)-><span class="ty">f64</span>{
+    <span class="kw">let</span> (ix,iy)=(x.<span class="fn">floor</span>() <span class="kw">as</span> <span class="ty">i32</span>, y.<span class="fn">floor</span>() <span class="kw">as</span> <span class="ty">i32</span>);
+    <span class="kw">let</span> (fx,fy)=(x-ix <span class="kw">as</span> <span class="ty">f64</span>, y-iy <span class="kw">as</span> <span class="ty">f64</span>);
+    <span class="kw">let</span> (sx,sy)=(fx*fx*(<span class="nm">3.0</span>-<span class="nm">2.0</span>*fx), fy*fy*(<span class="nm">3.0</span>-<span class="nm">2.0</span>*fy));
+    <span class="kw">let</span> (a,b)=(<span class="fn">hash2d</span>(ix,iy),<span class="fn">hash2d</span>(ix+<span class="nm">1</span>,iy));
+    <span class="kw">let</span> (c,d)=(<span class="fn">hash2d</span>(ix,iy+<span class="nm">1</span>),<span class="fn">hash2d</span>(ix+<span class="nm">1</span>,iy+<span class="nm">1</span>));
+    <span class="kw">let</span> (ab,cd)=(a+sx*(b-a), c+sx*(d-c));
+    ab+sy*(cd-ab)
+}
+<span class="kw">fn</span> <span class="fn">main</span>(){
+    <span class="kw">for</span> y <span class="kw">in</span> <span class="nm">0</span>..<span class="nm">4</span>{
+        <span class="kw">let</span> r:Vec<_>=(<span class="nm">0</span>..<span class="nm">8</span>).<span class="fn">map</span>(|x|<span class="fn">format!</span>(<span class="st">"{:.2}"</span>,<span class="fn">value_noise</span>(x <span class="kw">as</span> <span class="ty">f64</span>*<span class="nm">0.3</span>,y <span class="kw">as</span> <span class="ty">f64</span>*<span class="nm">0.3</span>))).<span class="fn">collect</span>();
+        <span class="fn">println!</span>(<span class="st">"{}"</span>,r.<span class="fn">join</span>(<span class="st">" "</span>));
+    }
+}
+<span class="label">Rust &mdash; value noise</span></code></pre>
+  </div>
+</div>
+
+<p>Cross-reference: see the <a href="rng-deep-dive.html">RNG deep dive</a> for how hash functions work under the hood.</p>
+
+<div class="power hack">
+<div class="power-label">The Lattice Trick</div>
+<p>All classic noise functions share a key insight: place random data at integer grid points, then smoothly interpolate between them. The &ldquo;random&rdquo; values are computed by a hash function from integer coordinates, so the same input always gives the same output &mdash; deterministic randomness. The magic is in the interpolation: smoothstep hides grid artifacts. Perlin&rsquo;s further trick was using gradient vectors instead of scalar values, eliminating directional bias.</p>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="ch8">
+<h2>// 08 &mdash; Signed Distance Functions</h2>
+
+<p class="drop-cap">A <strong>Signed Distance Function</strong> (SDF) returns the shortest distance from any point to a surface &mdash; positive outside, negative inside, zero on the boundary. This deceptively simple idea powers everything from font rendering to real-time ray marching. With a handful of SDF primitives and a few boolean operations, you can sculpt entire worlds without a single triangle.</p>
+
+<h3>SDF Primitives</h3>
+<p>The two workhorses are the circle and box SDFs. A circle SDF is just the distance from the center minus the radius. A box SDF is trickier &mdash; it uses <code>abs()</code> to exploit symmetry and <code>max()</code> to handle corners.</p>
+
+<h3>Boolean Operations</h3>
+<p>Combine SDFs with simple <code>min</code>/<code>max</code> operations: <strong>union</strong> (<code>min(a,b)</code>), <strong>intersection</strong> (<code>max(a,b)</code>), <strong>subtraction</strong> (<code>max(a,-b)</code>). For organic blends, use <strong>smooth union</strong> with an exponential or polynomial falloff.</p>
+
+<h3>Ray Marching</h3>
+<p>To render an SDF in 3D, march a ray forward by the SDF distance at each step. If the SDF returns 0.01, you&rsquo;re 0.01 units from the surface &mdash; safe to step that far. This &ldquo;sphere tracing&rdquo; converges quickly near surfaces and leaps through empty space.</p>
+
+<div class="demo-box">
+<h4>SDF Builder</h4>
+<p>Combine two SDF shapes with boolean operations. Adjust the blend factor for smooth transitions.</p>
+<div class="demo-controls">
+  <label>Shape A <select id="sdf-shape-a"><option value="0">Circle</option><option value="1">Box</option><option value="2">Rounded Box</option></select></label>
+  <label>Shape B <select id="sdf-shape-b"><option value="0">Circle</option><option value="1" selected>Box</option><option value="2">Rounded Box</option></select></label>
+  <label>Operation <select id="sdf-op"><option value="0">Union</option><option value="1">Intersect</option><option value="2">Subtract</option><option value="3">Smooth Union</option></select></label>
+  <label>Blend <input type="range" id="sdf-blend" min="0.01" max="0.5" value="0.15" step="0.01"><span id="sdf-blend-val">0.15</span></label>
+</div>
+<canvas id="sdf-canvas" width="400" height="400" style="width:100%;max-width:400px;display:block;margin:0.5rem auto;border:1px solid var(--border);border-radius:4px;"></canvas>
+</div>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-sdf" id="sdf-c" class="tc" checked>
+  <input type="radio" name="tabs-sdf" id="sdf-py" class="tpy">
+  <input type="radio" name="tabs-sdf" id="sdf-ts" class="tts">
+  <input type="radio" name="tabs-sdf" id="sdf-go" class="tgo">
+  <input type="radio" name="tabs-sdf" id="sdf-rs" class="trs">
+  <div class="tab-bar">
+    <label for="sdf-c">GLSL</label>
+    <label for="sdf-py">Python</label>
+    <label for="sdf-ts">TypeScript</label>
+    <label for="sdf-go">Go</label>
+    <label for="sdf-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+    <pre><code><span class="cm">// SDF primitives + boolean ops</span>
+<span class="ty">float</span> <span class="fn">sdCircle</span>(<span class="ty">vec2</span> p, <span class="ty">float</span> r) {
+    <span class="kw">return</span> <span class="fn">length</span>(p) - r;
+}
+<span class="ty">float</span> <span class="fn">sdBox</span>(<span class="ty">vec2</span> p, <span class="ty">vec2</span> b) {
+    <span class="ty">vec2</span> d = <span class="fn">abs</span>(p) - b;
+    <span class="kw">return</span> <span class="fn">length</span>(<span class="fn">max</span>(d, <span class="nm">0.0</span>)) + <span class="fn">min</span>(<span class="fn">max</span>(d.x, d.y), <span class="nm">0.0</span>);
+}
+<span class="ty">float</span> <span class="fn">opUnion</span>(<span class="ty">float</span> a, <span class="ty">float</span> b) { <span class="kw">return</span> <span class="fn">min</span>(a, b); }
+<span class="ty">float</span> <span class="fn">opIntersect</span>(<span class="ty">float</span> a, <span class="ty">float</span> b) { <span class="kw">return</span> <span class="fn">max</span>(a, b); }
+<span class="ty">float</span> <span class="fn">opSubtract</span>(<span class="ty">float</span> a, <span class="ty">float</span> b) { <span class="kw">return</span> <span class="fn">max</span>(a, -b); }
+<span class="ty">float</span> <span class="fn">opSmoothUnion</span>(<span class="ty">float</span> a, <span class="ty">float</span> b, <span class="ty">float</span> k) {
+    <span class="ty">float</span> h = <span class="fn">clamp</span>(<span class="nm">0.5</span> + <span class="nm">0.5</span>*(b-a)/k, <span class="nm">0.0</span>, <span class="nm">1.0</span>);
+    <span class="kw">return</span> <span class="fn">mix</span>(b, a, h) - k*h*(<span class="nm">1.0</span>-h);
+}
+<span class="label">GLSL &mdash; SDF primitives</span></code></pre>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">import</span> math
+<span class="kw">def</span> <span class="fn">sd_circle</span>(px, py, r):
+    <span class="kw">return</span> math.<span class="fn">sqrt</span>(px*px + py*py) - r
+<span class="kw">def</span> <span class="fn">sd_box</span>(px, py, bx, by):
+    dx, dy = <span class="fn">abs</span>(px)-bx, <span class="fn">abs</span>(py)-by
+    <span class="kw">return</span> math.<span class="fn">sqrt</span>(<span class="fn">max</span>(dx,<span class="nm">0</span>)**<span class="nm">2</span>+<span class="fn">max</span>(dy,<span class="nm">0</span>)**<span class="nm">2</span>) + <span class="fn">min</span>(<span class="fn">max</span>(dx,dy),<span class="nm">0</span>)
+<span class="kw">def</span> <span class="fn">op_smooth_union</span>(a, b, k):
+    h = <span class="fn">max</span>(<span class="fn">min</span>(<span class="nm">0.5</span>+<span class="nm">0.5</span>*(b-a)/k, <span class="nm">1.0</span>), <span class="nm">0.0</span>)
+    <span class="kw">return</span> b+(a-b)*h - k*h*(<span class="nm">1.0</span>-h)
+<span class="cm"># Test: distance from origin to circle r=0.5</span>
+<span class="fn">print</span>(<span class="st">f"circle(0,0): {<span class="fn">sd_circle</span>(0,0,0.5):.2f}"</span>)
+<span class="fn">print</span>(<span class="st">f"circle(1,0): {<span class="fn">sd_circle</span>(1,0,0.5):.2f}"</span>)
+<span class="fn">print</span>(<span class="st">f"box(0.3,0.3): {<span class="fn">sd_box</span>(0.3,0.3,0.5,0.5):.2f}"</span>)
+<span class="fn">print</span>(<span class="st">f"smooth union: {<span class="fn">op_smooth_union</span>(-0.1,0.2,0.15):.3f}"</span>)
+<span class="label">Python &mdash; SDF primitives</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="kw">function</span> <span class="fn">sdCircle</span>(px: <span class="ty">number</span>, py: <span class="ty">number</span>, r: <span class="ty">number</span>): <span class="ty">number</span> {
+    <span class="kw">return</span> Math.<span class="fn">sqrt</span>(px*px+py*py) - r;
+}
+<span class="kw">function</span> <span class="fn">sdBox</span>(px: <span class="ty">number</span>, py: <span class="ty">number</span>, bx: <span class="ty">number</span>, by: <span class="ty">number</span>): <span class="ty">number</span> {
+    <span class="kw">const</span> dx=Math.<span class="fn">abs</span>(px)-bx, dy=Math.<span class="fn">abs</span>(py)-by;
+    <span class="kw">return</span> Math.<span class="fn">sqrt</span>(Math.<span class="fn">max</span>(dx,<span class="nm">0</span>)**<span class="nm">2</span>+Math.<span class="fn">max</span>(dy,<span class="nm">0</span>)**<span class="nm">2</span>)+Math.<span class="fn">min</span>(Math.<span class="fn">max</span>(dx,dy),<span class="nm">0</span>);
+}
+<span class="kw">function</span> <span class="fn">opSmoothUnion</span>(a: <span class="ty">number</span>, b: <span class="ty">number</span>, k: <span class="ty">number</span>): <span class="ty">number</span> {
+    <span class="kw">const</span> h=Math.<span class="fn">max</span>(Math.<span class="fn">min</span>(<span class="nm">0.5</span>+<span class="nm">0.5</span>*(b-a)/k,<span class="nm">1</span>),<span class="nm">0</span>);
+    <span class="kw">return</span> b+(a-b)*h - k*h*(<span class="nm">1</span>-h);
+}
+console.<span class="fn">log</span>(<span class="st">"circle(0,0):"</span>, <span class="fn">sdCircle</span>(<span class="nm">0</span>,<span class="nm">0</span>,<span class="nm">0.5</span>).<span class="fn">toFixed</span>(<span class="nm">2</span>));
+console.<span class="fn">log</span>(<span class="st">"circle(1,0):"</span>, <span class="fn">sdCircle</span>(<span class="nm">1</span>,<span class="nm">0</span>,<span class="nm">0.5</span>).<span class="fn">toFixed</span>(<span class="nm">2</span>));
+console.<span class="fn">log</span>(<span class="st">"smooth:"</span>, <span class="fn">opSmoothUnion</span>(-<span class="nm">0.1</span>,<span class="nm">0.2</span>,<span class="nm">0.15</span>).<span class="fn">toFixed</span>(<span class="nm">3</span>));
+<span class="label">TypeScript &mdash; SDF primitives</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="kw">package</span> main
+<span class="kw">import</span> (<span class="st">"fmt"</span>;<span class="st">"math"</span>)
+<span class="kw">func</span> <span class="fn">sdCircle</span>(px,py,r <span class="ty">float64</span>) <span class="ty">float64</span> {
+    <span class="kw">return</span> math.<span class="fn">Sqrt</span>(px*px+py*py) - r
+}
+<span class="kw">func</span> <span class="fn">sdBox</span>(px,py,bx,by <span class="ty">float64</span>) <span class="ty">float64</span> {
+    dx,dy := math.<span class="fn">Abs</span>(px)-bx, math.<span class="fn">Abs</span>(py)-by
+    <span class="kw">return</span> math.<span class="fn">Sqrt</span>(math.<span class="fn">Max</span>(dx,<span class="nm">0</span>)*math.<span class="fn">Max</span>(dx,<span class="nm">0</span>)+math.<span class="fn">Max</span>(dy,<span class="nm">0</span>)*math.<span class="fn">Max</span>(dy,<span class="nm">0</span>)) +
+           math.<span class="fn">Min</span>(math.<span class="fn">Max</span>(dx,dy),<span class="nm">0</span>)
+}
+<span class="kw">func</span> <span class="fn">opSmoothUnion</span>(a,b,k <span class="ty">float64</span>) <span class="ty">float64</span> {
+    h := math.<span class="fn">Max</span>(math.<span class="fn">Min</span>(<span class="nm">0.5</span>+<span class="nm">0.5</span>*(b-a)/k, <span class="nm">1</span>), <span class="nm">0</span>)
+    <span class="kw">return</span> b+(a-b)*h - k*h*(<span class="nm">1</span>-h)
+}
+<span class="kw">func</span> <span class="fn">main</span>() {
+    fmt.<span class="fn">Printf</span>(<span class="st">"circle(0,0): %.2f\n"</span>, <span class="fn">sdCircle</span>(<span class="nm">0</span>,<span class="nm">0</span>,<span class="nm">0.5</span>))
+    fmt.<span class="fn">Printf</span>(<span class="st">"circle(1,0): %.2f\n"</span>, <span class="fn">sdCircle</span>(<span class="nm">1</span>,<span class="nm">0</span>,<span class="nm">0.5</span>))
+    fmt.<span class="fn">Printf</span>(<span class="st">"smooth: %.3f\n"</span>, <span class="fn">opSmoothUnion</span>(-<span class="nm">0.1</span>,<span class="nm">0.2</span>,<span class="nm">0.15</span>))
+}
+<span class="label">Go &mdash; SDF primitives</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="kw">fn</span> <span class="fn">sd_circle</span>(px:<span class="ty">f64</span>, py:<span class="ty">f64</span>, r:<span class="ty">f64</span>) -> <span class="ty">f64</span> {
+    (px*px + py*py).<span class="fn">sqrt</span>() - r
+}
+<span class="kw">fn</span> <span class="fn">sd_box</span>(px:<span class="ty">f64</span>, py:<span class="ty">f64</span>, bx:<span class="ty">f64</span>, by:<span class="ty">f64</span>) -> <span class="ty">f64</span> {
+    <span class="kw">let</span> (dx,dy) = (px.<span class="fn">abs</span>()-bx, py.<span class="fn">abs</span>()-by);
+    (dx.<span class="fn">max</span>(<span class="nm">0.0</span>).<span class="fn">powi</span>(<span class="nm">2</span>)+dy.<span class="fn">max</span>(<span class="nm">0.0</span>).<span class="fn">powi</span>(<span class="nm">2</span>)).<span class="fn">sqrt</span>() + dx.<span class="fn">max</span>(dy).<span class="fn">min</span>(<span class="nm">0.0</span>)
+}
+<span class="kw">fn</span> <span class="fn">op_smooth_union</span>(a:<span class="ty">f64</span>, b:<span class="ty">f64</span>, k:<span class="ty">f64</span>) -> <span class="ty">f64</span> {
+    <span class="kw">let</span> h = (<span class="nm">0.5</span>+<span class="nm">0.5</span>*(b-a)/k).<span class="fn">clamp</span>(<span class="nm">0.0</span>,<span class="nm">1.0</span>);
+    b+(a-b)*h - k*h*(<span class="nm">1.0</span>-h)
+}
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="fn">println!</span>(<span class="st">"circle(0,0): {:.2}"</span>, <span class="fn">sd_circle</span>(<span class="nm">0.0</span>,<span class="nm">0.0</span>,<span class="nm">0.5</span>));
+    <span class="fn">println!</span>(<span class="st">"circle(1,0): {:.2}"</span>, <span class="fn">sd_circle</span>(<span class="nm">1.0</span>,<span class="nm">0.0</span>,<span class="nm">0.5</span>));
+    <span class="fn">println!</span>(<span class="st">"smooth: {:.3}"</span>, <span class="fn">op_smooth_union</span>(-<span class="nm">0.1</span>,<span class="nm">0.2</span>,<span class="nm">0.15</span>));
+}
+<span class="label">Rust &mdash; SDF primitives</span></code></pre>
+  </div>
+</div>
+
+<div class="power wild">
+<div class="power-label">Ray Marching</div>
+<p>Ray marching is the GPU&rsquo;s answer to &ldquo;how do I render implicit surfaces?&rdquo; For each pixel, cast a ray from the camera. At each step, evaluate the SDF &mdash; it tells you the safe step size. If the SDF returns 2.0, nothing is closer than 2.0 units, so jump ahead. Near the surface the steps get tiny, converging to a hit. The beauty is that you never need to triangulate anything &mdash; the math <em>is</em> the geometry. Inigo Quilez used this technique to build entire worlds in ShaderToy with zero mesh data.</p>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="ch9">
+<h2>// 09 &mdash; Lighting Models</h2>
+
+<p class="drop-cap">Light is what makes flat shading look three-dimensional. Every lighting model boils down to the same question: given a surface point, its normal, the light direction, and the view direction, how bright should this pixel be? The answer has evolved from crude approximations to physically-based models that fool the eye.</p>
+
+<h3>Phong &amp; Blinn-Phong</h3>
+<p>The Phong model (1975) decomposes light into three components: <strong>ambient</strong> (constant fill), <strong>diffuse</strong> (<code>max(dot(N,L),0)</code>), and <strong>specular</strong> (highlight from the reflection vector). Blinn-Phong (1977) replaces the reflection vector with the <strong>half vector</strong> <code>H = normalize(L+V)</code>, which is cheaper and looks better at grazing angles.</p>
+
+<h3>Physically-Based Rendering (PBR)</h3>
+<p>PBR models use the <strong>Cook-Torrance BRDF</strong>: a microfacet distribution (GGX), a geometry term (Smith), and a Fresnel term (Schlick). The key insight is energy conservation &mdash; a surface can&rsquo;t reflect more light than it receives. PBR uses two intuitive parameters: <strong>metalness</strong> and <strong>roughness</strong>.</p>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-phong" id="phong-c" class="tc" checked>
+  <input type="radio" name="tabs-phong" id="phong-py" class="tpy">
+  <input type="radio" name="tabs-phong" id="phong-ts" class="tts">
+  <input type="radio" name="tabs-phong" id="phong-go" class="tgo">
+  <input type="radio" name="tabs-phong" id="phong-rs" class="trs">
+  <div class="tab-bar">
+    <label for="phong-c">GLSL</label>
+    <label for="phong-py">Python</label>
+    <label for="phong-ts">TypeScript</label>
+    <label for="phong-go">Go</label>
+    <label for="phong-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+    <pre><code><span class="cm">// Blinn-Phong lighting</span>
+<span class="ty">vec3</span> <span class="fn">blinnPhong</span>(<span class="ty">vec3</span> N, <span class="ty">vec3</span> L, <span class="ty">vec3</span> V,
+                <span class="ty">vec3</span> albedo, <span class="ty">float</span> shininess) {
+    <span class="ty">vec3</span> ambient = <span class="nm">0.05</span> * albedo;
+    <span class="ty">float</span> diff = <span class="fn">max</span>(<span class="fn">dot</span>(N, L), <span class="nm">0.0</span>);
+    <span class="ty">vec3</span> H = <span class="fn">normalize</span>(L + V);
+    <span class="ty">float</span> spec = <span class="fn">pow</span>(<span class="fn">max</span>(<span class="fn">dot</span>(N, H), <span class="nm">0.0</span>), shininess);
+    <span class="kw">return</span> ambient + diff * albedo + spec * <span class="ty">vec3</span>(<span class="nm">1.0</span>);
+}
+<span class="label">GLSL &mdash; Blinn-Phong</span></code></pre>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">import</span> math
+<span class="kw">def</span> <span class="fn">dot3</span>(a,b): <span class="kw">return</span> a[<span class="nm">0</span>]*b[<span class="nm">0</span>]+a[<span class="nm">1</span>]*b[<span class="nm">1</span>]+a[<span class="nm">2</span>]*b[<span class="nm">2</span>]
+<span class="kw">def</span> <span class="fn">norm3</span>(v):
+    l=math.<span class="fn">sqrt</span>(<span class="fn">dot3</span>(v,v))
+    <span class="kw">return</span> [x/l <span class="kw">for</span> x <span class="kw">in</span> v] <span class="kw">if</span> l><span class="nm">0</span> <span class="kw">else</span> v
+<span class="kw">def</span> <span class="fn">blinn_phong</span>(N, L, V, albedo, shininess):
+    ambient = [<span class="nm">0.05</span>*a <span class="kw">for</span> a <span class="kw">in</span> albedo]
+    diff = <span class="fn">max</span>(<span class="fn">dot3</span>(N, L), <span class="nm">0.0</span>)
+    H = <span class="fn">norm3</span>([L[i]+V[i] <span class="kw">for</span> i <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">3</span>)])
+    spec = <span class="fn">max</span>(<span class="fn">dot3</span>(N, H), <span class="nm">0.0</span>)**shininess
+    <span class="kw">return</span> [ambient[i]+diff*albedo[i]+spec <span class="kw">for</span> i <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">3</span>)]
+<span class="cm"># Light from above, view from front</span>
+N = [<span class="nm">0</span>,<span class="nm">1</span>,<span class="nm">0</span>]; L = <span class="fn">norm3</span>([<span class="nm">1</span>,<span class="nm">1</span>,<span class="nm">0</span>]); V = [<span class="nm">0</span>,<span class="nm">0</span>,<span class="nm">1</span>]
+c = <span class="fn">blinn_phong</span>(N, L, V, [<span class="nm">0.8</span>,<span class="nm">0.2</span>,<span class="nm">0.2</span>], <span class="nm">32</span>)
+<span class="fn">print</span>(<span class="st">f"color: ({c[0]:.3f}, {c[1]:.3f}, {c[2]:.3f})"</span>)
+<span class="label">Python &mdash; Blinn-Phong</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="kw">type</span> <span class="ty">V3</span> = [<span class="ty">number</span>,<span class="ty">number</span>,<span class="ty">number</span>];
+<span class="kw">const</span> <span class="fn">dot3</span>=(a:<span class="ty">V3</span>,b:<span class="ty">V3</span>)=>a[<span class="nm">0</span>]*b[<span class="nm">0</span>]+a[<span class="nm">1</span>]*b[<span class="nm">1</span>]+a[<span class="nm">2</span>]*b[<span class="nm">2</span>];
+<span class="kw">const</span> <span class="fn">norm3</span>=(v:<span class="ty">V3</span>):<span class="ty">V3</span>=>{<span class="kw">const</span> l=Math.<span class="fn">sqrt</span>(<span class="fn">dot3</span>(v,v));<span class="kw">return</span> v.<span class="fn">map</span>(x=>x/l) <span class="kw">as</span> <span class="ty">V3</span>;};
+<span class="kw">function</span> <span class="fn">blinnPhong</span>(N:<span class="ty">V3</span>, L:<span class="ty">V3</span>, V:<span class="ty">V3</span>, albedo:<span class="ty">V3</span>, shin:<span class="ty">number</span>):<span class="ty">V3</span> {
+    <span class="kw">const</span> diff=Math.<span class="fn">max</span>(<span class="fn">dot3</span>(N,L),<span class="nm">0</span>);
+    <span class="kw">const</span> H=<span class="fn">norm3</span>([L[<span class="nm">0</span>]+V[<span class="nm">0</span>],L[<span class="nm">1</span>]+V[<span class="nm">1</span>],L[<span class="nm">2</span>]+V[<span class="nm">2</span>]]);
+    <span class="kw">const</span> spec=Math.<span class="fn">pow</span>(Math.<span class="fn">max</span>(<span class="fn">dot3</span>(N,H),<span class="nm">0</span>),shin);
+    <span class="kw">return</span> albedo.<span class="fn">map</span>((a,i)=><span class="nm">0.05</span>*a+diff*a+spec) <span class="kw">as</span> <span class="ty">V3</span>;
+}
+<span class="kw">const</span> c=<span class="fn">blinnPhong</span>([<span class="nm">0</span>,<span class="nm">1</span>,<span class="nm">0</span>],<span class="fn">norm3</span>([<span class="nm">1</span>,<span class="nm">1</span>,<span class="nm">0</span>]),[<span class="nm">0</span>,<span class="nm">0</span>,<span class="nm">1</span>],[<span class="nm">0.8</span>,<span class="nm">0.2</span>,<span class="nm">0.2</span>],<span class="nm">32</span>);
+console.<span class="fn">log</span>(<span class="st">`color: (${c.map(v=>v.toFixed(3)).join(", ")})`</span>);
+<span class="label">TypeScript &mdash; Blinn-Phong</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="kw">package</span> main
+<span class="kw">import</span> (<span class="st">"fmt"</span>;<span class="st">"math"</span>)
+<span class="kw">type</span> V3 [<span class="nm">3</span>]<span class="ty">float64</span>
+<span class="kw">func</span> <span class="fn">dot3</span>(a,b V3) <span class="ty">float64</span> { <span class="kw">return</span> a[<span class="nm">0</span>]*b[<span class="nm">0</span>]+a[<span class="nm">1</span>]*b[<span class="nm">1</span>]+a[<span class="nm">2</span>]*b[<span class="nm">2</span>] }
+<span class="kw">func</span> <span class="fn">norm3</span>(v V3) V3 {
+    l:=math.<span class="fn">Sqrt</span>(<span class="fn">dot3</span>(v,v))
+    <span class="kw">return</span> V3{v[<span class="nm">0</span>]/l,v[<span class="nm">1</span>]/l,v[<span class="nm">2</span>]/l}
+}
+<span class="kw">func</span> <span class="fn">blinnPhong</span>(N,L,V V3, alb V3, shin <span class="ty">float64</span>) V3 {
+    diff:=math.<span class="fn">Max</span>(<span class="fn">dot3</span>(N,L),<span class="nm">0</span>)
+    H:=<span class="fn">norm3</span>(V3{L[<span class="nm">0</span>]+V[<span class="nm">0</span>],L[<span class="nm">1</span>]+V[<span class="nm">1</span>],L[<span class="nm">2</span>]+V[<span class="nm">2</span>]})
+    spec:=math.<span class="fn">Pow</span>(math.<span class="fn">Max</span>(<span class="fn">dot3</span>(N,H),<span class="nm">0</span>),shin)
+    <span class="kw">return</span> V3{<span class="nm">0.05</span>*alb[<span class="nm">0</span>]+diff*alb[<span class="nm">0</span>]+spec,
+              <span class="nm">0.05</span>*alb[<span class="nm">1</span>]+diff*alb[<span class="nm">1</span>]+spec,
+              <span class="nm">0.05</span>*alb[<span class="nm">2</span>]+diff*alb[<span class="nm">2</span>]+spec}
+}
+<span class="kw">func</span> <span class="fn">main</span>() {
+    c:=<span class="fn">blinnPhong</span>(V3{<span class="nm">0</span>,<span class="nm">1</span>,<span class="nm">0</span>},<span class="fn">norm3</span>(V3{<span class="nm">1</span>,<span class="nm">1</span>,<span class="nm">0</span>}),V3{<span class="nm">0</span>,<span class="nm">0</span>,<span class="nm">1</span>},V3{<span class="nm">0.8</span>,<span class="nm">0.2</span>,<span class="nm">0.2</span>},<span class="nm">32</span>)
+    fmt.<span class="fn">Printf</span>(<span class="st">"color: (%.3f, %.3f, %.3f)\n"</span>,c[<span class="nm">0</span>],c[<span class="nm">1</span>],c[<span class="nm">2</span>])
+}
+<span class="label">Go &mdash; Blinn-Phong</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="kw">fn</span> <span class="fn">dot3</span>(a:[<span class="ty">f64</span>;<span class="nm">3</span>],b:[<span class="ty">f64</span>;<span class="nm">3</span>])-><span class="ty">f64</span>{ a[<span class="nm">0</span>]*b[<span class="nm">0</span>]+a[<span class="nm">1</span>]*b[<span class="nm">1</span>]+a[<span class="nm">2</span>]*b[<span class="nm">2</span>] }
+<span class="kw">fn</span> <span class="fn">norm3</span>(v:[<span class="ty">f64</span>;<span class="nm">3</span>])->[<span class="ty">f64</span>;<span class="nm">3</span>]{
+    <span class="kw">let</span> l=<span class="fn">dot3</span>(v,v).<span class="fn">sqrt</span>(); [v[<span class="nm">0</span>]/l,v[<span class="nm">1</span>]/l,v[<span class="nm">2</span>]/l]
+}
+<span class="kw">fn</span> <span class="fn">blinn_phong</span>(n:[<span class="ty">f64</span>;<span class="nm">3</span>],l:[<span class="ty">f64</span>;<span class="nm">3</span>],v:[<span class="ty">f64</span>;<span class="nm">3</span>],alb:[<span class="ty">f64</span>;<span class="nm">3</span>],shin:<span class="ty">f64</span>)->[<span class="ty">f64</span>;<span class="nm">3</span>]{
+    <span class="kw">let</span> diff=<span class="fn">dot3</span>(n,l).<span class="fn">max</span>(<span class="nm">0.0</span>);
+    <span class="kw">let</span> h=<span class="fn">norm3</span>([l[<span class="nm">0</span>]+v[<span class="nm">0</span>],l[<span class="nm">1</span>]+v[<span class="nm">1</span>],l[<span class="nm">2</span>]+v[<span class="nm">2</span>]]);
+    <span class="kw">let</span> spec=<span class="fn">dot3</span>(n,h).<span class="fn">max</span>(<span class="nm">0.0</span>).<span class="fn">powf</span>(shin);
+    [<span class="nm">0.05</span>*alb[<span class="nm">0</span>]+diff*alb[<span class="nm">0</span>]+spec,
+     <span class="nm">0.05</span>*alb[<span class="nm">1</span>]+diff*alb[<span class="nm">1</span>]+spec,
+     <span class="nm">0.05</span>*alb[<span class="nm">2</span>]+diff*alb[<span class="nm">2</span>]+spec]
+}
+<span class="kw">fn</span> <span class="fn">main</span>(){
+    <span class="kw">let</span> c=<span class="fn">blinn_phong</span>([<span class="nm">0.0</span>,<span class="nm">1.0</span>,<span class="nm">0.0</span>],<span class="fn">norm3</span>([<span class="nm">1.0</span>,<span class="nm">1.0</span>,<span class="nm">0.0</span>]),[<span class="nm">0.0</span>,<span class="nm">0.0</span>,<span class="nm">1.0</span>],[<span class="nm">0.8</span>,<span class="nm">0.2</span>,<span class="nm">0.2</span>],<span class="nm">32.0</span>);
+    <span class="fn">println!</span>(<span class="st">"color: ({:.3}, {:.3}, {:.3})"</span>,c[<span class="nm">0</span>],c[<span class="nm">1</span>],c[<span class="nm">2</span>]);
+}
+<span class="label">Rust &mdash; Blinn-Phong</span></code></pre>
+  </div>
+</div>
+
+<p>Cross-reference: see the <a href="floatingpoint-deep-dive.html">floating-point deep dive</a> for why <code>dot(N,L)</code> can produce values outside [0,1] with denormalized normals, and how to guard against it.</p>
+
+<div class="power danger">
+<div class="power-label">Normal Precision</div>
+<p>Normals must be unit length for lighting math to work. After interpolation across a triangle, normals drift from unit length &mdash; a normal of length 0.98 darkens the surface by 2%. Always <code>normalize()</code> interpolated normals in the fragment shader. In mobile GPUs with mediump (16-bit floats), normalization error compounds: a reflected specular highlight can flicker or smear. If your specular looks broken on mobile, upgrade the normal to <code>highp</code> before the lighting calculation.</p>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="ch10">
+<h2>// 10 &mdash; Post-Processing Effects</h2>
+
+<p class="drop-cap">Post-processing treats the entire rendered frame as a texture and applies full-screen shader passes to it. This is where bloom, blur, color grading, and CRT effects live. The technique is called <strong>multi-pass rendering</strong>: render the scene to a framebuffer object (FBO), then draw a full-screen quad with a shader that reads from that texture.</p>
+
+<h3>Multi-Pass Architecture</h3>
+<pre><code><span class="cm">  Scene render         Pass 1            Pass 2            Final</span>
+  &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;    &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;    &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;    &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;
+  &boxv; 3D geometry  &boxv;&rarr;&rarr;&rarr;&boxv; Bright pass  &boxv;&rarr;&rarr;&rarr;&boxv; Gaussian     &boxv;&rarr;&rarr;&rarr;&boxv; Composite    &boxv;
+  &boxv;   &rarr; FBO A   &boxv;    &boxv; (threshold)  &boxv;    &boxv; blur (2-pass)&boxv;    &boxv; FBO A + blur &boxv;
+  &boxdl;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdr;    &boxdl;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdr;    &boxdl;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdr;    &boxdl;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdr;
+<span class="label">Multi-pass rendering pipeline</span></code></pre>
+
+<h3>Common Post-Processing Effects</h3>
+<table>
+<thead><tr><th>Effect</th><th>Technique</th><th>Passes</th><th>GPU Cost</th></tr></thead>
+<tbody>
+<tr><td>Bloom</td><td>Threshold + Gaussian blur + composite</td><td>3&ndash;5</td><td>Medium</td></tr>
+<tr><td>Gaussian Blur</td><td>Separable H+V passes</td><td>2</td><td>Low&ndash;Medium</td></tr>
+<tr><td>Vignette</td><td>Distance from center darkening</td><td>1</td><td>Very Low</td></tr>
+<tr><td>CRT Simulation</td><td>Scanlines + chromatic aberration + curvature</td><td>1</td><td>Low</td></tr>
+<tr><td>FXAA</td><td>Edge detection + sub-pixel blending</td><td>1</td><td>Low</td></tr>
+<tr><td>Motion Blur</td><td>Velocity buffer + directional blur</td><td>2</td><td>Medium&ndash;High</td></tr>
+<tr><td>Depth of Field</td><td>Circle of confusion + blur by depth</td><td>2&ndash;3</td><td>High</td></tr>
+<tr><td>Color Grading</td><td>3D LUT texture lookup</td><td>1</td><td>Very Low</td></tr>
+</tbody>
+</table>
+
+<h3>Bloom in Detail</h3>
+<p>Extract bright pixels (above a threshold), blur them with a Gaussian kernel, then add the blurred result back to the original image. The key optimization is <strong>separable blur</strong>: a 2D Gaussian can be split into a horizontal pass followed by a vertical pass, reducing an N&times;N kernel from O(N&sup2;) to O(2N) texture samples.</p>
+
+<h3>CRT Shader</h3>
+<p>The retro CRT look combines several effects: <strong>scanlines</strong> (darken every other row), <strong>chromatic aberration</strong> (offset R/G/B channels), <strong>barrel distortion</strong> (curve the screen), and a <strong>vignette</strong> (darken edges). Each is a few lines of GLSL:</p>
+
+<pre><code><span class="cm">// CRT scanlines + vignette</span>
+<span class="ty">vec2</span> uv = gl_FragCoord.xy / u_resolution;
+<span class="ty">vec3</span> col = <span class="fn">texture2D</span>(u_scene, uv).rgb;
+<span class="cm">// Scanlines: darken every other row</span>
+col *= <span class="nm">0.8</span> + <span class="nm">0.2</span> * <span class="fn">sin</span>(uv.y * u_resolution.y * <span class="nm">3.14159</span>);
+<span class="cm">// Vignette: darken edges</span>
+<span class="ty">float</span> vig = <span class="nm">1.0</span> - <span class="fn">dot</span>(uv-<span class="nm">0.5</span>, uv-<span class="nm">0.5</span>) * <span class="nm">2.0</span>;
+col *= <span class="fn">clamp</span>(vig, <span class="nm">0.0</span>, <span class="nm">1.0</span>);
+gl_FragColor = <span class="ty">vec4</span>(col, <span class="nm">1.0</span>);
+<span class="label">GLSL &mdash; CRT post-processing</span></code></pre>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch11">
+<h2>// 11 &mdash; Shader Art and the Demoscene</h2>
+
+<p class="drop-cap">The demoscene is a computer art subculture where programmers create real-time audiovisual demonstrations under extreme constraints. A <strong>4K intro</strong> is an entire demo &mdash; music, visuals, everything &mdash; in 4,096 bytes. Many of these masterpieces are essentially a single fragment shader running a ray marcher through a procedural world, with the &ldquo;music&rdquo; synthesized by another shader or a tiny softsynth.</p>
+
+<h3>ShaderToy and the New Golden Age</h3>
+<p>Inigo Quilez&rsquo;s <strong>ShaderToy</strong> democratized shader art. A single fragment shader gets four uniforms (<code>iTime</code>, <code>iResolution</code>, <code>iMouse</code>, <code>iChannel0..3</code>) and produces a color for every pixel. The constraints are liberating: no meshes, no engine, no boilerplate &mdash; just math. Some ShaderToy shaders render photorealistic scenes, fractal landscapes, or fluid simulations in under 300 lines of GLSL.</p>
+
+<h3>Techniques of the Masters</h3>
+<p>Demoscene coders exploit every trick: <strong>domain repetition</strong> (<code>mod(p, period)</code> to tile space infinitely), <strong>domain warping</strong> (feed noise into noise coordinates), <strong>orbit traps</strong> (color fractals by tracking closest approach to a geometric shape), and <strong>analytic ambient occlusion</strong> (approximate AO from the SDF gradient).</p>
+
+<pre><code><span class="cm">// Domain repetition — infinite columns from one SDF</span>
+<span class="ty">vec3</span> <span class="fn">rep</span>(<span class="ty">vec3</span> p, <span class="ty">vec3</span> period) {
+    <span class="kw">return</span> <span class="fn">mod</span>(p + period*<span class="nm">0.5</span>, period) - period*<span class="nm">0.5</span>;
+}
+<span class="ty">float</span> <span class="fn">scene</span>(<span class="ty">vec3</span> p) {
+    <span class="ty">vec3</span> q = <span class="fn">rep</span>(p, <span class="ty">vec3</span>(<span class="nm">4.0</span>));      <span class="cm">// tile every 4 units</span>
+    <span class="kw">return</span> <span class="fn">length</span>(q.xz) - <span class="nm">0.5</span>;       <span class="cm">// infinite cylinders</span>
+}
+<span class="label">GLSL &mdash; domain repetition</span></code></pre>
+
+<div class="power zen">
+<div class="power-label">4K Intros</div>
+<p>The entire executable &mdash; code, shaders, music synthesizer, all assets &mdash; fits in 4,096 bytes. That&rsquo;s less than this paragraph rendered as HTML. Coders use custom executable packers (Crinkler, kkrunchy) that exploit x86 instruction patterns for compression ratios that would make gzip weep. The shader itself is typically 2&ndash;3 KB of GLSL, procedurally generating everything: terrain from fBm noise, trees from recursive SDFs, water from domain-warped sine waves, clouds from ray-marched volume noise. The music is synthesized from a tiny DSP graph &mdash; oscillators, filters, envelopes &mdash; encoded as a few hundred bytes of parameter data. The result is art that would fill gigabytes as conventional assets, conjured from pure mathematics at 60 fps.</p>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="ch12">
+<h2>// 12 &mdash; Performance: The GPU&rsquo;s Price List</h2>
+
+<p class="drop-cap">GPUs are massively parallel but deeply unforgiving. A single branch can stall an entire warp. A single texture lookup at the wrong time can blow your bandwidth budget. Understanding what&rsquo;s cheap and what&rsquo;s expensive on a GPU is the difference between 60 fps and a slideshow.</p>
+
+<h3>Operation Costs</h3>
+<table>
+<thead><tr><th>Operation</th><th>Relative Cost</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td>ADD / MUL / MAD</td><td>1x</td><td>Fused multiply-add is free on modern GPUs</td></tr>
+<tr><td>dot / cross / mix</td><td>1x</td><td>Single-cycle intrinsics</td></tr>
+<tr><td>sqrt / rsqrt</td><td>2x</td><td>Special function units (SFU)</td></tr>
+<tr><td>sin / cos / exp / log</td><td>4x</td><td>SFU, may be approximations</td></tr>
+<tr><td>pow(x, y)</td><td>8x</td><td>Implemented as exp(y*log(x))</td></tr>
+<tr><td>texture2D (cached)</td><td>~4x</td><td>If in L1 cache, nearly free</td></tr>
+<tr><td>texture2D (uncached)</td><td>100&ndash;400x</td><td>DRAM fetch, hundreds of cycles</td></tr>
+<tr><td>Coherent branch</td><td>~1x</td><td>All threads in warp take same path</td></tr>
+<tr><td>Divergent branch</td><td>2x+</td><td>Both paths execute, results masked</td></tr>
+<tr><td>Dynamic loop</td><td>Varies</td><td>Warp runs for max iteration count</td></tr>
+</tbody>
+</table>
+
+<h3>ALU vs. Bandwidth</h3>
+<p>Modern GPUs have far more compute power than memory bandwidth. A shader that does 100 ALU operations per pixel can be <em>faster</em> than one that does 5 texture lookups, because the ALU operations run in parallel across thousands of threads while the texture lookups stall waiting for memory. This is why procedural techniques (noise, SDFs) often outperform texture-based approaches.</p>
+
+<h3>The Branch Problem</h3>
+<p>GPUs execute threads in <strong>warps</strong> (32 threads on NVIDIA, 64 on AMD). When threads in a warp take different branches, the GPU executes <em>both</em> branches and masks the results &mdash; called <strong>divergent branching</strong>. A simple <code>if</code> that looks innocent can double your shader cost if adjacent pixels take different paths.</p>
+
+<pre><code><span class="cm">// BAD: divergent branch — adjacent pixels may differ</span>
+<span class="kw">if</span> (<span class="fn">texture2D</span>(u_tex, uv).r > <span class="nm">0.5</span>) {
+    <span class="cm">// expensive path A</span>
+} <span class="kw">else</span> {
+    <span class="cm">// expensive path B</span>
+}
+
+<span class="cm">// GOOD: branchless with mix()</span>
+<span class="ty">float</span> mask = <span class="fn">step</span>(<span class="nm">0.5</span>, <span class="fn">texture2D</span>(u_tex, uv).r);
+<span class="ty">vec3</span> result = <span class="fn">mix</span>(pathB, pathA, mask);
+<span class="label">GLSL &mdash; branchless optimization</span></code></pre>
+
+<p>Cross-reference: see the <a href="gpu-deep-dive.html">GPU compute deep dive</a> for warp scheduling, occupancy, and how the GPU hardware actually executes shader threads.</p>
+
+<div class="power danger">
+<div class="power-label">The Branch Tax</div>
+<p>Here&rsquo;s the insidious part: the cost of a divergent branch isn&rsquo;t just running both paths. It also destroys <strong>texture cache coherency</strong>. When half a warp takes path A and samples texture coordinate X, while the other half takes path B and samples coordinate Y, you get two cache misses instead of one. The branch and the texture fetch compound each other. In a ray marching shader, this means a divergent early-exit condition (like &ldquo;stop if distance &lt; epsilon&rdquo;) can actually be <em>slower</em> than just running all threads for the maximum step count. Profile before you optimize &mdash; your intuition about what&rsquo;s fast on a GPU is probably wrong.</p>
+</div>
+</section>
+
+</div><!-- /.content -->
+
+<!-- ============================================================ -->
+<!-- WebGL DEMOS                                                    -->
+<!-- ============================================================ -->
+<script>
+(function() {
+  'use strict';
+
+  // ── Shared WebGL helpers ──────────────────────────────────────
+  function createShader(gl, type, src) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+      const err = gl.getShaderInfoLog(s);
+      gl.deleteShader(s);
+      return { shader: null, error: err };
+    }
+    return { shader: s, error: null };
+  }
+
+  function createProgram(gl, vsSrc, fsSrc) {
+    const vs = createShader(gl, gl.VERTEX_SHADER, vsSrc);
+    if (vs.error) return { program: null, error: 'VS: ' + vs.error };
+    const fs = createShader(gl, gl.FRAGMENT_SHADER, fsSrc);
+    if (fs.error) { gl.deleteShader(vs.shader); return { program: null, error: fs.error }; }
+    const p = gl.createProgram();
+    gl.attachShader(p, vs.shader);
+    gl.attachShader(p, fs.shader);
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+      const err = gl.getProgramInfoLog(p);
+      gl.deleteProgram(p);
+      return { program: null, error: 'Link: ' + err };
+    }
+    return { program: p, error: null };
+  }
+
+  const QUAD_VS = `attribute vec2 a_pos;
+void main(){ gl_Position=vec4(a_pos,0,1); }`;
+
+  function initQuad(gl) {
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,1,-1,-1,1,1,1]), gl.STATIC_DRAW);
+    return buf;
+  }
+
+  function bindQuad(gl, program, buf) {
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    const loc = gl.getAttribLocation(program, 'a_pos');
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  }
+
+  // ── 1. SHADER PLAYGROUND ──────────────────────────────────────
+  (function() {
+    const canvas = document.getElementById('shader-canvas');
+    const editor = document.getElementById('shader-editor');
+    const errorDiv = document.getElementById('shader-error');
+    if (!canvas || !editor) return;
+
+    const gl = canvas.getContext('webgl');
+    if (!gl) return;
+    const quad = initQuad(gl);
+
+    const presets = {
+      gradient: `precision mediump float;
+uniform float u_time;
+uniform vec2 u_resolution;
+void main(){
+    vec2 uv=gl_FragCoord.xy/u_resolution;
+    gl_FragColor=vec4(uv.x,uv.y,0.5+0.5*sin(u_time),1);
+}`,
+      checkerboard: `precision mediump float;
+uniform float u_time;
+uniform vec2 u_resolution;
+void main(){
+    vec2 uv=gl_FragCoord.xy/u_resolution;
+    vec2 g=floor(uv*10.0+u_time);
+    float c=mod(g.x+g.y,2.0);
+    gl_FragColor=vec4(vec3(c),1);
+}`,
+      circle: `precision mediump float;
+uniform float u_time;
+uniform vec2 u_resolution;
+void main(){
+    vec2 uv=(gl_FragCoord.xy*2.0-u_resolution)/min(u_resolution.x,u_resolution.y);
+    float d=length(uv)-0.5;
+    float pulse=0.02*(1.0+sin(u_time*3.0));
+    vec3 col=mix(vec3(0,.8,.4),vec3(.05),smoothstep(-pulse,pulse,d));
+    col+=vec3(.7,.3,.1)*exp(-8.0*abs(d));
+    gl_FragColor=vec4(col,1);
+}`,
+      plasma: `precision mediump float;
+uniform float u_time;
+uniform vec2 u_resolution;
+void main(){
+    vec2 uv=gl_FragCoord.xy/u_resolution;
+    float v=sin(uv.x*10.0+u_time)+sin(uv.y*10.0+u_time);
+    v+=sin((uv.x+uv.y)*10.0+u_time*0.5);
+    v+=sin(length(uv-0.5)*20.0-u_time*2.0);
+    v*=0.25;
+    gl_FragColor=vec4(sin(v*3.14159),sin(v*3.14159+2.094),sin(v*3.14159+4.189),1);
+}`
+    };
+
+    let currentProgram = null;
+    let startTime = performance.now() / 1000;
+    let animId = null;
+
+    function compile() {
+      const src = editor.value;
+      if (currentProgram) gl.deleteProgram(currentProgram);
+      const result = createProgram(gl, QUAD_VS, src);
+      if (result.error) {
+        if (errorDiv) { errorDiv.textContent = result.error; errorDiv.style.display = 'block'; }
+        currentProgram = null;
+        return;
+      }
+      if (errorDiv) { errorDiv.textContent = ''; errorDiv.style.display = 'none'; }
+      currentProgram = result.program;
+    }
+
+    function render() {
+      animId = requestAnimationFrame(render);
+      if (!currentProgram) return;
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      gl.useProgram(currentProgram);
+      bindQuad(gl, currentProgram, quad);
+      const t = performance.now() / 1000 - startTime;
+      const uTime = gl.getUniformLocation(currentProgram, 'u_time');
+      const uRes = gl.getUniformLocation(currentProgram, 'u_resolution');
+      const uMouse = gl.getUniformLocation(currentProgram, 'u_mouse');
+      if (uTime) gl.uniform1f(uTime, t);
+      if (uRes) gl.uniform2f(uRes, canvas.width, canvas.height);
+      if (uMouse) gl.uniform2f(uMouse, 0, 0);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+
+    let compileTimer = null;
+    editor.addEventListener('input', function() {
+      clearTimeout(compileTimer);
+      compileTimer = setTimeout(compile, 400);
+    });
+
+    document.querySelectorAll('.preset-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        document.querySelectorAll('.preset-btn').forEach(function(b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        const key = btn.getAttribute('data-preset');
+        if (presets[key]) {
+          editor.value = presets[key];
+          compile();
+        }
+      });
+    });
+
+    compile();
+    render();
+  })();
+
+  // ── 2. UV VISUALIZER ──────────────────────────────────────────
+  (function() {
+    const canvas = document.getElementById('uv-canvas');
+    if (!canvas) return;
+    const gl = canvas.getContext('webgl');
+    if (!gl) return;
+    const quad = initQuad(gl);
+
+    const uvFS = `precision mediump float;
+uniform vec2 u_resolution;
+uniform float u_scale;
+uniform float u_offsetX;
+uniform float u_rotation;
+void main(){
+    vec2 uv = gl_FragCoord.xy / u_resolution;
+    uv -= 0.5;
+    float c=cos(u_rotation), s=sin(u_rotation);
+    uv = mat2(c,-s,s,c) * uv;
+    uv *= u_scale;
+    uv += vec2(u_offsetX, 0.0);
+    uv += 0.5;
+    // Grid lines
+    vec2 g = abs(fract(uv * 5.0) - 0.5);
+    float grid = 1.0 - smoothstep(0.02, 0.05, min(g.x, g.y));
+    vec3 col = vec3(uv.x, uv.y, 0.3) + grid * 0.2;
+    gl_FragColor = vec4(col, 1.0);
+}`;
+
+    const result = createProgram(gl, QUAD_VS, uvFS);
+    if (result.error) return;
+    const program = result.program;
+
+    const scaleSlider = document.getElementById('uv-scale');
+    const offsetSlider = document.getElementById('uv-offsetX');
+    const rotSlider = document.getElementById('uv-rotation');
+
+    function render() {
+      requestAnimationFrame(render);
+      gl.viewport(0, 0, canvas.width, canvas.height);
+      gl.useProgram(program);
+      bindQuad(gl, program, quad);
+      gl.uniform2f(gl.getUniformLocation(program, 'u_resolution'), canvas.width, canvas.height);
+      gl.uniform1f(gl.getUniformLocation(program, 'u_scale'), scaleSlider ? parseFloat(scaleSlider.value) : 1);
+      gl.uniform1f(gl.getUniformLocation(program, 'u_offsetX'), offsetSlider ? parseFloat(offsetSlider.value) : 0);
+      gl.uniform1f(gl.getUniformLocation(program, 'u_rotation'), rotSlider ? parseFloat(rotSlider.value) : 0);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+    render();
+  })();
+
+  // ── 3. NOISE EXPLORER ─────────────────────────────────────────
+  (function() {
+    const canvas = document.getElementById('noise-canvas');
+    if (!canvas) return;
+    const gl = canvas.getContext('webgl');
+    if (!gl) return;
+    const quad = initQuad(gl);
+
+    const noiseLib = `
+// Hash
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+vec2 hash2(vec2 p){return fract(sin(vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3))))*43758.5453);}
+
+// Value noise
+float valueNoise(vec2 p){
+  vec2 i=floor(p),f=fract(p);
+  vec2 u=f*f*(3.0-2.0*f);
+  return mix(mix(hash(i),hash(i+vec2(1,0)),u.x),
+             mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),u.x),u.y);
+}
+
+// Simplex-ish noise
+float simplexNoise(vec2 p){
+  const float K1=0.366025404;
+  const float K2=0.211324865;
+  vec2 i=floor(p+(p.x+p.y)*K1);
+  vec2 a=p-i+(i.x+i.y)*K2;
+  float m=step(a.y,a.x);
+  vec2 o=vec2(m,1.0-m);
+  vec2 b=a-o+K2;
+  vec2 c=a-1.0+2.0*K2;
+  vec3 h=max(0.5-vec3(dot(a,a),dot(b,b),dot(c,c)),0.0);
+  h=h*h*h*h;
+  vec3 n=h*vec3(dot(a,hash2(i)-0.5),dot(b,hash2(i+o)-0.5),dot(c,hash2(i+1.0)-0.5));
+  return dot(n,vec3(70.0));
+}
+
+// Worley noise
+float worleyNoise(vec2 p){
+  vec2 i=floor(p),f=fract(p);
+  float d=1.0;
+  for(int y=-1;y<=1;y++)
+  for(int x=-1;x<=1;x++){
+    vec2 n=vec2(float(x),float(y));
+    vec2 r=hash2(i+n)+n-f;
+    d=min(d,dot(r,r));
+  }
+  return sqrt(d);
+}
+`;
+
+    function buildFS(noiseType) {
+      var noiseFn;
+      if (noiseType === 0) noiseFn = 'valueNoise';
+      else if (noiseType === 1) noiseFn = 'simplexNoise';
+      else noiseFn = 'worleyNoise';
+
+      return `precision mediump float;
+uniform vec2 u_resolution;
+uniform float u_time;
+uniform float u_freq;
+uniform float u_oct;
+uniform float u_animate;
+` + noiseLib + `
+float fbm(vec2 p, float oct){
+  float v=0.0,a=0.5;
+  for(int i=0;i<8;i++){
+    if(float(i)>=oct)break;
+    v+=a*` + noiseFn + `(p);
+    p*=2.0; a*=0.5;
+  }
+  return v;
+}
+void main(){
+  vec2 uv=gl_FragCoord.xy/u_resolution;
+  vec2 p=uv*u_freq + u_animate*u_time*0.3;
+  float n=fbm(p, u_oct);
+  n=n*0.5+0.5;
+  gl_FragColor=vec4(vec3(n),1);
+}`;
+    }
+
+    let program = null;
+    const startTime = performance.now()/1000;
+
+    const typeSelect = document.getElementById('noise-type');
+    const freqSlider = document.getElementById('noise-freq');
+    const octSlider = document.getElementById('noise-oct');
+    const animCheck = document.getElementById('noise-animate');
+    const freqVal = document.getElementById('noise-freq-val');
+    const octVal = document.getElementById('noise-oct-val');
+
+    function recompile() {
+      if (program) gl.deleteProgram(program);
+      const type = typeSelect ? parseInt(typeSelect.value) : 0;
+      const result = createProgram(gl, QUAD_VS, buildFS(type));
+      program = result.error ? null : result.program;
+    }
+
+    function render() {
+      requestAnimationFrame(render);
+      if (!program) return;
+      gl.viewport(0,0,canvas.width,canvas.height);
+      gl.useProgram(program);
+      bindQuad(gl, program, quad);
+      const t = performance.now()/1000 - startTime;
+      gl.uniform2f(gl.getUniformLocation(program,'u_resolution'), canvas.width, canvas.height);
+      gl.uniform1f(gl.getUniformLocation(program,'u_time'), t);
+      gl.uniform1f(gl.getUniformLocation(program,'u_freq'), freqSlider ? parseFloat(freqSlider.value) : 5);
+      gl.uniform1f(gl.getUniformLocation(program,'u_oct'), octSlider ? parseFloat(octSlider.value) : 4);
+      gl.uniform1f(gl.getUniformLocation(program,'u_animate'), (animCheck && animCheck.checked) ? 1.0 : 0.0);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+
+    if (typeSelect) typeSelect.addEventListener('change', recompile);
+    if (freqSlider) freqSlider.addEventListener('input', function() { if (freqVal) freqVal.textContent = freqSlider.value; });
+    if (octSlider) octSlider.addEventListener('input', function() { if (octVal) octVal.textContent = octSlider.value; });
+
+    recompile();
+    render();
+  })();
+
+  // ── 4. SDF BUILDER ────────────────────────────────────────────
+  (function() {
+    const canvas = document.getElementById('sdf-canvas');
+    if (!canvas) return;
+    const gl = canvas.getContext('webgl');
+    if (!gl) return;
+    const quad = initQuad(gl);
+
+    const sdfLib = `
+float sdCircle(vec2 p,float r){return length(p)-r;}
+float sdBox(vec2 p,vec2 b){vec2 d=abs(p)-b;return length(max(d,0.0))+min(max(d.x,d.y),0.0);}
+float sdRoundBox(vec2 p,vec2 b,float r){vec2 d=abs(p)-b+r;return length(max(d,0.0))+min(max(d.x,d.y),0.0)-r;}
+float opUnion(float a,float b){return min(a,b);}
+float opIntersect(float a,float b){return max(a,b);}
+float opSubtract(float a,float b){return max(a,-b);}
+float opSmoothUnion(float a,float b,float k){float h=clamp(0.5+0.5*(b-a)/k,0.0,1.0);return mix(b,a,h)-k*h*(1.0-h);}
+`;
+
+    function shapeCall(shapeType, pos) {
+      if (shapeType === 0) return 'sdCircle(' + pos + ',0.3)';
+      if (shapeType === 1) return 'sdBox(' + pos + ',vec2(0.25))';
+      return 'sdRoundBox(' + pos + ',vec2(0.25),0.08)';
+    }
+
+    function opCall(opType, a, b, blend) {
+      if (opType === 0) return 'opUnion(' + a + ',' + b + ')';
+      if (opType === 1) return 'opIntersect(' + a + ',' + b + ')';
+      if (opType === 2) return 'opSubtract(' + a + ',' + b + ')';
+      return 'opSmoothUnion(' + a + ',' + b + ',u_blend)';
+    }
+
+    function buildFS(shapeA, shapeB, op) {
+      return `precision mediump float;
+uniform vec2 u_resolution;
+uniform float u_time;
+uniform float u_blend;
+` + sdfLib + `
+void main(){
+  vec2 uv=(gl_FragCoord.xy*2.0-u_resolution)/min(u_resolution.x,u_resolution.y);
+  float a=` + shapeCall(shapeA, 'uv-vec2(-0.25,0)') + `;
+  float b=` + shapeCall(shapeB, 'uv-vec2(0.25,0)') + `;
+  float d=` + opCall(op, 'a', 'b') + `;
+  // Visualize: green inside, dark outside, bright edge
+  vec3 col=vec3(0.05);
+  col=mix(col,vec3(0.0,0.15,0.1),1.0-smoothstep(0.0,0.02,d));
+  col=mix(col,vec3(0.0,1.0,0.5),1.0-smoothstep(0.0,0.005,abs(d)));
+  // Distance field rings
+  col+=vec3(0.0,0.3,0.2)*0.3*(1.0-smoothstep(0.0,0.02,abs(fract(d*10.0)-0.5)-0.02));
+  gl_FragColor=vec4(col,1);
+}`;
+    }
+
+    let program = null;
+    const startTime = performance.now()/1000;
+
+    const shapeASelect = document.getElementById('sdf-shape-a');
+    const shapeBSelect = document.getElementById('sdf-shape-b');
+    const opSelect = document.getElementById('sdf-op');
+    const blendSlider = document.getElementById('sdf-blend');
+    const blendVal = document.getElementById('sdf-blend-val');
+
+    function recompile() {
+      if (program) gl.deleteProgram(program);
+      const a = shapeASelect ? parseInt(shapeASelect.value) : 0;
+      const b = shapeBSelect ? parseInt(shapeBSelect.value) : 1;
+      const op = opSelect ? parseInt(opSelect.value) : 0;
+      const result = createProgram(gl, QUAD_VS, buildFS(a, b, op));
+      program = result.error ? null : result.program;
+    }
+
+    function render() {
+      requestAnimationFrame(render);
+      if (!program) return;
+      gl.viewport(0,0,canvas.width,canvas.height);
+      gl.useProgram(program);
+      bindQuad(gl, program, quad);
+      const t = performance.now()/1000 - startTime;
+      gl.uniform2f(gl.getUniformLocation(program,'u_resolution'), canvas.width, canvas.height);
+      gl.uniform1f(gl.getUniformLocation(program,'u_time'), t);
+      gl.uniform1f(gl.getUniformLocation(program,'u_blend'), blendSlider ? parseFloat(blendSlider.value) : 0.15);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+
+    if (shapeASelect) shapeASelect.addEventListener('change', recompile);
+    if (shapeBSelect) shapeBSelect.addEventListener('change', recompile);
+    if (opSelect) opSelect.addEventListener('change', recompile);
+    if (blendSlider) blendSlider.addEventListener('input', function() {
+      if (blendVal) blendVal.textContent = parseFloat(blendSlider.value).toFixed(2);
+      recompile();
+    });
+
+    recompile();
+    render();
+  })();
+
+})();
+</script>
+
+<!-- ============================================================ -->
+<!-- Pyodide / JS runner                                            -->
+<!-- ============================================================ -->
+<script>
+(function() {
+  'use strict';
+
+  // === LANGUAGE DETECTION ===
+  function detectLang(codeEl, pre) {
+    // From tab-content class
+    const tc = pre.closest('.tab-content');
+    if (tc) {
+      if (tc.classList.contains('c')) return 'c';
+      if (tc.classList.contains('py')) return 'python';
+      if (tc.classList.contains('ts')) return 'typescript';
+      if (tc.classList.contains('go')) return 'go';
+      if (tc.classList.contains('rs')) return 'rust';
+    }
+    // From label span
+    const label = pre.querySelector('.label');
+    if (label) {
+      const t = label.textContent.toLowerCase();
+      if (t.includes('python')) return 'python';
+      if (t.includes('typescript') || t === 'ts') return 'typescript';
+      if (t.includes('rust') || t === 'rs') return 'rust';
+      if (t.includes('go') || t === 'go') return 'go';
+      if (t.match(/^c(\s|$)/i) || t.includes('c —') || t.includes('c –')) return 'c';
+    }
+    // From try-this (usually python one-liners)
+    if (pre.closest('.try-this')) {
+      const code = codeEl.textContent;
+      if (code.startsWith('python3') || code.includes('import ')) return 'python';
+    }
+    return null;
+  }
+
+  // === RUNNABLE CHECK ===
+  function isRunnable(pre, codeEl, lang) {
+    if (!lang) return false;
+    // C/Go/Rust are not runnable in-browser
+    if (lang === 'c' || lang === 'go' || lang === 'rust') return false;
+    // Skip diagrams
+    if (pre.closest('.diagram')) return false;
+    // Try-this blocks are always runnable
+    if (pre.closest('.try-this')) return true;
+    // Tab content is always runnable
+    if (pre.closest('.tab-content')) return true;
+    // Standalone with label containing a lang name + has function/print
+    const code = codeEl.textContent;
+    if (pre.querySelector('.label')) {
+      if (code.match(/\b(def |fn |func |function |int main|void |printf|println|print\(|console\.log|fmt\.)/)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // === EXTRACT PLAIN TEXT FROM CODE ELEMENT ===
+  function getCode(codeEl) {
+    // Clone and remove label spans before extracting text
+    const clone = codeEl.cloneNode(true);
+    clone.querySelectorAll('.label').forEach(el => el.remove());
+    return clone.textContent;
+  }
+
+  // === OUTPUT PANEL ===
+  function getOrCreateOutput(pre) {
+    let out = pre.nextElementSibling;
+    if (out && out.classList.contains('run-output')) return out;
+    out = document.createElement('div');
+    out.className = 'run-output';
+    pre.insertAdjacentElement('afterend', out);
+    return out;
+  }
+
+  // === PYTHON RUNNER (Pyodide) ===
+  let pyodideReady = null;
+  async function loadPyodide_() {
+    if (pyodideReady) return pyodideReady;
+    pyodideReady = (async () => {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/pyodide/v0.27.4/full/pyodide.js';
+      document.head.appendChild(script);
+      await new Promise((res, rej) => { script.onload = res; script.onerror = rej; });
+      return await loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.27.4/full/' });
+    })();
+    return pyodideReady;
+  }
+
+  async function runPython(code, out) {
+    out.textContent = 'Loading Python runtime...';
+    out.classList.remove('error');
+    try {
+      const py = await loadPyodide_();
+      // Redirect stdout
+      py.runPython(`import sys, io; sys.stdout = io.StringIO()`);
+      py.runPython(code);
+      const stdout = py.runPython('sys.stdout.getvalue()');
+      out.textContent = stdout || '(no output)';
+    } catch (e) {
+      out.textContent = String(e.message || e);
+      out.classList.add('error');
+    }
+  }
+
+  // === PYTHON ONE-LINER RUNNER ===
+  async function runPythonOneLiner(code, out) {
+    // Handle "python3 -c '...'" style
+    const m = code.match(/^python3?\s+-c\s+["']([\s\S]+)["']\s*$/);
+    if (m) return runPython(m[1], out);
+    // Handle "python3 -c '...' | ..." — just run the python part
+    const m2 = code.match(/^python3?\s+-c\s+["']([\s\S]+?)["']/);
+    if (m2) return runPython(m2[1], out);
+    return runPython(code, out);
+  }
+
+  // === JS/TS RUNNER ===
+  function stripTS(code) {
+    // Remove TS type annotations for browser eval
+    return code
+      .replace(/:\s*(?:string|number|boolean|void|any|never|unknown|undefined|null|bigint|symbol)\b(\[\])?/g, '')
+      .replace(/:\s*(?:Record|Map|Set|Array|Promise|Partial|Required|Readonly)<[^>]+>/g, '')
+      .replace(/<(?:string|number|boolean|void|any|never|unknown|T|U|K|V)(?:\[\])?(?:\s*,\s*(?:string|number|boolean|void|any|never|unknown|T|U|K|V)(?:\[\])?)*>/g, '')
+      .replace(/\bas\s+\w+/g, '')
+      .replace(/^\s*(?:export|import)\s+type\s+.*$/gm, '')
+      .replace(/^\s*interface\s+\w+\s*\{[\s\S]*?\n\}/gm, '')
+      .replace(/^\s*type\s+\w+\s*=.*$/gm, '');
+  }
+
+  async function runJS(code, out) {
+    out.classList.remove('error');
+    const logs = [];
+    const origLog = console.log;
+    const origWarn = console.warn;
+    const origError = console.error;
+    console.log = (...args) => logs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' '));
+    console.warn = console.log;
+    console.error = (...args) => logs.push('ERROR: ' + args.map(String).join(' '));
+    try {
+      const cleaned = stripTS(code);
+      const fn = new Function(cleaned);
+      const result = fn();
+      if (result instanceof Promise) await result;
+      out.textContent = logs.join('\n') || '(no output)';
+    } catch (e) {
+      out.textContent = logs.join('\n') + (logs.length ? '\n' : '') + String(e);
+      out.classList.add('error');
+    } finally {
+      console.log = origLog;
+      console.warn = origWarn;
+      console.error = origError;
+    }
+  }
+
+  // === SNIPPET ID GENERATION ===
+  function snippetId(codeEl, pre) {
+    if (codeEl.dataset.snippetId) return codeEl.dataset.snippetId;
+    // Derive prefix from filename
+    const path = location.pathname;
+    const fname = path.split('/').pop().replace(/-deep-dive\.html$/, '').replace(/\.html$/, '');
+    const prefix = fname.substring(0, 5);
+
+    const tc = pre.closest('.tab-content');
+    if (tc) {
+      // Tab content: use tab group name + lang class
+      const tabs = tc.closest('.lang-tabs');
+      const radio = tabs ? tabs.querySelector('input[type="radio"]') : null;
+      const groupName = radio ? radio.name.replace('tabs-', '') : 'unknown';
+      const langClass = ['c','py','ts','go','rs'].find(c => tc.classList.contains(c)) || 'x';
+      const id = prefix + '-' + groupName + '-' + langClass;
+      codeEl.dataset.snippetId = id;
+      return id;
+    }
+
+    // Standalone: use label text slug
+    const label = pre.querySelector('.label');
+    if (label) {
+      const slug = label.textContent.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').substring(0, 20);
+      const id = prefix + '-' + slug;
+      codeEl.dataset.snippetId = id;
+      return id;
+    }
+
+    const id = prefix + '-anon-' + Math.random().toString(36).substring(2, 8);
+    codeEl.dataset.snippetId = id;
+    return id;
+  }
+
+  // === BUTTON INJECTION ===
+  document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('pre > code, pre code').forEach(function(codeEl) {
+      const pre = codeEl.closest('pre');
+      if (!pre) return;
+      const lang = detectLang(codeEl, pre);
+      if (!isRunnable(pre, codeEl, lang)) return;
+
+      const btn = document.createElement('button');
+      btn.className = 'run-btn';
+      btn.textContent = '\u25B6 Run';
+      btn.title = 'Run this code';
+      // Position inside tab-content pre
+      pre.style.position = 'relative';
+      pre.appendChild(btn);
+
+      btn.addEventListener('click', async function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (btn.classList.contains('running')) return;
+        btn.classList.add('running');
+        btn.textContent = '\u25B6 ...';
+
+        // For tab-content, put output after the lang-tabs container
+        let outputAnchor = pre;
+        const tabContent = pre.closest('.tab-content');
+        if (tabContent) {
+          outputAnchor = tabContent.closest('.lang-tabs');
+        }
+        const out = getOrCreateOutput(outputAnchor);
+        out.style.display = 'block';
+
+        const code = getCode(codeEl);
+        try {
+          switch (lang) {
+            case 'python':
+              if (pre.closest('.try-this') && code.match(/^python3?\s/)) {
+                await runPythonOneLiner(code, out);
+              } else {
+                await runPython(code, out);
+              }
+              break;
+            case 'typescript':
+            case 'javascript':
+              await runJS(code, out);
+              break;
+          }
+        } catch (e) {
+          out.textContent = String(e);
+          out.classList.add('error');
+        }
+
+        btn.classList.remove('running');
+        btn.textContent = '\u25B6 Run';
+      });
+    });
+  });
+})();
+</script>
+</body>
+</html>

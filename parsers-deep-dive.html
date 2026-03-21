@@ -190,6 +190,27 @@
     margin-bottom: 0.3rem;
   }
 
+  /* === RUN BUTTON + OUTPUT === */
+  .run-btn {
+    position: absolute; top: 0.3rem; right: 3rem;
+    background: var(--green); color: var(--bg);
+    border: none; border-radius: 3px; cursor: pointer;
+    font: 600 10px 'JetBrains Mono', monospace; padding: 2px 8px;
+    opacity: 0.6; transition: opacity 0.2s;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    z-index: 2;
+  }
+  .run-btn:hover { opacity: 1; }
+  .run-btn.running { opacity: 0.4; cursor: wait; }
+  .run-output {
+    background: #050508; border: 1px solid var(--border);
+    border-top: none; border-radius: 0 0 6px 6px;
+    padding: 0.8rem 1rem; margin-top: -1px;
+    font: 13px/1.5 'JetBrains Mono', monospace; color: var(--green);
+    white-space: pre-wrap; max-height: 200px; overflow-y: auto;
+  }
+  .run-output.error { color: var(--red); }
+
   @media (max-width: 700px) { .vs { grid-template-columns: 1fr; } .hero h1 { font-size: 2rem; } .content { padding: 4rem 1rem 4rem; } nav { font-size: 10px; gap: 0.8rem; padding: 0.4rem 1rem; } }
 </style>
 </head>
@@ -1479,7 +1500,39 @@ parser := participle.<span class="fn">MustBuild</span>[<span class="ty">Expr</sp
 
 <p class="drop-cap">Let's tie it all together. A complete, compilable expression parser in C: lexer + Pratt parser + AST + tree-walk evaluator. Handles integers, floats, arithmetic, unary minus, parentheses, and named variables. Under 200 lines.</p>
 
-<pre><code><span class="label">C</span><span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+<h3>What This Parser Handles</h3>
+
+<table>
+<tr><th>Feature</th><th>Example</th><th>Mechanism</th></tr>
+<tr><td>Integer and float literals</td><td><code>42</code>, <code>3.14</code></td><td>Lexer scans digits + optional decimal point</td></tr>
+<tr><td>Arithmetic operators</td><td><code>2 + 3 * 4</code> &rarr; 14</td><td>Binding power table: <code>*</code> binds tighter than <code>+</code></td></tr>
+<tr><td>Operator precedence</td><td><code>1 + 2 * 3</code> &ne; <code>(1+2) * 3</code></td><td>Pratt loop: higher binding power = parse first</td></tr>
+<tr><td>Unary minus</td><td><code>-x * 2</code> &rarr; <code>(-x) * 2</code></td><td><code>nud</code> handler with high binding power (25)</td></tr>
+<tr><td>Parenthesized grouping</td><td><code>(2 + 3) * 4</code> &rarr; 20</td><td><code>nud</code> handler: parse inner expr at bp 0</td></tr>
+<tr><td>Named variables</td><td><code>x</code>, <code>y</code>, <code>pi</code></td><td>Identifier tokens resolved against variable table</td></tr>
+<tr><td>Function calls</td><td><code>sqrt(x^2 + y^2)</code></td><td><code>nud</code>: identifier + <code>(</code> triggers arg-list parse</td></tr>
+<tr><td>Right-associative power</td><td><code>2 ^ 3 ^ 2</code> &rarr; 512</td><td><code>rbp = bp - 1</code> for right-associativity</td></tr>
+<tr><td>Modulo operator</td><td><code>10 % 3</code> &rarr; 1</td><td>Same precedence as <code>*</code> and <code>/</code></td></tr>
+<tr><td>Built-in math functions</td><td><code>sin(pi/2)</code>, <code>max(x, y)</code></td><td>Evaluator dispatches on function name string</td></tr>
+</table>
+
+<p>This pattern &mdash; lexer + Pratt parser + AST + evaluator &mdash; is the backbone of: <strong>calculator apps</strong>, <strong>spreadsheet formula bars</strong> (Excel, Google Sheets), <strong>query languages</strong> (SQL WHERE clauses, Prometheus PromQL, Grafana expressions), <strong>template engines</strong> (Jinja2, Handlebars), <strong>shader languages</strong> (GLSL, HLSL expression parsing), <strong>config DSLs</strong> (Terraform HCL expressions, Nginx if-conditions), and <strong>game scripting</strong> (Lua, GDScript). If your software evaluates user-provided expressions, you're building some version of this.</p>
+
+<h3>Complete Implementation</h3>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-expr" id="expr-c" class="tc" checked>
+  <input type="radio" name="tabs-expr" id="expr-py" class="tpy">
+  <input type="radio" name="tabs-expr" id="expr-ts" class="tts">
+  <input type="radio" name="tabs-expr" id="expr-rs" class="trs">
+  <div class="tab-bar">
+    <label for="expr-c">C</label>
+    <label for="expr-py">Python</label>
+    <label for="expr-ts">TypeScript</label>
+    <label for="expr-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+    <pre><code><span class="label">C</span><span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
 <span class="pp">#include</span> <span class="st">&lt;stdlib.h&gt;</span>
 <span class="pp">#include</span> <span class="st">&lt;string.h&gt;</span>
 <span class="pp">#include</span> <span class="st">&lt;ctype.h&gt;</span>
@@ -1666,6 +1719,203 @@ parser := participle.<span class="fn">MustBuild</span>[<span class="ty">Expr</sp
 //   2 ^ 3 ^ 2 = 512
 //   sin(pi / 2) = 1
 //   max(x, y) * min(x, y) = 12</span></code></pre>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">import</span> math, re
+
+<span class="kw">class</span> <span class="ty">Expr</span>:
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, src: <span class="ty">str</span>):
+        self.tokens = re.<span class="fn">findall</span>(<span class="st">r'\d+\.?\d*|[a-zA-Z_]\w*|[+\-*/^%(),]'</span>, src)
+        self.pos = <span class="nm">0</span>
+        self.vars: <span class="ty">dict</span> = {}
+        self.fns = {<span class="st">'sqrt'</span>: math.sqrt, <span class="st">'sin'</span>: math.sin, <span class="st">'cos'</span>: math.cos,
+                    <span class="st">'abs'</span>: abs, <span class="st">'max'</span>: max, <span class="st">'min'</span>: min}
+
+    <span class="kw">def</span> <span class="fn">peek</span>(self): <span class="kw">return</span> self.tokens[self.pos] <span class="kw">if</span> self.pos &lt; <span class="fn">len</span>(self.tokens) <span class="kw">else</span> <span class="kw">None</span>
+    <span class="kw">def</span> <span class="fn">eat</span>(self): t = self.<span class="fn">peek</span>(); self.pos += <span class="nm">1</span>; <span class="kw">return</span> t
+
+    <span class="kw">def</span> <span class="fn">bp</span>(self, op):
+        <span class="kw">return</span> {<span class="st">'+'</span>: <span class="nm">10</span>, <span class="st">'-'</span>: <span class="nm">10</span>, <span class="st">'*'</span>: <span class="nm">20</span>, <span class="st">'/'</span>: <span class="nm">20</span>, <span class="st">'%'</span>: <span class="nm">20</span>, <span class="st">'^'</span>: <span class="nm">30</span>}.<span class="fn">get</span>(op, <span class="nm">0</span>)
+
+    <span class="kw">def</span> <span class="fn">nud</span>(self):
+        t = self.<span class="fn">eat</span>()
+        <span class="kw">if</span> t == <span class="st">'-'</span>: <span class="kw">return</span> -self.<span class="fn">parse</span>(<span class="nm">25</span>)
+        <span class="kw">if</span> t == <span class="st">'('</span>: v = self.<span class="fn">parse</span>(<span class="nm">0</span>); self.<span class="fn">eat</span>(); <span class="kw">return</span> v
+        <span class="kw">if</span> t[<span class="nm">0</span>].<span class="fn">isdigit</span>() <span class="kw">or</span> t[<span class="nm">0</span>] == <span class="st">'.'</span>: <span class="kw">return</span> <span class="fn">float</span>(t)
+        <span class="cm"># identifier: variable or function call</span>
+        <span class="kw">if</span> self.<span class="fn">peek</span>() == <span class="st">'('</span>:
+            self.<span class="fn">eat</span>()  <span class="cm"># skip '('</span>
+            args = []
+            <span class="kw">if</span> self.<span class="fn">peek</span>() != <span class="st">')'</span>:
+                args.<span class="fn">append</span>(self.<span class="fn">parse</span>(<span class="nm">0</span>))
+                <span class="kw">while</span> self.<span class="fn">peek</span>() == <span class="st">','</span>: self.<span class="fn">eat</span>(); args.<span class="fn">append</span>(self.<span class="fn">parse</span>(<span class="nm">0</span>))
+            self.<span class="fn">eat</span>()  <span class="cm"># skip ')'</span>
+            <span class="kw">return</span> self.fns[t](*args)
+        <span class="kw">return</span> self.vars[t]
+
+    <span class="kw">def</span> <span class="fn">parse</span>(self, min_bp=<span class="nm">0</span>):
+        left = self.<span class="fn">nud</span>()
+        <span class="kw">while</span> self.<span class="fn">peek</span>() <span class="kw">and</span> self.<span class="fn">bp</span>(self.<span class="fn">peek</span>()) &gt; min_bp:
+            op = self.<span class="fn">eat</span>()
+            rbp = self.<span class="fn">bp</span>(op) - (<span class="nm">1</span> <span class="kw">if</span> op == <span class="st">'^'</span> <span class="kw">else</span> <span class="nm">0</span>)
+            right = self.<span class="fn">parse</span>(rbp)
+            left = {<span class="st">'+'</span>: <span class="kw">lambda</span> a,b: a+b, <span class="st">'-'</span>: <span class="kw">lambda</span> a,b: a-b,
+                    <span class="st">'*'</span>: <span class="kw">lambda</span> a,b: a*b, <span class="st">'/'</span>: <span class="kw">lambda</span> a,b: a/b,
+                    <span class="st">'%'</span>: <span class="kw">lambda</span> a,b: a%b, <span class="st">'^'</span>: <span class="kw">lambda</span> a,b: a**b}[op](left, right)
+        <span class="kw">return</span> left
+
+<span class="cm"># Usage</span>
+e = <span class="ty">Expr</span>(<span class="st">"sqrt(x^2 + y^2)"</span>)
+e.vars = {<span class="st">'x'</span>: <span class="nm">3</span>, <span class="st">'y'</span>: <span class="nm">4</span>, <span class="st">'pi'</span>: math.pi}
+<span class="fn">print</span>(e.<span class="fn">parse</span>())  <span class="cm"># 5.0</span>
+
+<span class="kw">for</span> test, expected <span class="kw">in</span> [(<span class="st">"2 + 3 * 4"</span>, <span class="nm">14</span>), (<span class="st">"(2 + 3) * 4"</span>, <span class="nm">20</span>),
+                        (<span class="st">"-x * 2 + 1"</span>, -<span class="nm">5</span>), (<span class="st">"2 ^ 3 ^ 2"</span>, <span class="nm">512</span>)]:
+    e2 = <span class="ty">Expr</span>(test); e2.vars = e.vars
+    <span class="fn">print</span>(f<span class="st">"  {test} = {e2.parse()}"</span>)<span class="label">python</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="kw">type</span> <span class="ty">Fn</span> = (...args: <span class="ty">number</span>[]) =&gt; <span class="ty">number</span>;
+
+<span class="kw">class</span> <span class="ty">ExprParser</span> {
+  <span class="kw">private</span> tokens: <span class="ty">string</span>[];
+  <span class="kw">private</span> pos = <span class="nm">0</span>;
+  vars: <span class="ty">Record</span>&lt;<span class="ty">string</span>, <span class="ty">number</span>&gt; = {};
+  fns: <span class="ty">Record</span>&lt;<span class="ty">string</span>, <span class="ty">Fn</span>&gt; = {
+    sqrt: Math.sqrt, sin: Math.sin, cos: Math.cos,
+    abs: Math.abs, max: Math.max, min: Math.min,
+  };
+
+  <span class="kw">constructor</span>(src: <span class="ty">string</span>) {
+    <span class="kw">this</span>.tokens = src.<span class="fn">match</span>(<span class="st">/\d+\.?\d*|[a-zA-Z_]\w*|[+\-*/^%(),]/g</span>) ?? [];
+  }
+
+  <span class="kw">private</span> <span class="fn">peek</span>() { <span class="kw">return</span> <span class="kw">this</span>.tokens[<span class="kw">this</span>.pos]; }
+  <span class="kw">private</span> <span class="fn">eat</span>() { <span class="kw">return</span> <span class="kw">this</span>.tokens[<span class="kw">this</span>.pos++]; }
+
+  <span class="kw">private</span> <span class="fn">bp</span>(op: <span class="ty">string</span>): <span class="ty">number</span> {
+    <span class="kw">return</span> ({<span class="st">'+'</span>:<span class="nm">10</span>,<span class="st">'-'</span>:<span class="nm">10</span>,<span class="st">'*'</span>:<span class="nm">20</span>,<span class="st">'/'</span>:<span class="nm">20</span>,<span class="st">'%'</span>:<span class="nm">20</span>,<span class="st">'^'</span>:<span class="nm">30</span>} <span class="kw">as</span> <span class="kw">any</span>)[op] ?? <span class="nm">0</span>;
+  }
+
+  <span class="kw">private</span> <span class="fn">nud</span>(): <span class="ty">number</span> {
+    <span class="kw">const</span> t = <span class="kw">this</span>.<span class="fn">eat</span>();
+    <span class="kw">if</span> (t === <span class="st">'-'</span>) <span class="kw">return</span> -<span class="kw">this</span>.<span class="fn">parse</span>(<span class="nm">25</span>);
+    <span class="kw">if</span> (t === <span class="st">'('</span>) { <span class="kw">const</span> v = <span class="kw">this</span>.<span class="fn">parse</span>(<span class="nm">0</span>); <span class="kw">this</span>.<span class="fn">eat</span>(); <span class="kw">return</span> v; }
+    <span class="kw">if</span> (<span class="st">/^\d/</span>.<span class="fn">test</span>(t)) <span class="kw">return</span> <span class="fn">parseFloat</span>(t);
+    <span class="kw">if</span> (<span class="kw">this</span>.<span class="fn">peek</span>() === <span class="st">'('</span>) {
+      <span class="kw">this</span>.<span class="fn">eat</span>();
+      <span class="kw">const</span> args: <span class="ty">number</span>[] = [];
+      <span class="kw">if</span> (<span class="kw">this</span>.<span class="fn">peek</span>() !== <span class="st">')'</span>) {
+        args.<span class="fn">push</span>(<span class="kw">this</span>.<span class="fn">parse</span>(<span class="nm">0</span>));
+        <span class="kw">while</span> (<span class="kw">this</span>.<span class="fn">peek</span>() === <span class="st">','</span>) { <span class="kw">this</span>.<span class="fn">eat</span>(); args.<span class="fn">push</span>(<span class="kw">this</span>.<span class="fn">parse</span>(<span class="nm">0</span>)); }
+      }
+      <span class="kw">this</span>.<span class="fn">eat</span>();
+      <span class="kw">return</span> <span class="kw">this</span>.fns[t](...args);
+    }
+    <span class="kw">return</span> <span class="kw">this</span>.vars[t];
+  }
+
+  <span class="fn">parse</span>(minBp = <span class="nm">0</span>): <span class="ty">number</span> {
+    <span class="kw">let</span> left = <span class="kw">this</span>.<span class="fn">nud</span>();
+    <span class="kw">while</span> (<span class="kw">this</span>.<span class="fn">peek</span>() &amp;&amp; <span class="kw">this</span>.<span class="fn">bp</span>(<span class="kw">this</span>.<span class="fn">peek</span>()) &gt; minBp) {
+      <span class="kw">const</span> op = <span class="kw">this</span>.<span class="fn">eat</span>();
+      <span class="kw">const</span> rbp = <span class="kw">this</span>.<span class="fn">bp</span>(op) - (op === <span class="st">'^'</span> ? <span class="nm">1</span> : <span class="nm">0</span>);
+      <span class="kw">const</span> r = <span class="kw">this</span>.<span class="fn">parse</span>(rbp);
+      left = op===<span class="st">'+'</span>?left+r : op===<span class="st">'-'</span>?left-r : op===<span class="st">'*'</span>?left*r
+           : op===<span class="st">'/'</span>?left/r : op===<span class="st">'%'</span>?left%r : left**r;
+    }
+    <span class="kw">return</span> left;
+  }
+}
+
+<span class="kw">const</span> e = <span class="kw">new</span> <span class="ty">ExprParser</span>(<span class="st">'sqrt(x^2 + y^2)'</span>);
+e.vars = { x: <span class="nm">3</span>, y: <span class="nm">4</span>, pi: Math.PI };
+console.<span class="fn">log</span>(e.<span class="fn">parse</span>());  <span class="cm">// 5</span><span class="label">typescript</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="kw">use</span> std::collections::<span class="ty">HashMap</span>;
+
+<span class="kw">struct</span> <span class="ty">Expr</span> { tokens: <span class="ty">Vec</span>&lt;<span class="ty">String</span>&gt;, pos: <span class="ty">usize</span>, vars: <span class="ty">HashMap</span>&lt;<span class="ty">String</span>, <span class="ty">f64</span>&gt; }
+
+<span class="kw">impl</span> <span class="ty">Expr</span> {
+    <span class="kw">fn</span> <span class="fn">new</span>(src: &amp;<span class="ty">str</span>, vars: <span class="ty">HashMap</span>&lt;<span class="ty">String</span>, <span class="ty">f64</span>&gt;) -&gt; <span class="ty">Self</span> {
+        <span class="kw">let mut</span> tokens = <span class="ty">Vec</span>::<span class="fn">new</span>();
+        <span class="kw">let</span> chars: <span class="ty">Vec</span>&lt;<span class="ty">char</span>&gt; = src.<span class="fn">chars</span>().<span class="fn">collect</span>();
+        <span class="kw">let mut</span> i = <span class="nm">0</span>;
+        <span class="kw">while</span> i &lt; chars.<span class="fn">len</span>() {
+            <span class="kw">if</span> chars[i].<span class="fn">is_whitespace</span>() { i += <span class="nm">1</span>; <span class="kw">continue</span>; }
+            <span class="kw">if</span> chars[i].<span class="fn">is_ascii_digit</span>() || (chars[i] == <span class="st">'.'</span> &amp;&amp; i+<span class="nm">1</span> &lt; chars.<span class="fn">len</span>() &amp;&amp; chars[i+<span class="nm">1</span>].<span class="fn">is_ascii_digit</span>()) {
+                <span class="kw">let</span> start = i;
+                <span class="kw">while</span> i &lt; chars.<span class="fn">len</span>() &amp;&amp; (chars[i].<span class="fn">is_ascii_digit</span>() || chars[i] == <span class="st">'.'</span>) { i += <span class="nm">1</span>; }
+                tokens.<span class="fn">push</span>(chars[start..i].<span class="fn">iter</span>().<span class="fn">collect</span>());
+            } <span class="kw">else if</span> chars[i].<span class="fn">is_ascii_alphabetic</span>() || chars[i] == <span class="st">'_'</span> {
+                <span class="kw">let</span> start = i;
+                <span class="kw">while</span> i &lt; chars.<span class="fn">len</span>() &amp;&amp; (chars[i].<span class="fn">is_ascii_alphanumeric</span>() || chars[i] == <span class="st">'_'</span>) { i += <span class="nm">1</span>; }
+                tokens.<span class="fn">push</span>(chars[start..i].<span class="fn">iter</span>().<span class="fn">collect</span>());
+            } <span class="kw">else</span> {
+                tokens.<span class="fn">push</span>(chars[i].<span class="fn">to_string</span>()); i += <span class="nm">1</span>;
+            }
+        }
+        <span class="ty">Expr</span> { tokens, pos: <span class="nm">0</span>, vars }
+    }
+
+    <span class="kw">fn</span> <span class="fn">peek</span>(&amp;<span class="kw">self</span>) -&gt; <span class="ty">Option</span>&lt;&amp;<span class="ty">str</span>&gt; { <span class="kw">self</span>.tokens.<span class="fn">get</span>(<span class="kw">self</span>.pos).<span class="fn">map</span>(|s| s.<span class="fn">as_str</span>()) }
+    <span class="kw">fn</span> <span class="fn">eat</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">String</span> { <span class="kw">let</span> t = <span class="kw">self</span>.tokens[<span class="kw">self</span>.pos].<span class="fn">clone</span>(); <span class="kw">self</span>.pos += <span class="nm">1</span>; t }
+    <span class="kw">fn</span> <span class="fn">bp</span>(op: &amp;<span class="ty">str</span>) -&gt; <span class="ty">i32</span> { <span class="kw">match</span> op { <span class="st">"+"</span>|<span class="st">"-"</span>=&gt;<span class="nm">10</span>, <span class="st">"*"</span>|<span class="st">"/"</span>|<span class="st">"%"</span>=&gt;<span class="nm">20</span>, <span class="st">"^"</span>=&gt;<span class="nm">30</span>, _=&gt;<span class="nm">0</span> } }
+
+    <span class="kw">fn</span> <span class="fn">call_fn</span>(name: &amp;<span class="ty">str</span>, args: &amp;[<span class="ty">f64</span>]) -&gt; <span class="ty">f64</span> {
+        <span class="kw">match</span> name {
+            <span class="st">"sqrt"</span> =&gt; args[<span class="nm">0</span>].<span class="fn">sqrt</span>(), <span class="st">"sin"</span> =&gt; args[<span class="nm">0</span>].<span class="fn">sin</span>(),
+            <span class="st">"cos"</span> =&gt; args[<span class="nm">0</span>].<span class="fn">cos</span>(), <span class="st">"abs"</span> =&gt; args[<span class="nm">0</span>].<span class="fn">abs</span>(),
+            <span class="st">"max"</span> =&gt; args[<span class="nm">0</span>].<span class="fn">max</span>(args[<span class="nm">1</span>]), <span class="st">"min"</span> =&gt; args[<span class="nm">0</span>].<span class="fn">min</span>(args[<span class="nm">1</span>]),
+            _ =&gt; <span class="fn">panic!</span>(<span class="st">"unknown fn: {name}"</span>),
+        }
+    }
+
+    <span class="kw">fn</span> <span class="fn">nud</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>) -&gt; <span class="ty">f64</span> {
+        <span class="kw">let</span> t = <span class="kw">self</span>.<span class="fn">eat</span>();
+        <span class="kw">if</span> t == <span class="st">"-"</span> { <span class="kw">return</span> -<span class="kw">self</span>.<span class="fn">parse</span>(<span class="nm">25</span>); }
+        <span class="kw">if</span> t == <span class="st">"("</span> { <span class="kw">let</span> v = <span class="kw">self</span>.<span class="fn">parse</span>(<span class="nm">0</span>); <span class="kw">self</span>.<span class="fn">eat</span>(); <span class="kw">return</span> v; }
+        <span class="kw">if</span> t.<span class="fn">chars</span>().<span class="fn">next</span>().<span class="fn">unwrap</span>().<span class="fn">is_ascii_digit</span>() { <span class="kw">return</span> t.<span class="fn">parse</span>().<span class="fn">unwrap</span>(); }
+        <span class="cm">// identifier</span>
+        <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">peek</span>() == <span class="ty">Some</span>(<span class="st">"("</span>) {
+            <span class="kw">self</span>.<span class="fn">eat</span>();
+            <span class="kw">let mut</span> args = <span class="fn">vec!</span>[];
+            <span class="kw">if</span> <span class="kw">self</span>.<span class="fn">peek</span>() != <span class="ty">Some</span>(<span class="st">")"</span>) {
+                args.<span class="fn">push</span>(<span class="kw">self</span>.<span class="fn">parse</span>(<span class="nm">0</span>));
+                <span class="kw">while</span> <span class="kw">self</span>.<span class="fn">peek</span>() == <span class="ty">Some</span>(<span class="st">","</span>) { <span class="kw">self</span>.<span class="fn">eat</span>(); args.<span class="fn">push</span>(<span class="kw">self</span>.<span class="fn">parse</span>(<span class="nm">0</span>)); }
+            }
+            <span class="kw">self</span>.<span class="fn">eat</span>();
+            <span class="kw">return</span> <span class="ty">Self</span>::<span class="fn">call_fn</span>(&amp;t, &amp;args);
+        }
+        *<span class="kw">self</span>.vars.<span class="fn">get</span>(&amp;t).<span class="fn">expect</span>(&amp;<span class="fn">format!</span>(<span class="st">"undefined: {t}"</span>))
+    }
+
+    <span class="kw">fn</span> <span class="fn">parse</span>(&amp;<span class="kw">mut</span> <span class="kw">self</span>, min_bp: <span class="ty">i32</span>) -&gt; <span class="ty">f64</span> {
+        <span class="kw">let mut</span> left = <span class="kw">self</span>.<span class="fn">nud</span>();
+        <span class="kw">while</span> <span class="kw">self</span>.<span class="fn">peek</span>().<span class="fn">map_or</span>(<span class="kw">false</span>, |p| <span class="ty">Self</span>::<span class="fn">bp</span>(p) &gt; min_bp) {
+            <span class="kw">let</span> op = <span class="kw">self</span>.<span class="fn">eat</span>();
+            <span class="kw">let</span> rbp = <span class="ty">Self</span>::<span class="fn">bp</span>(&amp;op) - <span class="kw">if</span> op == <span class="st">"^"</span> { <span class="nm">1</span> } <span class="kw">else</span> { <span class="nm">0</span> };
+            <span class="kw">let</span> r = <span class="kw">self</span>.<span class="fn">parse</span>(rbp);
+            left = <span class="kw">match</span> op.<span class="fn">as_str</span>() {
+                <span class="st">"+"</span>=&gt;left+r, <span class="st">"-"</span>=&gt;left-r, <span class="st">"*"</span>=&gt;left*r,
+                <span class="st">"/"</span>=&gt;left/r, <span class="st">"%"</span>=&gt;left%r, <span class="st">"^"</span>=&gt;left.<span class="fn">powf</span>(r), _=&gt;<span class="fn">unreachable!</span>(),
+            };
+        }
+        left
+    }
+}
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> vars = <span class="ty">HashMap</span>::<span class="fn">from</span>([
+        (<span class="st">"x"</span>.<span class="fn">into</span>(), <span class="nm">3.0</span>), (<span class="st">"y"</span>.<span class="fn">into</span>(), <span class="nm">4.0</span>),
+        (<span class="st">"pi"</span>.<span class="fn">into</span>(), std::<span class="ty">f64</span>::consts::PI),
+    ]);
+    <span class="kw">let mut</span> e = <span class="ty">Expr</span>::<span class="fn">new</span>(<span class="st">"sqrt(x^2 + y^2)"</span>, vars.<span class="fn">clone</span>());
+    <span class="fn">println!</span>(<span class="st">"{}"</span>, e.<span class="fn">parse</span>(<span class="nm">0</span>)); <span class="cm">// 5</span>
+}<span class="label">rust</span></code></pre>
+  </div>
+</div>
 
 <div class="power">
 <div class="power-label">Key Insight</div>
@@ -1978,6 +2228,157 @@ c = <span class="fn">make_counter</span>()
 <tr><td>Streaming</td><td>Harder (need to find boundaries)</td><td>Easier (length-prefixed)</td></tr>
 </table>
 
+<h4>Binary Parsing in Practice</h4>
+
+<p>Every binary format parser follows the same pattern: read a type tag, branch on it, read the payload. Here's a minimal TLV (Type-Length-Value) parser and a struct-level pack/unpack example in each language.</p>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-binparse" id="bp-py" class="tpy" checked>
+  <input type="radio" name="tabs-binparse" id="bp-ts" class="tts">
+  <input type="radio" name="tabs-binparse" id="bp-rs" class="trs">
+  <div class="tab-bar">
+    <label for="bp-py">Python</label>
+    <label for="bp-ts">TypeScript</label>
+    <label for="bp-rs">Rust</label>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">import</span> struct
+
+<span class="cm"># Pack: encode a message header (tag, length, id, flags)</span>
+<span class="kw">def</span> <span class="fn">pack_header</span>(tag: <span class="ty">int</span>, payload: <span class="ty">bytes</span>, id: <span class="ty">int</span>, flags: <span class="ty">int</span>) -&gt; <span class="ty">bytes</span>:
+    <span class="cm"># B=uint8, H=uint16 LE, I=uint32 LE</span>
+    header = struct.<span class="fn">pack</span>(<span class="st">'&lt;BHI B'</span>, tag, <span class="fn">len</span>(payload), id, flags)
+    <span class="kw">return</span> header + payload
+
+<span class="cm"># Unpack: parse the binary back</span>
+<span class="kw">def</span> <span class="fn">unpack_header</span>(data: <span class="ty">bytes</span>):
+    tag, length, id, flags = struct.<span class="fn">unpack_from</span>(<span class="st">'&lt;BHI B'</span>, data)
+    payload = data[<span class="nm">8</span>:<span class="nm">8</span> + length]
+    <span class="kw">return</span> {<span class="st">'tag'</span>: tag, <span class="st">'id'</span>: id, <span class="st">'flags'</span>: flags, <span class="st">'payload'</span>: payload}
+
+<span class="cm"># TLV stream parser (like MessagePack / cowrie)</span>
+<span class="kw">def</span> <span class="fn">parse_tlv</span>(data: <span class="ty">bytes</span>):
+    i = <span class="nm">0</span>
+    <span class="kw">while</span> i &lt; <span class="fn">len</span>(data):
+        tag = data[i]; i += <span class="nm">1</span>
+        <span class="kw">if</span> tag &lt; <span class="nm">0x80</span>:   <span class="cm"># fixint: value IS the tag</span>
+            <span class="kw">yield</span> (<span class="st">'int'</span>, tag)
+        <span class="kw">elif</span> tag == <span class="nm">0xC0</span>: <span class="kw">yield</span> (<span class="st">'null'</span>, <span class="kw">None</span>)
+        <span class="kw">elif</span> tag == <span class="nm">0xC2</span>: <span class="kw">yield</span> (<span class="st">'bool'</span>, <span class="kw">False</span>)
+        <span class="kw">elif</span> tag == <span class="nm">0xC3</span>: <span class="kw">yield</span> (<span class="st">'bool'</span>, <span class="kw">True</span>)
+        <span class="kw">elif</span> tag == <span class="nm">0xD2</span>: <span class="cm"># int32</span>
+            val, = struct.<span class="fn">unpack_from</span>(<span class="st">'&gt;i'</span>, data, i); i += <span class="nm">4</span>
+            <span class="kw">yield</span> (<span class="st">'int'</span>, val)
+        <span class="kw">elif</span> tag == <span class="nm">0xDB</span>: <span class="cm"># str32</span>
+            slen, = struct.<span class="fn">unpack_from</span>(<span class="st">'&gt;I'</span>, data, i); i += <span class="nm">4</span>
+            <span class="kw">yield</span> (<span class="st">'str'</span>, data[i:i+slen].<span class="fn">decode</span>()); i += slen
+
+msg = <span class="fn">pack_header</span>(<span class="nm">0x01</span>, <span class="st">b'hello'</span>, <span class="nm">42</span>, <span class="nm">0x03</span>)
+<span class="fn">print</span>(<span class="fn">unpack_header</span>(msg))
+<span class="cm"># {'tag': 1, 'id': 42, 'flags': 3, 'payload': b'hello'}</span><span class="label">python</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="cm">// DataView: the binary parsing workhorse in JS/TS</span>
+<span class="kw">function</span> <span class="fn">packHeader</span>(tag: <span class="ty">number</span>, payload: <span class="ty">Uint8Array</span>,
+                    id: <span class="ty">number</span>, flags: <span class="ty">number</span>): <span class="ty">Uint8Array</span> {
+  <span class="kw">const</span> buf = <span class="kw">new</span> <span class="ty">ArrayBuffer</span>(<span class="nm">8</span> + payload.length);
+  <span class="kw">const</span> v = <span class="kw">new</span> <span class="ty">DataView</span>(buf);
+  v.<span class="fn">setUint8</span>(<span class="nm">0</span>, tag);                       <span class="cm">// B: tag</span>
+  v.<span class="fn">setUint16</span>(<span class="nm">1</span>, payload.length, <span class="kw">true</span>);      <span class="cm">// H: length (LE)</span>
+  v.<span class="fn">setUint32</span>(<span class="nm">3</span>, id, <span class="kw">true</span>);                  <span class="cm">// I: id (LE)</span>
+  v.<span class="fn">setUint8</span>(<span class="nm">7</span>, flags);                     <span class="cm">// B: flags</span>
+  <span class="kw">new</span> <span class="ty">Uint8Array</span>(buf, <span class="nm">8</span>).<span class="fn">set</span>(payload);
+  <span class="kw">return</span> <span class="kw">new</span> <span class="ty">Uint8Array</span>(buf);
+}
+
+<span class="kw">function</span> <span class="fn">unpackHeader</span>(data: <span class="ty">Uint8Array</span>) {
+  <span class="kw">const</span> v = <span class="kw">new</span> <span class="ty">DataView</span>(data.buffer, data.byteOffset);
+  <span class="kw">const</span> tag = v.<span class="fn">getUint8</span>(<span class="nm">0</span>);
+  <span class="kw">const</span> length = v.<span class="fn">getUint16</span>(<span class="nm">1</span>, <span class="kw">true</span>);
+  <span class="kw">const</span> id = v.<span class="fn">getUint32</span>(<span class="nm">3</span>, <span class="kw">true</span>);
+  <span class="kw">const</span> flags = v.<span class="fn">getUint8</span>(<span class="nm">7</span>);
+  <span class="kw">const</span> payload = data.<span class="fn">subarray</span>(<span class="nm">8</span>, <span class="nm">8</span> + length);
+  <span class="kw">return</span> { tag, id, flags, payload };
+}
+
+<span class="cm">// TLV parser — same pattern as msgpack/cowrie</span>
+<span class="kw">function</span>* <span class="fn">parseTlv</span>(data: <span class="ty">Uint8Array</span>) {
+  <span class="kw">const</span> v = <span class="kw">new</span> <span class="ty">DataView</span>(data.buffer, data.byteOffset);
+  <span class="kw">let</span> i = <span class="nm">0</span>;
+  <span class="kw">while</span> (i &lt; data.length) {
+    <span class="kw">const</span> tag = data[i++];
+    <span class="kw">if</span> (tag &lt; <span class="nm">0x80</span>) { <span class="kw">yield</span> [<span class="st">'int'</span>, tag]; }
+    <span class="kw">else if</span> (tag === <span class="nm">0xC0</span>) { <span class="kw">yield</span> [<span class="st">'null'</span>, <span class="kw">null</span>]; }
+    <span class="kw">else if</span> (tag === <span class="nm">0xD2</span>) {
+      <span class="kw">yield</span> [<span class="st">'int'</span>, v.<span class="fn">getInt32</span>(i)]; i += <span class="nm">4</span>;
+    } <span class="kw">else if</span> (tag === <span class="nm">0xDB</span>) {
+      <span class="kw">const</span> len = v.<span class="fn">getUint32</span>(i); i += <span class="nm">4</span>;
+      <span class="kw">yield</span> [<span class="st">'str'</span>, <span class="kw">new</span> <span class="ty">TextDecoder</span>().<span class="fn">decode</span>(data.<span class="fn">subarray</span>(i, i + len))]; i += len;
+    }
+  }
+}<span class="label">typescript</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="kw">use</span> std::io::{<span class="ty">Cursor</span>, <span class="ty">Read</span>};
+<span class="kw">use</span> byteorder::{<span class="ty">LittleEndian</span>, <span class="ty">BigEndian</span>, <span class="ty">ReadBytesExt</span>, <span class="ty">WriteBytesExt</span>};
+
+<span class="cm">// Pack a message header</span>
+<span class="kw">fn</span> <span class="fn">pack_header</span>(tag: <span class="ty">u8</span>, payload: &amp;[<span class="ty">u8</span>], id: <span class="ty">u32</span>, flags: <span class="ty">u8</span>) -&gt; <span class="ty">Vec</span>&lt;<span class="ty">u8</span>&gt; {
+    <span class="kw">let mut</span> buf = <span class="ty">Vec</span>::<span class="fn">new</span>();
+    buf.<span class="fn">write_u8</span>(tag).<span class="fn">unwrap</span>();
+    buf.<span class="fn">write_u16</span>::&lt;<span class="ty">LittleEndian</span>&gt;(payload.<span class="fn">len</span>() <span class="kw">as</span> <span class="ty">u16</span>).<span class="fn">unwrap</span>();
+    buf.<span class="fn">write_u32</span>::&lt;<span class="ty">LittleEndian</span>&gt;(id).<span class="fn">unwrap</span>();
+    buf.<span class="fn">write_u8</span>(flags).<span class="fn">unwrap</span>();
+    buf.<span class="fn">extend_from_slice</span>(payload);
+    buf
+}
+
+<span class="cm">// Unpack</span>
+<span class="kw">fn</span> <span class="fn">unpack_header</span>(data: &amp;[<span class="ty">u8</span>]) -&gt; (<span class="ty">u8</span>, <span class="ty">u32</span>, <span class="ty">u8</span>, &amp;[<span class="ty">u8</span>]) {
+    <span class="kw">let mut</span> c = <span class="ty">Cursor</span>::<span class="fn">new</span>(data);
+    <span class="kw">let</span> tag = c.<span class="fn">read_u8</span>().<span class="fn">unwrap</span>();
+    <span class="kw">let</span> length = c.<span class="fn">read_u16</span>::&lt;<span class="ty">LittleEndian</span>&gt;().<span class="fn">unwrap</span>() <span class="kw">as</span> <span class="ty">usize</span>;
+    <span class="kw">let</span> id = c.<span class="fn">read_u32</span>::&lt;<span class="ty">LittleEndian</span>&gt;().<span class="fn">unwrap</span>();
+    <span class="kw">let</span> flags = c.<span class="fn">read_u8</span>().<span class="fn">unwrap</span>();
+    (tag, id, flags, &amp;data[<span class="nm">8</span>..<span class="nm">8</span> + length])
+}
+
+<span class="cm">// TLV parsing — tag byte dispatches to typed readers</span>
+<span class="kw">enum</span> <span class="ty">Value</span> { Int(<span class="ty">i64</span>), Str(<span class="ty">String</span>), Null, Bool(<span class="ty">bool</span>) }
+
+<span class="kw">fn</span> <span class="fn">parse_tlv</span>(data: &amp;[<span class="ty">u8</span>]) -&gt; <span class="ty">Vec</span>&lt;<span class="ty">Value</span>&gt; {
+    <span class="kw">let mut</span> c = <span class="ty">Cursor</span>::<span class="fn">new</span>(data);
+    <span class="kw">let mut</span> out = <span class="ty">Vec</span>::<span class="fn">new</span>();
+    <span class="kw">while</span> (c.<span class="fn">position</span>() <span class="kw">as</span> <span class="ty">usize</span>) &lt; data.<span class="fn">len</span>() {
+        <span class="kw">let</span> tag = c.<span class="fn">read_u8</span>().<span class="fn">unwrap</span>();
+        <span class="kw">match</span> tag {
+            <span class="nm">0</span>..<span class="nm">0x80</span> =&gt; out.<span class="fn">push</span>(<span class="ty">Value</span>::Int(tag <span class="kw">as</span> <span class="ty">i64</span>)),
+            <span class="nm">0xC0</span> =&gt; out.<span class="fn">push</span>(<span class="ty">Value</span>::Null),
+            <span class="nm">0xC2</span> =&gt; out.<span class="fn">push</span>(<span class="ty">Value</span>::Bool(<span class="kw">false</span>)),
+            <span class="nm">0xC3</span> =&gt; out.<span class="fn">push</span>(<span class="ty">Value</span>::Bool(<span class="kw">true</span>)),
+            <span class="nm">0xD2</span> =&gt; { <span class="cm">// int32 big-endian</span>
+                <span class="kw">let</span> v = c.<span class="fn">read_i32</span>::&lt;<span class="ty">BigEndian</span>&gt;().<span class="fn">unwrap</span>();
+                out.<span class="fn">push</span>(<span class="ty">Value</span>::Int(v <span class="kw">as</span> <span class="ty">i64</span>));
+            }
+            <span class="nm">0xDB</span> =&gt; { <span class="cm">// str32</span>
+                <span class="kw">let</span> len = c.<span class="fn">read_u32</span>::&lt;<span class="ty">BigEndian</span>&gt;().<span class="fn">unwrap</span>() <span class="kw">as</span> <span class="ty">usize</span>;
+                <span class="kw">let mut</span> buf = <span class="fn">vec!</span>[<span class="nm">0u8</span>; len];
+                c.<span class="fn">read_exact</span>(&amp;<span class="kw">mut</span> buf).<span class="fn">unwrap</span>();
+                out.<span class="fn">push</span>(<span class="ty">Value</span>::Str(<span class="ty">String</span>::<span class="fn">from_utf8</span>(buf).<span class="fn">unwrap</span>()));
+            }
+            _ =&gt; <span class="fn">panic!</span>(<span class="st">"unknown tag: 0x{tag:02X}"</span>),
+        }
+    }
+    out
+}<span class="label">rust</span></code></pre>
+  </div>
+</div>
+
+<div class="lang-note">
+<div class="lang-note-label">Binary Parsing Libraries</div>
+<p>Python's <code>struct</code> module is good for fixed layouts, but for complex formats use <code>construct</code> (declarative) or <code>kaitai-struct</code> (cross-language). TypeScript has <code>DataView</code> built-in; for complex formats, <code>binary-parser</code> or <code>protobufjs</code>. Rust has <code>byteorder</code> for manual parsing, <code>nom</code> (parser combinators) and <code>binrw</code> (derive macros) for complex formats. The <code>nom</code> approach is especially elegant &mdash; it composes byte-level parsers the same way chapter 9's text combinators compose character-level parsers.</p>
+</div>
+
 <h3>14.5 &mdash; The Billion-Dollar Regex</h3>
 
 <p><strong>Cloudflare outage, July 2, 2019.</strong> A single WAF regex rule caused catastrophic backtracking, taking down Cloudflare's entire network for 27 minutes. The regex was a standard-looking security pattern, but its <code>(.*)*</code> structure created exponential backtracking in the PCRE engine. One regex, 27 minutes of global downtime.</p>
@@ -2001,5 +2402,213 @@ c = <span class="fn">make_counter</span>()
 </section>
 
 </div><!-- content -->
+
+<script>
+(function() {
+  'use strict';
+
+  // === LANGUAGE DETECTION ===
+  function detectLang(codeEl, pre) {
+    // From tab-content class
+    const tc = pre.closest('.tab-content');
+    if (tc) {
+      if (tc.classList.contains('c')) return 'c';
+      if (tc.classList.contains('py')) return 'python';
+      if (tc.classList.contains('ts')) return 'typescript';
+      if (tc.classList.contains('go')) return 'go';
+      if (tc.classList.contains('rs')) return 'rust';
+    }
+    // From label span
+    const label = pre.querySelector('.label');
+    if (label) {
+      const t = label.textContent.toLowerCase();
+      if (t.includes('python')) return 'python';
+      if (t.includes('typescript') || t === 'ts') return 'typescript';
+      if (t.includes('rust') || t === 'rs') return 'rust';
+      if (t.includes('go') || t === 'go') return 'go';
+      if (t.match(/^c(\s|$)/i) || t.includes('c —') || t.includes('c –')) return 'c';
+    }
+    // From try-this (usually python one-liners)
+    if (pre.closest('.try-this')) {
+      const code = codeEl.textContent;
+      if (code.startsWith('python3') || code.includes('import ')) return 'python';
+    }
+    return null;
+  }
+
+  // === RUNNABLE CHECK ===
+  function isRunnable(pre, codeEl, lang) {
+    if (!lang) return false;
+    // C/Go/Rust require native compilation — not runnable in-browser
+    if (lang === 'c' || lang === 'go' || lang === 'rust') return false;
+    // Skip diagrams
+    if (pre.closest('.diagram')) return false;
+    // Try-this blocks are always runnable
+    if (pre.closest('.try-this')) return true;
+    // Tab content is always runnable
+    if (pre.closest('.tab-content')) return true;
+    // Standalone with label containing a lang name + has function/print
+    const code = codeEl.textContent;
+    if (pre.querySelector('.label')) {
+      if (code.match(/\b(def |fn |func |function |int main|void |printf|println|print\(|console\.log|fmt\.)/)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // === EXTRACT PLAIN TEXT FROM CODE ELEMENT ===
+  function getCode(codeEl) {
+    const clone = codeEl.cloneNode(true);
+    clone.querySelectorAll('.label').forEach(el => el.remove());
+    return clone.textContent;
+  }
+
+  // === OUTPUT PANEL ===
+  function getOrCreateOutput(pre) {
+    let out = pre.nextElementSibling;
+    if (out && out.classList.contains('run-output')) return out;
+    out = document.createElement('div');
+    out.className = 'run-output';
+    pre.insertAdjacentElement('afterend', out);
+    return out;
+  }
+
+  // === PYTHON RUNNER (Pyodide) ===
+  let pyodideReady = null;
+  async function loadPyodide_() {
+    if (pyodideReady) return pyodideReady;
+    pyodideReady = (async () => {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/pyodide/v0.27.4/full/pyodide.js';
+      document.head.appendChild(script);
+      await new Promise((res, rej) => { script.onload = res; script.onerror = rej; });
+      return await loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.27.4/full/' });
+    })();
+    return pyodideReady;
+  }
+
+  async function runPython(code, out) {
+    out.textContent = 'Loading Python runtime...';
+    out.classList.remove('error');
+    try {
+      const py = await loadPyodide_();
+      // Redirect stdout
+      py.runPython(`import sys, io; sys.stdout = io.StringIO()`);
+      py.runPython(code);
+      const stdout = py.runPython('sys.stdout.getvalue()');
+      out.textContent = stdout || '(no output)';
+    } catch (e) {
+      out.textContent = String(e.message || e);
+      out.classList.add('error');
+    }
+  }
+
+  // === PYTHON ONE-LINER RUNNER ===
+  async function runPythonOneLiner(code, out) {
+    // Handle "python3 -c '...'" style
+    const m = code.match(/^python3?\s+-c\s+["']([\s\S]+)["']\s*$/);
+    if (m) return runPython(m[1], out);
+    // Handle "python3 -c '...' | ..." — just run the python part
+    const m2 = code.match(/^python3?\s+-c\s+["']([\s\S]+?)["']/);
+    if (m2) return runPython(m2[1], out);
+    return runPython(code, out);
+  }
+
+  // === JS/TS RUNNER ===
+  function stripTS(code) {
+    return code
+      .replace(/:\s*(?:string|number|boolean|void|any|never|unknown|undefined|null|bigint|symbol)\b(\[\])?/g, '')
+      .replace(/:\s*(?:Record|Map|Set|Array|Promise|Partial|Required|Readonly)<[^>]+>/g, '')
+      .replace(/<(?:string|number|boolean|void|any|never|unknown|T|U|K|V)(?:\[\])?(?:\s*,\s*(?:string|number|boolean|void|any|never|unknown|T|U|K|V)(?:\[\])?)*>/g, '')
+      .replace(/\bas\s+\w+/g, '')
+      .replace(/^\s*(?:export|import)\s+type\s+.*$/gm, '')
+      .replace(/^\s*interface\s+\w+\s*\{[\s\S]*?\n\}/gm, '')
+      .replace(/^\s*type\s+\w+\s*=.*$/gm, '');
+  }
+
+  async function runJS(code, out) {
+    out.classList.remove('error');
+    const logs = [];
+    const origLog = console.log;
+    const origWarn = console.warn;
+    const origError = console.error;
+    console.log = (...args) => logs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' '));
+    console.warn = console.log;
+    console.error = (...args) => logs.push('ERROR: ' + args.map(String).join(' '));
+    try {
+      const cleaned = stripTS(code);
+      const fn = new Function(cleaned);
+      const result = fn();
+      if (result instanceof Promise) await result;
+      out.textContent = logs.join('\n') || '(no output)';
+    } catch (e) {
+      out.textContent = logs.join('\n') + (logs.length ? '\n' : '') + String(e);
+      out.classList.add('error');
+    } finally {
+      console.log = origLog;
+      console.warn = origWarn;
+      console.error = origError;
+    }
+  }
+
+  // === BUTTON INJECTION ===
+  document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('pre > code, pre code').forEach(function(codeEl) {
+      const pre = codeEl.closest('pre');
+      if (!pre) return;
+      const lang = detectLang(codeEl, pre);
+      if (!isRunnable(pre, codeEl, lang)) return;
+
+      const btn = document.createElement('button');
+      btn.className = 'run-btn';
+      btn.textContent = '\u25B6 Run';
+      btn.title = 'Run this code';
+      pre.style.position = 'relative';
+      pre.appendChild(btn);
+
+      btn.addEventListener('click', async function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (btn.classList.contains('running')) return;
+        btn.classList.add('running');
+        btn.textContent = '\u25B6 ...';
+
+        let outputAnchor = pre;
+        const tabContent = pre.closest('.tab-content');
+        if (tabContent) {
+          outputAnchor = tabContent.closest('.lang-tabs');
+        }
+        const out = getOrCreateOutput(outputAnchor);
+        out.style.display = 'block';
+
+        const code = getCode(codeEl);
+        try {
+          switch (lang) {
+            case 'python':
+              if (pre.closest('.try-this') && code.match(/^python3?\s/)) {
+                await runPythonOneLiner(code, out);
+              } else {
+                await runPython(code, out);
+              }
+              break;
+            case 'typescript':
+            case 'javascript':
+              await runJS(code, out);
+              break;
+          }
+        } catch (e) {
+          out.textContent = String(e);
+          out.classList.add('error');
+        }
+
+        btn.classList.remove('running');
+        btn.textContent = '\u25B6 Run';
+      });
+    });
+  });
+})();
+</script>
+
 </body>
 </html>

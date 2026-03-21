@@ -1,0 +1,3028 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Unicode — How 💩 Actually Works</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+    --white: #e8e8f0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 2rem;
+    display: flex;
+    gap: 1.2rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.2s, text-shadow 0.2s;
+    padding: 0.3rem 0;
+  }
+  nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+  nav .nav-title {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 1rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.3);
+  }
+
+  .content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+  }
+
+  .hero {
+    text-align: center;
+    padding: 4rem 0 5rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4rem;
+    position: relative;
+  }
+  .hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3.2rem;
+    font-weight: 600;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+  }
+  .hero .subtitle {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 500px;
+    margin: 0 auto;
+  }
+  .hero .blink {
+    display: inline-block;
+    animation: blink 1s step-end infinite;
+    color: var(--green);
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  section { margin-bottom: 5rem; padding-top: 1rem; }
+  h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: var(--green);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: 0.02em;
+  }
+  h3 {
+    font-size: 1.25rem;
+    color: var(--cyan);
+    margin: 2.5rem 0 1rem;
+    font-weight: 600;
+  }
+  h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 2rem 0 0.8rem;
+  }
+  p { margin-bottom: 1rem; }
+
+  .drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4rem;
+    line-height: 0.8;
+    padding: 0.1em 0.15em 0 0;
+    color: var(--green);
+    font-weight: 600;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+  }
+
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    padding: 0.12em 0.4em;
+    border-radius: 3px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem 1.4rem;
+    overflow-x: auto;
+    margin: 1.2rem 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px;
+    line-height: 1.55;
+    position: relative;
+  }
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+  }
+  .cm { color: var(--text-dim); }
+  .kw { color: var(--magenta); }
+  .ty { color: var(--cyan); }
+  .st { color: var(--green); }
+  .nm { color: var(--yellow); }
+  .fn { color: var(--blue); }
+  .pp { color: var(--orange); }
+  .label {
+    position: absolute;
+    top: 0.3rem; right: 0.7rem;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    opacity: 0.5;
+  }
+
+  .diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+  }
+  .diagram pre {
+    background: none; border: none; padding: 0; margin: 0;
+    font-size: 13px; line-height: 1.45; color: var(--text);
+  }
+  .diagram pre code { color: var(--text); }
+  .diagram-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--green-dim);
+    margin-bottom: 0.8rem;
+    display: block;
+  }
+
+  .power {
+    background: var(--bg-card);
+    border-left: 3px solid var(--green);
+    padding: 1.2rem 1.4rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .power-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.3rem;
+  }
+  .power p { margin-bottom: 0; font-size: 0.95rem; }
+  .power.danger { border-left-color: var(--red); }
+  .power.danger .power-label { color: var(--red); }
+  .power.hack { border-left-color: var(--magenta); }
+  .power.hack .power-label { color: var(--magenta); }
+  .power.wild { border-left-color: var(--orange); }
+  .power.wild .power-label { color: var(--orange); }
+  .power.zen { border-left-color: var(--cyan); }
+  .power.zen .power-label { color: var(--cyan); }
+
+  .mem-row { display: flex; gap: 1px; margin: 0.4rem 0; flex-wrap: wrap; }
+  .mc {
+    width: 30px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px; font-weight: 600; border-radius: 2px;
+  }
+  .mc.g { background: var(--green); color: var(--bg); }
+  .mc.c { background: var(--cyan); color: var(--bg); }
+  .mc.m { background: var(--magenta); color: var(--bg); }
+  .mc.o { background: var(--orange); color: var(--bg); }
+  .mc.r { background: var(--red); color: var(--bg); }
+  .mc.y { background: var(--yellow); color: var(--bg); }
+  .mc.b { background: var(--blue); color: var(--bg); }
+  .mc.d { background: var(--text-dim); color: var(--bg); opacity: 0.3; }
+  .mc.e { background: transparent; border: 1px dashed var(--border); color: var(--text-dim); }
+  .mc.w { background: var(--white); color: var(--bg); }
+  .mc.p { background: var(--purple); color: #fff; }
+  .mc.wide { width: 50px; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.88rem;
+  }
+  th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    text-align: left;
+    padding: 0.5rem 0.7rem;
+    border-bottom: 2px solid var(--border);
+  }
+  td {
+    padding: 0.45rem 0.7rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:hover { background: rgba(0,255,136,0.02); }
+
+  details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1rem 0;
+    overflow: hidden;
+  }
+  details summary {
+    padding: 0.7rem 1.1rem;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--green);
+    user-select: none;
+    transition: background 0.2s;
+  }
+  details summary:hover { background: rgba(0,255,136,0.04); }
+  details[open] summary { border-bottom: 1px solid var(--border); }
+  details .det { padding: 1.1rem; }
+  details pre { margin: 0.8rem 0; }
+
+  .vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .vs-col {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.1rem;
+  }
+  .vs-col h4 { margin-top: 0; }
+
+  .glitch { position: relative; display: inline-block; }
+  .glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+  .glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 2s infinite linear alternate-reverse;
+    clip-path: inset(0 0 65% 0);
+  }
+  .glitch::after {
+    color: var(--magenta);
+    animation: glitch-2 3s infinite linear alternate-reverse;
+    clip-path: inset(65% 0 0 0);
+  }
+  @keyframes glitch-1 {
+    0%, 95% { transform: translateX(0); }
+    96% { transform: translateX(-2px); }
+    97% { transform: translateX(2px); }
+    98% { transform: translateX(-1px); }
+    100% { transform: translateX(0); }
+  }
+  @keyframes glitch-2 {
+    0%, 93% { transform: translateX(0); }
+    94% { transform: translateX(2px); }
+    96% { transform: translateX(-2px); }
+    98% { transform: translateX(1px); }
+    100% { transform: translateX(0); }
+  }
+
+  .ticker {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--green);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    display: inline-block;
+    text-shadow: 0 0 6px rgba(0,255,136,0.3);
+  }
+
+  /* === LANGUAGE TABS === */
+  .lang-tabs {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1.2rem 0;
+    overflow: hidden;
+  }
+  .lang-tabs input[type="radio"] { display: none; }
+  .lang-tabs label {
+    display: inline-block;
+    padding: 0.5rem 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
+  }
+  .lang-tabs label:hover { color: var(--green); }
+  .lang-tabs .tab-bar {
+    border-bottom: 1px solid var(--border);
+    padding: 0 0.5rem;
+  }
+  .lang-tabs .tab-content { display: none; }
+  .lang-tabs .tab-content pre { margin: 0; border: none; border-radius: 0; }
+
+  .lang-tabs input.tc:checked ~ .tab-content.c,
+  .lang-tabs input.tpy:checked ~ .tab-content.py,
+  .lang-tabs input.tts:checked ~ .tab-content.ts,
+  .lang-tabs input.tgo:checked ~ .tab-content.go,
+  .lang-tabs input.trs:checked ~ .tab-content.rs { display: block; }
+
+  .lang-tabs input:nth-of-type(1):checked ~ .tab-bar label:nth-child(1),
+  .lang-tabs input:nth-of-type(2):checked ~ .tab-bar label:nth-child(2),
+  .lang-tabs input:nth-of-type(3):checked ~ .tab-bar label:nth-child(3),
+  .lang-tabs input:nth-of-type(4):checked ~ .tab-bar label:nth-child(4),
+  .lang-tabs input:nth-of-type(5):checked ~ .tab-bar label:nth-child(5) {
+    color: var(--green);
+    background: rgba(0,255,136,0.06);
+    border-bottom: 2px solid var(--green);
+  }
+
+  /* === TRY-THIS BOX === */
+  .try-this {
+    background: rgba(0, 255, 136, 0.04);
+    border-left: 3px solid var(--green-dim);
+    padding: 1rem 1.2rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .try-this .try-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.5rem;
+  }
+  .try-this pre {
+    margin: 0.5rem 0 0;
+    font-size: 12.5px;
+  }
+  .try-this p { font-size: 0.9rem; margin-bottom: 0.5rem; }
+
+  /* === LANG-NOTE BOX === */
+  .lang-note {
+    background: var(--bg-card);
+    border-left: 3px solid var(--blue);
+    padding: 1rem 1.2rem;
+    margin: 1.2rem 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 0.9rem;
+  }
+  .lang-note .lang-note-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--blue);
+    margin-bottom: 0.3rem;
+  }
+
+  /* === RUN BUTTON + OUTPUT === */
+  .run-btn {
+    position: absolute; top: 0.3rem; right: 3rem;
+    background: var(--green); color: var(--bg);
+    border: none; border-radius: 3px; cursor: pointer;
+    font: 600 10px 'JetBrains Mono', monospace; padding: 2px 8px;
+    opacity: 0.6; transition: opacity 0.2s;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    z-index: 2;
+  }
+  .run-btn:hover { opacity: 1; }
+  .run-btn.running { opacity: 0.4; cursor: wait; }
+  .run-output {
+    background: #050508; border: 1px solid var(--border);
+    border-top: none; border-radius: 0 0 6px 6px;
+    padding: 0.8rem 1rem; margin-top: -1px;
+    font: 13px/1.5 'JetBrains Mono', monospace; color: var(--green);
+    white-space: pre-wrap; max-height: 200px; overflow-y: auto;
+  }
+  .run-output.error { color: var(--red); }
+
+  @media (max-width: 700px) {
+    .vs { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2rem; }
+    .content { padding: 4rem 1rem 4rem; }
+    nav { font-size: 10px; gap: 0.8rem; padding: 0.4rem 1rem; }
+  }
+
+  .interactive-demo {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+  }
+  .interactive-demo h4 { margin-top: 0; }
+  .interactive-demo input[type="text"], .interactive-demo textarea {
+    width: 100%;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.6rem 0.8rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    color: var(--green);
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .interactive-demo input[type="text"]:focus, .interactive-demo textarea:focus {
+    border-color: var(--green-dim);
+  }
+  .interactive-demo input[type="range"] {
+    width: 100%;
+    accent-color: var(--green);
+    margin: 0.5rem 0;
+  }
+  .interactive-demo button {
+    background: transparent;
+    border: 1px solid var(--green);
+    color: var(--green);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 0.4rem 1rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.2s, box-shadow 0.2s;
+    margin-top: 0.5rem;
+  }
+  .interactive-demo button:hover {
+    background: rgba(0,255,136,0.1);
+    box-shadow: 0 0 10px rgba(0,255,136,0.2);
+  }
+  .demo-output {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1rem;
+    margin-top: 1rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text);
+    min-height: 3rem;
+    white-space: pre-wrap;
+    overflow-x: auto;
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="nav-title">&gt;_ UNICODE</span>
+  <a href="#ch1">ascii</a>
+  <a href="#ch2">babel</a>
+  <a href="#ch3">unicode</a>
+  <a href="#ch4">utf-8</a>
+  <a href="#ch5">utf-16/32</a>
+  <a href="#ch6">graphemes</a>
+  <a href="#ch7">emoji</a>
+  <a href="#ch8">zwj</a>
+  <a href="#ch9">normalization</a>
+  <a href="#ch10">security</a>
+  <a href="#ch11">wild</a>
+  <a href="#ch12">consortium</a>
+</nav>
+
+<div class="content">
+
+<div class="hero">
+  <h1><span class="glitch" data-text="UNICODE">UNICODE</span></h1>
+  <div class="subtitle">How 💩 actually works. Every string you concat, every emoji you render, every "garbled text" bug you chase &mdash; it all comes down to bytes, code points, and a lot of very clever historical compromises.<span class="blink">_</span></div>
+</div>
+
+<!-- ============================================================ -->
+<section id="ch1">
+<h2>// 01 &mdash; ASCII &mdash; The Simple Days</h2>
+
+<p class="drop-cap">In 1963, a committee of engineers at Bell Labs and the American Standards Association sat down and asked: what is the minimum viable encoding for a computer to speak to a teletype machine? The answer was 7 bits, 128 characters, and a remarkable act of cultural hubris that would haunt us for the next sixty years. They called it ASCII &mdash; the American Standard Code for Information Interchange &mdash; and for American English, it was perfect.</p>
+
+<p>The 7-bit layout was deliberate engineering. Bit 7 (the high bit) was left free as a parity check bit &mdash; a simple error-detection scheme where you flip one bit to make the total count of 1s either even or odd. This meant every ASCII character fit neatly in the low 7 bits of a byte, with the high bit always zero. Elegant, simple, and wrong in exactly one way: it only covered 128 characters, which was not remotely enough for the rest of Earth's writing systems.</p>
+
+<div class="diagram">
+<span class="diagram-label">ASCII 7-Bit Layout</span>
+<pre><code>  Bit positions:   7   6   5   4   3   2   1   0
+                   0   X   X   X   X   X   X   X    &lt;-- bit 7 always 0 in ASCII
+
+  Upper 3 bits (bits 6-4) select the "zone":
+    000 xxxxx  =  Control chars (NUL, BEL, TAB, LF, CR ...)
+    001 xxxxx  =  More control + punctuation/digits
+    010 xxxxx  =  Space, punctuation, digits (32-47, 48-63)
+    011 xxxxx  =  Digits continue + more punctuation (64-79... actually 48-63)
+    100 xxxxx  =  Uppercase A-Z + some punctuation
+    101 xxxxx  =  More uppercase + [ \ ] ^ _
+    110 xxxxx  =  Lowercase a-z starts here
+    111 xxxxx  =  Lowercase continues + { | } ~ DEL
+
+  Key trick: uppercase vs lowercase differ by exactly ONE BIT (bit 5)
+    'A' = 0100 0001 = 0x41
+    'a' = 0110 0001 = 0x61   &lt;-- bit 5 toggled
+    'Z' = 0101 1010 = 0x5A
+    'z' = 0111 1010 = 0x7A   &lt;-- bit 5 toggled
+
+  Case conversion = XOR with 0x20. Hardware loved this.</code></pre>
+</div>
+
+<h3>"Hello" in Memory</h3>
+
+<p>Here is the word "Hello" as five bytes in memory, each cell showing the hexadecimal value:</p>
+
+<div class="diagram">
+<span class="diagram-label">Memory Layout — "Hello" in ASCII</span>
+<div class="mem-row">
+  <div class="mc g">48</div>
+  <div class="mc c">65</div>
+  <div class="mc m">6C</div>
+  <div class="mc m">6C</div>
+  <div class="mc o">6F</div>
+  <div class="mc e"></div>
+  <div class="mc e"></div>
+  <div class="mc e"></div>
+</div>
+<pre><code>  0x48 = 72  = 'H'    (uppercase: bit5=0)
+  0x65 = 101 = 'e'    (lowercase: bit5=1)
+  0x6C = 108 = 'l'
+  0x6C = 108 = 'l'
+  0x6F = 111 = 'o'
+
+  In ASCII, one byte = one character. Always. No exceptions.
+  strlen("Hello") == 5. sizeof("Hello") == 6 (null terminator).
+  Life was simple.</code></pre>
+</div>
+
+<h3>ASCII Ranges at a Glance</h3>
+
+<table>
+<tr><th>Range</th><th>Decimal</th><th>What Lives There</th><th>Notable Members</th></tr>
+<tr><td><code>0x00&ndash;0x1F</code></td><td>0&ndash;31</td><td>Control characters</td><td>NUL (0), TAB (9), LF (10), CR (13), ESC (27)</td></tr>
+<tr><td><code>0x20&ndash;0x2F</code></td><td>32&ndash;47</td><td>Space &amp; punctuation</td><td>SPACE (32), ! " # $ % &amp; ' ( ) * + , - . /</td></tr>
+<tr><td><code>0x30&ndash;0x39</code></td><td>48&ndash;57</td><td>Digits</td><td>'0'&ndash;'9' — note: '0'=48, so digit value = byte - 48</td></tr>
+<tr><td><code>0x41&ndash;0x5A</code></td><td>65&ndash;90</td><td>Uppercase letters</td><td>'A'&ndash;'Z'</td></tr>
+<tr><td><code>0x61&ndash;0x7A</code></td><td>97&ndash;122</td><td>Lowercase letters</td><td>'a'&ndash;'z'</td></tr>
+<tr><td><code>0x7F</code></td><td>127</td><td>Delete</td><td>DEL — a holdover from punched tape (overpunch all holes)</td></tr>
+</table>
+
+<h3>Checking ASCII in Five Languages</h3>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-ascii" id="ascii-c" class="tc" checked>
+  <input type="radio" name="tabs-ascii" id="ascii-py" class="tpy">
+  <input type="radio" name="tabs-ascii" id="ascii-ts" class="tts">
+  <input type="radio" name="tabs-ascii" id="ascii-go" class="tgo">
+  <input type="radio" name="tabs-ascii" id="ascii-rs" class="trs">
+  <div class="tab-bar">
+    <label for="ascii-c">C</label>
+    <label for="ascii-py">Python</label>
+    <label for="ascii-ts">TypeScript</label>
+    <label for="ascii-go">Go</label>
+    <label for="ascii-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+    <pre><code><span class="label">C</span><span class="pp">#include</span> <span class="st">&lt;ctype.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;string.h&gt;</span>
+
+<span class="cm">/* Check if every byte of a string is pure ASCII */</span>
+<span class="ty">int</span> <span class="fn">is_ascii</span>(<span class="kw">const</span> <span class="ty">char</span> *s) {
+    <span class="kw">while</span> (*s) {
+        <span class="kw">if</span> (((<span class="ty">unsigned char</span>)*s) &gt; <span class="nm">127</span>) <span class="kw">return</span> <span class="nm">0</span>;
+        s++;
+    }
+    <span class="kw">return</span> <span class="nm">1</span>;
+}
+
+<span class="ty">int</span> <span class="fn">main</span>(<span class="ty">void</span>) {
+    <span class="ty">const char</span> *a = <span class="st">"Hello"</span>;
+    <span class="ty">const char</span> *b = <span class="st">"Héllo"</span>;  <span class="cm">// é = 0xC3 0xA9 in UTF-8, not ASCII</span>
+
+    <span class="fn">printf</span>(<span class="st">"%s: is_ascii=%d\n"</span>, a, <span class="fn">is_ascii</span>(a));  <span class="cm">// 1</span>
+    <span class="fn">printf</span>(<span class="st">"%s: is_ascii=%d\n"</span>, b, <span class="fn">is_ascii</span>(b));  <span class="cm">// 0</span>
+
+    <span class="cm">/* isascii() from ctype.h works on single chars */</span>
+    <span class="fn">printf</span>(<span class="st">"isascii('A') = %d\n"</span>, <span class="fn">isascii</span>(<span class="st">'A'</span>));  <span class="cm">// 1</span>
+    <span class="fn">printf</span>(<span class="st">"isascii(200) = %d\n"</span>, <span class="fn">isascii</span>(<span class="nm">200</span>));  <span class="cm">// 0</span>
+    <span class="kw">return</span> <span class="nm">0</span>;
+}</code></pre>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="label">Python</span><span class="cm"># Python 3: str.isascii() checks the whole string at once</span>
+<span class="cm"># Returns True only if every code point is in range 0-127</span>
+
+a = <span class="st">"Hello"</span>
+b = <span class="st">"Héllo"</span>
+c = <span class="st">"Hello\x00World"</span>  <span class="cm"># NUL is ASCII (code point 0)</span>
+
+<span class="fn">print</span>(a.<span class="fn">isascii</span>())   <span class="cm"># True</span>
+<span class="fn">print</span>(b.<span class="fn">isascii</span>())   <span class="cm"># False — é is U+00E9</span>
+<span class="fn">print</span>(c.<span class="fn">isascii</span>())   <span class="cm"># True — control chars are still ASCII</span>
+
+<span class="cm"># Manual check using ord():</span>
+<span class="kw">def</span> <span class="fn">is_ascii</span>(s: <span class="ty">str</span>) -&gt; <span class="ty">bool</span>:
+    <span class="kw">return</span> <span class="fn">all</span>(<span class="fn">ord</span>(ch) &lt; <span class="nm">128</span> <span class="kw">for</span> ch <span class="kw">in</span> s)
+
+<span class="cm"># Check individual byte in a bytes object:</span>
+data = <span class="st">b"Hello"</span>
+<span class="fn">print</span>(<span class="fn">all</span>(b &lt; <span class="nm">128</span> <span class="kw">for</span> b <span class="kw">in</span> data))  <span class="cm"># True</span>
+
+<span class="cm"># Encode to ASCII bytes — raises UnicodeEncodeError on non-ASCII:</span>
+<span class="kw">try</span>:
+    b.<span class="fn">encode</span>(<span class="st">'ascii'</span>)
+<span class="kw">except</span> <span class="ty">UnicodeEncodeError</span> <span class="kw">as</span> e:
+    <span class="fn">print</span>(e)  <span class="cm"># 'ascii' codec can't encode character '\xe9'</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="label">TypeScript</span><span class="cm">// JavaScript strings are UTF-16 internally, but we can still</span>
+<span class="cm">// check if a string contains only ASCII code points</span>
+
+<span class="kw">function</span> <span class="fn">isAscii</span>(s: <span class="ty">string</span>): <span class="ty">boolean</span> {
+  <span class="kw">for</span> (<span class="kw">let</span> i = <span class="nm">0</span>; i &lt; s.length; i++) {
+    <span class="kw">if</span> (s.<span class="fn">charCodeAt</span>(i) &gt; <span class="nm">127</span>) <span class="kw">return</span> <span class="kw">false</span>;
+  }
+  <span class="kw">return</span> <span class="kw">true</span>;
+}
+
+<span class="cm">// Or with a regex — /^[\x00-\x7F]*$/</span>
+<span class="kw">const</span> <span class="fn">isAsciiRegex</span> = (s: <span class="ty">string</span>): <span class="ty">boolean</span> =&gt;
+  <span class="nm">/^[\x00-\x7F]*$/</span>.<span class="fn">test</span>(s);
+
+<span class="fn">console</span>.<span class="fn">log</span>(<span class="fn">isAscii</span>(<span class="st">"Hello"</span>));    <span class="cm">// true</span>
+<span class="fn">console</span>.<span class="fn">log</span>(<span class="fn">isAscii</span>(<span class="st">"Héllo"</span>));   <span class="cm">// false</span>
+<span class="fn">console</span>.<span class="fn">log</span>(<span class="fn">isAscii</span>(<span class="st">"💩"</span>));      <span class="cm">// false — U+1F4A9, way above 127</span>
+
+<span class="cm">// Encode a string to ASCII bytes (Uint8Array), replacing non-ASCII:</span>
+<span class="kw">const</span> encoder = <span class="kw">new</span> <span class="ty">TextEncoder</span>();  <span class="cm">// always produces UTF-8</span>
+<span class="kw">const</span> bytes = encoder.<span class="fn">encode</span>(<span class="st">"Hello"</span>);
+<span class="fn">console</span>.<span class="fn">log</span>(bytes);  <span class="cm">// Uint8Array [72, 101, 108, 108, 111]</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="label">Go</span><span class="pp">package</span> main
+
+<span class="pp">import</span> (
+    <span class="st">"fmt"</span>
+    <span class="st">"unicode"</span>
+)
+
+<span class="kw">func</span> <span class="fn">isASCII</span>(s <span class="ty">string</span>) <span class="ty">bool</span> {
+    <span class="kw">for</span> _, r := <span class="kw">range</span> s {
+        <span class="kw">if</span> r &gt; unicode.MaxASCII {  <span class="cm">// unicode.MaxASCII = 127</span>
+            <span class="kw">return</span> <span class="kw">false</span>
+        }
+    }
+    <span class="kw">return</span> <span class="kw">true</span>
+}
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="fn">fmt</span>.<span class="fn">Println</span>(<span class="fn">isASCII</span>(<span class="st">"Hello"</span>))    <span class="cm">// true</span>
+    <span class="fn">fmt</span>.<span class="fn">Println</span>(<span class="fn">isASCII</span>(<span class="st">"Héllo"</span>))   <span class="cm">// false</span>
+
+    <span class="cm">// Go's range over string yields runes (code points), not bytes</span>
+    <span class="cm">// To iterate raw bytes instead:</span>
+    s := <span class="st">"Hello"</span>
+    <span class="kw">for</span> i := <span class="nm">0</span>; i &lt; <span class="fn">len</span>(s); i++ {
+        <span class="fn">fmt</span>.<span class="fn">Printf</span>(<span class="st">"byte[%d] = 0x%02X\n"</span>, i, s[i])
+    }
+    <span class="cm">// byte[0] = 0x48</span>
+    <span class="cm">// byte[1] = 0x65  etc.</span>
+}</code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="label">Rust</span><span class="kw">fn</span> <span class="fn">is_ascii_manual</span>(s: &amp;<span class="ty">str</span>) -&gt; <span class="ty">bool</span> {
+    s.<span class="fn">bytes</span>().<span class="fn">all</span>(|b| b &lt; <span class="nm">128</span>)
+}
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> a = <span class="st">"Hello"</span>;
+    <span class="kw">let</span> b = <span class="st">"Héllo"</span>;
+
+    <span class="cm">// Built-in method on &str and String:</span>
+    <span class="fn">println!</span>(<span class="st">"{}"</span>, a.<span class="fn">is_ascii</span>());   <span class="cm">// true</span>
+    <span class="fn">println!</span>(<span class="st">"{}"</span>, b.<span class="fn">is_ascii</span>());   <span class="cm">// false</span>
+
+    <span class="cm">// is_ascii() is also on char and u8:</span>
+    <span class="fn">println!</span>(<span class="st">"{}"</span>, <span class="st">'A'</span>.<span class="fn">is_ascii</span>());     <span class="cm">// true</span>
+    <span class="fn">println!</span>(<span class="st">"{}"</span>, <span class="st">'é'</span>.<span class="fn">is_ascii</span>());     <span class="cm">// false</span>
+    <span class="fn">println!</span>(<span class="st">"{}"</span>, 200u8.<span class="fn">is_ascii</span>());   <span class="cm">// false</span>
+
+    <span class="cm">// Rust strings are guaranteed valid UTF-8 at the type level.</span>
+    <span class="cm">// ASCII is a strict subset, so all ASCII is also valid Rust &str.</span>
+    <span class="kw">let</span> bytes: &amp;[<span class="ty">u8</span>] = a.<span class="fn">as_bytes</span>();
+    <span class="fn">println!</span>(<span class="st">"{:?}"</span>, bytes);  <span class="cm">// [72, 101, 108, 108, 111]</span>
+}</code></pre>
+  </div>
+</div>
+
+<div class="power zen">
+<div class="power-label">Zen: 7 Bits Was Enough for America</div>
+<p>7 bits was enough for America, and that was the problem. ASCII made a technical assumption that was also a political statement: that the characters needed to communicate in computing were the characters of English. Every subsequent standard &mdash; code pages, ISO-8859, Unicode itself &mdash; exists because that assumption was incorrect for roughly six billion people. The simplest designs have the longest shadows.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch2">
+<h2>// 02 &mdash; The Tower of Babel</h2>
+
+<p class="drop-cap">By the 1980s, computers had spread far beyond the English-speaking world, and software vendors needed to handle German umlauts, French accents, Cyrillic alphabets, Greek letters, and Hebrew. Their solution was both ingenious and catastrophic: take that unused high bit of the byte (remember, ASCII only uses 7 bits), and use it to squeeze in 128 more characters. The result was "code pages" &mdash; region-specific character tables where the same byte value could mean completely different things depending on which country your computer was configured for.</p>
+
+<p>IBM had Code Page 437 for the US (with box-drawing characters beloved by BBS artists). Western Europe got ISO 8859-1. Russia got ISO 8859-5. Turkey got ISO 8859-9. There were eventually <em>dozens</em> of incompatible encodings, all sharing the same low 128 bytes (ASCII) and all disagreeing about what bytes 128-255 meant. Sending text between systems meant knowing which code page the sender used. Most of the time, nobody did.</p>
+
+<div class="diagram">
+<span class="diagram-label">Same Byte (0xE0), Two Completely Different Characters</span>
+<pre><code>  Byte value: 0xE0 = 224
+
+  ISO 8859-1 (Latin-1, Western Europe):   à  (a with grave accent)
+  ISO 8859-5 (Cyrillic):                  р  (Cyrillic small letter er)
+  ISO 8859-7 (Greek):                     ΰ  (Greek small letter upsilon with dialytika and tonos)
+  Windows-1252 (Western Europe, Microsoft variant): à  (same as Latin-1 here)
+  KOI8-R (Russian, alternative to 8859-5):  р  (coincidentally the same as 8859-5 here)
+
+  There was no automatic way to know which encoding a file used.
+  You had to guess. Usually wrong.</code></pre>
+</div>
+
+<h3>ISO 8859-1 vs ISO 8859-5: A Side-by-Side</h3>
+
+<div class="vs">
+  <div class="vs-col">
+    <h4>ISO 8859-1 — Latin-1</h4>
+    <p style="font-size:0.85rem;color:var(--text-dim);">Western Europe — French, German, Spanish, Portuguese, Dutch...</p>
+    <table>
+      <tr><th>Byte</th><th>Char</th><th>Name</th></tr>
+      <tr><td><code>0xC0</code></td><td>À</td><td>A with grave</td></tr>
+      <tr><td><code>0xC9</code></td><td>É</td><td>E with acute</td></tr>
+      <tr><td><code>0xD6</code></td><td>Ö</td><td>O with umlaut</td></tr>
+      <tr><td><code>0xE4</code></td><td>ä</td><td>a with umlaut</td></tr>
+      <tr><td><code>0xF1</code></td><td>ñ</td><td>n with tilde</td></tr>
+      <tr><td><code>0xFC</code></td><td>ü</td><td>u with umlaut</td></tr>
+    </table>
+  </div>
+  <div class="vs-col">
+    <h4>ISO 8859-5 — Cyrillic</h4>
+    <p style="font-size:0.85rem;color:var(--text-dim);">Russian, Bulgarian, Serbian, Macedonian...</p>
+    <table>
+      <tr><th>Byte</th><th>Char</th><th>Name</th></tr>
+      <tr><td><code>0xC0</code></td><td>а</td><td>Cyrillic small a</td></tr>
+      <tr><td><code>0xC9</code></td><td>й</td><td>Cyrillic small short i</td></tr>
+      <tr><td><code>0xD6</code></td><td>х</td><td>Cyrillic small ha</td></tr>
+      <tr><td><code>0xE4</code></td><td>д</td><td>Cyrillic small de</td></tr>
+      <tr><td><code>0xF1</code></td><td>с</td><td>Cyrillic small es</td></tr>
+      <tr><td><code>0xFC</code></td><td>ь</td><td>Cyrillic soft sign</td></tr>
+    </table>
+  </div>
+</div>
+
+<p>Those same bytes. Entirely different characters. If you opened a Russian email in a Western European client, you got word salad. If you saved a French file and opened it on a Russian system, <em>bonjour</em> became nonsense. This wasn't a bug — it was the system working exactly as designed, which was the problem.</p>
+
+<div class="power danger">
+<div class="power-label">Danger: Mojibake</div>
+<p>The Japanese have a word for this: <strong>mojibake</strong> (文字化け) — "character transformation." When text encoded in one encoding is decoded with a different one, you get garbage. Not random garbage: <em>consistent</em> garbage, because the wrong mapping is applied deterministically. Mojibake is still very much alive today wherever systems forget to declare or negotiate encoding, which is more places than you'd hope.</p>
+</div>
+
+<h3>Real-World Mojibake Hall of Shame</h3>
+
+<div class="diagram">
+<span class="diagram-label">Famous Mojibake Patterns</span>
+<pre><code>  Intended text (UTF-8) decoded as Latin-1:
+    "café"  →  "cafÃ©"          (UTF-8's 0xC3 0xA9 read as two Latin-1 chars)
+    "naïve" →  "naÃ¯ve"
+
+  Intended text (Windows-1252) decoded as UTF-8:
+    "résumé" →  UnicodeDecodeError (0xE9 is not valid UTF-8 start byte)
+
+  Intended text (Shift-JIS) decoded as UTF-8:
+    "日本語" →  ï¿½ï¿½ï¿½  (replacement characters — at least honest about failure)
+
+  Intended text (KOI8-R) decoded as Latin-1:
+    Russian "привет" (privet/hello) →  "рТЙЧЕФ"  (completely wrong Cyrillic)
+
+  The classic Windows-UTF-8 double-encoding:
+    "✓" (U+2713) → saved as UTF-8: 0xE2 0x9C 0x93
+                 → read as Windows-1252 → "â"
+                 → THAT gets saved as UTF-8 → 0xC3 0xA2 0xE2 0x84 ...
+                 → now you have mojibake of mojibake. Layers.</code></pre>
+</div>
+
+<div class="power wild">
+<div class="power-label">Wild: The ï»¿ Signature</div>
+<p>You may have seen files start with the three bytes <code>EF BB BF</code>, displayed as <code>ï»¿</code> when opened in a Latin-1 editor. That is the UTF-8 encoding of U+FEFF, the Byte Order Mark — a marker some Windows tools prepend to UTF-8 files. It is technically unnecessary (UTF-8 has no byte order), but Windows Notepad wrote it anyway for years, and now it haunts every CSV import pipeline that was not expecting it.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch3">
+<h2>// 03 &mdash; Unicode Arrives</h2>
+
+<p class="drop-cap">In 1991, a group of engineers from Apple, Xerox, and a consortium of software companies published the first version of a radical idea: one unified character set for every writing system on Earth. They called it Unicode. The central promise was simple to state and enormous to deliver — every character in every human language would get a unique number, called a <em>code point</em>, and that number would mean the same thing on every computer everywhere forever. No more code pages. No more mojibake. One encoding to rule them all.</p>
+
+<p>Unicode's address space is organized into 17 <em>planes</em>, each containing 65,536 code points. That gives a total address space of 1,114,112 possible code points, from U+000000 to U+10FFFF. As of Unicode 15.1, about 149,813 of those are assigned. The rest are reserved for future use, private use areas, and the fervent hope that someone eventually digitizes Linear Elamite completely.</p>
+
+<div class="diagram">
+<span class="diagram-label">Unicode Address Space</span>
+<pre><code>  17 planes  ×  65,536 code points per plane  =  1,114,112 total
+
+  Each code point written as U+HHHHHH (4 to 6 hex digits)
+  Examples:
+    U+0041   = 'A'           (Latin capital letter A)
+    U+00E9   = 'é'           (Latin small letter e with acute)
+    U+4E2D   = '中'          (CJK unified ideograph — "middle")
+    U+1F4A9  = '💩'          (pile of poo — the important one)
+    U+10FFFF = last possible code point (currently unassigned)
+
+  Code point ≠ bytes in memory.
+  U+1F4A9 is a NUMBER (128169 in decimal).
+  How that number gets stored as bytes depends on the ENCODING.
+  UTF-8, UTF-16, UTF-32 are three different answers to that question.</code></pre>
+</div>
+
+<h3>The 17 Planes</h3>
+
+<table>
+<tr><th>Plane</th><th>Range</th><th>Name</th><th>Notable Contents</th></tr>
+<tr><td>0 (BMP)</td><td>U+0000&ndash;U+FFFF</td><td>Basic Multilingual Plane</td><td>Latin, Greek, Cyrillic, Arabic, Hebrew, CJK, most modern scripts</td></tr>
+<tr><td>1 (SMP)</td><td>U+10000&ndash;U+1FFFF</td><td>Supplementary Multilingual Plane</td><td>Historic scripts, emoji, musical notation, mathematical symbols</td></tr>
+<tr><td>2 (SIP)</td><td>U+20000&ndash;U+2FFFF</td><td>Supplementary Ideographic Plane</td><td>CJK unified ideograph extensions B through F</td></tr>
+<tr><td>3 (TIP)</td><td>U+30000&ndash;U+3FFFF</td><td>Tertiary Ideographic Plane</td><td>CJK extension G and H (added Unicode 13.0, 15.0)</td></tr>
+<tr><td>4&ndash;13</td><td>U+40000&ndash;U+DFFFF</td><td>Unassigned</td><td>Reserved. Waiting. Patient.</td></tr>
+<tr><td>14 (SSP)</td><td>U+E0000&ndash;U+EFFFF</td><td>Supplementary Special-purpose Plane</td><td>Tags (deprecated), variation selectors</td></tr>
+<tr><td>15&ndash;16</td><td>U+F0000&ndash;U+10FFFF</td><td>Private Use Areas</td><td>Corporate logos, custom symbols — no standard meaning</td></tr>
+</table>
+
+<p>The vast majority of text you will ever encounter lives in Plane 0 &mdash; the Basic Multilingual Plane. Emoji, which everyone encounters constantly, mostly live in Plane 1. The higher planes are for scholars of obscure ancient scripts and companies that need private symbols in their fonts.</p>
+
+<div class="power">
+<div class="power-label">Key Insight: Code Points Are Not Characters</div>
+<p>Unicode assigns numbers to <em>code points</em>, not characters in the intuitive sense. The letter "é" can be represented as a single code point (U+00E9, "latin small letter e with acute") <em>or</em> as two code points (U+0065 "e" + U+0301 "combining acute accent"). Both are valid. They look identical when rendered. This distinction &mdash; between code points and what humans actually see as a "character" &mdash; is one of the deepest traps in string programming, and we will excavate it thoroughly in the graphemes section.</p>
+</div>
+
+<div class="ticker">1,114,112 CODE POINTS &bull; 17 PLANES &bull; 149,813 ASSIGNED &bull; ONE STANDARD &bull; INFINITE EDGE CASES</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch4">
+<h2>// 04 &mdash; UTF-8 &mdash; The Clever Hack</h2>
+
+<p class="drop-cap">In September 1992, Ken Thompson and Rob Pike (two of the creators of Unix) sat down at a diner in New Jersey and sketched an encoding on a placemat. The problem they were solving for Plan 9 &mdash; their new operating system &mdash; was how to store Unicode code points in a way that was backward-compatible with existing ASCII programs, used no null bytes except for U+0000, and was self-synchronizing so you could restart reading from any byte position. They finished the design over dinner, implemented it the same night, and had it passing tests by the next morning. The encoding they invented was UTF-8, and it now carries the majority of all text on the internet.</p>
+
+<p>The key insight: not every code point needs the same number of bytes. ASCII characters are common, so give them one byte. Rare characters can afford four bytes. Use bit patterns in the leading byte to communicate how many bytes follow. The result is a variable-length encoding that is simultaneously backward-compatible with ASCII and capable of representing all 1,114,112 Unicode code points.</p>
+
+<h3>The Bit Patterns</h3>
+
+<div class="diagram">
+<span class="diagram-label">UTF-8 Byte Sequence Encoding Rules</span>
+<pre><code>  Code point range      Byte 1      Byte 2      Byte 3      Byte 4
+  ─────────────────     ────────    ────────    ────────    ────────
+  U+0000  – U+007F      0xxxxxxx
+  U+0080  – U+07FF      110xxxxx    10xxxxxx
+  U+0800  – U+FFFF      1110xxxx    10xxxxxx    10xxxxxx
+  U+10000 – U+10FFFF    11110xxx    10xxxxxx    10xxxxxx    10xxxxxx
+
+  Leading byte patterns:
+    0xxxxxxx  →  1-byte sequence (ASCII, 0-127)
+    110xxxxx  →  start of 2-byte sequence
+    1110xxxx  →  start of 3-byte sequence
+    11110xxx  →  start of 4-byte sequence
+    10xxxxxx  →  continuation byte (NEVER a leading byte)
+
+  The x bits carry the actual code point value, concatenated:
+    U+00E9 ('é') = 11101001 in binary
+    Fits in 2-byte range (U+0080–U+07FF)
+    Split: 110_00011 10_101001  →  0xC3 0xA9
+
+  Self-synchronization trick:
+    If you are lost in the middle of a stream, scan forward.
+    The FIRST byte that is NOT 10xxxxxx is a leading byte.
+    You have found the start of a character. Maximum scan: 3 bytes.</code></pre>
+</div>
+
+<h3>Why Self-Synchronization Matters</h3>
+
+<p>This is the property that makes UTF-8 so robust. If you receive a truncated or corrupted byte stream, you can <em>resync</em> by scanning for the next leading byte &mdash; any byte that does not match <code>10xxxxxx</code>. You never get stuck. Compare this to older encodings like Shift-JIS where losing a single byte could misalign the entire rest of the file, turning every subsequent character into garbage.</p>
+
+<p>The continuation byte pattern <code>10xxxxxx</code> also means that UTF-8 byte sequences for different code points <em>never overlap</em>. A byte that starts a sequence cannot appear as a continuation byte. This property, called <em>byte-level safety</em>, means you can search for ASCII substrings inside UTF-8 text using standard byte-oriented tools like <code>grep</code> or <code>strstr</code> without accidentally matching inside a multi-byte sequence.</p>
+
+<h3>Encoding "€" (U+20AC) in UTF-8</h3>
+
+<div class="diagram">
+<span class="diagram-label">Euro Sign — U+20AC — 3-byte UTF-8 sequence</span>
+<pre><code>  U+20AC = 0010 0000 1010 1100  (binary, 14 significant bits)
+
+  Fits in 3-byte range (U+0800 – U+FFFF):
+  Template:  1110xxxx 10xxxxxx 10xxxxxx
+
+  Fill in the bits:  0010 000010 101100
+                     ↓         ↓↓      ↓↓↓↓↓↓
+  Byte 1:  1110 0010  =  0xE2
+  Byte 2:  1000 0010  =  0x82
+  Byte 3:  1010 1100  =  0xAC</code></pre>
+</div>
+
+<div class="mem-row">
+  <div class="mc g">E2</div>
+  <div class="mc g">82</div>
+  <div class="mc g">AC</div>
+  <div class="mc e"></div>
+  <div class="mc e"></div>
+  <div class="mc e"></div>
+  <div class="mc e"></div>
+  <div class="mc e"></div>
+</div>
+<p style="font-size:0.85rem;color:var(--text-dim);margin-top:0.3rem;">€ (U+20AC) = 3 bytes: E2 82 AC</p>
+
+<h3>Encoding "💩" (U+1F4A9) in UTF-8</h3>
+
+<div class="diagram">
+<span class="diagram-label">Pile of Poo — U+1F4A9 — 4-byte UTF-8 sequence</span>
+<pre><code>  U+1F4A9 = 0001 1111 0100 1010 1001  (binary, 21 significant bits)
+
+  Fits in 4-byte range (U+10000 – U+10FFFF):
+  Template:  11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+
+  Value bits: 000 011111 010010 101001
+              ↓↓↓  ↓↓↓↓↓↓  ↓↓↓↓↓↓  ↓↓↓↓↓↓
+  Byte 1:  1111 0000  =  0xF0
+  Byte 2:  1001 1111  =  0x9F
+  Byte 3:  1001 0010  =  0x92
+  Byte 4:  1010 1001  =  0xA9</code></pre>
+</div>
+
+<div class="mem-row">
+  <div class="mc m">F0</div>
+  <div class="mc m">9F</div>
+  <div class="mc m">92</div>
+  <div class="mc m">A9</div>
+  <div class="mc e"></div>
+  <div class="mc e"></div>
+  <div class="mc e"></div>
+  <div class="mc e"></div>
+</div>
+<p style="font-size:0.85rem;color:var(--text-dim);margin-top:0.3rem;">💩 (U+1F4A9) = 4 bytes: F0 9F 92 A9. Four bytes for one emoji. Worth it.</p>
+
+<h3>Encoding to UTF-8 Bytes in Five Languages</h3>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-utf8enc" id="utf8enc-c" class="tc" checked>
+  <input type="radio" name="tabs-utf8enc" id="utf8enc-py" class="tpy">
+  <input type="radio" name="tabs-utf8enc" id="utf8enc-ts" class="tts">
+  <input type="radio" name="tabs-utf8enc" id="utf8enc-go" class="tgo">
+  <input type="radio" name="tabs-utf8enc" id="utf8enc-rs" class="trs">
+  <div class="tab-bar">
+    <label for="utf8enc-c">C</label>
+    <label for="utf8enc-py">Python</label>
+    <label for="utf8enc-ts">TypeScript</label>
+    <label for="utf8enc-go">Go</label>
+    <label for="utf8enc-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+    <pre><code><span class="label">C</span><span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdint.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;string.h&gt;</span>
+
+<span class="cm">/* Encode a single Unicode code point to UTF-8.
+   Returns number of bytes written (1-4), or 0 on error. */</span>
+<span class="ty">int</span> <span class="fn">encode_utf8</span>(<span class="ty">uint32_t</span> cp, <span class="ty">uint8_t</span> *out) {
+    <span class="kw">if</span> (cp &lt; <span class="nm">0x80</span>) {
+        out[<span class="nm">0</span>] = (<span class="ty">uint8_t</span>)cp;
+        <span class="kw">return</span> <span class="nm">1</span>;
+    } <span class="kw">else if</span> (cp &lt; <span class="nm">0x800</span>) {
+        out[<span class="nm">0</span>] = <span class="nm">0xC0</span> | (cp &gt;&gt; <span class="nm">6</span>);
+        out[<span class="nm">1</span>] = <span class="nm">0x80</span> | (cp &amp; <span class="nm">0x3F</span>);
+        <span class="kw">return</span> <span class="nm">2</span>;
+    } <span class="kw">else if</span> (cp &lt; <span class="nm">0x10000</span>) {
+        out[<span class="nm">0</span>] = <span class="nm">0xE0</span> | (cp &gt;&gt; <span class="nm">12</span>);
+        out[<span class="nm">1</span>] = <span class="nm">0x80</span> | ((cp &gt;&gt; <span class="nm">6</span>) &amp; <span class="nm">0x3F</span>);
+        out[<span class="nm">2</span>] = <span class="nm">0x80</span> | (cp &amp; <span class="nm">0x3F</span>);
+        <span class="kw">return</span> <span class="nm">3</span>;
+    } <span class="kw">else if</span> (cp &lt;= <span class="nm">0x10FFFF</span>) {
+        out[<span class="nm">0</span>] = <span class="nm">0xF0</span> | (cp &gt;&gt; <span class="nm">18</span>);
+        out[<span class="nm">1</span>] = <span class="nm">0x80</span> | ((cp &gt;&gt; <span class="nm">12</span>) &amp; <span class="nm">0x3F</span>);
+        out[<span class="nm">2</span>] = <span class="nm">0x80</span> | ((cp &gt;&gt; <span class="nm">6</span>)  &amp; <span class="nm">0x3F</span>);
+        out[<span class="nm">3</span>] = <span class="nm">0x80</span> | (cp &amp; <span class="nm">0x3F</span>);
+        <span class="kw">return</span> <span class="nm">4</span>;
+    }
+    <span class="kw">return</span> <span class="nm">0</span>;  <span class="cm">// invalid code point</span>
+}
+
+<span class="ty">int</span> <span class="fn">main</span>(<span class="ty">void</span>) {
+    <span class="ty">uint8_t</span> buf[<span class="nm">4</span>];
+    <span class="ty">int</span> n;
+
+    n = <span class="fn">encode_utf8</span>(<span class="nm">0x1F4A9</span>, buf);  <span class="cm">// 💩</span>
+    <span class="fn">printf</span>(<span class="st">"U+1F4A9: %d bytes:"</span>, n);
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i &lt; n; i++)
+        <span class="fn">printf</span>(<span class="st">" %02X"</span>, buf[i]);
+    <span class="fn">printf</span>(<span class="st">"\n"</span>);
+    <span class="cm">// U+1F4A9: 4 bytes: F0 9F 92 A9</span>
+
+    <span class="cm">/* In C, string literals in source files are encoded
+       however the compiler is configured — usually UTF-8 on Linux/macOS.
+       The bytes ARE the UTF-8 encoding; there is no runtime conversion. */</span>
+    <span class="ty">const char</span> *s = <span class="st">"Hello 💩"</span>;
+    <span class="fn">printf</span>(<span class="st">"strlen = %zu\n"</span>, <span class="fn">strlen</span>(s));  <span class="cm">// 11, not 8!</span>
+    <span class="kw">return</span> <span class="nm">0</span>;
+}</code></pre>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="label">Python</span><span class="cm"># Python 3 strings are sequences of Unicode code points (abstract).</span>
+<span class="cm"># .encode() converts to bytes using a specified encoding.</span>
+
+s = <span class="st">"Hello 💩"</span>
+
+<span class="cm"># Encode to UTF-8 bytes:</span>
+b = s.<span class="fn">encode</span>(<span class="st">'utf-8'</span>)
+<span class="fn">print</span>(b)           <span class="cm"># b'Hello \xf0\x9f\x92\xa9'</span>
+<span class="fn">print</span>(<span class="fn">len</span>(s))      <span class="cm"># 8  — code points (Python len counts code points)</span>
+<span class="fn">print</span>(<span class="fn">len</span>(b))      <span class="cm"># 11 — bytes (💩 takes 4 bytes)</span>
+
+<span class="cm"># Inspect byte by byte:</span>
+<span class="kw">for</span> i, byte <span class="kw">in</span> <span class="fn">enumerate</span>(b):
+    <span class="fn">print</span>(<span class="fn">f</span><span class="st">"  byte[{i}] = 0x{byte:02X} = {byte}"</span>)
+
+<span class="cm"># Decode back from UTF-8:</span>
+recovered = b.<span class="fn">decode</span>(<span class="st">'utf-8'</span>)
+<span class="fn">print</span>(recovered == s)  <span class="cm"># True</span>
+
+<span class="cm"># Handle errors in decoding:</span>
+bad = <span class="st">b"Hello \xff World"</span>  <span class="cm"># 0xFF is not valid UTF-8</span>
+<span class="fn">print</span>(bad.<span class="fn">decode</span>(<span class="st">'utf-8'</span>, errors=<span class="st">'replace'</span>))  <span class="cm"># Hello  World (with replacement char)</span>
+<span class="fn">print</span>(bad.<span class="fn">decode</span>(<span class="st">'utf-8'</span>, errors=<span class="st">'ignore'</span>))   <span class="cm"># Hello  World (silently dropped)</span>
+
+<span class="cm"># Get code point value of a character:</span>
+<span class="fn">print</span>(<span class="fn">hex</span>(<span class="fn">ord</span>(<span class="st">'💩'</span>)))   <span class="cm"># 0x1f4a9</span>
+<span class="fn">print</span>(<span class="fn">chr</span>(<span class="nm">0x1F4A9</span>))    <span class="cm"># 💩</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="label">TypeScript</span><span class="cm">// JavaScript strings are UTF-16 code units internally.</span>
+<span class="cm">// TextEncoder converts to UTF-8 bytes (Uint8Array).</span>
+
+<span class="kw">const</span> s = <span class="st">"Hello 💩"</span>;
+<span class="kw">const</span> encoder = <span class="kw">new</span> <span class="ty">TextEncoder</span>();  <span class="cm">// always UTF-8</span>
+<span class="kw">const</span> bytes: <span class="ty">Uint8Array</span> = encoder.<span class="fn">encode</span>(s);
+
+<span class="fn">console</span>.<span class="fn">log</span>(s.length);      <span class="cm">// 9 — UTF-16 code UNITS (💩 = 2 surrogate pair!)</span>
+<span class="fn">console</span>.<span class="fn">log</span>(bytes.length);  <span class="cm">// 11 — UTF-8 bytes</span>
+<span class="fn">console</span>.<span class="fn">log</span>(bytes);
+<span class="cm">// Uint8Array [72, 101, 108, 108, 111, 32, 240, 159, 146, 169]</span>
+<span class="cm">//                                    ↑space  ↑ F0  ↑ 9F  ↑ 92  ↑ A9 (4 bytes for 💩)</span>
+
+<span class="cm">// Convert back with TextDecoder:</span>
+<span class="kw">const</span> decoder = <span class="kw">new</span> <span class="ty">TextDecoder</span>(<span class="st">'utf-8'</span>);
+<span class="fn">console</span>.<span class="fn">log</span>(decoder.<span class="fn">decode</span>(bytes));  <span class="cm">// "Hello 💩"</span>
+
+<span class="cm">// Hex dump of bytes:</span>
+<span class="kw">const</span> hex = <span class="ty">Array</span>.<span class="fn">from</span>(bytes)
+  .<span class="fn">map</span>(b =&gt; b.<span class="fn">toString</span>(<span class="nm">16</span>).<span class="fn">padStart</span>(<span class="nm">2</span>, <span class="st">'0'</span>).<span class="fn">toUpperCase</span>())
+  .<span class="fn">join</span>(<span class="st">' '</span>);
+<span class="fn">console</span>.<span class="fn">log</span>(hex);
+<span class="cm">// 48 65 6C 6C 6F 20 F0 9F 92 A9</span>
+
+<span class="cm">// Count actual Unicode code points (not UTF-16 code units):</span>
+<span class="kw">const</span> codePointCount = [...s].length;  <span class="cm">// spread uses iterator = code points</span>
+<span class="fn">console</span>.<span class="fn">log</span>(codePointCount);  <span class="cm">// 8 — the real number</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="label">Go</span><span class="pp">package</span> main
+
+<span class="pp">import</span> (
+    <span class="st">"fmt"</span>
+    <span class="st">"unicode/utf8"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    s := <span class="st">"Hello 💩"</span>
+
+    <span class="cm">// Go strings are byte slices containing UTF-8 by convention.</span>
+    <span class="fn">fmt</span>.<span class="fn">Println</span>(<span class="fn">len</span>(s))                    <span class="cm">// 11 — byte count</span>
+    <span class="fn">fmt</span>.<span class="fn">Println</span>(utf8.<span class="fn">RuneCountInString</span>(s))  <span class="cm">// 8  — code point count</span>
+
+    <span class="cm">// Iterate over runes (code points):</span>
+    <span class="kw">for</span> i, r := <span class="kw">range</span> s {
+        <span class="fn">fmt</span>.<span class="fn">Printf</span>(<span class="st">"byte[%2d]: U+%04X %c\n"</span>, i, r, r)
+    }
+    <span class="cm">// byte[ 0]: U+0048 H</span>
+    <span class="cm">// byte[ 1]: U+0065 e</span>
+    <span class="cm">// ...  (byte index, not rune index!)</span>
+    <span class="cm">// byte[ 7]: U+1F4A9 💩  (starts at byte 7, takes bytes 7-10)</span>
+
+    <span class="cm">// Iterate over raw bytes:</span>
+    <span class="kw">for</span> i, b := <span class="kw">range</span> []<span class="ty">byte</span>(s) {
+        <span class="fn">fmt</span>.<span class="fn">Printf</span>(<span class="st">"byte[%d] = 0x%02X\n"</span>, i, b)
+    }
+
+    <span class="cm">// Encode a single rune to UTF-8:</span>
+    buf := <span class="fn">make</span>([]<span class="ty">byte</span>, <span class="nm">4</span>)
+    n := utf8.<span class="fn">EncodeRune</span>(buf, <span class="st">'💩'</span>)
+    <span class="fn">fmt</span>.<span class="fn">Printf</span>(<span class="st">"%d bytes: % X\n"</span>, n, buf[:n])
+    <span class="cm">// 4 bytes: F0 9F 92 A9</span>
+}</code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="label">Rust</span><span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> s = <span class="st">"Hello 💩"</span>;
+
+    <span class="cm">// Rust &str is guaranteed valid UTF-8. Always.</span>
+    <span class="fn">println!</span>(<span class="st">"byte len:  {}"</span>, s.<span class="fn">len</span>());           <span class="cm">// 11</span>
+    <span class="fn">println!</span>(<span class="st">"char count: {}"</span>, s.<span class="fn">chars</span>().<span class="fn">count</span>()); <span class="cm">// 8 (chars = Unicode scalar values)</span>
+
+    <span class="cm">// Iterate over chars (code points):</span>
+    <span class="kw">for</span> c <span class="kw">in</span> s.<span class="fn">chars</span>() {
+        <span class="fn">print!</span>(<span class="st">"U+{:04X} ({})  "</span>, c <span class="kw">as</span> <span class="ty">u32</span>, c);
+    }
+    <span class="fn">println!</span>();
+
+    <span class="cm">// Get raw UTF-8 bytes:</span>
+    <span class="kw">let</span> bytes: &amp;[<span class="ty">u8</span>] = s.<span class="fn">as_bytes</span>();
+    <span class="kw">for</span> (i, b) <span class="kw">in</span> bytes.<span class="fn">iter</span>().<span class="fn">enumerate</span>() {
+        <span class="fn">print!</span>(<span class="st">"{:02X} "</span>, b);
+    }
+    <span class="cm">// 48 65 6C 6C 6F 20 F0 9F 92 A9</span>
+
+    <span class="cm">// Encode a char to its UTF-8 bytes manually:</span>
+    <span class="kw">let</span> <span class="kw">mut</span> buf = [<span class="nm">0u8</span>; <span class="nm">4</span>];
+    <span class="kw">let</span> encoded: &amp;<span class="ty">str</span> = <span class="st">'💩'</span>.<span class="fn">encode_utf8</span>(&amp;<span class="kw">mut</span> buf);
+    <span class="fn">println!</span>(<span class="st">"\n💩 bytes: {:02X?}"</span>, encoded.<span class="fn">as_bytes</span>());
+    <span class="cm">// 💩 bytes: [F0, 9F, 92, A9]</span>
+
+    <span class="cm">// Rust prevents you from indexing a string by integer —</span>
+    <span class="cm">// because "the 3rd byte" is not the same as "the 3rd character".</span>
+    <span class="cm">// s[2] is a compile error. Use s.chars().nth(2) or byte slices carefully.</span>
+}</code></pre>
+  </div>
+</div>
+
+<div class="lang-note">
+<div class="lang-note-label">Cross-Reference</div>
+<p>UTF-8 encoded strings are just byte buffers with a specific structure. For how parsers walk those bytes, see <a href="parsers-deep-dive.html" style="color:var(--blue);">parsers-deep-dive.html</a>. For how operating systems and runtimes allocate and manage the memory those strings live in, see <a href="buffers-deep-dive.html" style="color:var(--blue);">buffers-deep-dive.html</a>. The three topics form a natural stack: encoding defines the format, buffers hold the bytes, parsers interpret the structure.</p>
+</div>
+
+<div class="interactive-demo" id="demo-utf8">
+  <h4>Interactive: UTF-8 Byte Inspector</h4>
+  <p style="font-size:0.9rem;color:var(--text-dim);">Type any text to see its UTF-8 encoding — structure bits highlighted.</p>
+  <input type="text" id="utf8-input" value="Hello 💩" placeholder="Type something...">
+  <div class="demo-output" id="utf8-output"></div>
+</div>
+
+<script>
+(function() {
+  function inspectUTF8(str) {
+    if (!str) return '(empty)';
+    const encoder = new TextEncoder();
+    const bytes = encoder.encode(str);
+    const lines = [];
+
+    lines.push('Code points → UTF-8 bytes:\n');
+    const chars = [...str];
+    let byteOffset = 0;
+    for (const ch of chars) {
+      const cp = ch.codePointAt(0);
+      const chBytes = encoder.encode(ch);
+      const hexBytes = Array.from(chBytes).map(b => b.toString(16).toUpperCase().padStart(2,'0')).join(' ');
+      const binBytes = Array.from(chBytes).map(b => {
+        const bits = b.toString(2).padStart(8,'0');
+        if (chBytes.length === 1) return bits;
+        if (b === chBytes[0]) {
+          // leading byte
+          const prefixLen = chBytes.length === 2 ? 3 : chBytes.length === 3 ? 4 : 5;
+          return bits.slice(0, prefixLen) + '·' + bits.slice(prefixLen);
+        } else {
+          return '10·' + bits.slice(2);
+        }
+      }).join(' ');
+      const name = cp > 127 ? ` U+${cp.toString(16).toUpperCase().padStart(4,'0')}` : ` U+${cp.toString(16).toUpperCase().padStart(4,'0')}`;
+      lines.push(`  "${ch}"${name}  →  ${hexBytes}  [${binBytes}]  (${chBytes.length} byte${chBytes.length>1?'s':''})`);
+      byteOffset += chBytes.length;
+    }
+
+    lines.push('');
+    lines.push(`Total: ${chars.length} code point${chars.length!==1?'s':''}, ${bytes.length} byte${bytes.length!==1?'s':''} in UTF-8`);
+
+    const allHex = Array.from(bytes).map(b => b.toString(16).toUpperCase().padStart(2,'0')).join(' ');
+    lines.push(`Hex: ${allHex}`);
+
+    return lines.join('\n');
+  }
+
+  const input = document.getElementById('utf8-input');
+  const output = document.getElementById('utf8-output');
+
+  function update() {
+    output.textContent = inspectUTF8(input.value);
+  }
+
+  input.addEventListener('input', update);
+  update();
+})();
+</script>
+
+</section>
+<!-- ============================================================ -->
+<section id="ch5">
+<h2>// 05 &mdash; UTF-16 &amp; UTF-32 &mdash; The Other Encodings</h2>
+
+<p class="drop-cap">UTF-16 is the encoding that Java and JavaScript use internally, the one Windows chose for its entire API surface, and the one that haunts every programmer who has ever dealt with surrogate pairs at 2am wondering why their string is corrupted. It made sense in 1991. Unicode was supposed to fit in 16 bits. Then Unicode expanded, and suddenly every Windows developer was living in a world where a single character might cost 2 code units instead of one.</p>
+
+<p>UTF-16 uses <strong>2 bytes</strong> for characters in the Basic Multilingual Plane (U+0000 through U+FFFF) &mdash; that is most of the characters you will ever encounter. For everything beyond U+FFFF, the supplementary planes, UTF-16 uses a <strong>surrogate pair</strong>: two 2-byte units that together encode one code point. Variable width, but only two possible widths.</p>
+
+<h3>Surrogate Pairs</h3>
+
+<p>The Unicode Consortium carved out a chunk of the BMP &mdash; U+D800 through U+DFFF &mdash; specifically for surrogate use. These code points are illegal as standalone characters. They exist only to pair up and encode supplementary plane code points.</p>
+
+<div class="diagram">
+<span class="diagram-label">Surrogate Pair Encoding</span>
+<pre><code>  High surrogates: U+D800 &ndash; U+DBFF  (1024 values)
+  Low  surrogates: U+DC00 &ndash; U+DFFF  (1024 values)
+  Together: 1024 * 1024 = 1,048,576 supplementary code points
+
+  To encode code point U (where U &gt; U+FFFF):
+
+    U' = U - 0x10000           (0x00000 &ndash; 0xFFFFF, 20 bits)
+    High = 0xD800 + (U' &gt;&gt; 10)   (top 10 bits)
+    Low  = 0xDC00 + (U' &amp; 0x3FF) (bottom 10 bits)
+
+  Example: U+1F600 GRINNING FACE &#128512;
+
+    U' = 0x1F600 - 0x10000 = 0xF600
+    High = 0xD800 + (0xF600 &gt;&gt; 10)  = 0xD800 + 0x3D = 0xD83D
+    Low  = 0xDC00 + (0xF600 &amp; 0x3FF) = 0xDC00 + 0x200 = 0xDE00
+
+    UTF-16: D8 3D DE 00  (4 bytes)</code></pre>
+</div>
+
+<p>To decode a surrogate pair back to a code point:</p>
+
+<div class="diagram">
+<span class="diagram-label">Surrogate Pair Decoding</span>
+<pre><code>  Given High surrogate H and Low surrogate L:
+
+    U = 0x10000 + ((H - 0xD800) &lt;&lt; 10) + (L - 0xDC00)
+
+  Example: D83D DE00
+    H = 0xD83D, L = 0xDE00
+    U = 0x10000 + ((0xD83D - 0xD800) &lt;&lt; 10) + (0xDE00 - 0xDC00)
+    U = 0x10000 + (0x3D &lt;&lt; 10) + 0x200
+    U = 0x10000 + 0xF400 + 0x200
+    U = 0x1F600  &#10004;</code></pre>
+</div>
+
+<h3>Memory Layout</h3>
+
+<p>The letter "A" in UTF-16 takes two bytes. Which byte comes first depends on endianness &mdash; this is where the BOM comes in.</p>
+
+<div style="margin:1.5rem 0;">
+  <p style="font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:var(--green-dim);margin-bottom:0.5rem;">"A" (U+0041) in UTF-16LE</p>
+  <div class="mem-row">
+    <div class="mc g">41</div>
+    <div class="mc d">00</div>
+  </div>
+  <p style="font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:var(--green-dim);margin:1rem 0 0.5rem;">"A" (U+0041) in UTF-16BE</p>
+  <div class="mem-row">
+    <div class="mc d">00</div>
+    <div class="mc g">41</div>
+  </div>
+  <p style="font-family:'JetBrains Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:var(--green-dim);margin:1rem 0 0.5rem;">&#128512; (U+1F600) surrogate pair in UTF-16LE</p>
+  <div class="mem-row">
+    <div class="mc m">3D</div>
+    <div class="mc m">D8</div>
+    <div class="mc o">00</div>
+    <div class="mc o">DE</div>
+  </div>
+  <p style="font-size:0.82rem;color:var(--text-dim);margin-top:0.4rem;">High surrogate <span style="color:var(--magenta);">D83D</span> stored LE as 3D D8 &bull; Low surrogate <span style="color:var(--orange);">DE00</span> stored LE as 00 DE</p>
+</div>
+
+<h3>BOM: Byte Order Mark</h3>
+
+<p>U+FEFF is the BOM. Placed at the start of a UTF-16 file, it tells you the byte order of everything that follows. If you read <code>FE FF</code>, you are in big-endian territory. If you read <code>FF FE</code>, little-endian. The BOM is invisible in a text editor, but it is there, silently deciding whether your file is readable.</p>
+
+<div class="diagram">
+<span class="diagram-label">BOM Detection</span>
+<pre><code>  FF FE xx xx ...   UTF-16 Little-Endian  (most common on Windows)
+  FE FF xx xx ...   UTF-16 Big-Endian
+  EF BB BF xx ...   UTF-8 with BOM (optional, discouraged on Linux/Mac)
+  FF FE 00 00 ...   UTF-32 Little-Endian
+  00 00 FE FF ...   UTF-32 Big-Endian
+
+  UTF-8 does NOT need a BOM. It is byte-order-independent by design.
+  The UTF-8 BOM is a Windows legacy artifact that causes subtle bugs
+  in Unix tools: grep, cat, awk, and virtually every shell script.</code></pre>
+</div>
+
+<h3>UTF-32: The Simple Option Nobody Uses</h3>
+
+<p>UTF-32 is exactly what it sounds like. Every code point is exactly 4 bytes, always, no exceptions. U+0041 "A" is stored as <code>00 00 00 41</code>. U+1F600 &#128512; is stored as <code>00 01 F6 00</code>. Dead simple to index into. Absolutely brutal on memory.</p>
+
+<div class="diagram">
+<span class="diagram-label">UTF-32 Memory for "Hi &#128512;"</span>
+<pre><code>  H  (U+0048): 00 00 00 48
+  i  (U+0069): 00 00 00 69
+     (U+0020): 00 00 00 20
+  &#128512;  (U+1F600): 00 01 F6 00
+
+  4 characters * 4 bytes = 16 bytes
+  In UTF-8:  H=1, i=1, space=1, &#128512;=4 = 7 bytes
+  UTF-32 costs 2.3x more for this example
+  For pure ASCII, UTF-32 costs 4x more than UTF-8</code></pre>
+</div>
+
+<p>UTF-32 is occasionally used internally by language runtimes that want O(1) random access into strings by code point index. Python 3's internal string representation uses UTF-32 (or a narrower variant) when a string contains characters above U+00FF.</p>
+
+<h3>The Three Encodings Side by Side</h3>
+
+<div class="vs-grid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--border);border-radius:6px;overflow:hidden;margin:1.5rem 0;font-size:0.85rem;">
+  <div style="background:var(--bg-card);padding:0.7rem 0.9rem;font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-dim);">Property</div>
+  <div style="background:var(--bg-card);padding:0.7rem 0.9rem;font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:var(--green);">UTF-8</div>
+  <div style="background:var(--bg-card);padding:0.7rem 0.9rem;font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:var(--cyan);">UTF-16</div>
+
+  <div style="background:var(--bg);padding:0.6rem 0.9rem;color:var(--text-dim);font-size:0.82rem;">Bytes for ASCII char</div>
+  <div style="background:var(--bg);padding:0.6rem 0.9rem;">1</div>
+  <div style="background:var(--bg);padding:0.6rem 0.9rem;">2</div>
+
+  <div style="background:var(--bg-card);padding:0.6rem 0.9rem;color:var(--text-dim);font-size:0.82rem;">Bytes for BMP char</div>
+  <div style="background:var(--bg-card);padding:0.6rem 0.9rem;">1&ndash;3</div>
+  <div style="background:var(--bg-card);padding:0.6rem 0.9rem;">2</div>
+
+  <div style="background:var(--bg);padding:0.6rem 0.9rem;color:var(--text-dim);font-size:0.82rem;">Bytes for supplementary</div>
+  <div style="background:var(--bg);padding:0.6rem 0.9rem;">4</div>
+  <div style="background:var(--bg);padding:0.6rem 0.9rem;">4 (surrogate pair)</div>
+
+  <div style="background:var(--bg-card);padding:0.6rem 0.9rem;color:var(--text-dim);font-size:0.82rem;">Endian issues</div>
+  <div style="background:var(--bg-card);padding:0.6rem 0.9rem;color:var(--green);">No</div>
+  <div style="background:var(--bg-card);padding:0.6rem 0.9rem;color:var(--red);">Yes</div>
+
+  <div style="background:var(--bg);padding:0.6rem 0.9rem;color:var(--text-dim);font-size:0.82rem;">BOM needed</div>
+  <div style="background:var(--bg);padding:0.6rem 0.9rem;color:var(--green);">No</div>
+  <div style="background:var(--bg);padding:0.6rem 0.9rem;color:var(--red);">Yes</div>
+
+  <div style="background:var(--bg-card);padding:0.6rem 0.9rem;color:var(--text-dim);font-size:0.82rem;">Used by</div>
+  <div style="background:var(--bg-card);padding:0.6rem 0.9rem;font-size:0.8rem;">Web, Linux, Go, Rust</div>
+  <div style="background:var(--bg-card);padding:0.6rem 0.9rem;font-size:0.8rem;">Java, JS, Windows, .NET</div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr;gap:1px;background:var(--border);border-radius:6px;overflow:hidden;margin:-1rem 0 1.5rem;font-size:0.85rem;">
+  <div style="background:var(--bg-card);padding:0.7rem 0.9rem;font-family:'JetBrains Mono',monospace;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:var(--magenta);">UTF-32</div>
+  <div style="background:var(--bg);padding:0.6rem 0.9rem;">4 (always)</div>
+  <div style="background:var(--bg-card);padding:0.6rem 0.9rem;">4 (always)</div>
+  <div style="background:var(--bg);padding:0.6rem 0.9rem;">4 (always)</div>
+  <div style="background:var(--bg-card);padding:0.6rem 0.9rem;color:var(--red);">Yes</div>
+  <div style="background:var(--bg);padding:0.6rem 0.9rem;color:var(--red);">Yes</div>
+  <div style="background:var(--bg-card);padding:0.6rem 0.9rem;font-size:0.8rem;">Internal processing, some Python internals</div>
+</div>
+
+<table>
+<tr><th>Encoding</th><th>Bytes/ASCII</th><th>Bytes/BMP</th><th>Bytes/Supplementary</th><th>Endian?</th><th>BOM?</th><th>Used by</th></tr>
+<tr><td><code>UTF-8</code></td><td>1</td><td>1&ndash;3</td><td>4</td><td style="color:var(--green);">No</td><td style="color:var(--green);">No</td><td>Web, Linux, Go, Rust</td></tr>
+<tr><td><code>UTF-16</code></td><td>2</td><td>2</td><td>4</td><td style="color:var(--red);">Yes</td><td style="color:var(--red);">Yes</td><td>Java, JS, Windows, .NET</td></tr>
+<tr><td><code>UTF-32</code></td><td>4</td><td>4</td><td>4</td><td style="color:var(--red);">Yes</td><td style="color:var(--red);">Yes</td><td>Internal processing</td></tr>
+</table>
+
+<div class="power wild">
+<div class="power-label">Wild: The Windows Trap</div>
+<p>Windows chose UTF-16 in the 1990s when Unicode was supposed to fit in 16 bits. Then Unicode expanded beyond 16 bits. Now Windows is stuck with the worst of both worlds &mdash; variable-width like UTF-8 but with none of the ASCII compatibility. Every Windows API has both an "A" (ANSI/narrow) and "W" (wide/UTF-16) variant. Win32 programmers have been paying this tax for thirty years.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch6">
+<h2>// 06 &mdash; Grapheme Clusters &mdash; When .length Lies</h2>
+
+<p class="drop-cap">Every string length function in every programming language lies to you. Not occasionally. Not in edge cases. Constantly, by design. <code>len()</code> does not tell you how many characters are in a string. <code>.length</code> does not tell you how many characters you will see on screen. They tell you something technically true but practically misleading &mdash; and understanding the difference is the gap between a programmer who handles text correctly and one who ships broken software to international users.</p>
+
+<p>The root problem is that Unicode separates the concept of a <strong>code point</strong> (a number assigned to an abstract character) from a <strong>grapheme cluster</strong> (what a human perceives as a single visual character). These are not the same thing, and the gap between them grows wider with every new emoji and every new combining character sequence.</p>
+
+<h3>The &eacute; Problem</h3>
+
+<p>The letter <strong>&eacute;</strong> &mdash; e with an acute accent &mdash; exists in two forms in Unicode:</p>
+
+<div class="diagram">
+<span class="diagram-label">Two Ways to Write &eacute;</span>
+<pre><code>  NFC (precomposed):
+    U+00E9  LATIN SMALL LETTER E WITH ACUTE
+    UTF-8:  C3 A9  (2 bytes)
+
+  NFD (decomposed):
+    U+0065  LATIN SMALL LETTER E
+    U+0301  COMBINING ACUTE ACCENT
+    UTF-8:  65 CC 81  (3 bytes)
+
+  Both render as:  &eacute;
+  Both are canonically equivalent in Unicode.
+  But most languages treat them as different strings.</code></pre>
+</div>
+
+<p>Same glyph. Same meaning. Different bytes. Different lengths. Most string comparison functions will say these two strings are not equal. This is how you get bugs where a user can log in on Mac (which normalizes to NFC) but not on Linux (which does not normalize).</p>
+
+<h3>The Length Lie Table</h3>
+
+<table>
+<tr><th>String</th><th>What you see</th><th>JS .length</th><th>Python len()</th><th>Code points</th><th>Graphemes</th></tr>
+<tr><td><code>"&eacute;"</code> precomposed</td><td>&eacute;</td><td>1</td><td>1</td><td>1</td><td>1</td></tr>
+<tr><td><code>"&eacute;"</code> decomposed</td><td>&eacute;</td><td>2</td><td>2</td><td>2</td><td>1</td></tr>
+<tr><td><code>"&#127467;&#127479;"</code> French flag</td><td>&#127467;&#127479;</td><td>4</td><td>2</td><td>2</td><td>1</td></tr>
+<tr><td><code>"&#128104;&#8205;&#128105;&#8205;&#128103;&#8205;&#128102;"</code> family</td><td>&#128104;&#8205;&#128105;&#8205;&#128103;&#8205;&#128102;</td><td>11</td><td>7</td><td>7</td><td>1</td></tr>
+<tr><td><code>"caf&eacute;"</code></td><td>caf&eacute;</td><td>4</td><td>4</td><td>4</td><td>4</td></tr>
+</table>
+
+<p>The family emoji is one character as far as any human is concerned. JavaScript sees 11. Python sees 7. Only <code>Intl.Segmenter</code> in JS, or a proper grapheme segmentation library in other languages, will tell you the truth: 1.</p>
+
+<h3>Measuring String Length Correctly</h3>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-strlen" id="strlen-c" class="tc" checked>
+  <input type="radio" name="tabs-strlen" id="strlen-py" class="tpy">
+  <input type="radio" name="tabs-strlen" id="strlen-ts" class="tts">
+  <input type="radio" name="tabs-strlen" id="strlen-go" class="tgo">
+  <input type="radio" name="tabs-strlen" id="strlen-rs" class="trs">
+  <div class="tab-bar">
+    <label for="strlen-c">C</label>
+    <label for="strlen-py">Python</label>
+    <label for="strlen-ts">TypeScript</label>
+    <label for="strlen-go">Go</label>
+    <label for="strlen-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+    <pre><code><span class="pp">#include</span> <span class="st">&lt;string.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+
+<span class="cm">// C has no grapheme cluster support in stdlib.</span>
+<span class="cm">// strlen() counts BYTES, not characters.</span>
+<span class="cm">// For anything Unicode-aware, you need ICU or a similar library.</span>
+
+<span class="kw">int</span> <span class="fn">main</span>() {
+    <span class="cm">// "café" in UTF-8: c=1, a=1, f=1, é=2 bytes</span>
+    <span class="kw">const</span> <span class="ty">char</span> *s = <span class="st">"caf\xc3\xa9"</span>;
+
+    <span class="fn">printf</span>(<span class="st">"strlen: %zu\n"</span>, <span class="fn">strlen</span>(s));   <span class="cm">// 5 — counts bytes!</span>
+
+    <span class="cm">// To get code point count, you must walk the UTF-8 yourself:</span>
+    <span class="ty">size_t</span> cp_count = <span class="nm">0</span>;
+    <span class="kw">for</span> (<span class="kw">const</span> <span class="ty">unsigned char</span> *p = (<span class="kw">const</span> <span class="ty">unsigned char</span> *)s; *p; p++) {
+        <span class="cm">// Count bytes that are NOT continuation bytes (10xxxxxx)</span>
+        <span class="kw">if</span> ((*p &amp; <span class="nm">0xC0</span>) != <span class="nm">0x80</span>) cp_count++;
+    }
+    <span class="fn">printf</span>(<span class="st">"code points: %zu\n"</span>, cp_count);  <span class="cm">// 4</span>
+
+    <span class="cm">// Grapheme clusters: use libicu's UBreakIterator</span>
+    <span class="cm">// #include &lt;unicode/ubrk.h&gt;</span>
+    <span class="cm">// UBreakIterator *bi = ubrk_open(UBRK_CHARACTER, "en", ...)</span>
+    <span class="kw">return</span> <span class="nm">0</span>;
+}
+<span class="label">C</span></code></pre>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="cm"># Python 3: len() counts CODE POINTS (Unicode scalars)</span>
+<span class="cm"># Not bytes, not graphemes — code points.</span>
+
+s_pre  = <span class="st">"\u00e9"</span>          <span class="cm"># é precomposed (NFC)</span>
+s_dec  = <span class="st">"e\u0301"</span>         <span class="cm"># é decomposed (NFD)</span>
+family = <span class="st">"\U0001F468\u200D\U0001F469\u200D\U0001F467\u200D\U0001F466"</span>
+flag   = <span class="st">"\U0001F1EB\U0001F1F7"</span>  <span class="cm"># 🇫🇷</span>
+
+<span class="fn">print</span>(f<span class="st">"é precomposed: {len(s_pre)} code point(s)"</span>)   <span class="cm"># 1</span>
+<span class="fn">print</span>(f<span class="st">"é decomposed:  {len(s_dec)} code point(s)"</span>)   <span class="cm"># 2</span>
+<span class="fn">print</span>(f<span class="st">"family emoji:  {len(family)} code point(s)"</span>)  <span class="cm"># 7</span>
+<span class="fn">print</span>(f<span class="st">"French flag:   {len(flag)} code point(s)"</span>)    <span class="cm"># 2</span>
+
+<span class="cm"># For byte count:</span>
+<span class="fn">print</span>(family.<span class="fn">encode</span>(<span class="st">'utf-8'</span>).__len__())  <span class="cm"># 25 bytes</span>
+
+<span class="cm"># For grapheme clusters, use the `grapheme` package:</span>
+<span class="cm"># import grapheme</span>
+<span class="cm"># print(grapheme.length(family))  # 1</span>
+
+<span class="cm"># Or normalize before comparing:</span>
+<span class="kw">import</span> <span class="ty">unicodedata</span>
+<span class="fn">print</span>(s_pre == s_dec)                                    <span class="cm"># False!</span>
+<span class="fn">print</span>(<span class="ty">unicodedata</span>.<span class="fn">normalize</span>(<span class="st">'NFC'</span>, s_dec) == s_pre)    <span class="cm"># True</span>
+<span class="label">Python</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="cm">// JavaScript .length counts UTF-16 CODE UNITS, not code points</span>
+<span class="kw">const</span> family = <span class="st">"\u{1F468}\u200D\u{1F469}\u200D\u{1F467}\u200D\u{1F466}"</span>;
+<span class="kw">const</span> flag   = <span class="st">"\u{1F1EB}\u{1F1F7}"</span>;
+
+<span class="cm">// BAD: counts UTF-16 code units</span>
+<span class="fn">console</span>.<span class="fn">log</span>(family.<span class="fn">length</span>);                     <span class="cm">// 11</span>
+<span class="fn">console</span>.<span class="fn">log</span>(flag.<span class="fn">length</span>);                        <span class="cm">// 4</span>
+
+<span class="cm">// BETTER: spread to array = code points</span>
+<span class="fn">console</span>.<span class="fn">log</span>([...family].<span class="fn">length</span>);               <span class="cm">// 7</span>
+<span class="fn">console</span>.<span class="fn">log</span>([...flag].<span class="fn">length</span>);                 <span class="cm">// 2</span>
+
+<span class="cm">// CORRECT: grapheme clusters via Intl.Segmenter</span>
+<span class="kw">const</span> seg = <span class="kw">new</span> <span class="ty">Intl</span>.<span class="fn">Segmenter</span>();
+<span class="kw">const</span> <span class="fn">graphemeCount</span> = (s: <span class="ty">string</span>) =>
+  [...seg.<span class="fn">segment</span>(s)].<span class="fn">length</span>;
+
+<span class="fn">console</span>.<span class="fn">log</span>(<span class="fn">graphemeCount</span>(family));             <span class="cm">// 1</span>
+<span class="fn">console</span>.<span class="fn">log</span>(<span class="fn">graphemeCount</span>(flag));               <span class="cm">// 1</span>
+<span class="fn">console</span>.<span class="fn">log</span>(<span class="fn">graphemeCount</span>(<span class="st">"caf\u00e9"</span>));        <span class="cm">// 4</span>
+
+<span class="cm">// Normalize before comparing:</span>
+<span class="kw">const</span> eNFC = <span class="st">"\u00e9"</span>;    <span class="cm">// precomposed</span>
+<span class="kw">const</span> eNFD = <span class="st">"e\u0301"</span>;  <span class="cm">// decomposed</span>
+<span class="fn">console</span>.<span class="fn">log</span>(eNFC === eNFD);                       <span class="cm">// false</span>
+<span class="fn">console</span>.<span class="fn">log</span>(eNFC.<span class="fn">normalize</span>(<span class="st">'NFC'</span>) === eNFD.<span class="fn">normalize</span>(<span class="st">'NFC'</span>)); <span class="cm">// true</span>
+<span class="label">TypeScript</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="pp">package</span> main
+
+<span class="pp">import</span> (
+    <span class="st">"fmt"</span>
+    <span class="st">"unicode/utf8"</span>
+    <span class="cm">// "golang.org/x/text/unicode/norm"  // for normalization</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    family := <span class="st">"\U0001F468\u200D\U0001F469\u200D\U0001F467\u200D\U0001F466"</span>
+    flag   := <span class="st">"\U0001F1EB\U0001F1F7"</span>
+
+    <span class="cm">// BAD: len() counts BYTES</span>
+    <span class="fn">fmt</span>.<span class="fn">Println</span>(<span class="fn">len</span>(family))                  <span class="cm">// 25</span>
+
+    <span class="cm">// BETTER: utf8.RuneCountInString() = code points</span>
+    <span class="fn">fmt</span>.<span class="fn">Println</span>(utf8.<span class="fn">RuneCountInString</span>(family)) <span class="cm">// 7</span>
+    <span class="fn">fmt</span>.<span class="fn">Println</span>(utf8.<span class="fn">RuneCountInString</span>(flag))   <span class="cm">// 2</span>
+
+    <span class="cm">// Also: range over string gives runes (code points)</span>
+    count := <span class="nm">0</span>
+    <span class="kw">for range</span> family { count++ }
+    <span class="fn">fmt</span>.<span class="fn">Println</span>(count)                           <span class="cm">// 7</span>
+
+    <span class="cm">// For grapheme clusters, use golang.org/x/text/unicode/grapheme</span>
+    <span class="cm">// or github.com/rivo/uniseg</span>
+    <span class="cm">// g := uniseg.GraphemeClusterCount(family)  // 1</span>
+}
+<span class="label">Go</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="kw">let</span> family = <span class="st">"\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}"</span>;
+    <span class="kw">let</span> flag   = <span class="st">"\u{1F1EB}\u{1F1F7}"</span>;
+
+    <span class="cm">// BAD: .len() counts BYTES</span>
+    <span class="fn">println!</span>(<span class="st">"{}"</span>, family.<span class="fn">len</span>());                   <span class="cm">// 25</span>
+
+    <span class="cm">// BETTER: .chars().count() = code points</span>
+    <span class="fn">println!</span>(<span class="st">"{}"</span>, family.<span class="fn">chars</span>().<span class="fn">count</span>());          <span class="cm">// 7</span>
+    <span class="fn">println!</span>(<span class="st">"{}"</span>, flag.<span class="fn">chars</span>().<span class="fn">count</span>());            <span class="cm">// 2</span>
+
+    <span class="cm">// CORRECT: use the `unicode-segmentation` crate</span>
+    <span class="cm">// use unicode_segmentation::UnicodeSegmentation;</span>
+    <span class="cm">// let graphemes = family.graphemes(true).count();  // 1</span>
+
+    <span class="cm">// Rust strings are guaranteed valid UTF-8</span>
+    <span class="cm">// Indexing by byte position: family[0..4] ← may panic!</span>
+    <span class="cm">// Always use char_indices() or grapheme boundaries</span>
+    <span class="kw">for</span> (i, c) <span class="kw">in</span> family.<span class="fn">char_indices</span>() {
+        <span class="fn">println!</span>(<span class="st">"byte {}: U+{:04X}"</span>, i, c <span class="kw">as</span> <span class="ty">u32</span>);
+    }
+}
+<span class="label">Rust</span></code></pre>
+  </div>
+</div>
+
+<h3>Interactive: String Length Liar</h3>
+
+<div class="interactive-demo" id="demo-strlen">
+  <h4>Interactive: String Length Liar</h4>
+  <p style="font-size:0.9rem;color:var(--text-dim);">Enter a string to see how different languages report its length.</p>
+  <input type="text" id="strlen-input" value="&#128104;&#8205;&#128105;&#8205;&#128103;&#8205;&#128102; caf&eacute; &#127467;&#127479;" placeholder="Type something..." style="width:100%;padding:0.6rem 0.8rem;background:var(--bg-code);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:14px;margin-bottom:0.8rem;">
+  <div class="demo-output" id="strlen-output"></div>
+</div>
+
+<script>
+(function() {
+  function updateStrlen() {
+    var input = document.getElementById('strlen-input');
+    var output = document.getElementById('strlen-output');
+    if (!input || !output) return;
+    var s = input.value;
+    var byteLen = new TextEncoder().encode(s).length;
+    var utf16Len = s.length;
+    var cpLen = [...s].length;
+    var graphemeLen = 'N/A (Intl.Segmenter not available)';
+    try {
+      graphemeLen = [...new Intl.Segmenter().segment(s)].length;
+    } catch(e) {}
+    output.innerHTML =
+      '<table style="width:100%;font-family:\'JetBrains Mono\',monospace;font-size:12px;">' +
+      '<tr><th style="text-align:left;color:var(--text-dim);padding:0.3rem 0.5rem;">Measurement</th><th style="text-align:right;color:var(--text-dim);padding:0.3rem 0.5rem;">Value</th></tr>' +
+      '<tr><td style="padding:0.3rem 0.5rem;color:var(--text-dim);">UTF-8 bytes</td><td style="text-align:right;padding:0.3rem 0.5rem;color:var(--orange);">' + byteLen + '</td></tr>' +
+      '<tr><td style="padding:0.3rem 0.5rem;color:var(--text-dim);">JS .length (UTF-16 code units)</td><td style="text-align:right;padding:0.3rem 0.5rem;color:var(--red);">' + utf16Len + '</td></tr>' +
+      '<tr><td style="padding:0.3rem 0.5rem;color:var(--text-dim);">Python len() / [...s].length (code points)</td><td style="text-align:right;padding:0.3rem 0.5rem;color:var(--yellow);">' + cpLen + '</td></tr>' +
+      '<tr><td style="padding:0.3rem 0.5rem;color:var(--text-dim);">Intl.Segmenter grapheme clusters</td><td style="text-align:right;padding:0.3rem 0.5rem;color:var(--green);">' + graphemeLen + '</td></tr>' +
+      '</table>';
+    output.style.background = 'var(--bg-code)';
+    output.style.border = '1px solid var(--border)';
+    output.style.borderRadius = '4px';
+    output.style.padding = '0.5rem';
+    output.style.marginTop = '0.3rem';
+  }
+  document.addEventListener('DOMContentLoaded', function() {
+    var input = document.getElementById('strlen-input');
+    if (input) {
+      input.addEventListener('input', updateStrlen);
+      updateStrlen();
+    }
+  });
+})();
+</script>
+
+<div class="power danger">
+<div class="power-label">Danger: Truncation Bugs</div>
+<p>Never truncate a string by byte index without checking for code point boundaries. Splitting <code>"café"</code> after 4 bytes in UTF-8 gives you <code>"caf\xC3"</code> &mdash; a broken byte sequence that cannot be decoded. Always truncate at grapheme cluster boundaries, not byte or even code point boundaries.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch7">
+<h2>// 07 &mdash; Emoji &mdash; Wingdings to World Domination</h2>
+
+<p class="drop-cap">Shigetaka Kurita was a designer at NTT DoCoMo in 1999 when he created 176 tiny 12&times;12 pixel images for the company's i-mode mobile internet platform. He was solving a mundane UX problem: the weather forecast widget needed icons. He drew a sun. He drew a cloud. He drew a face. He did not plan to change human communication forever. He just needed a weather widget.</p>
+
+<p>Those 176 pixelated images &mdash; which included faces, weather symbols, hearts, and a pile of poo &mdash; became so popular that NTT DoCoMo's competitors launched their own emoji sets almost immediately. By the early 2000s, Japan had three major carriers and three completely incompatible emoji standards. Sending an emoji between networks was a game of telephone played entirely in corrupted data.</p>
+
+<h3>The Carrier Wars</h3>
+
+<p>DoCoMo, au (KDDI), and SoftBank each had their own mapping tables, their own visual styles, and their own proprietary encoding schemes. A &#128516; on DoCoMo might map to a &#128512; on SoftBank, or to a garbled question mark, or simply disappear. Cross-carrier messaging was a nightmare, and nobody cared to fix it because proprietary emoji locked users to their carrier.</p>
+
+<div class="diagram">
+<span class="diagram-label">The Carrier Incompatibility Disaster (circa 2007)</span>
+<pre><code>  DoCoMo sends:    [SUN EMOJI]  -> encoded as F89F
+  SoftBank reads:  F89F         -> maps to [ALIEN FACE] or [?]
+  au reads:        F89F         -> silently drops it
+
+  3 carriers. 3 encoding tables. 0 compatibility.
+  Result: Japanese mobile users could not send emoji between networks.
+
+  Total emoji at this point:
+    DoCoMo:   176
+    au/KDDI:  ~300
+    SoftBank: ~480
+    Overlap:  chaos</code></pre>
+</div>
+
+<h3>Google Saves the Day (Kind Of)</h3>
+
+<p>In 2007, Google engineers Mark Davis and Kat Momoi submitted a proposal to the Unicode Consortium to standardize emoji. Their motivation was practical: Google was building Gmail for mobile, and they needed to interoperate with Japanese carrier networks. The only way to do that reliably was to get emoji into Unicode.</p>
+
+<p>The Unicode Consortium was not enthusiastic. Unicode was a serious standards body. Emoji were silly pictures. But Google (and later Apple) pushed hard, and in 2010, Unicode 6.0 shipped with <strong>722 emoji</strong>. The first standardized emoji set was live.</p>
+
+<h3>Apple Goes Global by Accident</h3>
+
+<p>Apple had added an emoji keyboard to iPhone OS in 2008, but only for Japanese users &mdash; it was hidden behind a Japanese locale setting. In 2011, with iOS 5, Apple made the emoji keyboard available worldwide. The original intent was to support Japanese NTT DoCoMo users. What actually happened was that every iPhone user on earth suddenly had access to &#128512;&#10084;&#127881; and the world was never the same.</p>
+
+<div class="diagram">
+<span class="diagram-label">Emoji Count by Unicode Version</span>
+<pre><code>  Unicode 1.1  (1993):   ~1 emoji-like symbol (U+263A WHITE SMILING FACE)
+  Unicode 6.0  (2010):   722  — the big bang
+  Unicode 7.0  (2014):   888
+  Unicode 8.0  (2015):   1,281  (skin tones added)
+  Unicode 9.0  (2016):   1,791
+  Unicode 10.0 (2017):   2,623
+  Unicode 11.0 (2018):   2,823
+  Unicode 12.0 (2019):   3,019  (gender-inclusive profession sequences)
+  Unicode 13.0 (2020):   3,304
+  Unicode 14.0 (2021):   3,633
+  Unicode 15.0 (2022):   3,664
+  Unicode 16.0 (2024):   ~3,790
+
+  Growth rate: roughly 100-400 new emoji per Unicode version.
+  There is no sign of this slowing down.</code></pre>
+</div>
+
+<h3>The Poop Emoji Situation</h3>
+
+<p>U+1F4A9 PILE OF POO (&#128169;) deserves its own paragraph. In Japanese culture, the stylized poo with eyes and a smile was a good luck symbol &mdash; a play on the word <em>unko</em> (poop) sounding like <em>un ga ii</em> (good luck). Kurita included it straightforwardly in the original DoCoMo set. When it entered Unicode and became globally accessible, it rapidly became the most culturally significant Unicode character in modern history &mdash; spawning an entire film franchise, appearing in political commentary, and serving as the internet's universal expression of displeasure that is somehow still family-friendly.</p>
+
+<p>The pile of poo has appeared in official government communications. It has been painted on buildings. It is, by some metrics, one of the most recognized symbols of the 21st century. Shigetaka Kurita drew it in under an hour as part of a weather widget project.</p>
+
+<div class="power wild">
+<div class="power-label">Wild: The Global Writing System</div>
+<p>Emoji are the first truly global writing system that did not require centuries of colonialism to spread. Latin script required the Roman Empire and European colonialism. Arabic script spread through the Islamic Caliphate. Emoji spread through the App Store. &#128512; is understood in Lagos, Tokyo, S&atilde;o Paulo, and Oslo without translation.</p>
+</div>
+
+<h3>How Emoji Get Approved</h3>
+
+<p>New emoji must be formally proposed to the Unicode Emoji Subcommittee. Proposals require documentation: evidence of distinctiveness, evidence of demand, expected frequency of use, images showing how the emoji would look across platforms. The committee meets quarterly. Approval takes one to three years. Rejected proposals include <em>the middle finger</em> (approved eventually), <em>bagels</em> (approved), <em>a frowning pile of poo</em> (rejected &mdash; the poo must remain joyful), and <em>lettuce</em> (pending as of this writing).</p>
+
+<div class="diagram">
+<span class="diagram-label">Emoji Proposal Evaluation Criteria</span>
+<pre><code>  &#10004; Compatibility: Does it fill a gap existing emoji can't?
+  &#10004; Expected usage level: How often will people send this?
+  &#10004; Multiple uses / metaphorical value
+  &#10004; Visual distinctiveness at small sizes
+  &#10004; Not a logo, brand, or specific person
+
+  &#10008; Proposals rejected for:
+       - Too similar to existing emoji
+       - Brand-specific (no "iPhone emoji")
+       - Person requests (no emoji of you specifically)
+       - Offensive (mostly — the middle finger eventually made it)
+       - Frowning pile of poo (the committee has standards)</code></pre>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch8">
+<h2>// 08 &mdash; ZWJ Sequences &mdash; Frankenstein Emoji</h2>
+
+<p class="drop-cap">Zero Width Joiner &mdash; U+200D &mdash; is an invisible character that glues emoji together like Frankenstein&apos;s monster with a Unicode sewing kit. You cannot see it. Your text editor will not show it. A na&iuml;ve string length function will count it. And it is the mechanism by which one family emoji (&#128104;&#8205;&#128105;&#8205;&#128103;&#8205;&#128102;) is actually seven code points that modern rendering engines combine into a single glyph on the fly, or fall back to displaying as four separate emoji on older platforms that have not updated their ZWJ sequence tables yet.</p>
+
+<p>ZWJ sequences are the Unicode Consortium's clever answer to combinatorial explosion. Instead of assigning a unique code point to every possible family combination (two mothers, three children, one dog, varying skin tones &mdash; you would need thousands of code points), they defined a composition mechanism. Take existing emoji. Glue them together with ZWJ. If your platform knows about the sequence, you get the combined glyph. If not, you get the individual emoji in a row. Graceful degradation, Unicode style.</p>
+
+<h3>The Family Emoji Decomposed</h3>
+
+<div class="diagram">
+<span class="diagram-label">&#128104;&#8205;&#128105;&#8205;&#128103;&#8205;&#128102; = 7 code points, 25 UTF-8 bytes</span>
+<pre><code>  &#128104;         U+1F468  MAN               UTF-8: F0 9F 91 A8  (4 bytes)
+  ZWJ       U+200D   ZERO WIDTH JOINER  UTF-8: E2 80 8D    (3 bytes)
+  &#128105;         U+1F469  WOMAN             UTF-8: F0 9F 91 A9  (4 bytes)
+  ZWJ       U+200D   ZERO WIDTH JOINER  UTF-8: E2 80 8D    (3 bytes)
+  &#128103;         U+1F467  GIRL              UTF-8: F0 9F 91 A7  (4 bytes)
+  ZWJ       U+200D   ZERO WIDTH JOINER  UTF-8: E2 80 8D    (3 bytes)
+  &#128102;         U+1F466  BOY               UTF-8: F0 9F 91 A6  (4 bytes)
+  ─────────────────────────────────────────────────────────
+  Total:     7 code points             25 UTF-8 bytes
+             1 grapheme cluster        1 visible character
+
+  JS .length sees:    11  (each emoji = 2 UTF-16 code units, ZWJ = 1)
+  Python len() sees:   7  (code points)
+  You see:             1  (if your renderer supports this ZWJ sequence)</code></pre>
+</div>
+
+<h3>Skin Tone Modifiers</h3>
+
+<p>Unicode 8.0 (2015) added skin tone support via five <strong>Fitzpatrick modifier</strong> code points. Appending one to a human emoji changes its skin tone. No ZWJ needed &mdash; the modifier follows the base emoji directly.</p>
+
+<div class="diagram">
+<span class="diagram-label">Fitzpatrick Scale Modifiers</span>
+<pre><code>  U+1F3FB  &#127995;  EMOJI MODIFIER FITZPATRICK TYPE-1-2  (light)
+  U+1F3FC  &#127996;  EMOJI MODIFIER FITZPATRICK TYPE-3    (medium-light)
+  U+1F3FD  &#127997;  EMOJI MODIFIER FITZPATRICK TYPE-4    (medium)
+  U+1F3FE  &#127998;  EMOJI MODIFIER FITZPATRICK TYPE-5    (medium-dark)
+  U+1F3FF  &#127999;  EMOJI MODIFIER FITZPATRICK TYPE-6    (dark)
+
+  &#128075; + &#127997; = &#128075;&#127997;
+  U+1F44B + U+1F3FD = two code points, one visual
+
+  Works with: hand gestures, people, face emoji
+  Does NOT work with: objects, animals, food (ignored or shown separately)</code></pre>
+</div>
+
+<h3>Flag Sequences</h3>
+
+<p>Country flags are encoded as pairs of <strong>Regional Indicator letters</strong>. A through Z each have a corresponding Regional Indicator symbol. Two Regional Indicators in sequence form the ISO 3166-1 alpha-2 country code, and a conformant renderer shows the flag.</p>
+
+<div class="diagram">
+<span class="diagram-label">&#127467;&#127479; = FR = France</span>
+<pre><code>  &#127467;  U+1F1EB  REGIONAL INDICATOR SYMBOL LETTER F
+  &#127479;  U+1F1F7  REGIONAL INDICATOR SYMBOL LETTER R
+
+  Together:  &#127467;&#127479;  (French flag on supporting platforms)
+  JS .length: 4  (two emoji, each 2 UTF-16 code units)
+  Visually:   1 flag
+
+  Other examples:
+    &#127482;&#127480;  = U+1F1FA U+1F1F8  (US flag)
+    &#127471;&#127477;  = U+1F1EF U+1F1F5  (Japanese flag)
+    &#127465;&#127466;  = U+1F1E9 U+1F1EA  (German flag)
+
+  Flags for regions (England &#127988;&#917607;&#917619;&#917606;&#917614;&#917607;&#917631;, Scotland &#127988;&#917607;&#917619;&#917619;&#917603;&#917620;&#917631;, Wales &#127988;&#917607;&#917619;&#917623;&#917612;&#917619;&#917631;) use tag sequences:
+    Black flag U+1F3F4 + ISO 3166-2 region tags + cancel tag U+E007F</code></pre>
+</div>
+
+<h3>Profession Sequences</h3>
+
+<p>Gender-neutral and gendered professions are ZWJ sequences combining a person emoji with a profession object emoji:</p>
+
+<div class="diagram">
+<span class="diagram-label">Profession ZWJ Sequences</span>
+<pre><code>  &#128105;&#8205;&#128640; = &#128105; + ZWJ + &#128640;   Woman Astronaut
+  &#128104;&#8205;&#127859; = &#128104; + ZWJ + &#127859;   Man Cook
+  &#128105;&#8205;&#128187; = &#128105; + ZWJ + &#128187;   Woman Technologist
+  &#128104;&#8205;&#9877;&#65039;  = &#128104; + ZWJ + &#9877;&#65039;   Man Construction Worker
+  &#129489;&#8205;&#127891; = &#129489; + ZWJ + &#127891;   Student (gender-neutral, Unicode 12.1)
+
+  Combine with skin tone:
+  &#128105;&#127997;&#8205;&#128640; = &#128105; + &#127997; + ZWJ + &#128640;   Woman Astronaut, Medium Skin Tone
+  This is 4 code points for 1 visible character.</code></pre>
+</div>
+
+<div class="power danger">
+<div class="power-label">Danger: Platform Fragmentation</div>
+<p>Not all platforms support all ZWJ sequences. Send &#128105;&#8205;&#128640; to an old phone and you might see &#128105;&#128640; as two separate emoji. Send a flag for a country whose ISO code your OS doesn&apos;t recognize and you get two box-letters instead of a flag. The Unicode Consortium publishes which ZWJ sequences are <em>recommended for general interchange</em> (RGI), but support varies by platform, OS version, and font. Testing emoji rendering requires real devices, not simulators.</p>
+</div>
+
+<h3>Interactive: Emoji Decomposer</h3>
+
+<div class="interactive-demo" id="demo-emoji">
+  <h4>Interactive: Emoji Decomposer</h4>
+  <p style="font-size:0.9rem;color:var(--text-dim);">Paste any emoji to see its code points and composition.</p>
+  <input type="text" id="emoji-input" value="&#128104;&#8205;&#128105;&#8205;&#128103;&#8205;&#128102;" placeholder="Paste an emoji..." style="width:100%;padding:0.6rem 0.8rem;background:var(--bg-code);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:14px;margin-bottom:0.8rem;">
+  <div class="demo-output" id="emoji-output"></div>
+</div>
+
+<script>
+(function() {
+  var ZWJ_NAMES = {
+    0x200D: 'ZERO WIDTH JOINER',
+    0x200C: 'ZERO WIDTH NON-JOINER',
+    0xFE0F: 'VARIATION SELECTOR-16 (emoji)',
+    0xFE0E: 'VARIATION SELECTOR-15 (text)',
+    0x20E3: 'COMBINING ENCLOSING KEYCAP',
+  };
+  function cpName(cp) {
+    if (ZWJ_NAMES[cp]) return ZWJ_NAMES[cp];
+    if (cp >= 0x1F3FB && cp <= 0x1F3FF) return 'FITZPATRICK MODIFIER TYPE-' + (cp - 0x1F3FA);
+    if (cp >= 0x1F1E6 && cp <= 0x1F1FF) return 'REGIONAL INDICATOR ' + String.fromCodePoint(cp - 0x1F1E6 + 65);
+    if (cp === 0xE007F) return 'CANCEL TAG';
+    if (cp >= 0xE0000 && cp <= 0xE007F) return 'TAG LETTER ' + String.fromCodePoint(cp - 0xE0000 + 32);
+    return '';
+  }
+  function updateEmoji() {
+    var input = document.getElementById('emoji-input');
+    var output = document.getElementById('emoji-output');
+    if (!input || !output) return;
+    var s = input.value;
+    if (!s) { output.innerHTML = ''; return; }
+    var codePoints = [...s];
+    var bytes = new TextEncoder().encode(s);
+    var utf16Units = s.length;
+    var graphemeCount = 'N/A';
+    try { graphemeCount = [...new Intl.Segmenter().segment(s)].length; } catch(e) {}
+
+    var rows = codePoints.map(function(ch) {
+      var cp = ch.codePointAt(0);
+      var hex = 'U+' + cp.toString(16).toUpperCase().padStart(4, '0');
+      var utf8 = Array.from(new TextEncoder().encode(ch)).map(function(b){ return b.toString(16).toUpperCase().padStart(2,'0'); }).join(' ');
+      var name = cpName(cp);
+      return '<tr>' +
+        '<td style="padding:0.25rem 0.5rem;font-size:1.2rem;">' + ch + '</td>' +
+        '<td style="padding:0.25rem 0.5rem;color:var(--cyan);font-family:\'JetBrains Mono\',monospace;font-size:12px;">' + hex + '</td>' +
+        '<td style="padding:0.25rem 0.5rem;color:var(--orange);font-family:\'JetBrains Mono\',monospace;font-size:12px;">' + utf8 + '</td>' +
+        '<td style="padding:0.25rem 0.5rem;color:var(--text-dim);font-size:11px;">' + name + '</td>' +
+        '</tr>';
+    }).join('');
+
+    output.innerHTML =
+      '<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;color:var(--text-dim);margin-bottom:0.5rem;">' +
+      'UTF-16 .length: <span style="color:var(--red);">' + utf16Units + '</span> &nbsp;&nbsp; ' +
+      'Code points: <span style="color:var(--yellow);">' + codePoints.length + '</span> &nbsp;&nbsp; ' +
+      'UTF-8 bytes: <span style="color:var(--orange);">' + bytes.length + '</span> &nbsp;&nbsp; ' +
+      'Grapheme clusters: <span style="color:var(--green);">' + graphemeCount + '</span>' +
+      '</div>' +
+      '<table style="width:100%;font-family:\'JetBrains Mono\',monospace;font-size:12px;">' +
+      '<tr><th style="text-align:left;color:var(--text-dim);padding:0.25rem 0.5rem;font-size:10px;text-transform:uppercase;">Char</th>' +
+      '<th style="text-align:left;color:var(--text-dim);padding:0.25rem 0.5rem;font-size:10px;text-transform:uppercase;">Code Point</th>' +
+      '<th style="text-align:left;color:var(--text-dim);padding:0.25rem 0.5rem;font-size:10px;text-transform:uppercase;">UTF-8 bytes</th>' +
+      '<th style="text-align:left;color:var(--text-dim);padding:0.25rem 0.5rem;font-size:10px;text-transform:uppercase;">Note</th></tr>' +
+      rows + '</table>';
+    output.style.background = 'var(--bg-code)';
+    output.style.border = '1px solid var(--border)';
+    output.style.borderRadius = '4px';
+    output.style.padding = '0.6rem';
+    output.style.marginTop = '0.3rem';
+  }
+  document.addEventListener('DOMContentLoaded', function() {
+    var input = document.getElementById('emoji-input');
+    if (input) {
+      input.addEventListener('input', updateEmoji);
+      updateEmoji();
+    }
+  });
+})();
+</script>
+
+<div class="power hack">
+<div class="power-label">Hack: Detecting ZWJ Sequences</div>
+<p>To check if a string contains ZWJ sequences, search for U+200D (<code>\u200D</code>). To split a string into visible characters rather than code points, use <code>Intl.Segmenter</code> in JavaScript, <code>unicode-segmentation</code> in Rust, <code>uniseg</code> in Go, or the <code>grapheme</code> package in Python. If you are truncating user-generated content for display, always segment first &mdash; truncating mid-ZWJ-sequence produces visible garbage.</p>
+</div>
+
+</section>
+<!-- UNICODE DEEP DIVE — PART 3: SECTIONS 9-12 -->
+
+<!-- ============================================================ -->
+<section id="ch9">
+<h2>// 09 &mdash; Normalization &mdash; NFC, NFD, NFKC, NFKD</h2>
+
+<p class="drop-cap">"caf&eacute;" &ne; "caf&eacute;" &mdash; they look identical but one uses precomposed &eacute; (U+00E9) and the other uses e + combining acute (U+0065 U+0301). Different bytes, different hashes, different database lookups. Your cache misses. Your deduplication fails. Your user complains that they can't log in despite typing the correct password. Normalization is the unglamorous fix that makes string comparison actually work.</p>
+
+<p>Unicode allows the same visual character to be encoded in multiple ways. Canonical equivalence means two sequences display identically and have the same meaning. But a na&iuml;ve byte comparison will tell you they are different strings. This is the normalization problem.</p>
+
+<div class="diagram">
+<span class="diagram-label">NFC vs NFD — two ways to write é</span>
+<pre><code>  NFC (Composed):
+    é = U+00E9  ───────────────────────────────  1 code point
+    UTF-8: 0xC3 0xA9                             2 bytes
+
+  NFD (Decomposed):
+    e + ◌́ = U+0065 U+0301 ──────────────────  2 code points
+    UTF-8: 0x65 0xCC 0x81                        3 bytes
+
+  Both render as:  é
+  .length in JS:   NFC=1, NFD=2
+  bytes in UTF-8:  NFC=2, NFD=3
+  Equal? byte-wise: NO.  After NFC normalize: YES.</code></pre>
+</div>
+
+<h3>The Four Normalization Forms</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Form</th>
+      <th>Full Name</th>
+      <th>What it does</th>
+      <th>Use case</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>NFC</code></td>
+      <td>Canonical Composition</td>
+      <td>Decompose then re-compose: e + ◌́ &rarr; é</td>
+      <td>Default for web, storage, most APIs</td>
+    </tr>
+    <tr>
+      <td><code>NFD</code></td>
+      <td>Canonical Decomposition</td>
+      <td>Always decompose: é &rarr; e + ◌́</td>
+      <td>Sorting, character analysis, macOS HFS+</td>
+    </tr>
+    <tr>
+      <td><code>NFKC</code></td>
+      <td>Compatibility Composition</td>
+      <td>Decompose compatibility chars then compose: &#xFB01; &rarr; fi</td>
+      <td>Search normalization, identifier comparison</td>
+    </tr>
+    <tr>
+      <td><code>NFKD</code></td>
+      <td>Compatibility Decomposition</td>
+      <td>Decompose everything, including compatibility: &#x2126; &rarr; &#x03A9;</td>
+      <td>Most aggressive; casefold + NFKD for search</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Compatibility decomposition breaks ligatures and other typographic forms that are semantically equivalent but visually distinct. The ligature <strong>&#xFB01;</strong> (U+FB01) is a single code point representing "fi" — two letters joined. Under NFKD it becomes U+0066 U+0069, the individual characters f and i.</p>
+
+<div class="diagram">
+<span class="diagram-label">Compatibility Decomposition Examples</span>
+<pre><code>  &#xFB01; (U+FB01 LATIN SMALL LIGATURE FI)
+    NFKD &rarr; f i  (U+0066 U+0069)
+
+  &#x2126; (U+2126 OHM SIGN)
+    NFKD &rarr; &#x03A9;  (U+03A9 GREEK CAPITAL LETTER OMEGA)
+
+  &#x00BD; (U+00BD VULGAR FRACTION ONE HALF)
+    NFKD &rarr; 1 &#x2044; 2  (U+0031 U+2044 U+0032)
+
+  &#x2120; (U+2120 SERVICE MARK)
+    NFKD &rarr; S M  (U+0053 U+004D)
+
+  NFC and NFD preserve these — they only handle canonical equivalences.
+  NFKC and NFKD go further, collapsing compatibility variants.</code></pre>
+</div>
+
+<h3>Normalization in Every Language</h3>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-norm" id="norm-c" class="tc" checked>
+  <input type="radio" name="tabs-norm" id="norm-py" class="tpy">
+  <input type="radio" name="tabs-norm" id="norm-ts" class="tts">
+  <input type="radio" name="tabs-norm" id="norm-go" class="tgo">
+  <input type="radio" name="tabs-norm" id="norm-rs" class="trs">
+  <div class="tab-bar">
+    <label for="norm-c">C</label>
+    <label for="norm-py">Python</label>
+    <label for="norm-ts">TypeScript</label>
+    <label for="norm-go">Go</label>
+    <label for="norm-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+    <pre><code><span class="cm">// C has no built-in normalization — use ICU (International Components for Unicode)</span>
+<span class="pp">#include</span> <span class="st">&lt;unicode/unorm2.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;unicode/ustring.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+
+<span class="ty">void</span> <span class="fn">normalize_to_nfc</span>(<span class="kw">const</span> <span class="ty">char</span> *utf8_input, <span class="ty">char</span> *utf8_output, <span class="ty">int32_t</span> out_cap) {
+    <span class="ty">UErrorCode</span> err = U_ZERO_ERROR;
+
+    <span class="cm">// Get the NFC normalizer instance (singleton, no need to free)</span>
+    <span class="kw">const</span> <span class="ty">UNormalizer2</span> *nfc = <span class="fn">unorm2_getNFCInstance</span>(&amp;err);
+    <span class="kw">if</span> (<span class="fn">U_FAILURE</span>(err)) { <span class="fn">fprintf</span>(stderr, <span class="st">"ICU error: %s\n"</span>, <span class="fn">u_errorName</span>(err)); <span class="kw">return</span>; }
+
+    <span class="cm">// Convert UTF-8 input to UTF-16 (ICU's internal representation)</span>
+    <span class="ty">UChar</span> u16_in[<span class="nm">512</span>], u16_out[<span class="nm">512</span>];
+    <span class="ty">int32_t</span> u16_len;
+    <span class="fn">u_strFromUTF8</span>(u16_in, <span class="nm">512</span>, &amp;u16_len, utf8_input, -<span class="nm">1</span>, &amp;err);
+
+    <span class="cm">// Normalize</span>
+    <span class="ty">int32_t</span> out_len = <span class="fn">unorm2_normalize</span>(nfc, u16_in, u16_len, u16_out, <span class="nm">512</span>, &amp;err);
+
+    <span class="cm">// Convert back to UTF-8</span>
+    <span class="fn">u_strToUTF8</span>(utf8_output, out_cap, <span class="kw">NULL</span>, u16_out, out_len, &amp;err);
+}
+
+<span class="ty">int</span> <span class="fn">main</span>(<span class="ty">void</span>) {
+    <span class="cm">// NFD string: e (U+0065) + combining acute (U+0301)</span>
+    <span class="kw">const</span> <span class="ty">char</span> *nfd_cafe = <span class="st">"cafe\xCC\x81"</span>;  <span class="cm">// café in NFD</span>
+    <span class="ty">char</span> nfc_out[<span class="nm">64</span>];
+    <span class="fn">normalize_to_nfc</span>(nfd_cafe, nfc_out, <span class="kw">sizeof</span>(nfc_out));
+    <span class="fn">printf</span>(<span class="st">"NFC: %s\n"</span>, nfc_out);  <span class="cm">// café (U+00E9, 2 bytes)</span>
+    <span class="kw">return</span> <span class="nm">0</span>;
+}
+<span class="cm">// Build: gcc -o norm norm.c -licuuc -licui18n</span>
+<span class="label">C &mdash; ICU normalization</span></code></pre>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">import</span> unicodedata
+
+<span class="cm"># Two strings that look identical but differ at the byte level</span>
+nfc_cafe = <span class="st">"caf\u00E9"</span>        <span class="cm"># precomposed é (U+00E9)</span>
+nfd_cafe = <span class="st">"cafe\u0301"</span>      <span class="cm"># e + combining acute (U+0301)</span>
+
+<span class="fn">print</span>(nfc_cafe == nfd_cafe)              <span class="cm"># False — byte-level inequality</span>
+<span class="fn">print</span>(<span class="fn">len</span>(nfc_cafe), <span class="fn">len</span>(nfd_cafe))      <span class="cm"># 4, 5</span>
+
+<span class="cm"># Normalize both to NFC before comparing</span>
+<span class="fn">print</span>(unicodedata.<span class="fn">normalize</span>(<span class="st">'NFC'</span>, nfc_cafe) ==
+      unicodedata.<span class="fn">normalize</span>(<span class="st">'NFC'</span>, nfd_cafe))  <span class="cm"># True</span>
+
+<span class="cm"># NFKD: break compatibility characters</span>
+ligature = <span class="st">"\uFB01"</span>  <span class="cm"># ﬁ (fi ligature)</span>
+<span class="fn">print</span>(unicodedata.<span class="fn">normalize</span>(<span class="st">'NFKD'</span>, ligature))   <span class="cm"># fi</span>
+<span class="fn">print</span>(unicodedata.<span class="fn">normalize</span>(<span class="st">'NFKD'</span>, <span class="st">"\u2126"</span>))    <span class="cm"># Ω (OHM SIGN &rarr; OMEGA)</span>
+
+<span class="cm"># NFKC + casefold: the right way to normalize for search</span>
+<span class="kw">def</span> <span class="fn">search_normalize</span>(s):
+    <span class="kw">return</span> unicodedata.<span class="fn">normalize</span>(<span class="st">'NFKC'</span>, s).<span class="fn">casefold</span>()
+
+<span class="fn">print</span>(<span class="fn">search_normalize</span>(<span class="st">"Stra&#xDF;e"</span>))   <span class="cm"># strasse (ß &rarr; ss in casefold)</span>
+<span class="fn">print</span>(<span class="fn">search_normalize</span>(<span class="st">"STRASSE"</span>))   <span class="cm"># strasse</span>
+<span class="label">python</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="cm">// JavaScript/TypeScript has .normalize() built into String</span>
+<span class="cm">// Forms: 'NFC' | 'NFD' | 'NFKC' | 'NFKD'</span>
+
+<span class="kw">const</span> nfcCafe = <span class="st">"caf\u00E9"</span>;    <span class="cm">// precomposed é</span>
+<span class="kw">const</span> nfdCafe = <span class="st">"cafe\u0301"</span>;   <span class="cm">// e + combining acute</span>
+
+console.<span class="fn">log</span>(nfcCafe === nfdCafe);                         <span class="cm">// false</span>
+console.<span class="fn">log</span>(nfcCafe.length, nfdCafe.length);             <span class="cm">// 4 5</span>
+
+console.<span class="fn">log</span>(nfcCafe.<span class="fn">normalize</span>(<span class="st">'NFC'</span>) === nfdCafe.<span class="fn">normalize</span>(<span class="st">'NFC'</span>));  <span class="cm">// true</span>
+
+<span class="cm">// NFKC: compatibility composition (breaks ligatures)</span>
+<span class="kw">const</span> ligature = <span class="st">"\uFB01"</span>;  <span class="cm">// ﬁ</span>
+console.<span class="fn">log</span>(ligature.<span class="fn">normalize</span>(<span class="st">'NFKD'</span>));  <span class="cm">// "fi"</span>
+console.<span class="fn">log</span>(ligature.<span class="fn">normalize</span>(<span class="st">'NFKD'</span>).length);  <span class="cm">// 2</span>
+
+<span class="cm">// The correct way to compare user-supplied strings</span>
+<span class="kw">function</span> <span class="fn">safeEqual</span>(a: <span class="ty">string</span>, b: <span class="ty">string</span>): <span class="ty">boolean</span> {
+  <span class="kw">return</span> a.<span class="fn">normalize</span>(<span class="st">'NFC'</span>) === b.<span class="fn">normalize</span>(<span class="st">'NFC'</span>);
+}
+
+<span class="cm">// Safe search: NFKC + lowercase</span>
+<span class="kw">function</span> <span class="fn">searchNormalize</span>(s: <span class="ty">string</span>): <span class="ty">string</span> {
+  <span class="kw">return</span> s.<span class="fn">normalize</span>(<span class="st">'NFKC'</span>).<span class="fn">toLowerCase</span>();
+}
+
+console.<span class="fn">log</span>(<span class="fn">safeEqual</span>(nfcCafe, nfdCafe));  <span class="cm">// true</span>
+console.<span class="fn">log</span>(<span class="fn">searchNormalize</span>(<span class="st">"\uFB01le"</span>));   <span class="cm">// "file"</span>
+<span class="label">typescript</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="cm">// go get golang.org/x/text/unicode/norm</span>
+<span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"fmt"</span>
+    <span class="st">"golang.org/x/text/unicode/norm"</span>
+)
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="cm">// NFD string: cafe + combining acute (U+0301)</span>
+    nfdCafe := <span class="st">"cafe\u0301"</span>
+    nfcCafe := <span class="st">"caf\u00E9"</span>
+
+    <span class="fn">fmt.Println</span>(nfdCafe == nfcCafe)  <span class="cm">// false</span>
+
+    <span class="cm">// Normalize both to NFC using golang.org/x/text</span>
+    nfcA := norm.NFC.<span class="fn">String</span>(nfdCafe)
+    nfcB := norm.NFC.<span class="fn">String</span>(nfcCafe)
+    <span class="fn">fmt.Println</span>(nfcA == nfcB)  <span class="cm">// true</span>
+
+    <span class="cm">// NFKC: break ligature ﬁ (U+FB01) into fi</span>
+    ligature := <span class="st">"\uFB01le"</span>
+    <span class="fn">fmt.Println</span>(norm.NFKC.<span class="fn">String</span>(ligature))  <span class="cm">// "file"</span>
+
+    <span class="cm">// Check if string is already normalized (fast path)</span>
+    alreadyNFC := norm.NFC.<span class="fn">IsNormalString</span>(nfcCafe)
+    <span class="fn">fmt.Println</span>(<span class="st">"Already NFC:"</span>, alreadyNFC)  <span class="cm">// true</span>
+}
+<span class="label">go</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="cm">// Cargo.toml: unicode-normalization = "0.1"</span>
+<span class="kw">use</span> unicode_normalization::UnicodeNormalization;
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="cm">// NFD: e + combining acute</span>
+    <span class="kw">let</span> nfd_cafe = <span class="st">"cafe\u{0301}"</span>;
+    <span class="kw">let</span> nfc_cafe = <span class="st">"caf\u{00E9}"</span>;
+
+    <span class="fn">println!</span>(<span class="st">"{}"</span>, nfd_cafe == nfc_cafe);  <span class="cm">// false</span>
+
+    <span class="cm">// Normalize to NFC</span>
+    <span class="kw">let</span> nfc_a: <span class="ty">String</span> = nfd_cafe.<span class="fn">nfc</span>().<span class="fn">collect</span>();
+    <span class="kw">let</span> nfc_b: <span class="ty">String</span> = nfc_cafe.<span class="fn">nfc</span>().<span class="fn">collect</span>();
+    <span class="fn">println!</span>(<span class="st">"{}"</span>, nfc_a == nfc_b);  <span class="cm">// true</span>
+
+    <span class="cm">// NFKD: decompose compatibility characters</span>
+    <span class="kw">let</span> ligature = <span class="st">"\u{FB01}"</span>;  <span class="cm">// ﬁ</span>
+    <span class="kw">let</span> decomposed: <span class="ty">String</span> = ligature.<span class="fn">nfkd</span>().<span class="fn">collect</span>();
+    <span class="fn">println!</span>(<span class="st">"{}"</span>, decomposed);  <span class="cm">// fi</span>
+
+    <span class="cm">// Iterate char-by-char through NFC stream</span>
+    <span class="kw">for</span> ch <span class="kw">in</span> nfd_cafe.<span class="fn">nfc</span>() {
+        <span class="fn">print!</span>(<span class="st">"U+{:04X} "</span>, ch <span class="kw">as</span> <span class="ty">u32</span>);
+    }
+    <span class="cm">// U+0063 U+0061 U+0066 U+00E9</span>
+}
+<span class="label">rust</span></code></pre>
+  </div>
+</div>
+
+<p>See <a href="hashtables-deep-dive.html" style="color:var(--cyan)">Hash Tables</a> — normalize your keys or watch your cache hit rate plummet.</p>
+
+<div class="power danger">
+<div class="power-label">Warning</div>
+<p>If you compare strings without normalizing first, you will ship bugs. It's not a question of if.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch10">
+<h2>// 10 &mdash; Security &mdash; The Dark Side of Unicode</h2>
+
+<p class="drop-cap">Unicode is a massive attack surface that most developers never think about. You sanitize your SQL. You escape your HTML. You validate your file paths. And then you let untrusted Unicode waltz through your front door and wreak havoc on your entire security model. The complexity of Unicode — its homoglyphs, its bidirectional text, its combining marks — creates entire classes of vulnerabilities that have compromised real systems.</p>
+
+<h3>Homoglyphs — Characters That Look Identical</h3>
+
+<p>A homoglyph is a character that is visually indistinguishable (or nearly so) from another. Unicode contains hundreds of these. Cyrillic а (U+0430) looks pixel-for-pixel identical to Latin a (U+0061) in most fonts. This is not a bug in fonts. These are intentionally different characters with different meanings in their respective scripts.</p>
+
+<div class="diagram">
+<span class="diagram-label">Homoglyph Attack — Spot the Difference</span>
+<pre><code>  paypal.com    (all Latin — the real site)
+  p&#x430;yp&#x430;l.com  (Cyrillic &#x430; U+0430 — a fake)
+
+  Latin    a  =  U+0061  =  0x61
+  Cyrillic &#x430;  =  U+0430  =  0xD0 0xB0  (2 UTF-8 bytes)
+
+  Same pixels. Different bytes. Different domain.
+  A simple strcmp() or === check will correctly say NOT EQUAL.
+  But a human looking at the URL bar cannot tell the difference.</code></pre>
+</div>
+
+<h3>RTL Override — Hiding What You Ship</h3>
+
+<p>U+202E RIGHT-TO-LEFT OVERRIDE is a formatting character that reverses the display direction of subsequent text. It was designed for mixing Arabic/Hebrew with left-to-right content. Attackers use it to disguise file extensions.</p>
+
+<div class="diagram">
+<span class="diagram-label">RTL Override File Name Trick</span>
+<pre><code>  Actual filename bytes:
+    h a r m l e s s [U+202E] f d p . e x e
+
+  Rendered in Windows Explorer:
+    harmless&#x202E;fdp.exe  appears as  harmlessexe.pdf
+
+  U+202E reverses display of everything after it.
+  The OS sees: harmless‮fdp.exe  (an executable)
+  The user sees: harmlessexe.pdf (a document)
+
+  Fix: strip or reject U+202E, U+202D, and other
+  bidirectional override characters in file names.</code></pre>
+</div>
+
+<h3>IDN Homograph Attacks</h3>
+
+<p>Internationalized Domain Names (IDN) allow non-ASCII characters in domain names, encoded as Punycode. Every Unicode character that looks like an ASCII letter is a potential impersonation vector.</p>
+
+<div class="diagram">
+<span class="diagram-label">IDN Homograph — аррle.com</span>
+<pre><code>  apple.com    — U+0061 U+0070 U+0070 U+006C U+0065 (all Latin)
+  &#x430;&#x440;&#x440;le.com    — U+0430 U+0440 U+0440 U+006C U+0065 (Cyrillic a, r, r + Latin l, e)
+
+  The mixed version encodes as:   xn--le-lbc3bpb.com
+  Browsers may or may not warn.   Chrome: shows Punycode xn-- form
+  Firefox: shows Unicode if all chars from single script; Punycode for mixed
+
+  The HTTPS lock icon means the connection is encrypted.
+  It says NOTHING about whether the domain is who you think it is.</code></pre>
+</div>
+
+<h3>Zalgo Text — Combining Mark Abuse</h3>
+
+<p>Unicode allows an unlimited number of combining marks to be stacked on a single base character. Normally this is used for languages like Vietnamese (vowel + tone mark) or precomposed Devanagari. Nothing prevents stacking fifty combining marks above and below a letter until it overflows its text box, corrupts rendering, or crashes naive parsers.</p>
+
+<div class="diagram">
+<span class="diagram-label">Zalgo — Combining Mark Overflow</span>
+<pre><code>  Normal: H e   c o m e s
+
+  Zalgo:  H&#x030D;&#x0340;&#x033A;&#x0359; &#x0065;&#x0312;&#x034D;  &#x0063;&#x036B;&#x0339;&#x0358;&#x0300;&#x036F;&#x033B; &#x006F;&#x034D;&#x0318;  &#x006D;&#x036D;&#x0340;&#x034F;  &#x0065;&#x0319;&#x0340;&#x0316;  &#x0073;&#x036E;&#x0300;&#x0346;
+
+  Each character above has 5-10 combining marks (U+0300–U+036F)
+  stacked above and below it.
+
+  Attacks:
+  - Overflow CSS overflow:hidden boxes
+  - Crash regex engines with catastrophic backtracking
+  - Inflate database column lengths unexpectedly
+  - Visual junk in notifications / chat previews
+
+  Fix: normalize (NFC collapses multiple canonical combiners),
+  limit combining mark count, reject sequences &gt; N marks.</code></pre>
+</div>
+
+<h3>Interactive: Homoglyph Detector</h3>
+
+<div class="interactive-demo" id="demo-homoglyph">
+  <h4>Interactive: Homoglyph Detector</h4>
+  <p style="font-size:0.9rem;color:var(--text-dim);">Paste two similar-looking strings to compare their code points.</p>
+  <input type="text" id="homo-input1" value="apple" placeholder="String 1..." style="margin-bottom:0.5rem">
+  <input type="text" id="homo-input2" value="&#x430;pple" placeholder="String 2...">
+  <div class="demo-output" id="homo-output"></div>
+</div>
+
+<div class="interactive-demo" id="demo-zalgo" style="margin-top:1.5rem">
+  <h4>Interactive: Zalgo Generator</h4>
+  <p style="font-size:0.9rem;color:var(--text-dim);">Corrupt any text with combining marks. Slide to increase the madness.</p>
+  <input type="text" id="zalgo-input" value="he comes" placeholder="Type something...">
+  <div style="display:flex;align-items:center;gap:1rem;margin-top:0.5rem">
+    <span style="font-size:0.8em;color:var(--text-dim)">Chaos:</span>
+    <input type="range" id="zalgo-slider" min="0" max="30" value="8" style="flex:1">
+    <span id="zalgo-level" style="color:var(--green);font-family:'JetBrains Mono',monospace;font-size:0.85em">8</span>
+  </div>
+  <div class="demo-output" id="zalgo-output" style="font-size:1.5em;text-align:center;line-height:3"></div>
+</div>
+
+<div class="power danger">
+<div class="power-label">Security</div>
+<p>Never trust the visual representation of a string. Two strings that look identical may have entirely different byte sequences. Always compare normalized code points, not rendered glyphs. Validate scripts, reject bidirectional override characters in user-controlled filenames and URLs, and use IDN-aware URL parsing libraries.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch11">
+<h2>// 11 &mdash; Unicode in the Wild</h2>
+
+<p class="drop-cap">Production Unicode bugs are often invisible until they destroy something important. The emoji that silently truncates your user's bio. The regex that matches ASCII-only and silently drops half your user base. The terminal table that misaligns every row because one cell contains a CJK character. The database migration that corrupts six million usernames because someone forgot to change the charset. These are not hypothetical. Every one of these has happened, repeatedly, in large production systems.</p>
+
+<h3>MySQL's utf8 Disaster</h3>
+
+<p>MySQL introduced a character set named <code>utf8</code> in version 4.1. It was capped at 3 bytes per character &mdash; enough for the BMP, not enough for anything outside it. Emoji live in the Supplementary Multilingual Plane. When users started putting emoji in their text, MySQL silently truncated or errored.</p>
+
+<div class="diagram">
+<span class="diagram-label">MySQL utf8 vs utf8mb4</span>
+<pre><code>  CREATE TABLE posts (
+    body TEXT CHARACTER SET utf8    -- WRONG: 3-byte max, no emoji
+  );
+
+  INSERT INTO posts (body) VALUES ('I love &#x1F4A9;');
+  -- ERROR 1366: Incorrect string value: '\xF0\x9F\x92\xA9' for column 'body'
+  -- Or worse: silently truncates at the emoji
+
+  -- The fix:
+  ALTER TABLE posts CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+  utf8    = MySQL's broken 3-byte "UTF-8" (actually CESU-8 style)
+  utf8mb4 = Real UTF-8 (4-byte, handles all 1.1M code points)
+
+  The migration path: ALTER TABLE for each table, change connection charset,
+  update stored procedures, triggers, and application connection strings.
+  Fun for the whole team.</code></pre>
+</div>
+
+<h3>Collation — How Strings Sort and Compare</h3>
+
+<p>Collation determines how strings are compared and sorted. Choosing the wrong collation causes silent equality failures or incorrect sort orders.</p>
+
+<div class="diagram">
+<span class="diagram-label">utf8mb4 Collations</span>
+<pre><code>  utf8mb4_bin            — byte-by-byte comparison (case sensitive, accent sensitive)
+  utf8mb4_unicode_ci     — Unicode rules, case insensitive, accent insensitive
+  utf8mb4_unicode_520_ci — Unicode 5.2.0 rules (more correct)
+  utf8mb4_0900_ai_ci     — Unicode 9.0.0, accent insensitive, case insensitive
+                           (recommended for MySQL 8+)
+
+  Example with unicode_ci:
+    "a" = "A"      (case insensitive)     -- SELECT where name='a' finds 'A'
+    "é" = "e"      (accent insensitive)   -- SELECT where name='e' finds 'é'
+    "Ω" != "&#x03C9;"      (different letters)
+
+  Example with bin:
+    "a" != "A"     (case sensitive, exact bytes)
+    "é" != "e"     (different bytes)
+
+  For passwords: always use binary comparison (or better, a proper hash).
+  For names/search: unicode_ci or 0900_ai_ci.
+  Mixing collations in a JOIN causes implicit conversion — and table scans.</code></pre>
+</div>
+
+<h3>Unicode-Aware Regex with \p{}</h3>
+
+<p>The pattern <code>[a-zA-Z]</code> matches 52 characters. The Unicode database contains over 130,000 letters. If your validation rejects Arabic names, Thai surnames, or Chinese characters, you have a bug, not a security feature.</p>
+
+<div class="diagram">
+<span class="diagram-label">Unicode Property Escapes in Regex</span>
+<pre><code>  \p{L}          — any Unicode letter (Letter category)
+  \p{Lu}         — uppercase letters
+  \p{Ll}         — lowercase letters
+  \p{N}          — any number
+  \p{P}          — any punctuation
+  \p{Z}          — any separator (space, line, paragraph)
+  \p{Emoji}      — emoji characters
+  \p{Script=Han} — Han (CJK) script
+
+  JavaScript (ES2018+):
+    /^\p{L}+$/u.test("Ünîcödé")   // true
+    /^\p{L}+$/u.test("caf\u00E9") // true
+    /\p{Emoji}/u.test("Hello &#x1F44B;") // true
+    /[a-zA-Z]+/.test("Ünîcödé")    // false (misses non-ASCII letters)
+
+  Python:
+    import re
+    re.fullmatch(r'\p{L}+', 'Ünîcödé', re.UNICODE)  # with regex module
+    # or use: import regex; regex.fullmatch(r'\p{L}+', 'Ünîcödé')</code></pre>
+</div>
+
+<h3>Terminal Display Width</h3>
+
+<p>Not all characters are created equal in terminal width. Your perfectly aligned table becomes garbage the moment someone's name contains an emoji or CJK character.</p>
+
+<div class="diagram">
+<span class="diagram-label">Character Display Widths</span>
+<pre><code>  Width 0 (zero):  Combining marks (U+0300–U+036F)
+                   Zero-width joiner (U+200D)
+                   Zero-width non-joiner (U+200C)
+                   Variation selectors
+
+  Width 1 (normal): ASCII, Latin, Cyrillic, Arabic, Hebrew...
+
+  Width 2 (wide):   CJK Unified Ideographs (U+4E00–U+9FFF)
+                    Emoji with EAW=W property
+                    Katakana, Hiragana in fullwidth ranges
+
+  Table alignment disaster:
+  | Name    | Score |    &larr; header: 6 chars "Name  "
+  | Alice   | 100   |    &larr; normal: 5 chars
+  | &#x674E;&#x5C0F;&#x660E;    | 95    |    &larr; 3 CJK = 6 display cells but .length=3
+  | &#x1F468;&#x200D;&#x1F4BB;      | 88    |    &larr; ZWJ sequence = 2 display cells, .length=5
+
+  Fix: use wcwidth() in C, the wcwidth npm package in JS,
+  or golang.org/x/text/width in Go.</code></pre>
+</div>
+
+<h3>Unicode Operations Across Languages</h3>
+
+<div class="lang-tabs">
+  <input type="radio" name="tabs-wild" id="wild-c" class="tc" checked>
+  <input type="radio" name="tabs-wild" id="wild-py" class="tpy">
+  <input type="radio" name="tabs-wild" id="wild-ts" class="tts">
+  <input type="radio" name="tabs-wild" id="wild-go" class="tgo">
+  <input type="radio" name="tabs-wild" id="wild-rs" class="trs">
+  <div class="tab-bar">
+    <label for="wild-c">C</label>
+    <label for="wild-py">Python</label>
+    <label for="wild-ts">TypeScript</label>
+    <label for="wild-go">Go</label>
+    <label for="wild-rs">Rust</label>
+  </div>
+  <div class="tab-content c">
+    <pre><code><span class="cm">// C: wcwidth() for terminal display width</span>
+<span class="pp">#include</span> <span class="st">&lt;wchar.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;locale.h&gt;</span>
+<span class="pp">#include</span> <span class="st">&lt;stdio.h&gt;</span>
+
+<span class="ty">int</span> <span class="fn">utf8_display_width</span>(<span class="kw">const</span> <span class="ty">char</span> *utf8) {
+    <span class="fn">setlocale</span>(LC_ALL, <span class="st">"en_US.UTF-8"</span>);
+    <span class="ty">wchar_t</span> buf[<span class="nm">256</span>];
+    <span class="fn">mbstowcs</span>(buf, utf8, <span class="nm">256</span>);
+    <span class="ty">int</span> width = <span class="nm">0</span>;
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; buf[i]; i++) {
+        <span class="ty">int</span> w = <span class="fn">wcwidth</span>(buf[i]);
+        <span class="kw">if</span> (w &gt; <span class="nm">0</span>) width += w;
+    }
+    <span class="kw">return</span> width;
+}
+
+<span class="ty">int</span> <span class="fn">main</span>() {
+    <span class="fn">printf</span>(<span class="st">"Alice width: %d\n"</span>, <span class="fn">utf8_display_width</span>(<span class="st">"Alice"</span>));      <span class="cm">// 5</span>
+    <span class="fn">printf</span>(<span class="st">"&#x674E;&#x5C0F;&#x660E; width:  %d\n"</span>, <span class="fn">utf8_display_width</span>(<span class="st">"&#x674E;&#x5C0F;&#x660E;"</span>));   <span class="cm">// 6</span>
+    <span class="fn">printf</span>(<span class="st">"emoji width: %d\n"</span>, <span class="fn">utf8_display_width</span>(<span class="st">"&#x1F600;"</span>));     <span class="cm">// 2</span>
+    <span class="kw">return</span> <span class="nm">0</span>;
+}
+<span class="label">C &mdash; wcwidth</span></code></pre>
+  </div>
+  <div class="tab-content py">
+    <pre><code><span class="kw">import</span> unicodedata
+<span class="kw">import</span> re
+
+<span class="cm"># Unicode-aware letter validation (no [a-zA-Z] garbage)</span>
+<span class="kw">def</span> <span class="fn">is_valid_name</span>(s):
+    <span class="kw">return bool</span>(re.<span class="fn">fullmatch</span>(<span class="st">r'[\w\s\-\']+'</span>, s, re.UNICODE))
+
+<span class="fn">print</span>(<span class="fn">is_valid_name</span>(<span class="st">"&#x674E;&#x5C0F;&#x660E;"</span>))      <span class="cm"># True</span>
+<span class="fn">print</span>(<span class="fn">is_valid_name</span>(<span class="st">"Ünîcödé"</span>))  <span class="cm"># True</span>
+<span class="fn">print</span>(<span class="fn">is_valid_name</span>(<span class="st">"drop table"</span>))  <span class="cm"># True (allowed — sanitize at DB layer)</span>
+
+<span class="cm"># Terminal display width</span>
+<span class="kw">def</span> <span class="fn">display_width</span>(s):
+    width = <span class="nm">0</span>
+    <span class="kw">for</span> ch <span class="kw">in</span> s:
+        eaw = unicodedata.<span class="fn">east_asian_width</span>(ch)
+        <span class="kw">if</span> eaw <span class="kw">in</span> (<span class="st">'W'</span>, <span class="st">'F'</span>):  <span class="cm"># Wide or Fullwidth</span>
+            width += <span class="nm">2</span>
+        <span class="kw">elif</span> eaw != <span class="st">'N'</span>:  <span class="cm"># Not zero-width (Neutral = normal)</span>
+            width += <span class="nm">1</span>
+        <span class="kw">else</span>:
+            <span class="cm"># Check combining category</span>
+            cat = unicodedata.<span class="fn">category</span>(ch)
+            <span class="kw">if not</span> cat.<span class="fn">startswith</span>(<span class="st">'M'</span>):  <span class="cm"># M = Mark</span>
+                width += <span class="nm">1</span>
+    <span class="kw">return</span> width
+
+<span class="fn">print</span>(<span class="fn">display_width</span>(<span class="st">"Alice"</span>))   <span class="cm"># 5</span>
+<span class="fn">print</span>(<span class="fn">display_width</span>(<span class="st">"&#x674E;&#x5C0F;&#x660E;"</span>))   <span class="cm"># 6</span>
+<span class="label">python</span></code></pre>
+  </div>
+  <div class="tab-content ts">
+    <pre><code><span class="cm">// Unicode property escapes (ES2018+, Node 10+)</span>
+<span class="kw">function</span> <span class="fn">isValidName</span>(s: <span class="ty">string</span>): <span class="ty">boolean</span> {
+  <span class="kw">return</span> /^[\p{L}\p{N}\p{Z}\-']+$/u.<span class="fn">test</span>(s);
+}
+
+console.<span class="fn">log</span>(<span class="fn">isValidName</span>(<span class="st">"&#x674E;&#x5C0F;&#x660E;"</span>));       <span class="cm">// true</span>
+console.<span class="fn">log</span>(<span class="fn">isValidName</span>(<span class="st">"Ünîcödé"</span>));   <span class="cm">// true</span>
+console.<span class="fn">log</span>(<span class="fn">isValidName</span>(<span class="st">"hello&#x1F44B;"</span>));    <span class="cm">// true (emoji has L? No — \p{Emoji})</span>
+
+<span class="cm">// Count grapheme clusters (visual characters)</span>
+<span class="kw">function</span> <span class="fn">graphemeLength</span>(s: <span class="ty">string</span>): <span class="ty">number</span> {
+  <span class="kw">return</span> [...<span class="kw">new</span> <span class="ty">Intl</span>.<span class="fn">Segmenter</span>(<span class="st">'en'</span>, { granularity: <span class="st">'grapheme'</span> }).<span class="fn">segment</span>(s)].<span class="fn">length</span>;
+}
+
+console.<span class="fn">log</span>(<span class="fn">graphemeLength</span>(<span class="st">"&#x1F468;&#x200D;&#x1F4BB;"</span>));   <span class="cm">// 1 (man technologist ZWJ sequence)</span>
+console.<span class="fn">log</span>((<span class="st">"&#x1F468;&#x200D;&#x1F4BB;"</span>).length);  <span class="cm">// 5 (UTF-16 code units)</span>
+
+<span class="cm">// Normalize before database insert</span>
+<span class="kw">function</span> <span class="fn">sanitizeForDB</span>(s: <span class="ty">string</span>): <span class="ty">string</span> {
+  <span class="kw">return</span> s
+    .<span class="fn">normalize</span>(<span class="st">'NFC'</span>)           <span class="cm">// canonical composition</span>
+    .<span class="fn">replace</span>(/[\u202A-\u202E]/g, <span class="st">''</span>)  <span class="cm">// strip bidi overrides</span>
+    .<span class="fn">replace</span>(/[\u200B-\u200D]/g, <span class="st">''</span>)  <span class="cm">// strip zero-width chars</span>
+    .<span class="fn">trim</span>();
+}
+<span class="label">typescript</span></code></pre>
+  </div>
+  <div class="tab-content go">
+    <pre><code><span class="kw">package</span> main
+
+<span class="kw">import</span> (
+    <span class="st">"fmt"</span>
+    <span class="st">"regexp"</span>
+    <span class="st">"unicode"</span>
+    <span class="st">"golang.org/x/text/width"</span>
+)
+
+<span class="cm">// Unicode-aware letter check</span>
+<span class="kw">func</span> <span class="fn">isLetter</span>(r <span class="ty">rune</span>) <span class="ty">bool</span> {
+    <span class="kw">return</span> unicode.<span class="fn">IsLetter</span>(r) || unicode.<span class="fn">IsDigit</span>(r) || r == <span class="st">'-'</span> || r == <span class="st">'\''</span>
+}
+
+<span class="kw">func</span> <span class="fn">isValidName</span>(s <span class="ty">string</span>) <span class="ty">bool</span> {
+    <span class="kw">for</span> _, r := <span class="kw">range</span> s {
+        <span class="kw">if</span> !<span class="fn">isLetter</span>(r) &amp;&amp; !unicode.<span class="fn">IsSpace</span>(r) {
+            <span class="kw">return false</span>
+        }
+    }
+    <span class="kw">return</span> <span class="fn">len</span>(s) &gt; <span class="nm">0</span>
+}
+
+<span class="cm">// Regex with Unicode script support (uses RE2 syntax)</span>
+<span class="kw">var</span> letterRe = regexp.<span class="fn">MustCompile</span>(<span class="st">`\pL+`</span>)  <span class="cm">// \pL = any Unicode letter</span>
+
+<span class="kw">func</span> <span class="fn">main</span>() {
+    <span class="fn">fmt.Println</span>(<span class="fn">isValidName</span>(<span class="st">"&#x674E;&#x5C0F;&#x660E;"</span>))    <span class="cm">// true</span>
+    <span class="fn">fmt.Println</span>(<span class="fn">isValidName</span>(<span class="st">"Ünîcödé"</span>))  <span class="cm">// true</span>
+
+    words := letterRe.<span class="fn">FindAllString</span>(<span class="st">"Hello &#x674E;&#x5C0F;&#x660E;! Ünîcödé"</span>, -<span class="nm">1</span>)
+    <span class="fn">fmt.Println</span>(words)  <span class="cm">// [Hello &#x674E;&#x5C0F;&#x660E; Ünîcödé]</span>
+
+    <span class="cm">// East Asian width check</span>
+    narrow := width.<span class="fn">Narrow</span>.<span class="fn">String</span>(<span class="st">"&#xFF21;&#xFF22;&#xFF23;"</span>)  <span class="cm">// fullwidth ABC &rarr; ABC</span>
+    <span class="fn">fmt.Println</span>(narrow)  <span class="cm">// ABC</span>
+}
+<span class="label">go</span></code></pre>
+  </div>
+  <div class="tab-content rs">
+    <pre><code><span class="cm">// Cargo.toml: unicode-width = "0.1", regex = "1"</span>
+<span class="kw">use</span> unicode_width::UnicodeWidthStr;
+<span class="kw">use</span> unicode_width::UnicodeWidthChar;
+
+<span class="kw">fn</span> <span class="fn">main</span>() {
+    <span class="cm">// Terminal display width</span>
+    <span class="kw">let</span> alice = <span class="st">"Alice"</span>;
+    <span class="kw">let</span> chinese = <span class="st">"&#x674E;&#x5C0F;&#x660E;"</span>;
+    <span class="kw">let</span> emoji = <span class="st">"&#x1F600;"</span>;
+
+    <span class="fn">println!</span>(<span class="st">"{}: width {}"</span>, alice,   UnicodeWidthStr::<span class="fn">width</span>(alice));    <span class="cm">// 5</span>
+    <span class="fn">println!</span>(<span class="st">"{}: width {}"</span>, chinese, UnicodeWidthStr::<span class="fn">width</span>(chinese));  <span class="cm">// 6</span>
+    <span class="fn">println!</span>(<span class="st">"{}: width {}"</span>, emoji,   UnicodeWidthStr::<span class="fn">width</span>(emoji));    <span class="cm">// 2</span>
+
+    <span class="cm">// Unicode-aware is_alphabetic</span>
+    <span class="kw">for</span> ch <span class="kw">in</span> <span class="st">"Ünîcödé"</span>.<span class="fn">chars</span>() {
+        <span class="fn">print!</span>(<span class="st">"{} alphabetic={} | "</span>, ch, ch.<span class="fn">is_alphabetic</span>());
+    }
+    <span class="cm">// All true — Rust's is_alphabetic() is Unicode-aware</span>
+
+    <span class="cm">// Pad string to terminal width correctly</span>
+    <span class="kw">fn</span> <span class="fn">pad_to_width</span>(s: &amp;<span class="ty">str</span>, target: <span class="ty">usize</span>) -&gt; <span class="ty">String</span> {
+        <span class="kw">let</span> w = UnicodeWidthStr::<span class="fn">width</span>(s);
+        <span class="kw">if</span> w &gt;= target { s.<span class="fn">to_string</span>() }
+        <span class="kw">else</span> { <span class="fn">format!</span>(<span class="st">"{}{}"</span>, s, <span class="st">" "</span>.<span class="fn">repeat</span>(target - w)) }
+    }
+}
+<span class="label">rust</span></code></pre>
+  </div>
+</div>
+
+<p>See <a href="compression-deep-dive.html" style="color:var(--cyan)">Compression</a> &mdash; when you compress Unicode text, normalization form affects compression ratios. NFC compresses better than NFD because composed characters have smaller byte representations and fewer repeated patterns.</p>
+
+<div class="power wild">
+<div class="power-label">War Story</div>
+<p>In 2019, MySQL's default character set was still <code>latin1</code> in new installations. Every tutorial that said "just copy this CREATE TABLE" was silently setting you up for emoji failures years later. The utf8mb4 migration is one of the most common and most painful database migrations in existence. The fix is one line. The discovery is usually a production incident at 2am.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch12">
+<h2>// 12 &mdash; The Unicode Consortium</h2>
+
+<p class="drop-cap">Who decides we need "melting face" &#x1FAE0;? Who determines whether the Tangut script gets encoded? Who resolves the argument about whether the Azerbaijani dotted I (&#x0130;) should casefold to i or &#x0131;? The answer is the Unicode Consortium, a non-profit organization in Mountain View, California &mdash; and it is one of the most impactful technical bodies most programmers have never thought about.</p>
+
+<h3>Who Runs Unicode</h3>
+
+<p>The Consortium is a 501(c)(3) non-profit. Its full members include the companies whose products touch Unicode most: Apple, Google, Microsoft, Meta, Netflix, SAP, and others. Membership fees fund the staff and the data files. The actual standardization work is done by volunteer technical committees.</p>
+
+<div class="diagram">
+<span class="diagram-label">Unicode Consortium Structure</span>
+<pre><code>  Full Members (voting, highest tier):
+    Apple · Google · Microsoft · Meta · Netflix · SAP · Oracle
+    Adobe · Salesforce · Government of Bangladesh
+
+  Associate Members (non-voting, smaller orgs)
+  Liaison Members (standards bodies: ISO, W3C, IETF)
+
+  Technical Committees:
+    UTC  — Unicode Technical Committee (core standard)
+    ICU  — International Components for Unicode (reference implementation)
+    CLDR — Common Locale Data Repository (locale data for every territory)
+    UDHR — Universal Declaration of Human Rights translations
+
+  Annual conference: Unicode Conference (IUC)
+  Specification released: ~once per year, usually May/June</code></pre>
+</div>
+
+<h3>The Emoji Proposal Process</h3>
+
+<p>Any person or organization can submit an emoji proposal. The bar is surprisingly low &mdash; a four-page PDF. The timeline is surprisingly long &mdash; about two years from submission to a published standard. The rejection rate is high.</p>
+
+<div class="diagram">
+<span class="diagram-label">Emoji From Idea to Phone</span>
+<pre><code>  Month 0:   Submit 4-page proposal PDF to Unicode
+             Must include: expected usage frequency evidence,
+             distinctiveness argument, sample images
+
+  Month 3:   UTC reviews at quarterly meeting
+             Can be: accepted for next cycle, deferred, rejected
+
+  Month 12:  If accepted, included in emoji data for next Unicode version
+             UTC publishes draft character list for public comment
+
+  Month 18:  Final Unicode version published (e.g., Unicode 16.0)
+             Emoji charts and data files updated
+
+  Month 24:  Vendors (Apple, Google, Samsung...) implement in their fonts
+             Ships in next major OS update
+
+  Total: ~2 years, minimum. Some proposals wait 5+ years.
+
+  Rejection criteria:
+    ✗  Brand logos or trademarked images
+    ✗  Specific real people (dead or alive)
+    ✗  Religious deities or sacred symbols (with rare exceptions)
+    ✗  Flags of disputed territories (consistent policy: only UN members)
+    ✗  "Same as existing emoji + minor variation"</code></pre>
+</div>
+
+<h3>Annual Releases</h3>
+
+<p>Unicode publishes a new version roughly once per year. Each release adds new scripts, new characters, new emoji, and updates to existing data. The version number matters: Unicode 15.1 added 627 characters; Unicode 16.0 added 685 more. Applications that claim "Unicode support" should specify which version.</p>
+
+<div class="diagram">
+<span class="diagram-label">Recent Unicode Versions</span>
+<pre><code>  Unicode 13.0 (2020)  — 5,930 new characters, including Yezidi, Chorasmian
+                          Emoji 13.0: &#x1FAE0; &#x1FAD6; &#x1F977; &#x1FAC0; &#x1FAC1;
+
+  Unicode 14.0 (2021)  — 838 new characters, Toto script, Vithkuqi
+                          Emoji 14.0: &#x1FAE8; &#x1FAF3; &#x1FAF4; &#x1FAA9;
+
+  Unicode 15.0 (2022)  — 4,489 new characters, Kawi (Old Javanese)
+                          Emoji 15.0: &#x1FABB; &#x1FAF7; &#x1FAF8; &#x1FACE;
+
+  Unicode 15.1 (2023)  — 627 characters, Kirat Rai
+                          Emoji 15.1: &#x1FAE9; &#x1FAF0; &#x1FAF1; &#x1FABB;
+
+  Unicode 16.0 (2024)  — 685 characters, Todhri, Garay, Sunuwar
+                          Emoji 16.0: &#x1FAAB; &#x1FAA5; &#x1FABF;</code></pre>
+</div>
+
+<h3>The Politics of Encoding</h3>
+
+<p>Unicode encoding is not purely technical. It is political. Decisions about which scripts to encode, which characters are "the same" across traditions, and which flags to include have real consequences for millions of people whose languages and identities are tied to those decisions.</p>
+
+<div class="diagram">
+<span class="diagram-label">Some of the Hard Decisions</span>
+<pre><code>  Han Unification (CJK):
+    Chinese, Japanese, and Korean have overlapping character sets.
+    Unicode merged many into a single block (U+4E00–U+9FFF).
+    The "same" character may have different glyphs in different countries.
+    Japan fought this. Font rendering picks the right glyph using lang tags.
+
+  Flags:
+    Only sovereign UN member states get emoji flags (via regional indicators).
+    Scotland, Wales, England: got subdivision flag emoji (U+1F3F4 + tags).
+    Taiwan: has a flag emoji. Its politics with the mainland are... complex.
+    Western Sahara, Kosovo, Palestine: inclusion debates still ongoing.
+
+  Han Character Variants:
+    Simplified Chinese (PRC) vs Traditional Chinese (Taiwan/HK) vs
+    Japanese Kanji vs Korean Hanja — many are unified; critics call it
+    "Han unification imperialism." The counter: 100,000 separate code points
+    would make the standard unmanageable.
+
+  Emoji Gender/Skin Tone:
+    Skin tone modifiers (U+1F3FB–U+1F3FF) added in Unicode 8.0.
+    Gender modifiers via ZWJ sequences. Not every combination is official.
+    Which professions get gender variants? Who decides the defaults?</code></pre>
+</div>
+
+<div class="power zen">
+<div class="power-label">Perspective</div>
+<p>Unicode is humanity's most ambitious cataloguing effort. It is an attempt to take every writing system ever used by any human civilization &mdash; from Proto-Sinaitic to Mayan hieroglyphs to the scripts being invented right now for languages that were never written &mdash; and give each one a number. Every bug you have ever filed about string comparison, every encoding error in your logs, every garbled email subject line: these are the growing pains of a species learning to speak to itself across time and space through a shared symbolic infrastructure. The Consortium's work is unglamorous, politically fraught, perpetually incomplete, and absolutely essential.</p>
+</div>
+
+</section>
+
+<p style="text-align:center;font-style:italic;color:var(--text-dim);margin-top:4rem;padding-top:2rem;border-top:1px solid var(--border)">Unicode is not finished. As long as humans write, there will be more characters to encode, more scripts to standardize, more edge cases to discover. Every developer who normalizes their strings, uses grapheme-aware length functions, and thinks in code points rather than bytes is doing their small part to make the tower a little less Babel.</p>
+
+</div><!-- /.content -->
+
+<script>
+/* ================================================================
+   CODE RUNNER — verbatim from compression-deep-dive.html
+   ================================================================ */
+(function() {
+  'use strict';
+
+  // === LANGUAGE DETECTION ===
+  function detectLang(codeEl, pre) {
+    // From tab-content class
+    const tc = pre.closest('.tab-content');
+    if (tc) {
+      if (tc.classList.contains('c')) return 'c';
+      if (tc.classList.contains('py')) return 'python';
+      if (tc.classList.contains('ts')) return 'typescript';
+      if (tc.classList.contains('go')) return 'go';
+      if (tc.classList.contains('rs')) return 'rust';
+    }
+    // From label span
+    const label = pre.querySelector('.label');
+    if (label) {
+      const t = label.textContent.toLowerCase();
+      if (t.includes('python')) return 'python';
+      if (t.includes('typescript') || t === 'ts') return 'typescript';
+      if (t.includes('rust') || t === 'rs') return 'rust';
+      if (t.includes('go') || t === 'go') return 'go';
+      if (t.match(/^c(\s|$)/i) || t.includes('c —') || t.includes('c –')) return 'c';
+    }
+    // From try-this (usually python one-liners)
+    if (pre.closest('.try-this')) {
+      const code = codeEl.textContent;
+      if (code.startsWith('python3') || code.includes('import ')) return 'python';
+    }
+    return null;
+  }
+
+  // === RUNNABLE CHECK ===
+  function isRunnable(pre, codeEl, lang) {
+    if (!lang) return false;
+    // C/Go/Rust are not runnable in-browser
+    if (lang === 'c' || lang === 'go' || lang === 'rust') return false;
+    // Skip diagrams
+    if (pre.closest('.diagram')) return false;
+    // Try-this blocks are always runnable
+    if (pre.closest('.try-this')) return true;
+    // Tab content is always runnable
+    if (pre.closest('.tab-content')) return true;
+    // Standalone with label containing a lang name + has function/print
+    const code = codeEl.textContent;
+    if (pre.querySelector('.label')) {
+      if (code.match(/\b(def |fn |func |function |int main|void |printf|println|print\(|console\.log|fmt\.)/)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // === EXTRACT PLAIN TEXT FROM CODE ELEMENT ===
+  function getCode(codeEl) {
+    // Clone and remove label spans before extracting text
+    const clone = codeEl.cloneNode(true);
+    clone.querySelectorAll('.label').forEach(el => el.remove());
+    return clone.textContent;
+  }
+
+  // === OUTPUT PANEL ===
+  function getOrCreateOutput(pre) {
+    let out = pre.nextElementSibling;
+    if (out && out.classList.contains('run-output')) return out;
+    out = document.createElement('div');
+    out.className = 'run-output';
+    pre.insertAdjacentElement('afterend', out);
+    return out;
+  }
+
+  // === PYTHON RUNNER (Pyodide) ===
+  let pyodideReady = null;
+  async function loadPyodide_() {
+    if (pyodideReady) return pyodideReady;
+    pyodideReady = (async () => {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/pyodide/v0.27.4/full/pyodide.js';
+      document.head.appendChild(script);
+      await new Promise((res, rej) => { script.onload = res; script.onerror = rej; });
+      return await loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.27.4/full/' });
+    })();
+    return pyodideReady;
+  }
+
+  async function runPython(code, out) {
+    out.textContent = 'Loading Python runtime...';
+    out.classList.remove('error');
+    try {
+      const py = await loadPyodide_();
+      // Redirect stdout
+      py.runPython(`import sys, io; sys.stdout = io.StringIO()`);
+      py.runPython(code);
+      const stdout = py.runPython('sys.stdout.getvalue()');
+      out.textContent = stdout || '(no output)';
+    } catch (e) {
+      out.textContent = String(e.message || e);
+      out.classList.add('error');
+    }
+  }
+
+  // === PYTHON ONE-LINER RUNNER ===
+  async function runPythonOneLiner(code, out) {
+    // Handle "python3 -c '...'" style
+    const m = code.match(/^python3?\s+-c\s+["']([\s\S]+)["']\s*$/);
+    if (m) return runPython(m[1], out);
+    // Handle "python3 -c '...' | ..." — just run the python part
+    const m2 = code.match(/^python3?\s+-c\s+["']([\s\S]+?)["']/);
+    if (m2) return runPython(m2[1], out);
+    return runPython(code, out);
+  }
+
+  // === JS/TS RUNNER ===
+  function stripTS(code) {
+    // Remove TS type annotations for browser eval
+    return code
+      .replace(/:\s*(?:string|number|boolean|void|any|never|unknown|undefined|null|bigint|symbol)\b(\[\])?/g, '')
+      .replace(/:\s*(?:Record|Map|Set|Array|Promise|Partial|Required|Readonly)<[^>]+>/g, '')
+      .replace(/<(?:string|number|boolean|void|any|never|unknown|T|U|K|V)(?:\[\])?(?:\s*,\s*(?:string|number|boolean|void|any|never|unknown|T|U|K|V)(?:\[\])?)*>/g, '')
+      .replace(/\bas\s+\w+/g, '')
+      .replace(/^\s*(?:export|import)\s+type\s+.*$/gm, '')
+      .replace(/^\s*interface\s+\w+\s*\{[\s\S]*?\n\}/gm, '')
+      .replace(/^\s*type\s+\w+\s*=.*$/gm, '');
+  }
+
+  async function runJS(code, out) {
+    out.classList.remove('error');
+    const logs = [];
+    const origLog = console.log;
+    const origWarn = console.warn;
+    const origError = console.error;
+    console.log = (...args) => logs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a)).join(' '));
+    console.warn = console.log;
+    console.error = (...args) => logs.push('ERROR: ' + args.map(String).join(' '));
+    try {
+      const cleaned = stripTS(code);
+      const fn = new Function(cleaned);
+      const result = fn();
+      if (result instanceof Promise) await result;
+      out.textContent = logs.join('\n') || '(no output)';
+    } catch (e) {
+      out.textContent = logs.join('\n') + (logs.length ? '\n' : '') + String(e);
+      out.classList.add('error');
+    } finally {
+      console.log = origLog;
+      console.warn = origWarn;
+      console.error = origError;
+    }
+  }
+
+  // === SNIPPET ID GENERATION ===
+  function snippetId(codeEl, pre) {
+    if (codeEl.dataset.snippetId) return codeEl.dataset.snippetId;
+    // Derive prefix from filename
+    const path = location.pathname;
+    const fname = path.split('/').pop().replace(/-deep-dive\.html$/, '').replace(/\.html$/, '');
+    const prefix = fname.substring(0, 5);
+
+    const tc = pre.closest('.tab-content');
+    if (tc) {
+      // Tab content: use tab group name + lang class
+      const tabs = tc.closest('.lang-tabs');
+      const radio = tabs ? tabs.querySelector('input[type="radio"]') : null;
+      const groupName = radio ? radio.name.replace('tabs-', '') : 'unknown';
+      const langClass = ['c','py','ts','go','rs'].find(c => tc.classList.contains(c)) || 'x';
+      const id = prefix + '-' + groupName + '-' + langClass;
+      codeEl.dataset.snippetId = id;
+      return id;
+    }
+
+    // Standalone: use label text slug
+    const label = pre.querySelector('.label');
+    if (label) {
+      const slug = label.textContent.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').substring(0, 20);
+      const id = prefix + '-' + slug;
+      codeEl.dataset.snippetId = id;
+      return id;
+    }
+
+    const id = prefix + '-anon-' + Math.random().toString(36).substring(2, 8);
+    codeEl.dataset.snippetId = id;
+    return id;
+  }
+
+  // === BUTTON INJECTION ===
+  document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('pre > code, pre code').forEach(function(codeEl) {
+      const pre = codeEl.closest('pre');
+      if (!pre) return;
+      const lang = detectLang(codeEl, pre);
+      if (!isRunnable(pre, codeEl, lang)) return;
+
+      const btn = document.createElement('button');
+      btn.className = 'run-btn';
+      btn.textContent = '\u25B6 Run';
+      btn.title = 'Run this code';
+      // Position inside tab-content pre
+      pre.style.position = 'relative';
+      pre.appendChild(btn);
+
+      btn.addEventListener('click', async function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (btn.classList.contains('running')) return;
+        btn.classList.add('running');
+        btn.textContent = '\u25B6 ...';
+
+        // For tab-content, put output after the lang-tabs container
+        let outputAnchor = pre;
+        const tabContent = pre.closest('.tab-content');
+        if (tabContent) {
+          outputAnchor = tabContent.closest('.lang-tabs');
+        }
+        const out = getOrCreateOutput(outputAnchor);
+        out.style.display = 'block';
+
+        const code = getCode(codeEl);
+        try {
+          switch (lang) {
+            case 'python':
+              if (pre.closest('.try-this') && code.match(/^python3?\s/)) {
+                await runPythonOneLiner(code, out);
+              } else {
+                await runPython(code, out);
+              }
+              break;
+            case 'typescript':
+            case 'javascript':
+              await runJS(code, out);
+              break;
+          }
+        } catch (e) {
+          out.textContent = String(e);
+          out.classList.add('error');
+        }
+
+        btn.classList.remove('running');
+        btn.textContent = '\u25B6 Run';
+      });
+    });
+  });
+})();
+</script>
+
+</body>
+</html>

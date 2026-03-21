@@ -214,13 +214,13 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
     A 27B model is not a function. It&rsquo;s a file you keep dragging through memory.<span class="blink">_</span>
 </div>
 
-<p class="drop-cap">Part I traced a vector through 64 transformer blocks. You counted the FLOPs: 44 billion per token for Qwen 27B. That sounds like a compute problem. It isn&rsquo;t. Modern GPUs can compute hundreds of teraFLOPs per second. An RTX 3090 does 142 trillion 16-bit operations every second. At that rate, 44 billion FLOPs should take 0.3 milliseconds. One token every 0.3 ms would mean 3,000 tokens per second.</p>
+<p class="drop-cap">Fifty-four billion floating-point operations per token. An RTX 3090 can do 142 trillion per second. At that rate, one token should take 0.4 milliseconds &mdash; 2,500 tokens per second. You get about 30. The model runs nearly <strong>100&times; slower</strong> than the arithmetic predicts. The gap is not compute. It is the cost of moving data.</p>
 
-<p>You don&rsquo;t get 3,000 tokens per second. You get about 30. The model runs <strong>100&times; slower</strong> than the arithmetic alone would suggest. Something else is eating the time. That something is <strong>memory bandwidth</strong> &mdash; the speed at which data travels from GPU memory to the compute cores. The GPU is fast. The pipe feeding it is narrow.</p>
+<p>That cost has a name: <strong>memory bandwidth</strong>. Understanding where it bites &mdash; and where it doesn&rsquo;t &mdash; requires a model called the roofline.</p>
 
 <h3>The Memory Wall</h3>
 
-<p>A GPU has two relevant resources: <strong>compute</strong> (how many operations per second) and <strong>bandwidth</strong> (how many bytes per second it can read from memory). These two numbers define a boundary called the <strong>roofline</strong>.</p>
+<p>A GPU has two relevant resources: <strong>compute</strong> and <strong>bandwidth</strong>. Their ratio defines the <strong>roofline</strong> &mdash; the boundary between memory-bound and compute-bound work.</p>
 
 <table>
 <tr><th>GPU</th><th>FP16 Compute</th><th>Bandwidth</th><th>VRAM</th><th>Ridge Point</th></tr>
@@ -229,6 +229,7 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 <tr><td>A100 80GB</td><td><span class="nm">312</span> TFLOPS</td><td><span class="nm">2,039</span> GB/s</td><td>80 GB</td><td><span class="nm">~153</span> FLOPs/byte</td></tr>
 <tr><td>H100 SXM</td><td><span class="nm">989</span> TFLOPS</td><td><span class="nm">3,350</span> GB/s</td><td>80 GB</td><td><span class="nm">~295</span> FLOPs/byte</td></tr>
 </table>
+<p style="font-size:0.85rem; color:var(--text-dim); margin-top:0.3rem;">FP16 figures are Tensor Core peak. Batch-1 decode (matrix-vector) cannot fully exploit Tensor Cores &mdash; effective compute is lower, making the memory-bound situation even worse than the table suggests.</p>
 
 <p>The <strong>ridge point</strong> is where the bottleneck shifts. Below it, you&rsquo;re <em>memory-bound</em> &mdash; the GPU finishes its math before the next chunk of data arrives. Above it, you&rsquo;re <em>compute-bound</em>. The ridge point is peak compute divided by peak bandwidth.</p>
 
@@ -257,7 +258,9 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 </code></pre>
 </div>
 
-<p>This is the central insight: <strong>decode doesn&rsquo;t get faster with a faster GPU</strong>. The H100 has 3.2&times; the compute of the A100, but only 1.6&times; the bandwidth. For decode, you get roughly 1.6&times; the speed &mdash; the extra compute sits idle.</p>
+<p>Decode speed scales with bandwidth, not compute. The H100 has 3.2&times; the compute of the A100, but only 1.6&times; the bandwidth. For decode, you get 1.6&times; &mdash; the extra compute sits idle.</p>
+
+<p>Prefill is different. The same model, the same hardware &mdash; but the arithmetic changes completely.</p>
 
 <h3>Where Prefill Lives</h3>
 
@@ -279,7 +282,7 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 
 <h3>The Roofline</h3>
 
-<p>Drag the sliders to see where different workloads land on the roofline.</p>
+<p>The gap between decode and prefill is visible on the roofline. At batch size 1, decode hugs the floor. Prefill climbs past the ridge.</p>
 
 <div class="viz-container">
 <svg id="viz-ch5-roofline" viewBox="0 0 780 420"></svg>
@@ -353,7 +356,7 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 
 <div class="power danger">
 <div class="power-label">The Utilization Trap</div>
-<p>An RTX 3090 generating tokens from a 27B model at batch size 1 uses <strong>0.66%</strong> of its compute capability. The other 99.34% is idle, waiting for data. The GPU isn&rsquo;t slow. The memory bus is narrow.</p>
+<p>An RTX 3090 generating tokens from a 27B model at batch size 1 uses <strong>0.66%</strong> of its compute capability. The other 99.34% is idle, waiting for data.</p>
 </div>
 
 <h3>One Decode Step, Dissected</h3>
@@ -428,7 +431,7 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 
 <div class="power zen">
 <div class="power-label">The Real Pipeline</div>
-<p>Part I showed the math pipeline: embed &rarr; norm &rarr; attention &rarr; FFN &rarr; project &rarr; sample. The <em>real</em> pipeline is: <strong>weights &rarr; HBM &rarr; SRAM &rarr; cores</strong>. Before you optimize the model, you optimize the trip the numbers take.</p>
+<p>Part I showed the math pipeline: embed &rarr; norm &rarr; attention &rarr; FFN &rarr; project &rarr; sample. The <em>real</em> pipeline is: <strong>weights &rarr; HBM &rarr; SRAM &rarr; cores</strong>. Before you optimize the model, you optimize the 14 GB read that happens every token.</p>
 </div>
 </section>
 
@@ -445,9 +448,9 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
     That memory is the cache. That cache becomes the problem.<span class="blink">_</span>
 </div>
 
-<p class="drop-cap">Chapter 5 showed you the memory wall: every decode step reads the entire model from HBM. But it reads something else too &mdash; the <strong>KV cache</strong>. Every token the model has ever seen in this conversation has a key vector and a value vector stored per layer. Attention doesn&rsquo;t recompute them; it rereads them. That cache starts small and grows linearly with every word generated. At long contexts, it <em>becomes</em> the memory problem.</p>
+<p class="drop-cap">Every token the model has ever seen leaves a key vector and a value vector &mdash; stored per layer, kept for the life of the conversation. Attention does not recompute what it saw before; it rereads it. That memory grows with every token generated. At long contexts, it becomes the dominant consumer of VRAM &mdash; larger than the model weights themselves.</p>
 
-<p>The model&rsquo;s memory is not its weights. At runtime, its memory is the KV cache.</p>
+<p>At runtime, the model&rsquo;s memory is the KV cache.</p>
 
 <h3>What Gets Cached</h3>
 
@@ -470,17 +473,17 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 
 <div class="power wild">
 <div class="power-label">The GQA Advantage</div>
-<p>Llama-2 7B uses full multi-head attention: 32 KV heads. Qwen 27B uses grouped-query attention with only 4 KV heads. Despite being <strong>4&times; larger</strong>, Qwen 27B uses <strong>half the KV cache per token</strong>. GQA isn&rsquo;t just a quality tradeoff &mdash; it&rsquo;s a memory architecture decision that determines how many users you can serve.</p>
+<p>Qwen 27B is 4&times; larger than Llama-2 7B but uses half the KV cache per token. GQA is a memory architecture decision, not just a quality tradeoff.</p>
 </div>
 
 <h3>How the Cache Grows</h3>
 
-<p>Watch what happens as context length increases. Pay attention to the crossover point where KV cache exceeds model weight size.</p>
+<p>At 32K context with FP16, the KV cache of a 7B MHA model already exceeds the weight memory. The crossover point depends on architecture and precision.</p>
 
 <div class="viz-container">
 <svg id="viz-ch6-kv" viewBox="0 0 780 380"></svg>
 <div class="viz-controls">
-<div><label>Model</label><select id="viz-ch6-model"><option value="llama2-7b">Llama-2 7B (MHA, 32 KV)</option><option value="llama3-8b">Llama-3 8B (GQA, 8 KV)</option><option value="qwen-27b" selected>Qwen 27B (GQA, 4 KV)</option><option value="llama3-70b">Llama-3.1 70B (GQA, 8 KV)</option></select></div>
+<div><label>Model</label><select id="viz-ch6-model"><option value="llama2-7b">Llama-2 7B (MHA, 32 KV)</option><option value="llama3-8b">Llama-3.1 8B (GQA, 8 KV)</option><option value="qwen-27b" selected>Qwen 27B (GQA, 4 KV)</option><option value="llama3-70b">Llama-3.3 70B (GQA, 8 KV)</option></select></div>
 <div><label>Batch</label><input type="range" id="viz-ch6-batch" min="1" max="64" value="1" style="width:100px;"><span class="val" id="viz-ch6-batch-val">1</span></div>
 <div><label>KV Precision</label><select id="viz-ch6-prec"><option value="2" selected>FP16</option><option value="1">FP8</option><option value="0.5">INT4</option></select></div>
 <div><label>VRAM</label><select id="viz-ch6-vram"><option value="24" selected>24 GB</option><option value="48">48 GB</option><option value="80">80 GB</option></select></div>
@@ -495,9 +498,9 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
     const w = W - margin.left - margin.right, h = H - margin.top - margin.bottom;
     const models = {
         'llama2-7b': {name:'Llama-2 7B', layers:32, kvH:32, hDim:128, wGB:13.5, type:'MHA'},
-        'llama3-8b': {name:'Llama-3 8B', layers:32, kvH:8, hDim:128, wGB:16, type:'GQA-4'},
+        'llama3-8b': {name:'Llama-3.1 8B', layers:32, kvH:8, hDim:128, wGB:16, type:'GQA-4'},
         'qwen-27b':  {name:'Qwen 27B', layers:64, kvH:4, hDim:256, wGB:54, type:'GQA-8'},
-        'llama3-70b':{name:'Llama-3.1 70B', layers:80, kvH:8, hDim:128, wGB:140, type:'GQA-8'}
+        'llama3-70b':{name:'Llama-3.3 70B', layers:80, kvH:8, hDim:128, wGB:140, type:'GQA-8'}
     };
     function draw() {
         svg.selectAll('*').remove();
@@ -554,12 +557,14 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 <table>
 <tr><th>Model</th><th>Type</th><th>KV Heads</th><th>Per-Token KV</th><th>4K Cache</th><th>128K Cache</th></tr>
 <tr><td>Llama-2 7B</td><td>MHA</td><td><span class="nm">32</span></td><td><span class="nm">512</span> KiB</td><td>2.0 GB</td><td style="color:var(--red)">64.0 GB</td></tr>
-<tr><td>Llama-3 8B</td><td>GQA</td><td><span class="nm">8</span></td><td><span class="nm">128</span> KiB</td><td>0.5 GB</td><td>16.0 GB</td></tr>
-<tr><td>Qwen-2.5 27B</td><td>GQA</td><td><span class="nm">4</span></td><td><span class="nm">256</span> KiB</td><td>1.0 GB</td><td>32.0 GB</td></tr>
-<tr><td>Llama-3.1 70B</td><td>GQA</td><td><span class="nm">8</span></td><td><span class="nm">320</span> KiB</td><td>1.25 GB</td><td>40.0 GB</td></tr>
+<tr><td>Llama-3.1 8B</td><td>GQA</td><td><span class="nm">8</span></td><td><span class="nm">128</span> KiB</td><td>0.5 GB</td><td>16.0 GB</td></tr>
+<tr><td>Qwen 27B</td><td>GQA</td><td><span class="nm">4</span></td><td><span class="nm">256</span> KiB</td><td>1.0 GB</td><td>32.0 GB</td></tr>
+<tr><td>Llama-3.3 70B</td><td>GQA</td><td><span class="nm">8</span></td><td><span class="nm">320</span> KiB</td><td>1.25 GB</td><td>40.0 GB</td></tr>
 </table>
 
-<p>Llama-2 7B with full MHA uses <em>more</em> KV cache per token than Llama-3.1 70B with GQA &mdash; despite being 10&times; smaller. GQA shares K and V heads across groups of query heads. Quality loss is under 0.3%. This is why every major model since mid-2023 uses GQA.</p>
+<p>Llama-2 7B with full MHA uses <em>more</em> KV cache per token than Llama-3.3 70B with GQA &mdash; despite being 10&times; smaller. GQA shares K and V heads across groups of query heads. Quality loss is under 0.3%. This is why every major model released since late 2023 uses GQA.</p>
+
+<p>Shrinking each entry helps. But even small entries waste memory when the allocator pre-reserves space that is never used.</p>
 
 <h3>PagedAttention: Virtual Memory for KV</h3>
 
@@ -632,7 +637,7 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 
   <span class="cm">Prefix caching:</span>
     Shared system prompts computed once and reused.
-    Blocks identified by SHA-256 hash of token IDs.
+    Blocks identified by content hash of token IDs.
     ref_cnt tracks sharing; freed when last user finishes.
 
   <span class="pp">PagedAttention didn&rsquo;t change the math.</span>
@@ -653,7 +658,7 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 
 <div class="power zen">
 <div class="power-label">The Central Runtime Object</div>
-<p>Weights are static. Activations are transient. The KV cache is the thing that <em>grows, fragments, gets shared, gets evicted, gets quantized, gets paged, gets transferred between machines</em>. It is the central runtime object of inference. Every optimization in Chapters 7&ndash;12 touches it. Every scheduling decision in Part III revolves around it.</p>
+<p>Weights are static. Activations are transient. The KV cache is the thing that <em>grows, fragments, gets shared, and must be managed at every level of the stack</em>. It is the central runtime object of inference. Every optimization in Chapters 7&ndash;12 touches it. Every scheduling decision in Part III revolves around it.</p>
 </div>
 </section>
 
@@ -667,7 +672,7 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
     Make the weights smaller. Hope the model still recognizes the world.<span class="blink">_</span>
 </div>
 
-<p class="drop-cap">Chapter 5 showed that decode speed is bandwidth-limited: tokens per second equals bandwidth divided by weight size. The fastest way to double your speed is to halve your weights. A 7B model in FP16 is 14 GB; in 4-bit quantization, it&rsquo;s 3.5 GB. Same model, 4&times; less data through the memory bus, roughly 4&times; faster decode. The question is what you lose.</p>
+<p class="drop-cap">Decode speed is bandwidth divided by weight size. A 7B model in FP16 is 14 GB; in 4-bit, it is 3.5 GB. Same model, 4&times; less data through the memory bus, roughly 4&times; faster decode. Quantization is the oldest inference trick and still the most immediately effective. The question is what you lose.</p>
 
 <p>Quantization is the oldest inference trick and still one of the most important. Smaller weights mean less bandwidth, less memory, bigger models on cheaper hardware. But every lost bit is a wager.</p>
 
@@ -1539,7 +1544,7 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
     A prompt enters all at once. A sentence leaves one token at a time.<span class="blink">_</span>
 </div>
 
-<p class="drop-cap">This is the most important split in inference. Prefill likes throughput. Decode likes low latency. They run the same model and want different worlds. You met this idea briefly at the end of Part I. Now it becomes the central design constraint.</p>
+<p class="drop-cap">A prompt enters all at once &mdash; thousands of tokens processed in parallel, the GPU running hot. A response leaves one token at a time &mdash; the same GPU reading the entire model from memory for each word, 99% of its cores idle. Same model. Same weights. Same hardware. Two completely different performance profiles. This split &mdash; prefill versus decode &mdash; shapes every scheduling decision, every serving architecture, and every optimization trade-off in modern inference.</p>
 
 <h3>Two Metrics, Two Bottlenecks</h3>
 
