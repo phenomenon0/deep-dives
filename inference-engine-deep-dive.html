@@ -2321,6 +2321,28 @@ out  = h @ W_down     <span class="cm"># [17408] &rarr; [5120]  compress back</s
 <p><strong>The gate learns <em>which</em> features matter. The up-projection computes <em>candidate values</em>.</strong> Multiplying them = selective routing. It's like an if-statement learned from data: <code>if gate[i] > 0: output[i] = up[i]</code>, but smooth and differentiable. One projection decides, the other provides &mdash; that's why SwiGLU needs three matrices instead of GPT-2's two, and why it works better: the model can learn to shut off irrelevant features instead of blending everything.</p>
 </div>
 
+<h4 id="exit-block">Step 6: Exiting the Block</h4>
+
+<p>Two more operations close out the block. First, the attention output (from Step 4) passed through an <strong>output projection</strong> &mdash; a matrix multiply (W_out, 6144&times;5120 in Qwen) that merges all the attention heads back into a single vector of model dimension. That's the 6th matmul. The FFN added the 7th. Second, a <strong>residual connection</strong> adds the block's input back to the FFN's output &mdash; the same skip-connection pattern from after attention. The block only had to learn <em>what to change</em>, not reconstruct the whole vector from scratch.</p>
+
+<div class="diagram">
+<pre><code><span class="label">One block, summarised</span>
+  input x [5120]
+      &darr;
+  RMSNorm &rarr; Q,K,V projections (matmuls 1-3) &rarr; attention scores &rarr; W_out (matmul 4)
+      &darr;
+  <span class="pp">+ x  (residual)</span>
+      &darr;
+  RMSNorm &rarr; gate projection (matmul 5) + up projection (matmul 6) &rarr; W_down (matmul 7)
+      &darr;
+  <span class="pp">+ x  (residual)</span>
+      &darr;
+  output [5120]  &larr; <span class="cm">same shape. different meaning. ready for the next block.</span>
+</code></pre>
+</div>
+
+<p>That's one block: seven matmuls, two norms, two residual adds. The vector that enters is [5120]. The vector that exits is [5120]. Same shape, transformed meaning. Now do it 63 more times.</p>
+
 <h3 id="full-stack">The Full Stack: 64 Blocks Deep</h3>
 
 <p>We traced one block. The model runs 64 of them, in sequence, on every token. The same seven matrix multiplications, repeated with different learned weights. Here's what that stack looks like:</p>
@@ -2351,7 +2373,9 @@ out  = h @ W_down     <span class="cm"># [17408] &rarr; [5120]  compress back</s
 </code></pre>
 </div>
 
-<p>After 64 blocks, a final norm and one last matrix multiply project the vector back to vocabulary size &mdash; producing a raw score for every word the model knows. These scores are called <strong>logits</strong>. But logits aren't words. How does the model choose? That's the final piece.</p>
+<h4 id="project-step">The Final Step: PROJECT</h4>
+
+<p>After 64 blocks, one last RMSNorm stabilises the vector. Then comes the <strong>PROJECT</strong> step from the pipeline &mdash; the moment the model turns its internal representation back into words. It multiplies the vector by the <em>embedding table transposed</em>. Remember that table from Chapter 2? The same 50,257&times;768 matrix that converted token IDs to vectors at the start now works in reverse: a dot product of the output vector against every row in the table produces one score per word in the vocabulary. High score means "my output vector is close to that word's embedding." These 152,064 scores (or 50,257 for GPT-2) are called <strong>logits</strong> &mdash; raw, unbounded numbers with no guarantee of summing to anything. They're not probabilities yet. They're a ranked ballot, and the model needs a way to pick a winner. That's the final piece.</p>
 
 </section>
 <!-- ═══════════════════════════════════════════════════════════════ -->
