@@ -2847,23 +2847,36 @@ out  = h @ W_down     <span class="cm"># [17408] &rarr; [5120]  compress back</s
 
 <h3>Practical Recipes</h3>
 
-<p>Different tasks want different sampling. Here are four starting points &mdash; not gospel, but the defaults most engines converge on:</p>
+<p>Different tasks want different sampling. Not gospel &mdash; but the defaults most engines converge on:</p>
 
-<table>
-<tr><th>Task</th><th>Temperature</th><th>Filters</th><th>Why</th></tr>
-<tr><td><strong>Code generation</strong></td><td><span class="nm">0</span> (greedy)</td><td>&mdash;</td><td>Determinism matters. One wrong token = broken syntax.</td></tr>
-<tr><td><strong>Chat</strong></td><td><span class="nm">0.7</span></td><td>min_p=0.05, rep_penalty=1.1</td><td>Warm but not wild. Repetition penalty keeps it from looping.</td></tr>
-<tr><td><strong>Creative writing</strong></td><td><span class="nm">1.0</span></td><td>min_p=0.02, top_p=0.95</td><td>Let rare words win sometimes. Top-p still prunes nonsense.</td></tr>
-<tr><td><strong>Factual Q&amp;A</strong></td><td><span class="nm">0</span> (greedy)</td><td>&mdash;</td><td>Always pick the highest-probability answer. No dice.</td></tr>
-</table>
-
-<div class="power" style="margin-top:2.5rem; border-left-color:var(--green); background:rgba(0,255,136,0.04);">
-<div class="power-label" style="font-size:13px; letter-spacing:0.12em;">The Complete Machine</div>
-<p style="font-size:1rem; line-height:1.7;">We started with a question: <em>what happens when you type something and words appear?</em></p>
-<p style="font-size:1rem; line-height:1.7;">Now we know. Raw text becomes tokens. Tokens become vectors &mdash; points in a 768-dimensional space where meaning has geometry. Those vectors pass through 12 identical blocks, each one normalising, attending across context, and rewriting through a gated feed-forward network. Twelve times the same structure, twelve different sets of learned weights, each refining the representation a little further. What emerges is a single vector that has absorbed the entire context of everything before it.</p>
-<p style="font-size:1rem; line-height:1.7;">That vector projects back to vocabulary space &mdash; a dot product against every word the model knows. Temperature, top-p, and min-p shape the resulting distribution. One random draw. One word. Append it to the sequence, and run the entire pipeline again.</p>
-<p style="font-size:1rem; line-height:1.7; margin-bottom:0;"><strong>That's the whole machine.</strong> No magic, no understanding, no intent &mdash; just matrix multiplications, applied in the right order, with the right learned numbers. The rest is engineering. And that's where <a href="inference-engine-deep-dive-2.html" style="color:var(--green);">Part II</a> begins.</p>
+<div class="diagram">
+<pre><code><span class="label">Starting points</span>
+<span class="cm">Code generation</span>    T=<span class="nm">0</span>                              <span class="cm">greedy. determinism matters.</span>
+<span class="cm">Chat</span>               T=<span class="nm">0.7</span>  min_p=<span class="nm">0.05</span>  rep=<span class="nm">1.1</span>    <span class="cm">warm but not wild.</span>
+<span class="cm">Creative writing</span>   T=<span class="nm">1.0</span>  min_p=<span class="nm">0.02</span>  top_p=<span class="nm">0.95</span>  <span class="cm">let rare words win sometimes.</span>
+<span class="cm">Factual Q&amp;A</span>        T=<span class="nm">0</span>                              <span class="cm">always pick the favourite.</span>
+</code></pre>
 </div>
+
+
+
+<div class="act-break">
+<div class="act-number">Part I</div>
+<div class="act-title">The Complete Machine</div>
+<div class="act-subtitle">Text in. Matrix multiplications. One word out. Repeat.</div>
+</div>
+
+<p>We started with a question: <em>what happens when you type something and words appear?</em></p>
+
+<p>Now we know. Raw text becomes tokens. Tokens become vectors &mdash; points in a 768-dimensional space where meaning has geometry. Those vectors pass through 12 identical blocks, each one normalising, attending across context, and rewriting through a gated feed-forward network. Twelve times the same structure, twelve different sets of learned weights, each refining the representation a little further. What emerges is a single vector that has absorbed the entire context of everything before it.</p>
+
+<p>That vector projects back to vocabulary space &mdash; a dot product against every word the model knows. Temperature, top-p, and min-p shape the resulting distribution. One random draw. One word. Append it to the sequence, and run the entire pipeline again.</p>
+
+<p>That's the whole machine. No magic, no understanding, no intent &mdash; just matrix multiplications, applied in the right order, with the right learned numbers. The rest is engineering.</p>
+
+<p style="font-family:'JetBrains Mono',monospace; font-size:0.85rem; color:var(--text-dim); margin-top:2rem;">And that&rsquo;s where <a href="inference-engine-deep-dive-2.html">Part II</a> begins.<span class="blink">_</span></p>
+
+
 
 </section>
 
