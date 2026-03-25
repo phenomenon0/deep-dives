@@ -1996,11 +1996,13 @@ q[<span class="nm">2</span>*i+<span class="nm">1</span>] = q_orig[<span class="n
 <input type="radio" name="attn" id="attn-t1" class="t1" checked>
 <input type="radio" name="attn" id="attn-t2" class="t2">
 <input type="radio" name="attn" id="attn-t3" class="t3">
+<input type="radio" name="attn" id="attn-t4" class="t4">
 
 <div class="tab-bar">
 <label for="attn-t1">Visual</label>
-<label for="attn-t2">Worked Example</label>
-<label for="attn-t3">Causal Mask</label>
+<label for="attn-t2">Heatmap</label>
+<label for="attn-t3">Worked Example</label>
+<label for="attn-t4">Causal Mask</label>
 </div>
 
 <!-- ── TAB 1: attention weight bar chart ── -->
@@ -2028,8 +2030,239 @@ q[<span class="nm">2</span>*i+<span class="nm">1</span>] = q_orig[<span class="n
 </div>
 </div>
 
-<!-- ── TAB 2: original worked example ── -->
+<!-- ── TAB 2: interactive attention heatmap ── -->
 <div class="tab-panel p2">
+<div style="padding: 0.6rem 1rem 0;">
+<svg id="viz-attn-heatmap" viewBox="0 0 780 320" style="width:100%; height:auto; display:block;" role="img"><title>Interactive attention heatmap for "The capital of France"</title></svg>
+<div id="viz-attn-explain" style="min-height:2rem; padding:0.4rem 0; font-size:0.88rem; line-height:1.55;"></div>
+</div>
+</div>
+
+<script>
+(function() {
+    const svg = d3.select('#viz-attn-heatmap');
+    const explainEl = document.getElementById('viz-attn-explain');
+    const W = 780, H = 320;
+    const mono = 'JetBrains Mono, monospace';
+
+    const tokens = ['The', 'capital', 'of', 'France'];
+
+    // Attention weights per head (rows = query, cols = key)
+    // Causal: upper triangle = 0. Weights designed to tell the right story.
+    // Head 0: syntactic — "of" links things, "France" looks back at structure
+    // Head 1: semantic — "France" focuses on "capital" (answering "capital of what?")
+    const heads = [
+        {
+            label: 'Head 0 (syntactic)',
+            color: '#00ddff',
+            weights: [
+                [1.00, 0,    0,    0   ],  // "The" can only see itself
+                [0.35, 0.65, 0,    0   ],  // "capital" attends to itself + "The"
+                [0.12, 0.28, 0.60, 0   ],  // "of" attends mostly to itself (function word)
+                [0.08, 0.18, 0.44, 0.30],  // "France" attends to "of" (syntactic link)
+            ]
+        },
+        {
+            label: 'Head 1 (semantic)',
+            color: '#ff00aa',
+            weights: [
+                [1.00, 0,    0,    0   ],
+                [0.20, 0.80, 0,    0   ],
+                [0.15, 0.45, 0.40, 0   ],  // "of" looks at "capital"
+                [0.06, 0.62, 0.08, 0.24],  // "France" → "capital" (0.62!) — semantic
+            ]
+        }
+    ];
+
+    let activeHead = 1; // Start on the semantic head — more interesting
+    let hoverRow = -1;
+
+    // Layout
+    const gridX = 220, gridY = 60, cellSize = 64, gap = 2;
+    const gridW = tokens.length * (cellSize + gap);
+
+    function draw() {
+        svg.selectAll('*').remove();
+        const head = heads[activeHead];
+        const weights = head.weights;
+
+        // Title
+        svg.append('text').attr('x', W/2).attr('y', 24)
+            .text('ATTENTION WEIGHTS \u2014 ' + head.label)
+            .attr('text-anchor','middle')
+            .attr('fill', head.color).attr('font-family',mono).attr('font-size',11)
+            .attr('letter-spacing','0.08em').attr('font-weight',600);
+
+        // Head toggle buttons
+        heads.forEach((h, i) => {
+            const bx = W/2 + (i === 0 ? -120 : 20), by = 34;
+            const isActive = i === activeHead;
+            svg.append('rect').attr('x', bx).attr('y', by)
+                .attr('width', 100).attr('height', 18).attr('rx', 3)
+                .attr('fill', isActive ? h.color + '33' : 'rgba(30,30,46,0.5)')
+                .attr('stroke', isActive ? h.color : '#2a2a4a')
+                .attr('cursor','pointer')
+                .on('click', function() { activeHead = i; draw(); });
+            svg.append('text').attr('x', bx + 50).attr('y', by + 13)
+                .text('Head ' + i).attr('text-anchor','middle')
+                .attr('fill', isActive ? h.color : '#6a6a7e')
+                .attr('font-family',mono).attr('font-size',9)
+                .attr('cursor','pointer').attr('pointer-events','none');
+        });
+
+        // Column headers (Keys)
+        svg.append('text').attr('x', gridX + gridW/2).attr('y', gridY - 18)
+            .text('Keys (what each token advertises)')
+            .attr('text-anchor','middle')
+            .attr('fill','#6a6a7e').attr('font-family',mono).attr('font-size',9);
+        tokens.forEach((t, i) => {
+            svg.append('text')
+                .attr('x', gridX + i * (cellSize + gap) + cellSize/2)
+                .attr('y', gridY - 4)
+                .text(t).attr('text-anchor','middle')
+                .attr('fill','#c8c8d4').attr('font-family',mono).attr('font-size',11);
+        });
+
+        // Row headers (Queries)
+        svg.append('text').attr('x', gridX - 60).attr('y', gridY - 18)
+            .text('Queries').attr('text-anchor','middle')
+            .attr('fill','#6a6a7e').attr('font-family',mono).attr('font-size',9);
+        tokens.forEach((t, i) => {
+            const ty = gridY + i * (cellSize + gap) + cellSize/2 + 4;
+            const isHover = i === hoverRow;
+            svg.append('text')
+                .attr('x', gridX - 10).attr('y', ty)
+                .text(t).attr('text-anchor','end')
+                .attr('fill', isHover ? head.color : '#c8c8d4')
+                .attr('font-family',mono).attr('font-size',11)
+                .attr('font-weight', isHover ? 600 : 400);
+        });
+
+        // Grid cells
+        tokens.forEach((qt, qi) => {
+            tokens.forEach((kt, ki) => {
+                const x = gridX + ki * (cellSize + gap);
+                const y = gridY + qi * (cellSize + gap);
+                const w = weights[qi][ki];
+                const isMasked = ki > qi;
+                const isRowHover = qi === hoverRow;
+                const isHighlight = isRowHover && !isMasked;
+
+                // Cell background
+                let fill;
+                if (isMasked) {
+                    fill = 'rgba(20,20,30,0.8)';
+                } else {
+                    const intensity = w;
+                    fill = `rgba(${head.color === '#ff00aa' ? '255,0,170' : '0,221,255'},${intensity * 0.7})`;
+                }
+
+                const cellG = svg.append('g')
+                    .attr('cursor', 'pointer')
+                    .on('mouseenter', function() { hoverRow = qi; draw(); })
+                    .on('mouseleave', function() { hoverRow = -1; draw(); });
+
+                cellG.append('rect').attr('x', x).attr('y', y)
+                    .attr('width', cellSize).attr('height', cellSize).attr('rx', 4)
+                    .attr('fill', fill)
+                    .attr('stroke', isHighlight ? head.color : isMasked ? '#1a1a2a' : head.color + '33')
+                    .attr('stroke-width', isHighlight ? 2 : 1);
+
+                if (isMasked) {
+                    // Diagonal slash for masked
+                    cellG.append('line')
+                        .attr('x1', x + 8).attr('y1', y + cellSize - 8)
+                        .attr('x2', x + cellSize - 8).attr('y2', y + 8)
+                        .attr('stroke','#333').attr('stroke-width',1);
+                } else {
+                    // Weight value
+                    cellG.append('text')
+                        .attr('x', x + cellSize/2).attr('y', y + cellSize/2 + 5)
+                        .text(w.toFixed(2))
+                        .attr('text-anchor','middle')
+                        .attr('fill', w > 0.4 ? '#fff' : w > 0.2 ? '#ddd' : '#888')
+                        .attr('font-family',mono).attr('font-size', isHighlight ? 14 : 12)
+                        .attr('font-weight', w > 0.4 ? 700 : 400);
+                }
+            });
+        });
+
+        // Right side: natural-language readout
+        const readX = gridX + gridW + 30;
+        if (hoverRow >= 0) {
+            const qt = tokens[hoverRow];
+            svg.append('text').attr('x', readX).attr('y', gridY + 10)
+                .text('\u201c' + qt + '\u201d looks at:')
+                .attr('fill', head.color).attr('font-family',mono).attr('font-size',12).attr('font-weight',600);
+
+            // List the attention targets sorted by weight
+            const row = weights[hoverRow]
+                .map((w, i) => ({ token: tokens[i], w, masked: i > hoverRow }))
+                .filter(d => !d.masked)
+                .sort((a, b) => b.w - a.w);
+
+            row.forEach((d, i) => {
+                const ry = gridY + 32 + i * 22;
+                const barW = d.w * 120;
+                svg.append('rect').attr('x', readX).attr('y', ry - 10)
+                    .attr('width', barW).attr('height', 14).attr('rx', 2)
+                    .attr('fill', head.color + '44');
+                svg.append('text').attr('x', readX + barW + 6).attr('y', ry)
+                    .text(d.token + ' (' + (d.w * 100).toFixed(0) + '%)')
+                    .attr('fill','#c8c8d4').attr('font-family',mono).attr('font-size',10);
+            });
+
+            // Insight for France row on Head 1
+            if (hoverRow === 3 && activeHead === 1) {
+                svg.append('text').attr('x', readX).attr('y', gridY + 32 + row.length * 22 + 14)
+                    .text('\u2191 "capital" gets 62% \u2014 the model is')
+                    .attr('fill', head.color).attr('font-family',mono).attr('font-size',10);
+                svg.append('text').attr('x', readX).attr('y', gridY + 32 + row.length * 22 + 28)
+                    .text('answering "capital of what?"')
+                    .attr('fill', head.color).attr('font-family',mono).attr('font-size',10);
+            }
+        } else {
+            svg.append('text').attr('x', readX).attr('y', gridY + 20)
+                .text('Hover a row to see')
+                .attr('fill','#6a6a7e').attr('font-family',mono).attr('font-size',11);
+            svg.append('text').attr('x', readX).attr('y', gridY + 36)
+                .text('what each token')
+                .attr('fill','#6a6a7e').attr('font-family',mono).attr('font-size',11);
+            svg.append('text').attr('x', readX).attr('y', gridY + 52)
+                .text('attends to.')
+                .attr('fill','#6a6a7e').attr('font-family',mono).attr('font-size',11);
+
+            // Legend
+            svg.append('text').attr('x', readX).attr('y', gridY + 84)
+                .text('Bright = high attention')
+                .attr('fill','#6a6a7e').attr('font-family',mono).attr('font-size',9);
+            svg.append('text').attr('x', readX).attr('y', gridY + 98)
+                .text('Slash = masked (future)')
+                .attr('fill','#6a6a7e').attr('font-family',mono).attr('font-size',9);
+            svg.append('text').attr('x', readX).attr('y', gridY + 112)
+                .text('Toggle heads above')
+                .attr('fill','#6a6a7e').attr('font-family',mono).attr('font-size',9);
+        }
+
+        // Explain text
+        const explains = {
+            '-1': 'Hover over a row to see where that token focuses its attention. Toggle between heads \u2014 different heads learn different patterns.',
+            '0': '<strong style="color:' + head.color + '">\u201cThe\u201d</strong> is the first token \u2014 it can only attend to itself. No context yet.',
+            '1': '<strong style="color:' + head.color + '">\u201ccapital\u201d</strong> looks at itself and \u201cThe\u201d. Two tokens of context so far.',
+            '2': '<strong style="color:' + head.color + '">\u201cof\u201d</strong> is a function word \u2014 ' + (activeHead === 0 ? 'it attends mostly to itself (syntactic role).' : 'it reaches back to \u201ccapital\u201d to form the phrase \u201ccapital of\u201d.'),
+            '3': '<strong style="color:' + head.color + '">\u201cFrance\u201d</strong> has full context. ' + (activeHead === 1
+                ? '<strong>Head 1 focuses 62% on \u201ccapital\u201d</strong> \u2014 it\u2019s answering the question \u201ccapital of what?\u201d This is content-addressed lookup: the word that matters isn\u2019t the nearest one, it\u2019s the semantically relevant one.'
+                : 'Head 0 focuses on \u201cof\u201d (44%) \u2014 tracking the syntactic link between \u201ccapital of France\u201d.'),
+        };
+        explainEl.innerHTML = explains[String(hoverRow)] || explains['-1'];
+    }
+
+    draw();
+})();
+</script>
+
+<!-- ── TAB 3: original worked example ── -->
+<div class="tab-panel p3">
 <pre><code><span class="label">Worked Example (4 tokens, 2 heads, head_dim=4)</span>
 <span class="cm"># Simplified to illustrate the mechanics</span>
 
@@ -2055,8 +2288,8 @@ Output = 0.231·V₀ + 0.234·V₁ + 0.329·V₂ + 0.206·V₃
 </code></pre>
 </div>
 
-<!-- ── TAB 3: causal mask ── -->
-<div class="tab-panel p3">
+<!-- ── TAB 4: causal mask ── -->
+<div class="tab-panel p4">
 <div class="diagram">
 <span class="diagram-label">Causal mask &mdash; tokens can only look backward</span>
 <pre><code>
@@ -2502,7 +2735,185 @@ out  = h @ W_down     <span class="cm"># [17408] &rarr; [5120]  compress back</s
     Top-p prunes the tail. One random draw. This is where determinism ends and generation begins.<span class="blink">_</span>
 </div>
 
-<p class="drop-cap">Those raw scores are called <strong>logits</strong>. They're not probabilities yet &mdash; they're unbounded numbers, some positive, some negative, with no guarantee of summing to anything. The sampling pipeline transforms them: penalize repetition, prune the tail, control the temperature, normalize to probabilities, and finally roll the dice. Each filter shapes the output in a different way, and their order matters &mdash; engines disagree on the right sequence. Here's one common order, used by llama.cpp and several other engines.</p>
+<p class="drop-cap">Those raw scores are called <strong>logits</strong>. They're not probabilities yet &mdash; they're unbounded numbers, some positive, some negative, with no guarantee of summing to anything. Before we look at how sampling transforms them, let's see what they actually look like.</p>
+
+<div class="viz-container" style="padding:0;">
+<div style="padding: 0.6rem 1rem 0;">
+<svg id="viz-logits-dist" viewBox="0 0 780 280" style="width:100%; height:auto; display:block;" role="img"><title>Logits distribution and softmax transformation</title></svg>
+<div id="viz-logits-explain" style="min-height:2rem; padding:0.4rem 1rem; font-size:0.88rem; line-height:1.55;"></div>
+<div class="viz-controls" style="padding:0.4rem 1rem 0.6rem;">
+<button id="viz-logits-raw">Raw Logits</button>
+<button id="viz-logits-softmax" class="secondary">After Softmax</button>
+<button id="viz-logits-flat" class="secondary">What If Uncertain?</button>
+</div>
+</div>
+</div>
+
+<script>
+(function() {
+    const svg = d3.select('#viz-logits-dist');
+    const explainEl = document.getElementById('viz-logits-explain');
+    const W = 780, H = 280;
+    const mono = 'JetBrains Mono, monospace';
+    let mode = 'raw'; // 'raw', 'softmax', 'flat'
+
+    // Top tokens for "The capital of France ___"
+    // Realistic logit values — peaked distribution
+    const peaked = [
+        { token: ' is',       logit: 5.2 },
+        { token: ' was',      logit: 3.1 },
+        { token: ' isn\u2019t',  logit: 2.3 },
+        { token: ' remains',  logit: 1.6 },
+        { token: ' has',      logit: 1.2 },
+        { token: ' \u2014',   logit: 0.8 },
+        { token: ',',         logit: 0.4 },
+        { token: ' lies',     logit: 0.1 },
+        { token: ' sits',     logit: -0.2 },
+        { token: ' became',   logit: -0.5 },
+        { token: ' being',    logit: -0.9 },
+        { token: ' are',      logit: -1.3 },
+    ];
+
+    // Flatter distribution — model is uncertain
+    const flat = [
+        { token: ' is',       logit: 2.1 },
+        { token: ' was',      logit: 1.9 },
+        { token: ' isn\u2019t',  logit: 1.7 },
+        { token: ' remains',  logit: 1.5 },
+        { token: ' has',      logit: 1.4 },
+        { token: ' \u2014',   logit: 1.2 },
+        { token: ',',         logit: 1.0 },
+        { token: ' lies',     logit: 0.8 },
+        { token: ' sits',     logit: 0.6 },
+        { token: ' became',   logit: 0.5 },
+        { token: ' being',    logit: 0.3 },
+        { token: ' are',      logit: 0.1 },
+    ];
+
+    function softmax(logits) {
+        const max = Math.max(...logits);
+        const exps = logits.map(l => Math.exp(l - max));
+        const sum = exps.reduce((a, b) => a + b, 0);
+        return exps.map(e => e / sum);
+    }
+
+    const barX = 120, barMaxW = 420, barH = 16, barGap = 4;
+    const topY = 30;
+
+    function draw() {
+        svg.selectAll('*').remove();
+        const data = mode === 'flat' ? flat : peaked;
+        const showProb = mode === 'softmax' || mode === 'flat';
+        const probs = softmax(data.map(d => d.logit));
+
+        // Title
+        const titles = {
+            raw: 'RAW LOGITS \u2014 "The capital of France ___"',
+            softmax: 'AFTER SOFTMAX \u2014 logits \u2192 probabilities',
+            flat: 'UNCERTAIN PROMPT \u2014 flatter distribution'
+        };
+        svg.append('text').attr('x', W/2).attr('y', 18)
+            .text(titles[mode]).attr('text-anchor','middle')
+            .attr('fill', showProb ? '#00ff88' : '#ffdd00')
+            .attr('font-family',mono).attr('font-size',10)
+            .attr('letter-spacing','0.08em').attr('font-weight',600);
+
+        // Find scale
+        const maxVal = showProb ? Math.max(...probs) : Math.max(...data.map(d => d.logit));
+        const minVal = showProb ? 0 : Math.min(...data.map(d => d.logit), 0);
+        const range = maxVal - minVal;
+
+        data.forEach((d, i) => {
+            const y = topY + i * (barH + barGap);
+            const val = showProb ? probs[i] : d.logit;
+            const barW = showProb
+                ? (val / Math.max(...probs)) * barMaxW
+                : ((d.logit - minVal) / range) * barMaxW;
+            const isTop = i === 0;
+            const color = isTop ? '#00ff88' : i < 3 ? '#00ddff' : '#6a6a7e';
+
+            // Token label
+            svg.append('text').attr('x', barX - 8).attr('y', y + barH/2 + 4)
+                .text(d.token).attr('text-anchor','end')
+                .attr('fill', isTop ? '#00ff88' : '#c8c8d4')
+                .attr('font-family',mono).attr('font-size', 11)
+                .attr('font-weight', isTop ? 600 : 400);
+
+            // Bar
+            svg.append('rect').attr('x', barX).attr('y', y)
+                .attr('width', Math.max(barW, 2)).attr('height', barH).attr('rx', 2)
+                .attr('fill', color + (isTop ? '88' : '44'));
+
+            // Value label
+            const valText = showProb
+                ? (val * 100).toFixed(1) + '%'
+                : (d.logit > 0 ? '+' : '') + d.logit.toFixed(1);
+            svg.append('text').attr('x', barX + Math.max(barW, 2) + 8).attr('y', y + barH/2 + 4)
+                .text(valText)
+                .attr('fill', isTop ? '#00ff88' : showProb ? '#c8c8d4' : '#ffdd00')
+                .attr('font-family',mono).attr('font-size', 10)
+                .attr('font-weight', isTop ? 600 : 400);
+        });
+
+        // Long tail indicator
+        const tailY = topY + data.length * (barH + barGap) + 8;
+        svg.append('text').attr('x', barX).attr('y', tailY)
+            .text(mode === 'flat'
+                ? '... + 152,052 tokens with scores near 0 or below'
+                : '... + 152,052 tokens with scores below \u22122')
+            .attr('fill','#4a4a5e').attr('font-family',mono).attr('font-size',9);
+
+        // Annotation for peaked vs flat
+        if (mode === 'softmax') {
+            svg.append('text').attr('x', barX + barMaxW + 60).attr('y', topY + 14)
+                .text('\u2190 73%')
+                .attr('fill','#00ff88').attr('font-family',mono).attr('font-size',13).attr('font-weight',700);
+            svg.append('text').attr('x', barX + barMaxW + 60).attr('y', topY + 30)
+                .text('almost')
+                .attr('fill','#6a6a7e').attr('font-family',mono).attr('font-size',9);
+            svg.append('text').attr('x', barX + barMaxW + 60).attr('y', topY + 42)
+                .text('certain')
+                .attr('fill','#6a6a7e').attr('font-family',mono).attr('font-size',9);
+        }
+
+        if (mode === 'flat') {
+            svg.append('text').attr('x', barX + barMaxW + 60).attr('y', topY + 14)
+                .text('\u2190 16%')
+                .attr('fill','#ff8800').attr('font-family',mono).attr('font-size',13).attr('font-weight',700);
+            svg.append('text').attr('x', barX + barMaxW + 60).attr('y', topY + 30)
+                .text('anyone\u2019s')
+                .attr('fill','#6a6a7e').attr('font-family',mono).attr('font-size',9);
+            svg.append('text').attr('x', barX + barMaxW + 60).attr('y', topY + 42)
+                .text('guess')
+                .attr('fill','#6a6a7e').attr('font-family',mono).attr('font-size',9);
+        }
+
+        // Explains
+        const explains = {
+            raw: '152,064 raw scores. <strong style="color:#ffdd00">Unbounded</strong> \u2014 positive, negative, no structure. The top score (+5.2) doesn\u2019t mean 5.2% or 5.2 anything. These numbers only become meaningful after softmax.',
+            softmax: 'Softmax converts scores to probabilities: e<sup>logit</sup> / \u2211e<sup>logits</sup>. Now they sum to 100%. <strong style="color:#00ff88">" is" dominates at 73%</strong> \u2014 the model is almost certain. But it\u2019s not 100%, and that gap is where sampling lives.',
+            flat: 'Same prompt, different model uncertainty. The top token is only 16% \u2014 <strong style="color:#ff8800">the model genuinely doesn\u2019t know</strong>. This is when sampling parameters (temperature, top-p) matter most. When the model is certain, sampling barely changes the output.'
+        };
+        explainEl.innerHTML = explains[mode];
+
+        // Button states
+        ['raw','softmax','flat'].forEach(m => {
+            const btn = document.getElementById('viz-logits-' + m);
+            const isActive = m === mode;
+            btn.style.background = isActive ? 'var(--green-dim)' : 'var(--border)';
+            btn.style.color = isActive ? 'var(--bg)' : 'var(--text)';
+        });
+    }
+
+    draw();
+
+    document.getElementById('viz-logits-raw').addEventListener('click', function() { mode = 'raw'; draw(); });
+    document.getElementById('viz-logits-softmax').addEventListener('click', function() { mode = 'softmax'; draw(); });
+    document.getElementById('viz-logits-flat').addEventListener('click', function() { mode = 'flat'; draw(); });
+})();
+</script>
+
+<p>The sampling pipeline transforms these scores: penalize repetition, prune the tail, control the temperature, normalize to probabilities, and finally roll the dice. Each filter shapes the output in a different way, and their order matters &mdash; engines disagree on the right sequence. Here's one common order, used by llama.cpp and several other engines.</p>
 
 <div class="diagram">
 <span class="diagram-label">Common sampling order (llama.cpp and others)</span>
