@@ -1,80 +1,94 @@
-# Article Readiness Ranking & Distribution Plan
+# Article Release Ranking & Distribution Plan
 
-## Recommendation: Release Inference Engine Part I First
-
-**File:** `inference-engine-deep-dive.html`
-**Title:** *Inference Engines — Part I: The Machine*
-
-### Why this one leads:
-- Most timely topic in tech (March 2026) — everyone wants to understand how LLMs actually run
-- Broadest audience: ML engineers, backend devs, hobbyists running local models, AI-curious generalists
-- One of only 5 articles with real D3.js interactive visualizations
-- Series hook — Part I naturally drives readers back for Parts II and III
-- Answers a universal question: "What actually happens when an LLM generates a token?"
+Ranked by **content depth**, **topic relevance** (March 2026), and **audience impact**. Interactivity is excluded as a criterion — it can always be added.
 
 ---
 
-## Full Readiness Ranking
+## Ranking Criteria
 
-### Tier 1 — Ship Now
+| Criterion | Weight | What it measures |
+|-----------|--------|------------------|
+| Content depth & quality | 40% | Chapter count, technical rigor, narrative arc, does it build toward something real |
+| Relevance & timeliness | 35% | How much developers care about this topic right now (March 2026) |
+| Audience impact | 25% | Breadth of audience, uniqueness vs existing online content, shareability |
 
-| Rank | Article | File | Lines | Interactives |
-|------|---------|------|-------|-------------|
-| 1 | Inference Engine Part I: The Machine | `inference-engine-deep-dive.html` | 2597 | D3 + 3 SVGs |
-| 2 | Textures | `textures-deep-dive.html` | 6586 | 38 SVGs |
-| 3 | Unicode — How Poop Actually Works | `unicode-deep-dive.html` | 3028 | 12 SVGs |
-| 4 | Cryptography | `crypto-deep-dive.html` | 2829 | CSS diagrams |
-| 5 | GPU Compute — How Silicon Thinks in Parallel | `gpu-deep-dive.html` | 2416 | None |
+---
+
+## Full Ranking
+
+### Tier 1 — Lead Releases
+
+| Rank | Article | Why |
+|------|---------|-----|
+| 1 | **Inference Engines Part I** | 21 chapters across 3 parts. Traces a vector through the entire transformer pipeline at instruction level. AI inference is the defining engineering topic of 2026 — every developer who uses LLMs wants to understand what happens underneath. Nothing at this depth exists in long-form article format online. Part I alone covers tokenization, forward pass mechanics, and sampling with enough rigor to stand on its own, while Parts II and III create a natural content pipeline. |
+| 2 | **GPU Compute** | 15 chapters from silicon architecture through CUDA optimization to profiling. Covers SMs, warps, memory hierarchy, coalescing, tensor cores, roofline analysis. The GPU compute boom (AI training/inference, rendering) makes this immediately relevant. Rare to find this level of hardware-to-software depth outside of NVIDIA's own documentation. |
+| 3 | **Cryptography** | 14 chapters building from hashing through TLS to a complete encrypted messenger (Signal protocol). Covers real-world breaks (Heartbleed, POODLE, Goto Fail) and side-channel attacks. Security is perpetually relevant, and the "build a real thing" arc from first principles to working messenger is compelling. |
+| 4 | **Floating Point** | 14 chapters from bit layout through NaN boxing, the fast inverse square root, FP16 vs BF16, to real disasters (Patriot missile, Ariane 5, stock exchanges). The BF16/FP16 chapter connects directly to the AI quantization zeitgeist. "The Numbers That Lie" framing is a strong hook. No comparable deep treatment exists online at this depth. |
+| 5 | **Compression** | 13 chapters from Shannon entropy through Huffman, LZ77, DEFLATE, Zstandard to neural network weight compression (GPTQ, AWQ). The ML weight quantization chapter makes this timely. Bridges classical information theory with cutting-edge model optimization — a rare combination. |
 
 ### Tier 2 — Strong Follow-ups
 
-| Rank | Article | File | Lines | Interactives |
-|------|---------|------|-------|-------------|
-| 6 | Audio | `audio-deep-dive.html` | 3194 | 5 SVGs |
-| 7 | Compression | `compression-deep-dive.html` | 3019 | CSS only |
-| 8 | Concurrency | `concurrency-deep-dive.html` | 2778 | Minimal |
-| 9 | Floating Point | `floatingpoint-deep-dive.html` | 2884 | CSS only |
-| 10 | Shaders | `shaders-deep-dive.html` | 2441 | 4 SVGs |
+| Rank | Article | Why |
+|------|---------|-----|
+| 6 | **Concurrency** | 14 chapters from cache coherence and MESI protocol through mutexes, atomics, lock-free structures, async/await, to kernel futex internals. Every backend developer needs this. Covers memory orderings and TSan — topics most articles hand-wave through. |
+| 7 | **Syscalls & io_uring** | 11 chapters covering the syscall boundary, strace, mmap, epoll, io_uring ring buffer mechanics, sendfile/splice, seccomp, eBPF, vDSO. io_uring is the most important Linux I/O development in a decade. eBPF coverage adds further relevance. Deep kernel-level content that's hard to find elsewhere. |
+| 8 | **Network Stack** | 14 chapters tracing a packet from application send() through kernel sk_buff structures to hardware NIC ring buffers. Covers NAPI polling, TSO, GRO, RSS, XDP programs. Complete path from userspace to wire. Systems engineers building high-performance services need this. |
+| 9 | **Parsers** | 14 chapters from Chomsky hierarchy through Thompson's construction, recursive descent, Pratt parsing, PEG, parser combinators, to a working JSON parser. Formal language theory grounded in practical implementation. Perennial Hacker News appeal. |
+| 10 | **Hash Tables** | 11+ chapters including Swiss tables with SIMD matching, Robin Hood hashing, Bloom filters, consistent hashing, Go maps internals. The Swiss tables explanation alone (Google's abseil implementation) is rare content. Deep algorithmic rigor. |
 
-### Tier 3 — Solid Catalog Pieces
+### Tier 3 — Solid Catalog
 
-| Rank | Article | File | Lines |
-|------|---------|------|-------|
-| 11 | Inference Engine Part II | `inference-engine-deep-dive-2.html` | 2527 |
-| 12 | Parsers | `parsers-deep-dive.html` | 2614 |
-| 13 | Game Servers | `gameserver-deep-dive.html` | 2825 |
-| 14 | RNG | `rng-deep-dive.html` | 2370 |
-| 15 | Hash Tables | `hashtables-deep-dive.html` | 2504 |
-| 16 | Allocators | `allocators-deep-dive.html` | 2551 |
-| 17 | Syscalls & io_uring | `syscalls-deep-dive.html` | 2135 |
-| 18 | SVG OS Foundation | `svg-os-foundation.html` | 2300 |
-| 19 | Network Stack | `network-deep-dive.html` | 2073 |
-| 20 | Game Characters | `gamecharacter-deep-dive.html` | 2099 |
-| 21 | Inference Engine Part III | `inference-engine-deep-dive-3.html` | 1319 |
+| Rank | Article | Why |
+|------|---------|-----|
+| 11 | **Allocators** | 14 chapters from free lists through buddy/slab/arena to jemalloc/mimalloc/tcmalloc internals, GC algorithms, and memory safety. Production allocator analysis is hard to find. |
+| 12 | **WebAssembly** | 10 chapters with hand-written WAT, compiler output analysis, real case studies (Figma, AutoCAD, Photoshop). Practical "build a template engine" arc. Wasm adoption continues to grow. |
+| 13 | **Game Servers** | 14 chapters covering tick loops, client prediction, lag compensation, anti-cheat, sharding, matchmaking. Complete real-time multiplayer architecture. Niche but deeply technical. |
+| 14 | **Unicode** | 12 chapters from ASCII through grapheme clusters, emoji ZWJ sequences, normalization, to homoglyph security attacks. Every developer hits Unicode bugs. The security angle adds urgency. |
+| 15 | **Textures** | 11 chapters with complete Cook-Torrance BRDF implementation, PBR material system, BC1-BC7 compression formats. Deep graphics content for rendering engineers. |
+| 16 | **Audio** | Covers physics of sound, Nyquist, synthesis (additive, subtractive, FM/DX7), psychoacoustics, Web Audio API. Good breadth from physics to implementation. |
+| 17 | **Shaders** | 12 chapters on rendering pipeline, GLSL, SDFs, ray marching, lighting models, demoscene context, performance cost model. Strong graphics niche content. |
+| 18 | **RNG** | 12 chapters from LCGs through Mersenne Twister, CSPRNG, entropy pools, RDRAND, to distribution shaping and Monte Carlo. Covers state recovery attacks — good security angle. |
+| 19 | **Inference Engine Part II** | 6 chapters on quantization, KV cache, FlashAttention, continuous batching, speculative decoding. Best released 2-3 weeks after Part I to maintain momentum. |
+| 20 | **Inference Engine Part III** | 8 chapters on PagedAttention, tensor parallelism, multi-tenancy, metrics. Completes the series. Release 2-3 weeks after Part II. |
 
-### Tier 4 — Hold or Rework Before Publishing
+### Tier 4 — Hold or Rework
 
-| Rank | Article | File | Lines | Issue |
-|------|---------|------|-------|-------|
-| 22 | Buffer Hacking | `buffer-hacking.html` | 1512 | Small, niche, no interactives |
-| 23 | WebAssembly | `webassembly-deep-dive.html` | 1426 | 16 chapters in 1426 lines feels thin |
-| 24 | Game Physics | `gamephysics-deep-dive.html` | 1384 | Small, no interactives for a visual topic |
-| 25 | Buffers | `buffers-deep-dive.html` | 1618 | Wrong theme (brown `#1a1815` vs standard `#0a0a0f`), uses Inter font instead of IBM Plex Mono — visually inconsistent |
-| 26 | Navigation | `navigation-deep-dive.html` | 678 | Far too small compared to other articles |
-| 27 | Inference Deep Dive (legacy) | `inference-deep-dive.html` | 1104 | Superseded by 3-part series |
-| 28-29 | part2/part3 duplicates | `part2-making-it-fast.html`, `part3-serving-at-scale.html` | — | Duplicates of inference-engine-deep-dive-2/3 |
+| Rank | Article | Issue |
+|------|---------|-------|
+| 21 | **Game Physics** | 12 chapters but narrower audience than other systems topics |
+| 22 | **Buffers** | Go-specific; inconsistent styling (brown theme, Inter font vs standard) |
+| 23 | **SVG OS Foundation** | Architecture design doc — different format than the teaching articles |
+| 24 | **Game Characters** | Sandbox-focused, less textual depth than peers |
+| 25 | **Buffer Hacking** | Practical demos but thinner content |
+| 26 | **Navigation** | 11 chapters but smallest file; robotics niche is narrow |
+| 27 | **Inference Deep Dive (legacy)** | Superseded by 3-part series |
 
 ---
 
-## 10 Places to Post (for Inference Engine Part I)
+## 10 Distribution Channels
 
-1. **Hacker News** — Submit as "Show HN". #1 venue for interactive technical deep-dives.
-2. **Reddit r/programming** — High-traffic subreddit that rewards long-form technical content.
-3. **Reddit r/MachineLearning** — Perfect topic match. Audience craves depth over hype.
-4. **Reddit r/LocalLLaMA** — Community obsessed with inference internals. Will share widely.
-5. **X/Twitter** — Thread with 3-4 key insights + screenshots of D3 visualizations, link to full article.
-6. **LinkedIn** — Short post with hook: "Ever wondered what happens when an LLM generates a token?"
-7. **Bluesky** — Same thread format as X. Tech early-adopter demographic is ideal.
-8. **Lobste.rs** — Curated HN alternative with high-signal technical audience.
-9. **Dev.to** — Cross-post an excerpt with "read the full interactive version" link back to your site.
-10. **Discord communities** (MLOps Community, Latent Space, EleutherAI) — Share in #resources channels.
+### Primary Launch Channels
+
+1. **Hacker News** — Submit as "Show HN" for articles with interactive elements, standard link otherwise. The single highest-value channel for long-form technical content. Timing: Tuesday-Thursday, 8-10 AM US Eastern. These articles are exactly what reaches the front page — deep, original, well-crafted technical writing.
+
+2. **Reddit r/programming** — 6M+ subscribers. Long-form technical content performs well. Cross-post to topic-specific subreddits: r/MachineLearning and r/LocalLLaMA (inference), r/crypto (cryptography), r/gamedev (game servers), r/compsci (parsers, floating point).
+
+3. **Lobste.rs** — Smaller, curated community of senior engineers. Less noise than HN, higher signal. Technical deep-dives are the exact content this community values. Requires invitation to post.
+
+### Amplification Channels
+
+4. **X/Twitter** — Thread format: 3-4 key insights from the article with the strongest hook as the first tweet. Tag domain experts (for inference: Karpathy, Hotz, etc.). Link to full article in final tweet.
+
+5. **Bluesky** — Same thread strategy as X. Developer-heavy early adopter demographic. Technical content gets higher engagement here than on X currently.
+
+6. **LinkedIn** — Short professional framing post (200 words) linking to the article. Algorithm favors technical content from individual accounts. Reaches engineering managers and senior engineers who share within their organizations.
+
+### Long-tail Channels
+
+7. **Dev.to / Hashnode** — Publish a condensed excerpt (first 2-3 chapters) as a teaser with a "read the full version" link. Built-in discovery, newsletter distribution, and strong SEO.
+
+8. **Newsletter cross-promotion** — Pitch to relevant newsletter authors. For inference: "Latent Space" (swyx), "The Batch" (Andrew Ng). For general CS: "Pointer.io", "TLDR", "ByteByteGo" (Alex Xu). A single newsletter mention can drive 10K+ targeted views.
+
+9. **Discord & Slack communities** — Share in #resources channels. For inference: LocalLlama Discord, MLOps Community Slack, Latent Space Discord. For crypto: Cryptography Engineering channels. High engagement, generates word-of-mouth.
+
+10. **Personal site with RSS** — Host at a permanent URL on your own domain. Add Open Graph meta tags and a compelling preview image for rich link previews. Submit RSS to aggregators. This is the canonical URL all other channels link to — builds SEO authority and ensures you own the audience long-term.
