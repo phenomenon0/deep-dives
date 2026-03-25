@@ -1294,7 +1294,7 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 <!-- ── TAB 1: Why Dimensions — 1D → 2D → 3D scatter ── -->
 <div class="tab-panel p1">
 <div style="padding: 0.6rem 1rem 0;">
-<svg id="viz-embed-dims" viewBox="0 0 780 310" style="width:100%; height:auto; display:block;" role="img"><title>Why embeddings need many dimensions — interactive 1D to 3D transition</title></svg>
+<svg id="viz-embed-dims" viewBox="0 0 780 320" style="width:100%; height:auto; display:block;" role="img"><title>Why embeddings need many dimensions — interactive 1D to 3D transition</title></svg>
 <div id="viz-embed-dims-explain" style="min-height:2.8rem; padding:0.5rem 0; font-size:0.88rem; line-height:1.55;"></div>
 <div class="viz-controls" style="padding-bottom:0.5rem;">
 <button id="viz-dims-1d" class="secondary">1 Dimension</button>
@@ -1326,43 +1326,45 @@ logits = final_vector @ embedding_table.T   <span class="cm"># shape: [50257]</s
 (function() {
     const svg = d3.select('#viz-embed-dims');
     const explainEl = document.getElementById('viz-embed-dims-explain');
-    const W = 780, H = 310;
+    const W = 780, H = 320;
     const mono = 'JetBrains Mono, monospace';
     let currentDim = 0; // 0=intro, 1=1D, 2=2D, 3=3D, 4=768
 
     // ── Token data — positions SPREAD WIDE to use full plot area ──
     const tokens = [
         // Animals — bottom-left
-        { label: 'cat',     group: 'animal',  color: '#00ff88',
-          p1: [0.30], p2: [0.12, 0.18], p3: [0.10, 0.16, 0.50] },
-        { label: 'dog',     group: 'animal',  color: '#00ff88',
-          p1: [0.35], p2: [0.20, 0.12], p3: [0.18, 0.10, 0.55] },
-        { label: 'bird',    group: 'animal',  color: '#00ff88',
-          p1: [0.25], p2: [0.08, 0.26], p3: [0.06, 0.25, 0.45] },
+        // loff = [dx, dy] label offset in px to avoid overlap
+        // Animals — bottom-left.  1D spread: 0.08..0.22
+        { label: 'cat',     group: 'animal',  color: '#00ff88', loff: [0,-14],
+          p1: [0.15], p2: [0.12, 0.20], p3: [0.10, 0.18, 0.50] },
+        { label: 'dog',     group: 'animal',  color: '#00ff88', loff: [0, 18],
+          p1: [0.22], p2: [0.22, 0.12], p3: [0.20, 0.10, 0.55] },
+        { label: 'bird',    group: 'animal',  color: '#00ff88', loff: [0,-14],
+          p1: [0.08], p2: [0.06, 0.30], p3: [0.05, 0.28, 0.45] },
 
-        // European cities — top-right
-        { label: 'Paris',   group: 'city-eu', color: '#00ddff',
-          p1: [0.40], p2: [0.78, 0.82], p3: [0.75, 0.85, 0.20] },
-        { label: 'London',  group: 'city-eu', color: '#4488ff',
-          p1: [0.45], p2: [0.88, 0.74], p3: [0.90, 0.72, 0.70] },
-        { label: 'Berlin',  group: 'city-eu', color: '#4488ff',
-          p1: [0.42], p2: [0.84, 0.68], p3: [0.85, 0.65, 0.60] },
+        // European cities — top-right.  1D: 0.36..0.50  (wider gaps)
+        { label: 'Paris',   group: 'city-eu', color: '#00ddff', loff: [-32,-10],
+          p1: [0.36], p2: [0.70, 0.88], p3: [0.66, 0.90, 0.20] },
+        { label: 'London',  group: 'city-eu', color: '#4488ff', loff: [18, 5],
+          p1: [0.43], p2: [0.90, 0.62], p3: [0.92, 0.60, 0.70] },
+        { label: 'Berlin',  group: 'city-eu', color: '#4488ff', loff: [18, 5],
+          p1: [0.39], p2: [0.82, 0.48], p3: [0.84, 0.46, 0.60] },
 
-        // Asian city — near cities but distinct on dim3
-        { label: 'Tokyo',   group: 'city-asia', color: '#aa44ff',
-          p1: [0.48], p2: [0.92, 0.88], p3: [0.93, 0.90, 0.15] },
+        // Asian city.  1D: 0.50
+        { label: 'Tokyo',   group: 'city-asia', color: '#aa44ff', loff: [0,-14],
+          p1: [0.50], p2: [0.94, 0.80], p3: [0.95, 0.82, 0.15] },
 
-        // Numbers — middle area
-        { label: 'one',     group: 'number',  color: '#ffdd00',
-          p1: [0.62], p2: [0.45, 0.50], p3: [0.42, 0.52, 0.40] },
-        { label: 'two',     group: 'number',  color: '#ffdd00',
-          p1: [0.67], p2: [0.52, 0.44], p3: [0.55, 0.42, 0.44] },
-        { label: 'three',   group: 'number',  color: '#ffdd00',
-          p1: [0.72], p2: [0.48, 0.56], p3: [0.46, 0.58, 0.36] },
+        // Numbers — center.  1D: 0.62..0.78
+        { label: 'one',     group: 'number',  color: '#ffdd00', loff: [-20,-14],
+          p1: [0.62], p2: [0.42, 0.48], p3: [0.40, 0.50, 0.40] },
+        { label: 'two',     group: 'number',  color: '#ffdd00', loff: [0, 18],
+          p1: [0.70], p2: [0.56, 0.38], p3: [0.58, 0.36, 0.44] },
+        { label: 'three',   group: 'number',  color: '#ffdd00', loff: [0,-14],
+          p1: [0.78], p2: [0.46, 0.58], p3: [0.44, 0.60, 0.36] },
 
-        // Outlier — isolated bottom-right
-        { label: 'uranium', group: 'outlier', color: '#ff3344',
-          p1: [0.10], p2: [0.60, 0.08], p3: [0.62, 0.06, 0.85] },
+        // Outlier — far left on 1D
+        { label: 'uranium', group: 'outlier', color: '#ff3344', loff: [0, 18],
+          p1: [0.94], p2: [0.58, 0.06], p3: [0.60, 0.04, 0.85] },
     ];
 
     const clusters = {
@@ -1414,20 +1416,17 @@ logits = final_vector @ embedding_table.T   <span class="cm"># shape: [50257]</s
 
         const positions = getPositions(dim);
 
-        // Axis labels
+        // Axis labels — subtle, inside the plot edges
         svg.selectAll('.axis-label').remove();
-        if (dim >= 1) {
-            svg.append('text').attr('class','axis-label')
-                .attr('x', plotX + plotW/2).attr('y', plotY + (dim <= 1 ? 56 : plotH + 20))
-                .text('dimension 1').attr('text-anchor','middle')
-                .attr('fill','#6a6a7e').attr('font-family',mono).attr('font-size',9);
-        }
         if (dim >= 2) {
             svg.append('text').attr('class','axis-label')
-                .attr('x', plotX - 10).attr('y', plotY + plotH/2)
-                .text('dim 2').attr('text-anchor','middle')
-                .attr('fill','#6a6a7e').attr('font-family',mono).attr('font-size',9)
-                .attr('transform', `rotate(-90, ${plotX - 10}, ${plotY + plotH/2})`);
+                .attr('x', plotX + plotW - 4).attr('y', plotY + plotH - 4)
+                .text('dim 1 \u2192').attr('text-anchor','end')
+                .attr('fill','#3a3a4e').attr('font-family',mono).attr('font-size',8);
+            svg.append('text').attr('class','axis-label')
+                .attr('x', plotX + 4).attr('y', plotY + 12)
+                .text('\u2191 dim 2').attr('text-anchor','start')
+                .attr('fill','#3a3a4e').attr('font-family',mono).attr('font-size',8);
         }
 
         // 3D indicator: size legend
@@ -1466,10 +1465,14 @@ logits = final_vector @ embedding_table.T   <span class="cm"># shape: [50257]</s
 
         merged.select('.dot-label')
             .transition().duration(dur).ease(d3.easeCubicInOut)
-            .attr('x', d => plotX + d.x * plotW)
-            .attr('y', d => (dim <= 1 ? plotY + 20 : plotY + plotH - d.y * plotH) - (dim >= 3 ? 5 + (d.z || 0.5) * 10 : 12))
+            .attr('x', d => plotX + d.x * plotW + (d.loff ? d.loff[0] : 0))
+            .attr('y', d => {
+                const cy = dim <= 1 ? plotY + 20 : plotY + plotH - d.y * plotH;
+                const defaultOff = d.loff ? d.loff[1] : -12;
+                return cy + defaultOff;
+            })
             .text(d => d.label)
-            .attr('text-anchor','middle')
+            .attr('text-anchor', d => d.loff && d.loff[0] > 10 ? 'start' : d.loff && d.loff[0] < -10 ? 'end' : 'middle')
             .attr('fill', d => d.color)
             .attr('font-family', mono).attr('font-size', 12).attr('font-weight', 500);
 
@@ -1477,9 +1480,10 @@ logits = final_vector @ embedding_table.T   <span class="cm"># shape: [50257]</s
         svg.selectAll('.annotation').remove();
 
         if (dim === 1) {
+            // Arrow pointing at the cramped middle zone
             svg.append('text').attr('class','annotation')
-                .attr('x', plotX + plotW/2).attr('y', plotY + 56)
-                .text('\u2191 cat, dog, Paris all crammed together \u2014 not enough room!')
+                .attr('x', plotX + plotW/2).attr('y', plotY + 58)
+                .text('\u2191 cat, dog, Paris forced together \u2014 one axis can\u2019t separate meaning')
                 .attr('text-anchor','middle')
                 .attr('fill','#ff3344').attr('font-family',mono).attr('font-size',11).attr('font-weight',500);
         }
@@ -1487,10 +1491,11 @@ logits = final_vector @ embedding_table.T   <span class="cm"># shape: [50257]</s
         if (dim === 2) {
             drawClusterRing('animal', positions.filter(p => p.group === 'animal'), dur);
             drawClusterRing('number', positions.filter(p => p.group === 'number'), dur);
-            // Cities annotation — positioned relative to city cluster
+            // Below the plot, not on top of dots
             svg.append('text').attr('class','annotation')
-                .attr('x', plotX + 0.65 * plotW).attr('y', plotY + 18)
-                .text('cities cluster \u2014 but Paris \u2248 Tokyo?')
+                .attr('x', plotX + plotW/2).attr('y', plotY + plotH + 32)
+                .text('clusters emerge \u2014 but Paris \u2248 Tokyo?  Two axes can\u2019t separate culture.')
+                .attr('text-anchor','middle')
                 .attr('fill','#ff8800').attr('font-family',mono).attr('font-size',11).attr('font-weight',500);
         }
 
@@ -1498,8 +1503,9 @@ logits = final_vector @ embedding_table.T   <span class="cm"># shape: [50257]</s
             drawClusterRing('animal', positions.filter(p => p.group === 'animal'), dur);
             drawClusterRing('number', positions.filter(p => p.group === 'number'), dur);
             svg.append('text').attr('class','annotation')
-                .attr('x', plotX + 12).attr('y', plotY + plotH + 18)
+                .attr('x', plotX + plotW/2).attr('y', plotY + plotH + 32)
                 .text('dim 3 (dot size) separates: Paris \u2260 London,  Tokyo \u2260 Berlin')
+                .attr('text-anchor','middle')
                 .attr('fill','#aa44ff').attr('font-family',mono).attr('font-size',11).attr('font-weight',500);
         }
 
@@ -1508,12 +1514,12 @@ logits = final_vector @ embedding_table.T   <span class="cm"># shape: [50257]</s
             drawClusterRing('number', positions.filter(p => p.group === 'number'), dur);
 
             svg.append('text').attr('class','annotation')
-                .attr('x', plotX + plotW/2).attr('y', plotY + plotH + 20)
+                .attr('x', plotX + plotW/2).attr('y', plotY + plotH + 30)
                 .text('768 dimensions = 768 ways to be different')
                 .attr('text-anchor','middle')
                 .attr('fill','#00ff88').attr('font-family',mono).attr('font-size',12).attr('font-weight',600);
             svg.append('text').attr('class','annotation')
-                .attr('x', plotX + plotW/2).attr('y', plotY + plotH + 38)
+                .attr('x', plotX + plotW/2).attr('y', plotY + plotH + 48)
                 .text('language \u00b7 continent \u00b7 tense \u00b7 formality \u00b7 sentiment \u00b7 ...')
                 .attr('text-anchor','middle')
                 .attr('fill','#6a6a7e').attr('font-family',mono).attr('font-size',10);
