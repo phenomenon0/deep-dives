@@ -2389,7 +2389,7 @@ out  = h @ W_down     <span class="cm"># [17408] &rarr; [5120]  compress back</s
 <h2>// 04 &mdash; Choosing Words</h2>
 <div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--text-dim)">EMBED</span> &rarr; <span style="color:var(--text-dim)">NORM</span> &rarr; <span style="color:var(--text-dim)">ATTN</span> &rarr; <span style="color:var(--text-dim)">FFN</span> &rarr; <span style="color:var(--cyan);font-weight:bold">PROJECT &rarr;</span> <span style="color:var(--green);font-weight:bold">&#9654; SAMPLE</span> &nbsp; <span style="color:var(--green)">the final step</span></div>
 <div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
-    The forward pass outputs 152,064 raw scores. Temperature sharpens or flattens them.<br>
+    The forward pass outputs 50,257 raw scores. Temperature sharpens or flattens them.<br>
     Top-p prunes the tail. One random draw. This is where determinism ends and generation begins.<span class="blink">_</span>
 </div>
 
@@ -2578,13 +2578,13 @@ out  = h @ W_down     <span class="cm"># [17408] &rarr; [5120]  compress back</s
 <div class="diagram">
 <span class="diagram-label">Pruning &mdash; remove candidates</span>
 <pre><code>
-  <span class="nm">1.</span> <span class="kw">Repetition Penalty</span>                              <span class="cm">penalize the past</span>
+  <span class="nm">1.</span> <span style="color:var(--red)">Repetition Penalty</span>                              <span class="cm">penalize the past</span>
      Recently generated tokens get their logits divided by 1.1.
      Already said &ldquo;Paris&rdquo;? Its score drops. Prevents loops.
 
-  <span class="nm">2.</span> <span class="fn">Top-K</span>          K=50                             <span class="cm">hard ceiling</span>
+  <span class="nm">2.</span> <span style="color:var(--orange)">Top-K</span>          K=50                             <span class="cm">hard ceiling</span>
      Keep only the top K scores. Everything else &rarr; &minus;&infin;.
-     <span class="pp">Problem: K=50 is too many when confident, too few when uncertain.</span>
+     <span class="cm">Problem: K=50 is too many when confident, too few when uncertain.</span>
 </code></pre>
 </div>
 
@@ -2593,16 +2593,16 @@ out  = h @ W_down     <span class="cm"># [17408] &rarr; [5120]  compress back</s
 <div class="diagram">
 <span class="diagram-label">Shaping &mdash; adjust the distribution</span>
 <pre><code>
-  <span class="nm">3.</span> <span class="st">Top-P (nucleus)</span>  p=0.95                       <span class="cm">adaptive cutoff</span>
+  <span class="nm">3.</span> <span style="color:var(--cyan)">Top-P (nucleus)</span>  p=0.95                       <span class="cm">adaptive cutoff</span>
      Walk down the sorted list, accumulating probability. Stop at p.
      <span class="cm">Confident: [0.91, 0.04, &hellip;] &rarr; keeps 1&ndash;2 tokens</span>
      <span class="cm">Uncertain: [0.15, 0.12, &hellip;] &rarr; keeps 8&ndash;10 tokens</span>
 
-  <span class="nm">4.</span> <span class="pp">Min-P</span>          min_p=0.05                       <span class="cm">floor filter</span>
+  <span class="nm">4.</span> <span style="color:var(--cyan)">Min-P</span>          min_p=0.05                       <span class="cm">floor filter</span>
      Cut anything below min_p &times; top_probability.
-     <span class="pp">Newer than top-p. Simpler. Many practitioners prefer it alone.</span>
+     <span class="cm">Newer than top-p. Simpler. Many practitioners prefer it alone.</span>
 
-  <span class="nm">5.</span> <span class="kw">Temperature</span>    T=0.7                            <span class="cm">sharpen/flatten</span>
+  <span class="nm">5.</span> <span style="color:var(--magenta)">Temperature</span>    T=0.7                            <span class="cm">sharpen/flatten</span>
      Divide all logits by T before softmax.
      <span class="cm">T=0.3: [0.99, 0.01, &hellip;] locks in.   T=1.5: [0.37, 0.22, &hellip;] anything goes.</span>
 </code></pre>
@@ -2613,10 +2613,10 @@ out  = h @ W_down     <span class="cm"># [17408] &rarr; [5120]  compress back</s
 <div class="diagram">
 <span class="diagram-label">Output &mdash; scores become a word</span>
 <pre><code>
-  <span class="nm">6.</span> <span class="fn">Softmax</span>         e<sup>logit</sup> / &Sigma;e<sup>logits</sup>               <span class="cm">logits &rarr; probabilities</span>
+  <span class="nm">6.</span> <span style="color:var(--yellow)">Softmax</span>         e<sup>logit</sup> / &Sigma;e<sup>logits</sup>               <span class="cm">logits &rarr; probabilities</span>
      Raw scores become a distribution that sums to 1.
 
-  <span class="nm">7.</span> <span class="st">Random Sample</span>                                    <span class="cm">roll the dice</span>
+  <span class="nm">7.</span> <span style="color:var(--green)">Random Sample</span>                                    <span class="cm">roll the dice</span>
      Draw one token. Done. Determinism ends, generation begins.
      <span class="pp">Same prompt, same model, different roll &rarr; different story.</span>
 </code></pre>
@@ -2839,10 +2839,10 @@ out  = h @ W_down     <span class="cm"># [17408] &rarr; [5120]  compress back</s
 
 <div class="diagram">
 <pre><code><span class="label">Starting points</span>
-<span class="cm">Code generation</span>    T=<span class="nm">0</span>                              <span class="cm">greedy. determinism matters.</span>
-<span class="cm">Chat</span>               T=<span class="nm">0.7</span>  min_p=<span class="nm">0.05</span>  rep=<span class="nm">1.1</span>    <span class="cm">warm but not wild.</span>
-<span class="cm">Creative writing</span>   T=<span class="nm">1.0</span>  min_p=<span class="nm">0.02</span>  top_p=<span class="nm">0.95</span>  <span class="cm">let rare words win sometimes.</span>
-<span class="cm">Factual Q&amp;A</span>        T=<span class="nm">0</span>                              <span class="cm">always pick the favourite.</span>
+<span class="cm">Code generation</span>    <span style="color:var(--magenta)">T</span>=<span class="nm">0</span>                                           <span class="cm">greedy. determinism matters.</span>
+<span class="cm">Chat</span>               <span style="color:var(--magenta)">T</span>=<span class="nm">0.7</span>  <span style="color:var(--cyan)">min_p</span>=<span class="nm">0.05</span>  <span style="color:var(--red)">rep</span>=<span class="nm">1.1</span>            <span class="cm">warm but not wild.</span>
+<span class="cm">Creative writing</span>   <span style="color:var(--magenta)">T</span>=<span class="nm">1.0</span>  <span style="color:var(--cyan)">min_p</span>=<span class="nm">0.02</span>  <span style="color:var(--cyan)">top_p</span>=<span class="nm">0.95</span>          <span class="cm">let rare words win sometimes.</span>
+<span class="cm">Factual Q&amp;A</span>        <span style="color:var(--magenta)">T</span>=<span class="nm">0</span>                                           <span class="cm">always pick the favourite.</span>
 </code></pre>
 </div>
 
