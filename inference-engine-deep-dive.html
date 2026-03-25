@@ -1848,7 +1848,7 @@ q[<span class="nm">2</span>*i+<span class="nm">1</span>] = q_orig[<span class="n
 
 <h4 id="attention-scores">Step 4: Attention &mdash; Scores &amp; Output</h4>
 
-<p>Let's trace attention for a short sequence of 4 tokens. Reshape Q into [n_heads, 1, head_dim] and K cache into [n_heads, seq_len, head_dim]:</p>
+<p>Now the model asks its central question: <em>for each token, which other tokens matter most?</em> Every token's query gets compared against every previous token's key &mdash; a dot product that measures relevance. High dot product means "you have what I'm looking for." Softmax turns these raw scores into weights that sum to 1. The output is a weighted blend of value vectors &mdash; each token absorbs information from the tokens that scored highest. Here's what that looks like for "The capital of France":</p>
 
 <div class="tabbed">
 <input type="radio" name="attn" id="attn-t1" class="t1" checked>
@@ -1866,22 +1866,27 @@ q[<span class="nm">2</span>*i+<span class="nm">1</span>] = q_orig[<span class="n
 <div class="diagram">
 <span class="diagram-label">Attention weights &mdash; where is the model looking?</span>
 <pre><code>
-  Query: current token wants to complete <span class="st">&ldquo;The capital of ___&rdquo;</span>
+  The model is about to predict the word after <span class="st">&ldquo;The capital of France&rdquo;</span>.
+  Token &ldquo;France&rdquo; asks: <em>&ldquo;who in this sentence helps me decide what comes next?&rdquo;</em>
 
-  Token        Weight    Attention bar
+  It compares its query against every previous token&rsquo;s key.
+  The result: a weight for each token &mdash; how much to listen to it.
+
+  Token        Weight    How much &ldquo;France&rdquo; listens
   ─────        ──────    ──────────────────────────────────
-  <span class="cm">"The"</span>        0.231     <span style="color:var(--green)">&block;&block;&block;&block;&block;&block;&block;&block;&block;</span><span style="color:#555">&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;</span>
-  <span class="cm">"capital"</span>    0.234     <span style="color:var(--green)">&block;&block;&block;&block;&block;&block;&block;&block;&block;</span><span style="color:#555">&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;</span>
-  <span class="cm">"of"</span>         <span style="color:var(--green)"><strong>0.329</strong></span>     <span style="color:var(--green)">&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;</span><span style="color:#555">&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;</span>  <span style="color:var(--green)">&larr; highest</span>
-  <span class="cm">"France"</span>     0.206     <span style="color:var(--green)">&block;&block;&block;&block;&block;&block;&block;&block;</span><span style="color:#555">&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;</span>
+  <span class="cm">"The"</span>        0.08      <span style="color:var(--green)">&block;&block;&block;</span><span style="color:#555">&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;</span>
+  <span class="cm">"capital"</span>    <span style="color:var(--green)"><strong>0.62</strong></span>      <span style="color:var(--green)">&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;&block;</span><span style="color:#555">&#9617;&#9617;&#9617;&#9617;&#9617;</span>  <span style="color:var(--green)">&larr; highest</span>
+  <span class="cm">"of"</span>         0.06      <span style="color:var(--green)">&block;&block;</span><span style="color:#555">&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;</span>
+  <span class="cm">"France"</span>     0.24      <span style="color:var(--green)">&block;&block;&block;&block;&block;&block;&block;&block;</span><span style="color:#555">&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;&#9617;</span>
 
                                       &darr;
                           weighted blend of V vectors
                                       &darr;
-  Output = <span class="nm">0.231</span>&middot;V<sub>The</sub> + <span class="nm">0.234</span>&middot;V<sub>capital</sub> + <span style="color:var(--green)"><strong>0.329</strong></span>&middot;V<sub>of</sub> + <span class="nm">0.206</span>&middot;V<sub>France</sub>
+  Output = <span class="nm">0.08</span>&middot;V<sub>The</sub> + <span style="color:var(--green)"><strong>0.62</strong></span>&middot;V<sub>capital</sub> + <span class="nm">0.06</span>&middot;V<sub>of</sub> + <span class="nm">0.24</span>&middot;V<sub>France</sub>
 
-  <span class="pp">The model attends most to &ldquo;of&rdquo; &mdash; the preposition linking</span>
-  <span class="pp">&ldquo;capital&rdquo; to &ldquo;France&rdquo;, helping it predict the next token.</span>
+  <span class="pp">&ldquo;France&rdquo; focuses 62% on &ldquo;capital&rdquo; &mdash; not the nearest word,</span>
+  <span class="pp">but the most <em>relevant</em> one. It&rsquo;s answering &ldquo;capital of what?&rdquo;</span>
+  <span class="pp">This is the core insight: attention is content-addressed, not positional.</span>
 </code></pre>
 </div>
 </div>
