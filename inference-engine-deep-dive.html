@@ -807,53 +807,29 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 <div class="tabbed">
 <input type="radio" name="pipeline" id="pipeline-t1" class="t1" checked>
 <input type="radio" name="pipeline" id="pipeline-t2" class="t2">
-<input type="radio" name="pipeline" id="pipeline-t3" class="t3">
 
 <div class="tab-bar">
 <label for="pipeline-t1">The Map</label>
-<label for="pipeline-t2">Watch It Run</label>
-<label for="pipeline-t3">Stage by Stage</label>
+<label for="pipeline-t2">Stage by Stage</label>
 </div>
 
 <div class="tab-panel p1">
 <div class="diagram" style="border:none; margin:0; border-radius:0;">
 <span class="diagram-label">The Complete Forward Pass</span>
-<pre><code>
-  <span class="st">"The capital of France"</span>
-      &darr;
-  <span class="fn">&starf; EMBED</span>    Look up each token in a table of 50,257 vectors.
-  &boxv;           "The"&thinsp;&rarr;&thinsp;[0.12, -0.34, 0.56, &hellip;]  (768 numbers)
-  &boxv;           Add a position signal so the model knows word order.
-      &darr;
-  ┌───────────────────────────────────────────────────────┐
-  &boxv; <span class="kw">&starf; NORM</span>      Stabilise the numbers (rescale to unit RMS)         &boxv;
-  &boxv;     &darr;                                                        &boxv;
-  &boxv; <span class="ty">&starf; ATTENTION</span>  <strong>Each token asks: "who in this sentence matters</strong>  &boxv;
-  &boxv;              <strong>to me?"</strong>  Produces a relevance-weighted blend    &boxv;
-  &boxv;              of all previous tokens' information.              &boxv;
-  &boxv;     &darr;  <span class="pp">+ skip connection (add original input back)</span>        &boxv;
-  &boxv;                                                               &boxv;
-  &boxv; <span class="kw">&starf; NORM</span>      Stabilise again                                   &boxv;
-  &boxv;     &darr;                                                        &boxv;
-  &boxv; <span class="fn">&starf; FFN</span>       Expand 768&thinsp;&rarr;&thinsp;3072, apply non-linearity, shrink     &boxv;
-  &boxv;              back to 768.  <strong>Attention gathers; the FFN</strong>      &boxv;
-  &boxv;              <strong>rewrites</strong> &mdash; transforming mixed context into      &boxv;
-  &boxv;              new features.                                     &boxv;
-  &boxv;     &darr;  <span class="pp">+ skip connection</span>                                   &boxv;
-  └───────────────────────────────────── <span class="cm">&times;12 identical</span> ──┘
-      &darr;
-  <span class="kw">&starf; NORM</span>    Final stabilisation
-      &darr;
-  <span class="fn">&starf; PROJECT</span>  Multiply by the embedding table <em>transposed</em> to get
-  &boxv;           a score for every word in the vocabulary.
-      &darr;
-  <span class="st">[0.01, 0.02, &hellip;, <span class="nm">0.73</span>, &hellip;]</span>  &larr; 50,257 scores (<strong>logits</strong>)
-  Highest score: token 318 = <span class="nm">" is"</span>
-</code></pre>
+<div id="pipeline-map-container" style="position:relative;">
+<pre id="pipeline-map-pre"><code id="pipeline-map-code"></code></pre>
+</div>
+<div id="pipeline-map-explain" style="min-height:2.8rem; padding:0.6rem 0; font-size:0.88rem; line-height:1.6;"></div>
+<div class="viz-controls" style="padding-bottom:0.4rem;">
+<button id="pipeline-map-play">Play</button>
+<button id="pipeline-map-step">Step</button>
+<button id="pipeline-map-reset" class="secondary">Reset</button>
+<button id="pipeline-map-show" class="secondary">Show All</button>
+</div>
 </div>
 </div>
 
-<div class="tab-panel p3">
+<div class="tab-panel p2">
 <div style="padding: 1.2rem 1.4rem; font-size:0.88rem; line-height:1.6;">
 <table style="margin:0;">
 <tr><th style="width:120px;">Stage</th><th>What it does</th></tr>
@@ -867,253 +843,171 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 <p style="margin-top:1rem; margin-bottom:0;">Seven matrix multiplications per block. Twelve blocks (GPT-2) or 64 (Qwen). That's <strong>86 big matmuls</strong> for GPT-2, <strong>448</strong> for Qwen &mdash; to produce <em>one</em> token. For GPT-2: ~250M FLOPs. For Qwen-3.5 27B: 44 <em>billion</em>. Same recipe, 176&times; the bill.</p>
 </div>
 </div>
-
-<div class="tab-panel p2">
-<div style="padding: 0.8rem 1.4rem 0;">
-<svg id="viz-pipeline-anim" viewBox="0 0 780 520" style="width:100%; height:auto; display:block;" role="img"><title>Interactive forward pass pipeline animation</title></svg>
-<div id="viz-pipeline-explain" style="min-height:3.6rem; padding:0.8rem 0; font-size:0.92rem; line-height:1.6;"></div>
-<div class="viz-controls" style="padding-bottom:0.6rem;">
-<button id="viz-pipeline-play">Play</button>
-<button id="viz-pipeline-step">Step</button>
-<button id="viz-pipeline-reset" class="secondary">Reset</button>
-</div>
-</div>
-</div>
 </div>
 
 <script>
 (function() {
-    const svg = d3.select('#viz-pipeline-anim');
-    const W = 780, H = 520;
-    const explainEl = document.getElementById('viz-pipeline-explain');
-
+    // The ASCII map broken into reveal stages — each stage is an array of HTML lines
+    // that appear together, plus an explanation.
     const stages = [
         {
-            id: 'embed', label: 'EMBED', color: '#4488ff', y: 0,
-            shape: '"The capital of France"  →  [4 token IDs]  →  [4 × 768] vectors',
-            explain: '<strong style="color:#4488ff">EMBED</strong> — Each token ID indexes into a table of 50,257 rows. Out comes a vector of 768 numbers. The word "The" becomes <code>[0.12, -0.34, 0.56, …]</code>. No math — just a lookup. This same table reappears at the very end.'
+            lines: [
+                '',
+                '  <span class="st">"The capital of France"</span>',
+                '      \u2193'
+            ],
+            explain: '<span style="color:var(--text-dim)">The input: four words. About to become four token IDs, then four vectors of 768 numbers each.</span>'
         },
         {
-            id: 'norm1', label: 'NORM', color: '#ffdd00', y: 1,
-            shape: '[4 × 768]  →  scale each vector to unit RMS  →  [4 × 768]',
-            explain: '<strong style="color:#ffdd00">NORM</strong> — Divide every dimension by the root-mean-square of the vector, then multiply by a learned scale. Keeps numbers from drifting to huge or tiny values between layers. Cost: trivial — three passes over 768 numbers.'
+            lines: [
+                '  <span class="fn">\u2605 EMBED</span>    Look up each token in a table of 50,257 vectors.',
+                '  \u2502           "The"\u2009\u2192\u2009[0.12, -0.34, 0.56, \u2026]  (768 numbers)',
+                '  \u2502           Add a position signal so the model knows word order.',
+                '      \u2193'
+            ],
+            explain: '<strong style="color:#4488ff">EMBED</strong> \u2014 Each token ID indexes into a table of 50,257 rows. Out comes a vector of 768 numbers. The word \u201cThe\u201d becomes <code>[0.12, -0.34, 0.56, \u2026]</code>. No math \u2014 just a lookup. This same table reappears at the very end.'
         },
         {
-            id: 'attn', label: 'ATTENTION', color: '#ff00aa', y: 2,
-            shape: '[4 × 768]  →  Q·Kᵀ → softmax → ·V  →  [4 × 768]',
-            explain: '<strong style="color:#ff00aa">ATTENTION</strong> — Each token broadcasts a query: "what am I looking for?" Every other token advertises a key: "here\'s what I contain." Dot-product scores find the matches. The output is a weighted blend of value vectors — the token absorbs context from the tokens that matter most.'
+            lines: [
+                '  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510',
+                '  \u2502 <span class="kw">\u2605 NORM</span>      Stabilise the numbers (rescale to unit RMS)         \u2502',
+                '  \u2502     \u2193                                                        \u2502'
+            ],
+            explain: '<strong style="color:#ffdd00">NORM</strong> \u2014 Divide every dimension by the root-mean-square of the vector, then multiply by a learned scale. Keeps numbers from drifting to huge or tiny values between layers. Cost: trivial \u2014 three passes over 768 numbers.'
         },
         {
-            id: 'res1', label: '+ RESIDUAL', color: '#00ff88', y: 2.6,
-            shape: 'attention output + original input  →  [4 × 768]',
-            explain: '<strong style="color:#00ff88">+ RESIDUAL</strong> — Add the original input back. This skip connection is critical: it means the attention layer only needs to learn <em>what to add</em>, not reconstruct the entire representation. Gradients flow straight through during training. Without it, deep networks can\'t train.'
+            lines: [
+                '  \u2502 <span class="ty">\u2605 ATTENTION</span>  <strong>Each token asks: \u201cwho in this sentence matters</strong>  \u2502',
+                '  \u2502              <strong>to me?\u201d</strong>  Produces a relevance-weighted blend    \u2502',
+                '  \u2502              of all previous tokens\u2019 information.              \u2502',
+                '  \u2502     \u2193  <span class="pp">+ skip connection (add original input back)</span>        \u2502',
+                '  \u2502                                                               \u2502'
+            ],
+            explain: '<strong style="color:#ff00aa">ATTENTION</strong> \u2014 Each token broadcasts a query: \u201cwhat am I looking for?\u201d Every other token advertises a key: \u201chere\u2019s what I contain.\u201d Dot-product scores find the matches. The output is a weighted blend of value vectors \u2014 the token absorbs context from the tokens that matter most.'
         },
         {
-            id: 'norm2', label: 'NORM', color: '#ffdd00', y: 3.2,
-            shape: '[4 × 768]  →  scale to unit RMS again  →  [4 × 768]',
-            explain: '<strong style="color:#ffdd00">NORM</strong> — Attention just mixed information across tokens, which can push some dimensions to extreme values. This second normalisation — with its own learned scale weights, independent from the first — resets the magnitudes so the FFN sees a clean, well-behaved input. Every block has two norms: one before attention, one before FFN.'
+            lines: [
+                '  \u2502 <span class="kw">\u2605 NORM</span>      Stabilise again                                   \u2502',
+                '  \u2502     \u2193                                                        \u2502'
+            ],
+            explain: '<strong style="color:#ffdd00">NORM</strong> \u2014 Attention just mixed information across tokens, which can push dimensions to extreme values. This second normalisation resets the magnitudes so the FFN sees a clean input.'
         },
         {
-            id: 'ffn', label: 'FFN', color: '#ff8800', y: 4.2,
-            shape: '[768] → gate[3072] ⊙ up[3072] → [768]  (per token, independently)',
-            explain: '<strong style="color:#ff8800">FFN</strong> — The vector expands to 4× width (3,072 dims for GPT-2, 17,408 for Qwen). Two parallel paths: a <em>gate</em> decides which features matter, an <em>up</em> projection computes candidate values. Multiply them — selective routing. Compress back to 768. Selective routing: the gate kills irrelevant features, the up path provides content. <strong>78% of per-block compute.</strong>'
+            lines: [
+                '  \u2502 <span class="fn">\u2605 FFN</span>       Expand 768\u2009\u2192\u20093072, apply non-linearity, shrink     \u2502',
+                '  \u2502              back to 768.  <strong>Attention gathers; the FFN</strong>      \u2502',
+                '  \u2502              <strong>rewrites</strong> \u2014 transforming mixed context into      \u2502',
+                '  \u2502              new features.                                     \u2502',
+                '  \u2502     \u2193  <span class="pp">+ skip connection</span>                                   \u2502'
+            ],
+            explain: '<strong style="color:#ff8800">FFN</strong> \u2014 The vector expands to 4\u00d7 width (3,072 dims for GPT-2, 17,408 for Qwen). A gate decides which features survive, an up projection computes candidates. Multiply them \u2014 selective routing. Compress back. <strong>78% of per-block compute.</strong>'
         },
         {
-            id: 'res2', label: '+ RESIDUAL', color: '#00ff88', y: 4.8,
-            shape: 'FFN output + pre-FFN input  →  [4 × 768]',
-            explain: '<strong style="color:#00ff88">+ RESIDUAL</strong> — Add the pre-FFN input back. Same principle: the FFN only learns the delta. This block is done — <strong>repeat ×12</strong> (GPT-2) or <strong>×64</strong> (Qwen).'
+            lines: [
+                '  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 <span class="cm">\u00d712 identical</span> \u2500\u2500\u2518',
+                '      \u2193'
+            ],
+            explain: '<strong style="color:#00ff88">REPEAT \u00d712</strong> \u2014 That entire block \u2014 norm, attention, residual, norm, FFN, residual \u2014 runs 12 times (GPT-2) or 64 times (Qwen). Same structure, different learned weights each time. Each layer refines the representation further.'
         },
         {
-            id: 'final_norm', label: 'FINAL NORM', color: '#ffdd00', y: 6,
-            shape: '[4 × 768]  →  one last stabilisation  →  [4 × 768]',
-            explain: '<strong style="color:#ffdd00">FINAL NORM</strong> — One last normalisation after all blocks. The vectors have passed through 12 (or 64) layers of transformations. Stabilise before the final projection.'
+            lines: [
+                '  <span class="kw">\u2605 NORM</span>    Final stabilisation',
+                '      \u2193'
+            ],
+            explain: '<strong style="color:#ffdd00">FINAL NORM</strong> \u2014 One last normalisation after all blocks. The vectors have passed through 12 layers of transformations. Stabilise before the final projection.'
         },
         {
-            id: 'project', label: 'PROJECT', color: '#4488ff', y: 7,
-            shape: '[768] × embed_table.T [768 × 50257]  →  [50,257] logits',
-            explain: '<strong style="color:#4488ff">PROJECT</strong> — Multiply the last token\'s vector by the embedding table <em>transposed</em>. This produces a dot-product score against every word in the vocabulary. High score = "this vector is close to that word\'s embedding." The same table from EMBED, used backwards — <strong>tied weights</strong>.'
+            lines: [
+                '  <span class="fn">\u2605 PROJECT</span>  Multiply by the embedding table <em>transposed</em> to get',
+                '  \u2502           a score for every word in the vocabulary.',
+                '      \u2193'
+            ],
+            explain: '<strong style="color:#4488ff">PROJECT</strong> \u2014 Multiply the last token\u2019s vector by the embedding table <em>transposed</em>. This produces a dot-product score against every word in the vocabulary. The same table from EMBED, used backwards \u2014 <strong>tied weights</strong>.'
         },
         {
-            id: 'sample', label: 'SAMPLE', color: '#00ff88', y: 8,
-            shape: '[50,257 logits]  →  temperature → top-p → softmax → draw  →  " is"',
-            explain: '<strong style="color:#00ff88">SAMPLE</strong> — The model\'s final decision: pick one word from the entire vocabulary. The 50,257 logits are a ranked ballot — every word the model knows has a score. Temperature controls conviction: low = always pick the favourite, high = give underdogs a chance. Top-p and top-k prune the long tail of nonsense. Softmax converts to probabilities. One random draw: <strong style="color:#00ff88">" is"</strong>. Append it, and run the whole pipeline again. Seven matmuls per block × 12 blocks = <strong>86 matmuls</strong> — for one word.'
-        },
+            lines: [
+                '  <span class="st">[0.01, 0.02, \u2026, <span class="nm">0.73</span>, \u2026]</span>  \u2190 50,257 scores (<strong>logits</strong>)',
+                '  Highest score: token 318 = <span class="nm">\u201c is\u201d</span>'
+            ],
+            explain: '<strong style="color:#00ff88">SAMPLE</strong> \u2014 50,257 logits \u2014 a ranked ballot. Temperature controls conviction, top-p and top-k prune the tail. One random draw: <strong style="color:#00ff88">\u201c is\u201d</strong>. Append it, run the whole pipeline again. 86 matmuls for one word.'
+        }
     ];
 
-    const boxW = 160, boxH = 28;
-    const startX = 60;
-    const yScale = 48;
-    const topPad = 20;
-
+    const codeEl = document.getElementById('pipeline-map-code');
+    const explainEl = document.getElementById('pipeline-map-explain');
     let currentStage = -1;
     let animTimer = null;
+    let allRevealed = [];
 
-    // Which stages are "inside the block" (shown with block bracket)
-    const blockStart = 1; // norm1
-    const blockEnd = 6;   // res2
+    function render() {
+        // Build the revealed lines with opacity classes
+        let html = '';
+        for (let si = 0; si <= Math.min(currentStage, stages.length - 1); si++) {
+            const isCurrent = si === currentStage;
+            const opacity = isCurrent ? '1' : '0.55';
+            stages[si].lines.forEach(line => {
+                html += '<span style="opacity:' + opacity + (isCurrent ? ';transition:opacity 0.3s' : '') + '">' + line + '</span>\n';
+            });
+        }
+        codeEl.innerHTML = html;
 
-    function draw() {
-        svg.selectAll('*').remove();
-
-        // Arrow marker
-        svg.append('defs').append('marker')
-            .attr('id', 'pipeArrow').attr('viewBox', '0 0 10 10')
-            .attr('refX', 5).attr('refY', 5)
-            .attr('markerWidth', 5).attr('markerHeight', 5)
-            .attr('orient', 'auto-start-reverse')
-            .append('path').attr('d', 'M 0 0 L 10 5 L 0 10 z').attr('fill', '#6a6a7e');
-
-        // Block bracket
-        const blockY1 = topPad + stages[blockStart].y * yScale - 8;
-        const blockY2 = topPad + stages[blockEnd].y * yScale + boxH + 8;
-        const bracketX = startX + boxW + 30;
-
-        svg.append('rect')
-            .attr('x', startX - 16).attr('y', blockY1)
-            .attr('width', boxW + 52).attr('height', blockY2 - blockY1)
-            .attr('fill', 'none')
-            .attr('stroke', currentStage >= blockStart && currentStage <= blockEnd ? '#6a6a7e' : '#2a2a3a')
-            .attr('stroke-width', 1).attr('stroke-dasharray', '4,3')
-            .attr('rx', 6);
-
-        svg.append('text')
-            .attr('x', bracketX + 10).attr('y', (blockY1 + blockY2) / 2 + 4)
-            .text('×12 blocks')
-            .attr('fill', currentStage >= blockStart && currentStage <= blockEnd ? '#6a6a7e' : '#3a3a4e')
-            .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 10)
-            .attr('transform', `rotate(-90, ${bracketX + 10}, ${(blockY1 + blockY2) / 2 + 4})`);
-
-        // Input label
-        svg.append('text')
-            .attr('x', startX + boxW / 2).attr('y', topPad + stages[0].y * yScale - 10)
-            .text('"The capital of France"')
-            .attr('fill', currentStage >= 0 ? '#00ff88' : '#3a3a4e')
-            .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 11)
-            .attr('text-anchor', 'middle');
-
-        stages.forEach((s, i) => {
-            const y = topPad + s.y * yScale;
-            const active = i <= currentStage;
-            const current = i === currentStage;
-            const opacity = active ? 1 : 0.3;
-
-            // Connector arrow from previous stage
-            if (i > 0) {
-                const prevY = topPad + stages[i - 1].y * yScale + boxH;
-                const gap = y - prevY;
-                if (gap > 6) {
-                    svg.append('line')
-                        .attr('x1', startX + boxW / 2).attr('y1', prevY + 2)
-                        .attr('x2', startX + boxW / 2).attr('y2', y - 2)
-                        .attr('stroke', active ? '#6a6a7e' : '#2a2a3a')
-                        .attr('stroke-width', 1)
-                        .attr('marker-end', 'url(#pipeArrow)');
-                }
-            }
-
-            // Box
-            const isResidual = s.id.startsWith('res');
-
-            if (isResidual) {
-                // Residual: smaller, no box, just a label
-                svg.append('text')
-                    .attr('x', startX + boxW / 2).attr('y', y + 16)
-                    .text(s.label)
-                    .attr('fill', current ? s.color : active ? s.color + 'aa' : s.color + '33')
-                    .attr('font-family', 'JetBrains Mono, monospace')
-                    .attr('font-size', 11).attr('font-weight', current ? 'bold' : 'normal')
-                    .attr('text-anchor', 'middle');
-            } else {
-                svg.append('rect')
-                    .attr('x', startX).attr('y', y)
-                    .attr('width', boxW).attr('height', boxH)
-                    .attr('rx', 6)
-                    .attr('fill', current ? s.color + '30' : active ? s.color + '15' : s.color + '08')
-                    .attr('stroke', current ? s.color : active ? s.color + '77' : s.color + '22')
-                    .attr('stroke-width', current ? 2 : 1);
-
-                if (current) {
-                    svg.append('rect')
-                        .attr('x', startX - 2).attr('y', y - 2)
-                        .attr('width', boxW + 4).attr('height', boxH + 4)
-                        .attr('rx', 8).attr('fill', 'none')
-                        .attr('stroke', s.color).attr('stroke-width', 1)
-                        .attr('opacity', 0.3);
-                }
-
-                svg.append('text')
-                    .attr('x', startX + boxW / 2).attr('y', y + boxH / 2 + 1)
-                    .text(s.label)
-                    .attr('fill', current ? s.color : active ? s.color + 'cc' : s.color + '44')
-                    .attr('font-family', 'JetBrains Mono, monospace')
-                    .attr('font-size', 12).attr('font-weight', current ? 'bold' : 'normal')
-                    .attr('text-anchor', 'middle').attr('dominant-baseline', 'middle');
-            }
-
-            // Data shape on the right
-            if (current) {
-                const shapeY = isResidual ? y + 12 : y + boxH / 2 + 1;
-                const shapeX = isResidual ? startX + boxW / 2 + 70 : startX + boxW + 16;
-                svg.append('text')
-                    .attr('x', shapeX).attr('y', shapeY)
-                    .text(s.shape)
-                    .attr('fill', s.color).attr('opacity', 0.7)
-                    .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9.5)
-                    .attr('dominant-baseline', 'middle');
-            }
-
-            // Glowing data dot
-            if (current && !isResidual) {
-                svg.append('circle')
-                    .attr('cx', startX + 20).attr('cy', y + boxH / 2)
-                    .attr('r', 5).attr('fill', s.color).attr('opacity', 0.9);
-                svg.append('circle')
-                    .attr('cx', startX + 20).attr('cy', y + boxH / 2)
-                    .attr('r', 9).attr('fill', 'none')
-                    .attr('stroke', s.color).attr('stroke-width', 1).attr('opacity', 0.3);
-            }
-        });
-
-        // Explanation text
+        // Explanation
         if (currentStage >= 0 && currentStage < stages.length) {
             explainEl.innerHTML = stages[currentStage].explain;
         } else if (currentStage >= stages.length) {
-            explainEl.innerHTML = '<strong style="color:#00ff88">Done.</strong> One token produced. Append it, shift the window, run the whole pipeline again. That\'s the autoregressive loop you just watched above.';
+            explainEl.innerHTML = '<strong style="color:#00ff88">Done.</strong> One token produced. Append it, run the whole pipeline again. That\u2019s the autoregressive loop.';
         } else {
-            explainEl.innerHTML = '<span style="color:var(--text-dim)">Hit <strong>Play</strong> to watch data flow through the pipeline, or <strong>Step</strong> to advance one stage at a time.</span>';
+            explainEl.innerHTML = '<span style="color:var(--text-dim)">Hit <strong>Play</strong> to reveal the pipeline stage by stage, or <strong>Step</strong> to advance manually.</span>';
         }
     }
 
-    draw();
-
-    function advance() {
-        currentStage++;
-        if (currentStage > stages.length) currentStage = stages.length;
-        draw();
+    function showAll() {
+        currentStage = stages.length;
+        let html = '';
+        stages.forEach(s => {
+            s.lines.forEach(line => {
+                html += '<span style="opacity:1">' + line + '</span>\n';
+            });
+        });
+        codeEl.innerHTML = html;
+        explainEl.innerHTML = '<span style="color:var(--text-dim)">The complete map. Use <strong>Step</strong> to walk through it with explanations.</span>';
     }
 
-    d3.select('#viz-pipeline-play').on('click', function() {
+    render();
+
+    function advance() {
+        if (currentStage >= stages.length) return;
+        currentStage++;
+        render();
+    }
+
+    document.getElementById('pipeline-map-play').addEventListener('click', function() {
         if (animTimer) return;
         currentStage = -1;
-        draw();
+        render();
         function tick() {
             currentStage++;
-            if (currentStage > stages.length) { animTimer = null; draw(); return; }
-            draw();
-            animTimer = setTimeout(tick, currentStage < stages.length ? 2800 : 1500);
+            if (currentStage > stages.length) { animTimer = null; render(); return; }
+            render();
+            animTimer = setTimeout(tick, currentStage < stages.length ? 2200 : 1200);
         }
         animTimer = setTimeout(tick, 400);
     });
 
-    d3.select('#viz-pipeline-step').on('click', function() {
+    document.getElementById('pipeline-map-step').addEventListener('click', function() {
         if (animTimer) { clearTimeout(animTimer); animTimer = null; }
         advance();
     });
 
-    d3.select('#viz-pipeline-reset').on('click', function() {
+    document.getElementById('pipeline-map-reset').addEventListener('click', function() {
         if (animTimer) { clearTimeout(animTimer); animTimer = null; }
         currentStage = -1;
-        draw();
+        render();
+    });
+
+    document.getElementById('pipeline-map-show').addEventListener('click', function() {
+        if (animTimer) { clearTimeout(animTimer); animTimer = null; }
+        showAll();
     });
 })();
 </script>
@@ -1386,36 +1280,32 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 
 <h3 id="embedding">Embedding: From IDs to Vectors</h3>
 
-<p>Tokenization gave us integers. Now each integer needs to become something the network can process: a <strong>vector</strong>. The embedding table is a lookup &mdash; token ID in, vector of 768 numbers out (GPT-2) or 5,120 (Qwen). These numbers aren't arbitrary. Training pushes tokens that appear in similar contexts to nearby points in this high-dimensional space. "Cat" and "dog" end up close; "cat" and "uranium" don't.</p>
+<p>Tokenization gave us integers. Now each integer needs to become something the network can process: a <strong>vector</strong> &mdash; a list of numbers. GPT-2 uses 768 numbers per token. Qwen uses 5,120. Each number is a <strong>dimension</strong>, and each dimension encodes some learned feature of the token &mdash; not a feature anyone named, but one that emerged from training. One dimension might end up correlating with "is this a verb?", another with "does this relate to geography?", most with patterns too abstract to label. The key insight: 768 dimensions means 768 independent axes. Two tokens can be similar on some axes and different on others &mdash; "Paris" and "London" are close on the geography axes but far apart on whatever encodes French vs. English. This is what makes the representation rich enough to work.</p>
 
 <div class="tabbed">
 <input type="radio" name="tok-embed" id="tok-embed-t1" class="t1" checked>
 <input type="radio" name="tok-embed" id="tok-embed-t2" class="t2">
 
 <div class="tab-bar">
-<label for="tok-embed-t1">Intuition</label>
-<label for="tok-embed-t2">The Lookup (code)</label>
+<label for="tok-embed-t1">Why 768 Dimensions?</label>
+<label for="tok-embed-t2">Code</label>
 </div>
 
+<!-- ── TAB 1: Why Dimensions — 1D → 2D → 3D scatter ── -->
 <div class="tab-panel p1">
-<pre><code><span class="label">Intuition</span>
-<span class="cm">The embedding table: one row per token, 768 columns.</span>
-
-Token <span class="nm">1820</span> (<span class="st">"cat"</span>)      → [<span class="nm">0.12</span>, <span class="nm">-0.34</span>, <span class="nm">0.56</span>, <span class="nm">0.78</span>, <span class="nm">-0.91</span>, ...]  <span class="cm">768 numbers</span>
-Token <span class="nm">3290</span> (<span class="st">"dog"</span>)      → [<span class="nm">0.14</span>, <span class="nm">-0.31</span>, <span class="nm">0.52</span>, <span class="nm">0.81</span>, <span class="nm">-0.88</span>, ...]  <span class="cm">similar!</span>
-Token <span class="nm">9017</span> (<span class="st">"uranium"</span>)  → [<span class="nm">-1.2</span>, <span class="nm">0.89</span>, <span class="nm">-0.03</span>, <span class="nm">0.11</span>, <span class="nm">0.67</span>, ...]  <span class="cm">very different</span>
-
-<span class="fn">"cat"</span> and <span class="fn">"dog"</span> are close because training saw them in similar contexts.
-<span class="fn">"cat"</span> and <span class="fn">"uranium"</span> are far because they never appear in the same patterns.
-
-<span class="cm">Raw embeddings are the starting geometry &mdash; later layers reshape</span>
-<span class="cm">these vectors far more than the initial lookup.</span>
-
-<span class="cm">Think of it as GPS for meaning: just as (lat, lon) locates a city,</span>
-<span class="cm">768 numbers locate a concept in meaning-space.</span>
-</code></pre>
+<div style="padding: 0.6rem 1rem 0;">
+<svg id="viz-embed-dims" viewBox="0 0 780 310" style="width:100%; height:auto; display:block;" role="img"><title>Why embeddings need many dimensions — interactive 1D to 3D transition</title></svg>
+<div id="viz-embed-dims-explain" style="min-height:2.8rem; padding:0.5rem 0; font-size:0.88rem; line-height:1.55;"></div>
+<div class="viz-controls" style="padding-bottom:0.5rem;">
+<button id="viz-dims-1d" class="secondary">1 Dimension</button>
+<button id="viz-dims-2d" class="secondary">2 Dimensions</button>
+<button id="viz-dims-3d" class="secondary">3 Dimensions</button>
+<button id="viz-dims-768">768 Dimensions</button>
+</div>
+</div>
 </div>
 
+<!-- ── TAB 2: Code ── -->
 <div class="tab-panel p2">
 <pre><code><span class="label">Python</span>
 <span class="cm"># The entire embedding step:</span>
@@ -1424,9 +1314,258 @@ x = embedding_table[token_ids]   <span class="cm"># shape: [seq_len, 768]</span>
 <span class="cm"># That's it. A table lookup. No math, no matrix multiply.</span>
 <span class="cm"># embedding_table.shape = [50257, 768]   for GPT-2</span>
 <span class="cm">#                       = [152064, 5120]  for Qwen-3.5 27B</span>
+
+<span class="cm"># The same table reappears at the end of the model:</span>
+logits = final_vector @ embedding_table.T   <span class="cm"># shape: [50257]</span>
+<span class="cm"># Dot product of the output against EVERY row. No shortcut this time.</span>
 </code></pre>
 </div>
 </div>
+
+<script>
+(function() {
+    const svg = d3.select('#viz-embed-dims');
+    const explainEl = document.getElementById('viz-embed-dims-explain');
+    const W = 780, H = 310;
+    const mono = 'JetBrains Mono, monospace';
+    let currentDim = 0; // 0=intro, 1=1D, 2=2D, 3=3D, 4=768
+
+    // ── Token data — positions SPREAD WIDE to use full plot area ──
+    const tokens = [
+        // Animals — bottom-left
+        { label: 'cat',     group: 'animal',  color: '#00ff88',
+          p1: [0.30], p2: [0.12, 0.18], p3: [0.10, 0.16, 0.50] },
+        { label: 'dog',     group: 'animal',  color: '#00ff88',
+          p1: [0.35], p2: [0.20, 0.12], p3: [0.18, 0.10, 0.55] },
+        { label: 'bird',    group: 'animal',  color: '#00ff88',
+          p1: [0.25], p2: [0.08, 0.26], p3: [0.06, 0.25, 0.45] },
+
+        // European cities — top-right
+        { label: 'Paris',   group: 'city-eu', color: '#00ddff',
+          p1: [0.40], p2: [0.78, 0.82], p3: [0.75, 0.85, 0.20] },
+        { label: 'London',  group: 'city-eu', color: '#4488ff',
+          p1: [0.45], p2: [0.88, 0.74], p3: [0.90, 0.72, 0.70] },
+        { label: 'Berlin',  group: 'city-eu', color: '#4488ff',
+          p1: [0.42], p2: [0.84, 0.68], p3: [0.85, 0.65, 0.60] },
+
+        // Asian city — near cities but distinct on dim3
+        { label: 'Tokyo',   group: 'city-asia', color: '#aa44ff',
+          p1: [0.48], p2: [0.92, 0.88], p3: [0.93, 0.90, 0.15] },
+
+        // Numbers — middle area
+        { label: 'one',     group: 'number',  color: '#ffdd00',
+          p1: [0.62], p2: [0.45, 0.50], p3: [0.42, 0.52, 0.40] },
+        { label: 'two',     group: 'number',  color: '#ffdd00',
+          p1: [0.67], p2: [0.52, 0.44], p3: [0.55, 0.42, 0.44] },
+        { label: 'three',   group: 'number',  color: '#ffdd00',
+          p1: [0.72], p2: [0.48, 0.56], p3: [0.46, 0.58, 0.36] },
+
+        // Outlier — isolated bottom-right
+        { label: 'uranium', group: 'outlier', color: '#ff3344',
+          p1: [0.10], p2: [0.60, 0.08], p3: [0.62, 0.06, 0.85] },
+    ];
+
+    const clusters = {
+        animal:    { label: 'Animals',         color: '#00ff88' },
+        'city-eu': { label: 'European cities', color: '#00ddff' },
+        'city-asia':{ label: 'Asian city',     color: '#aa44ff' },
+        number:    { label: 'Numbers',         color: '#ffdd00' },
+        outlier:   { label: 'Outlier',         color: '#ff3344' },
+    };
+
+    // Tighter plot area
+    const plotX = 60, plotY = 44, plotW = 660, plotH = 210;
+
+    function getPositions(dim) {
+        if (dim <= 1) return tokens.map(t => ({ ...t, x: t.p1[0], y: 0.5 }));
+        if (dim === 2) return tokens.map(t => ({ ...t, x: t.p2[0], y: t.p2[1] }));
+        // dim 3+: use p3[0] and p3[1] for x,y, p3[2] for dot size
+        return tokens.map(t => ({ ...t, x: t.p3[0], y: t.p3[1], z: t.p3[2] }));
+    }
+
+    function draw(animate) {
+        const dur = animate ? 800 : 0;
+        const dim = currentDim;
+
+        // First draw: clear everything
+        if (!animate || svg.selectAll('.plot-bg').empty()) {
+            svg.selectAll('*').remove();
+
+            // Background
+            svg.append('rect').attr('class','plot-bg')
+                .attr('x', plotX).attr('y', plotY)
+                .attr('width', plotW).attr('height', dim <= 1 ? 40 : plotH)
+                .attr('fill', 'rgba(18,18,26,0.6)').attr('stroke','#1e1e2e').attr('rx', 4);
+
+            // Title
+            const titles = ['', '1 DIMENSION', '2 DIMENSIONS', '3 DIMENSIONS', '768 DIMENSIONS'];
+            svg.append('text').attr('class','plot-title')
+                .attr('x', plotX + plotW/2).attr('y', 35)
+                .text(titles[dim] || '').attr('text-anchor','middle')
+                .attr('fill', dim >= 4 ? '#00ff88' : '#6a6a7e')
+                .attr('font-family',mono).attr('font-size', 11)
+                .attr('letter-spacing','0.1em').attr('font-weight', dim >= 4 ? 600 : 400);
+        }
+
+        // Resize plot area
+        svg.select('.plot-bg')
+            .transition().duration(dur)
+            .attr('height', dim <= 1 ? 40 : plotH);
+
+        const positions = getPositions(dim);
+
+        // Axis labels
+        svg.selectAll('.axis-label').remove();
+        if (dim >= 1) {
+            svg.append('text').attr('class','axis-label')
+                .attr('x', plotX + plotW/2).attr('y', plotY + (dim <= 1 ? 56 : plotH + 20))
+                .text('dimension 1').attr('text-anchor','middle')
+                .attr('fill','#6a6a7e').attr('font-family',mono).attr('font-size',9);
+        }
+        if (dim >= 2) {
+            svg.append('text').attr('class','axis-label')
+                .attr('x', plotX - 10).attr('y', plotY + plotH/2)
+                .text('dim 2').attr('text-anchor','middle')
+                .attr('fill','#6a6a7e').attr('font-family',mono).attr('font-size',9)
+                .attr('transform', `rotate(-90, ${plotX - 10}, ${plotY + plotH/2})`);
+        }
+
+        // 3D indicator: size legend
+        svg.selectAll('.size-legend').remove();
+        if (dim >= 3) {
+            const lx = plotX + 8, ly = plotY + 10;
+            svg.append('text').attr('class','size-legend')
+                .attr('x', lx).attr('y', ly)
+                .text('dot size = dim 3').attr('fill','#aa44ff').attr('font-family',mono).attr('font-size',9);
+            [5, 8, 12].forEach((r, i) => {
+                svg.append('circle').attr('class','size-legend')
+                    .attr('cx', lx + 120 + i * 30).attr('cy', ly - 3).attr('r', r)
+                    .attr('fill','none').attr('stroke','#aa44ff').attr('stroke-width',1).attr('opacity',0.5);
+            });
+        }
+
+        // ── Draw/transition dots ──
+        const dotData = svg.selectAll('.token-dot').data(positions, d => d.label);
+
+        // Enter
+        const enter = dotData.enter().append('g').attr('class','token-dot');
+        enter.append('circle').attr('class','dot-circle');
+        enter.append('text').attr('class','dot-label');
+
+        // Merge
+        const merged = enter.merge(dotData);
+
+        merged.select('.dot-circle')
+            .transition().duration(dur).ease(d3.easeCubicInOut)
+            .attr('cx', d => plotX + d.x * plotW)
+            .attr('cy', d => dim <= 1 ? plotY + 20 : plotY + plotH - d.y * plotH)
+            .attr('r', d => dim >= 3 ? 4 + (d.z || 0.5) * 10 : 7)
+            .attr('fill', d => d.color + (dim >= 3 ? '66' : '55'))
+            .attr('stroke', d => d.color)
+            .attr('stroke-width', 2);
+
+        merged.select('.dot-label')
+            .transition().duration(dur).ease(d3.easeCubicInOut)
+            .attr('x', d => plotX + d.x * plotW)
+            .attr('y', d => (dim <= 1 ? plotY + 20 : plotY + plotH - d.y * plotH) - (dim >= 3 ? 5 + (d.z || 0.5) * 10 : 12))
+            .text(d => d.label)
+            .attr('text-anchor','middle')
+            .attr('fill', d => d.color)
+            .attr('font-family', mono).attr('font-size', 12).attr('font-weight', 500);
+
+        // ── Problem annotations ──
+        svg.selectAll('.annotation').remove();
+
+        if (dim === 1) {
+            svg.append('text').attr('class','annotation')
+                .attr('x', plotX + plotW/2).attr('y', plotY + 56)
+                .text('\u2191 cat, dog, Paris all crammed together \u2014 not enough room!')
+                .attr('text-anchor','middle')
+                .attr('fill','#ff3344').attr('font-family',mono).attr('font-size',11).attr('font-weight',500);
+        }
+
+        if (dim === 2) {
+            drawClusterRing('animal', positions.filter(p => p.group === 'animal'), dur);
+            drawClusterRing('number', positions.filter(p => p.group === 'number'), dur);
+            // Cities annotation — positioned relative to city cluster
+            svg.append('text').attr('class','annotation')
+                .attr('x', plotX + 0.65 * plotW).attr('y', plotY + 18)
+                .text('cities cluster \u2014 but Paris \u2248 Tokyo?')
+                .attr('fill','#ff8800').attr('font-family',mono).attr('font-size',11).attr('font-weight',500);
+        }
+
+        if (dim === 3) {
+            drawClusterRing('animal', positions.filter(p => p.group === 'animal'), dur);
+            drawClusterRing('number', positions.filter(p => p.group === 'number'), dur);
+            svg.append('text').attr('class','annotation')
+                .attr('x', plotX + 12).attr('y', plotY + plotH + 18)
+                .text('dim 3 (dot size) separates: Paris \u2260 London,  Tokyo \u2260 Berlin')
+                .attr('fill','#aa44ff').attr('font-family',mono).attr('font-size',11).attr('font-weight',500);
+        }
+
+        if (dim === 4) {
+            drawClusterRing('animal', positions.filter(p => p.group === 'animal'), dur);
+            drawClusterRing('number', positions.filter(p => p.group === 'number'), dur);
+
+            svg.append('text').attr('class','annotation')
+                .attr('x', plotX + plotW/2).attr('y', plotY + plotH + 20)
+                .text('768 dimensions = 768 ways to be different')
+                .attr('text-anchor','middle')
+                .attr('fill','#00ff88').attr('font-family',mono).attr('font-size',12).attr('font-weight',600);
+            svg.append('text').attr('class','annotation')
+                .attr('x', plotX + plotW/2).attr('y', plotY + plotH + 38)
+                .text('language \u00b7 continent \u00b7 tense \u00b7 formality \u00b7 sentiment \u00b7 ...')
+                .attr('text-anchor','middle')
+                .attr('fill','#6a6a7e').attr('font-family',mono).attr('font-size',10);
+        }
+
+        // Explain text
+        const explains = [
+            '<span style="color:var(--text-dim)">Each token gets a vector of numbers. Why 768 of them? Click through to see.</span>',
+            '<strong style="color:#ff3344">One dimension isn\u2019t enough.</strong> Animals and cities are forced onto the same line. "cat" lands next to "Paris" \u2014 not because they\u2019re related, but because there\u2019s nowhere else to put them. One axis can only encode one ranking.',
+            '<strong style="color:#00ddff">Two dimensions: clusters emerge.</strong> Animals pull to one corner, cities to another, numbers to a third. But Paris, London, and Tokyo are still bunched together \u2014 the model can\u2019t tell European from Asian cities with only two axes.',
+            '<strong style="color:#aa44ff">Three dimensions: sub-clusters.</strong> The third axis (shown as dot size) separates what two couldn\u2019t. Paris and Tokyo are both cities \u2014 close on dims 1\u20132 \u2014 but the third dimension encodes cultural/linguistic distance. Each new dimension is a new axis of distinction.',
+            '<strong style="color:#00ff88">768 dimensions: enough room for everything.</strong> Tense, plurality, sentiment, formality, domain, language, part of speech \u2014 each gets its own axis. No compromises. Two tokens can be similar on 400 dimensions and different on 368. <em>That\u2019s</em> what makes the representation rich enough to power a language model.'
+        ];
+        explainEl.innerHTML = explains[Math.min(dim, explains.length - 1)];
+
+        // Highlight active button
+        ['1d','2d','3d','768'].forEach((id, i) => {
+            const btn = document.getElementById('viz-dims-' + id);
+            const isActive = (i + 1) === dim;
+            btn.style.background = isActive ? 'var(--green-dim)' : 'var(--border)';
+            btn.style.color = isActive ? 'var(--bg)' : 'var(--text)';
+        });
+    }
+
+    function drawClusterRing(group, points, dur) {
+        if (points.length < 2) return;
+        const cx = d3.mean(points, p => plotX + p.x * plotW);
+        const cy = currentDim <= 1 ? plotY + 20 : d3.mean(points, p => plotY + plotH - p.y * plotH);
+        const r = Math.max(30, d3.max(points, p => {
+            const px = plotX + p.x * plotW, py2 = currentDim <= 1 ? plotY + 20 : plotY + plotH - p.y * plotH;
+            return Math.sqrt((px-cx)**2 + (py2-cy)**2);
+        }) + 16);
+        svg.append('ellipse').attr('class','annotation')
+            .attr('cx', cx).attr('cy', cy).attr('rx', r).attr('ry', r * 0.8)
+            .attr('fill','none').attr('stroke', clusters[group].color + '33')
+            .attr('stroke-width',1).attr('stroke-dasharray','4,3');
+        svg.append('text').attr('class','annotation')
+            .attr('x', cx).attr('y', cy - r * 0.8 - 6)
+            .text(clusters[group].label).attr('text-anchor','middle')
+            .attr('fill', clusters[group].color + 'bb').attr('font-family',mono).attr('font-size',10);
+    }
+
+    // Initial state
+    currentDim = 0;
+    draw(false);
+
+    document.getElementById('viz-dims-1d').addEventListener('click', function() { currentDim = 1; draw(true); });
+    document.getElementById('viz-dims-2d').addEventListener('click', function() { currentDim = 2; draw(true); });
+    document.getElementById('viz-dims-3d').addEventListener('click', function() { currentDim = 3; draw(true); });
+    document.getElementById('viz-dims-768').addEventListener('click', function() { currentDim = 4; draw(true); });
+})();
+</script>
 
 <p>Each token is now a vector &mdash; 768 numbers for GPT-2, 5,120 for Qwen. The transformer blocks will process these vectors through the attention and FFN stages you saw in the pipeline. Chapter 3 traces one vector through one block, operation by operation.</p>
 
