@@ -533,7 +533,7 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 <h2>// 01 &mdash; The Pipeline</h2>
 <div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--green)">EMBED</span> &rarr; <span style="color:var(--yellow)">NORM</span> &rarr; <span style="color:var(--magenta)">ATTN</span> &rarr; <span style="color:var(--orange)">FFN</span> &rarr; <span style="color:var(--cyan)">PROJECT</span> &rarr; <span style="color:var(--green)">SAMPLE</span> &nbsp; <span style="color:var(--green)">&larr; the whole map</span></div>
 <div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
-    Text in, probability distribution out. 86 matrix multiplies for GPT-2, 448 for Qwen.<br>
+    Text in, probability distribution out. 86 matrix multiplies for GPT-2, 448 for Qwen-3.5 27B.<br>
     Same skeleton, different scale. This chapter is the map you'll reference for everything after.<span class="blink">_</span>
 </div>
 
@@ -542,13 +542,15 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 <div class="tabbed">
 <input type="radio" name="gen" id="gen-t1" class="t1" checked>
 <input type="radio" name="gen" id="gen-t2" class="t2">
+<input type="radio" name="gen" id="gen-t3" class="t3">
 
 <div class="tab-bar">
 <label for="gen-t1">Watch It Generate</label>
 <label for="gen-t2">The Loop</label>
+<label for="gen-t3">Trivia</label>
 </div>
 
-<!-- ── TAB 1: interactive D3 viz ── -->
+<!-- ── TAB 1: interactive D3 viz with pipeline pulse ── -->
 <div class="tab-panel p1">
 <div style="padding: 0.6rem 1rem 0;">
 <svg id="viz-ch1-auto" viewBox="0 0 780 185" style="width:100%; height:auto; display:block;" role="img"><title>Token generation animation showing autoregressive loop</title></svg>
@@ -574,6 +576,16 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 <span class="cm"># forward_pass → pick a word → append → repeat. That's it.</span>
 </code></pre>
 </div>
+
+<!-- ── TAB 3: trivia ── -->
+<div class="tab-panel p3">
+<div style="padding: 1rem 1.4rem; font-size: 0.88rem; line-height: 1.65;">
+<h4 style="margin-top:0;">&ldquo;The capital of France&rdquo; &mdash; ML&rsquo;s Hello World</h4>
+<p>This sentence appears in almost every transformer tutorial and inference demo. It&rsquo;s a <strong>single-factual-hop</strong> question &mdash; one lookup, one answer. Even the smallest model nails it, making it a perfect smoke test: if your model can&rsquo;t finish &ldquo;The capital of France is ___&rdquo;, something is broken at the infrastructure level.</p>
+<p>It also shows <strong>what certainty looks like inside the model</strong>. After &ldquo;France&rdquo;, the probability distribution is extraordinarily peaked &mdash; ~73% on &ldquo; is&rdquo;, then ~92% on &ldquo; Paris&rdquo;. Most prompts produce far flatter distributions. This one is a spotlight with almost zero ambiguity.</p>
+<p style="color:var(--text-dim); font-size:0.82rem; margin-bottom:0;">Seen in: Vaswani et al., HuggingFace quickstarts, llama.cpp smoke tests, vLLM benchmarks, and ~10,000 attention blog posts.</p>
+</div>
+</div>
 </div>
 
 <script>
@@ -582,18 +594,39 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
     const W = 780, H = 185;
     const promptTokens = ['The', ' capital', ' of', ' France'];
     const genTokens = [' is', ' Paris', ',', ' the', ' city', ' of', ' light', '.'];
-    let step = 0, animTimer = null;
+    let generating = false, cancelAnim = false;
 
-    function draw() {
-        svg.selectAll('*').remove();
-        const all = [...promptTokens, ...genTokens.slice(0, Math.max(0, step - 1))];
+    const layers = ['embed','L1','L2','L3','\u2026','L12','norm','logits'];
+    const lc = {
+        embed: {fill:'rgba(0,255,136,0.12)', stroke:'#00ff8833', text:'#00ff88', glow:'rgba(0,255,136,0.4)'},
+        norm:  {fill:'rgba(255,221,0,0.12)', stroke:'#ffdd0033', text:'#ffdd00', glow:'rgba(255,221,0,0.4)'},
+        logits:{fill:'rgba(255,0,170,0.12)', stroke:'#ff00aa33', text:'#ff00aa', glow:'rgba(255,0,170,0.4)'},
+        '\u2026': {fill:'rgba(106,106,126,0.08)', stroke:'#6a6a7e22', text:'#6a6a7e', glow:'rgba(106,106,126,0.3)'}
+    };
+    const defaultC = {fill:'rgba(0,221,255,0.12)', stroke:'#00ddff33', text:'#00ddff', glow:'rgba(0,221,255,0.4)'};
+    const layerW = 52, gap = 3;
 
-        // Token row
+    const stageDescs = [
+        'Looking up token vectors\u2026',
+        'Layer 1: attending to context\u2026',
+        'Layer 2: deeper patterns\u2026',
+        'Layer 3: refining\u2026',
+        '9 more layers\u2026',
+        'Layer 12: final reasoning\u2026',
+        'Normalising output\u2026',
+        'Scoring every word in vocabulary\u2026'
+    ];
+
+    function getC(l) { return lc[l] || defaultC; }
+
+    function drawTokens(completedTokens) {
+        svg.selectAll('.token-row').remove();
+        const tokenG = svg.append('g').attr('class','token-row').attr('transform','translate(0,10)');
+        const all = [...promptTokens, ...completedTokens];
         let tx = 15;
-        const tokenG = svg.append('g').attr('transform','translate(0,10)');
         all.forEach((t, i) => {
             const isPrompt = i < promptTokens.length;
-            const isNew = !isPrompt && i === all.length - 1 && step > 1;
+            const isNew = !isPrompt && i === all.length - 1 && completedTokens.length > 0;
             const color = isNew ? '#ff00aa' : isPrompt ? '#00ff88' : '#00ddff';
             const bgColor = isNew ? 'rgba(255,0,170,0.15)' : isPrompt ? 'rgba(0,255,136,0.08)' : 'rgba(0,221,255,0.08)';
             const tw = t.length * 7.5 + 10;
@@ -605,87 +638,169 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
                 .attr('fill',color).attr('font-family','JetBrains Mono, monospace').attr('font-size',11);
             tx += tw + 3;
         });
-
-        // Forward pass — compact
-        if (step >= 1) {
-            const fpG = svg.append('g').attr('transform','translate(15,48)');
-            const layers = ['embed','L1','L2','L3','\u2026','L12','norm','logits'];
-            const lc = {
-                embed: {fill:'rgba(0,255,136,0.12)', stroke:'#00ff8833', text:'#00ff88'},
-                norm:  {fill:'rgba(255,221,0,0.12)', stroke:'#ffdd0033', text:'#ffdd00'},
-                logits:{fill:'rgba(255,0,170,0.12)', stroke:'#ff00aa33', text:'#ff00aa'}
-            };
-            const defaultC = {fill:'rgba(0,221,255,0.12)', stroke:'#00ddff33', text:'#00ddff'};
-            const layerW = 52, gap = 3;
-            let lx = 0;
-            layers.forEach((l, i) => {
-                const c = lc[l] || defaultC;
-                fpG.append('rect').attr('x', lx).attr('y', 0).attr('width', layerW).attr('height', 20)
-                    .attr('fill', c.fill).attr('stroke', c.stroke).attr('rx', 2);
-                fpG.append('text').attr('x', lx + layerW/2).attr('y', 14).text(l)
-                    .attr('fill', c.text).attr('font-family','JetBrains Mono, monospace')
-                    .attr('font-size',9).attr('text-anchor','middle');
-                lx += layerW + gap;
-                if (i < layers.length - 1) {
-                    fpG.append('text').attr('x', lx - gap/2).attr('y', 14).text('\u203a')
-                        .attr('fill','#6a6a7e').attr('font-size',10).attr('text-anchor','middle');
-                }
-            });
-            // result arrow
-            if (step > 1) {
-                const nextTok = genTokens[step - 2] || '';
-                fpG.append('text').attr('x', lx + 2).attr('y', 14).text('\u2192 "' + nextTok.trim() + '"')
-                    .attr('fill','#ff00aa').attr('font-family','JetBrains Mono, monospace').attr('font-size',10);
-            }
-        }
-
-        // Output
-        if (step > 1) {
-            const outG = svg.append('g').attr('transform','translate(15,90)');
-            const outText = promptTokens.join('') + genTokens.slice(0, step - 1).join('');
-            outG.append('text').attr('x',0).attr('y',12).text(outText)
-                .attr('fill','#c8c8d4').attr('font-family','JetBrains Mono, monospace').attr('font-size',12);
-            const cursorX = outText.length * 7.2;
-            outG.append('rect').attr('x',cursorX).attr('y',1).attr('width',7).attr('height',14)
-                .attr('fill','#00ff88').attr('opacity',0.7)
-                .append('animate').attr('attributeName','opacity')
-                .attr('values','0.7;0;0.7').attr('dur','1s').attr('repeatCount','indefinite');
-        }
-
-        // Step counter — tight
-        const label = step === 0 ? 'Hit generate.' : step === 1 ? 'Processing prompt\u2026' :
-            `Run ${step-1}/${genTokens.length}: ${all.length} tokens \u2192 all layers \u2192 one word`;
-        const labelColor = step === 0 ? '#6a6a7e' : step === 1 ? '#00ff88' : '#ffdd00';
-        svg.append('text').attr('x', 15).attr('y', H - 10).text(label)
-            .attr('fill',labelColor).attr('font-family','JetBrains Mono, monospace').attr('font-size',10);
     }
 
-    draw();
+    function drawPipeline(activeIdx) {
+        // activeIdx: -1 = all dim, 0..7 = pulse on that stage
+        svg.selectAll('.pipe-row').remove();
+        const fpG = svg.append('g').attr('class','pipe-row').attr('transform','translate(15,48)');
+        let lx = 0;
+        layers.forEach((l, i) => {
+            const c = getC(l);
+            const isActive = i === activeIdx;
+            const isPast = activeIdx >= 0 && i < activeIdx;
+            const fillColor = isActive ? c.fill.replace('0.12','0.35').replace('0.08','0.25') : isPast ? c.fill.replace('0.12','0.2').replace('0.08','0.15') : c.fill;
+            const strokeColor = isActive ? c.text : isPast ? c.text + '66' : c.stroke;
 
-    d3.select('#viz-ch1-auto-start').on('click', function() {
-        if (animTimer) return;
-        const totalSteps = genTokens.length + 1;
-        function tick() {
-            step++;
-            if (step > totalSteps) { animTimer = null; d3.select('#viz-ch1-auto-status').text('8 words, 8 full passes.'); return; }
-            draw();
-            d3.select('#viz-ch1-auto-status').text(
-                step === 1 ? 'Processing prompt\u2026' :
-                `"${genTokens.slice(0, step - 1).join('')}"`
-            );
-            animTimer = setTimeout(tick, step === 1 ? 500 : 350);
+            // Glow ring on active stage
+            if (isActive) {
+                fpG.append('rect').attr('x', lx - 2).attr('y', -2).attr('width', layerW + 4).attr('height', 24)
+                    .attr('fill', 'none').attr('stroke', c.glow).attr('stroke-width', 1.5).attr('rx', 4)
+                    .attr('opacity', 0.6)
+                    .append('animate').attr('attributeName','opacity')
+                    .attr('values','0.6;0.3;0.6').attr('dur','0.7s').attr('repeatCount','indefinite');
+            }
+
+            fpG.append('rect').attr('x', lx).attr('y', 0).attr('width', layerW).attr('height', 20)
+                .attr('fill', fillColor).attr('stroke', strokeColor).attr('rx', 2);
+            fpG.append('text').attr('x', lx + layerW/2).attr('y', 14).text(l)
+                .attr('fill', isActive ? c.text : isPast ? c.text + 'cc' : c.text + (activeIdx >= 0 ? '44' : ''))
+                .attr('font-family','JetBrains Mono, monospace')
+                .attr('font-size',9).attr('text-anchor','middle')
+                .attr('font-weight', isActive ? 600 : 400);
+            lx += layerW + gap;
+            if (i < layers.length - 1) {
+                const arrowColor = isPast ? '#6a6a7e' : isActive ? c.text : '#2a2a4a';
+                fpG.append('text').attr('x', lx - gap/2).attr('y', 14).text('\u203a')
+                    .attr('fill', arrowColor).attr('font-size',10).attr('text-anchor','middle');
+            }
+        });
+
+        // Result text after pipeline
+        svg.selectAll('.result-text').remove();
+    }
+
+    function showResult(tokenText) {
+        svg.selectAll('.result-text').remove();
+        const rx = 15 + layers.length * (layerW + gap) + 2;
+        svg.append('text').attr('class','result-text').attr('x', rx).attr('y', 62)
+            .text('\u2192 "' + tokenText.trim() + '"')
+            .attr('fill','#ff00aa').attr('font-family','JetBrains Mono, monospace')
+            .attr('font-size',10).attr('font-weight',600)
+            .attr('opacity', 0)
+            .transition().duration(200).attr('opacity', 1);
+    }
+
+    function drawStageDesc(text) {
+        svg.selectAll('.stage-desc').remove();
+        if (!text) return;
+        svg.append('text').attr('class','stage-desc').attr('x', 15).attr('y', 82)
+            .text(text)
+            .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace')
+            .attr('font-size',10).attr('font-style','italic');
+    }
+
+    function drawOutput(completedTokens) {
+        svg.selectAll('.output-row').remove();
+        if (completedTokens.length === 0) return;
+        const outG = svg.append('g').attr('class','output-row').attr('transform','translate(15,108)');
+        const outText = promptTokens.join('') + completedTokens.join('');
+        outG.append('text').attr('x',0).attr('y',12).text(outText)
+            .attr('fill','#c8c8d4').attr('font-family','JetBrains Mono, monospace').attr('font-size',12);
+        const cursorX = outText.length * 7.2;
+        outG.append('rect').attr('x',cursorX).attr('y',1).attr('width',7).attr('height',14)
+            .attr('fill','#00ff88').attr('opacity',0.7)
+            .append('animate').attr('attributeName','opacity')
+            .attr('values','0.7;0;0.7').attr('dur','1s').attr('repeatCount','indefinite');
+    }
+
+    function drawStatus(text, color) {
+        svg.selectAll('.status-row').remove();
+        svg.append('text').attr('class','status-row').attr('x', 15).attr('y', H - 10).text(text)
+            .attr('fill', color || '#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',10);
+    }
+
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    function drawInitial() {
+        svg.selectAll('*').remove();
+        drawTokens([]);
+        drawPipeline(-1);
+        drawStatus('Hit generate.', '#6a6a7e');
+    }
+
+    drawInitial();
+
+    async function runGeneration() {
+        if (generating) return;
+        generating = true;
+        cancelAnim = false;
+        const completed = [];
+
+        // Prompt processing — pulse through pipeline once
+        drawTokens([]);
+        drawStatus('Processing prompt\u2026', '#00ff88');
+        d3.select('#viz-ch1-auto-status').text('Processing prompt\u2026');
+
+        for (let si = 0; si < layers.length; si++) {
+            if (cancelAnim) { generating = false; return; }
+            drawPipeline(si);
+            drawStageDesc(stageDescs[si]);
+            await sleep(150);
         }
-        tick();
-    });
+        drawStageDesc('');
+        await sleep(200);
+
+        // Generate tokens one by one
+        for (let gi = 0; gi < genTokens.length; gi++) {
+            if (cancelAnim) { generating = false; return; }
+            const tok = genTokens[gi];
+            const runNum = gi + 1;
+
+            drawStatus(`Run ${runNum}/${genTokens.length}: ${promptTokens.length + completed.length} tokens \u2192 all layers \u2192 ???`, '#ffdd00');
+
+            // Pulse through each pipeline stage
+            for (let si = 0; si < layers.length; si++) {
+                if (cancelAnim) { generating = false; return; }
+                drawPipeline(si);
+                drawStageDesc(stageDescs[si]);
+                await sleep(si === layers.length - 1 ? 200 : 120);
+            }
+
+            // Flash result at end
+            showResult(tok);
+            drawStageDesc('');
+            await sleep(400);
+
+            // Commit token
+            completed.push(tok);
+            drawTokens(completed);
+            drawPipeline(-1);
+            drawOutput(completed);
+            drawStatus(`Run ${runNum}/${genTokens.length}: \u2192 "${tok.trim()}"`, '#00ddff');
+            d3.select('#viz-ch1-auto-status').text('"' + completed.join('').trim() + '"');
+
+            await sleep(300);
+        }
+
+        drawPipeline(-1);
+        drawStatus('Done. 8 words, 8 full passes through the same pipeline.', '#00ff88');
+        d3.select('#viz-ch1-auto-status').text('8 words, 8 full passes.');
+        generating = false;
+    }
+
+    d3.select('#viz-ch1-auto-start').on('click', runGeneration);
 
     d3.select('#viz-ch1-auto-reset').on('click', function() {
-        if (animTimer) { clearTimeout(animTimer); animTimer = null; }
-        step = 0;
+        cancelAnim = true;
+        generating = false;
         d3.select('#viz-ch1-auto-status').text('');
-        draw();
+        setTimeout(drawInitial, 50);
     });
 })();
 </script>
+
+<p>Now that you've seen the loop &mdash; text in, one word out, repeat &mdash; let's open the machine that runs each pass. The diagram below is the complete map: every stage your data touches between entering as text and leaving as a probability. Don't memorise it now. The rest of this article unpacks each box one at a time.</p>
 
 <h3 id="forward-pass">The Complete Forward Pass</h3>
 
@@ -739,15 +854,15 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 </div>
 
 <div class="tab-panel p3">
-<div style="padding: 1.2rem 1.4rem; font-size:16px; line-height:1.6;">
-<table style="margin:0; font-size:inherit;">
-<tr><th style="width:120px; font-size:11px;">Stage</th><th style="font-size:11px;">What it does</th></tr>
-<tr><td style="vertical-align:top; font-size:inherit;"><span class="fn">&starf; EMBED</span></td><td style="font-size:inherit;">Token ID &rarr; vector lookup. Each integer maps to a row in a table of 50,257&times;768 (GPT-2) or 152,064&times;5,120 (Qwen). This same table reappears at the end &mdash; the model asks which embedding is closest to its output.</td></tr>
-<tr><td style="vertical-align:top; font-size:inherit;"><span class="kw">&starf; NORM</span></td><td style="font-size:inherit;">Stabilise numbers before each operation. RMSNorm (modern) or LayerNorm (GPT-2). Three passes over the vector &mdash; trivial cost.</td></tr>
-<tr><td style="vertical-align:top; font-size:inherit;"><span class="ty">&starf; ATTENTION</span></td><td style="font-size:inherit;">"Who matters to me?" Each token broadcasts a query, every previous token advertises a key. High dot-product = relevance. The output is a weighted blend of value vectors &mdash; the token absorbs information from its context.</td></tr>
-<tr><td style="vertical-align:top; font-size:inherit;"><span class="fn">&starf; FFN</span></td><td style="font-size:inherit;">Expand &rarr; activate &rarr; compress. The vector inflates to 4&times; width (17,408 dims in Qwen), a gating function decides which features survive, then it shrinks back. The heaviest computation in the block &mdash; 78% of per-block FLOPs.</td></tr>
-<tr><td style="vertical-align:top; font-size:inherit;"><span class="fn">&starf; PROJECT</span></td><td style="font-size:inherit;">Multiply by the embedding table transposed &rarr; one score per vocabulary token. The model is asking: "which word's embedding vector is closest to my output?"</td></tr>
-<tr><td style="vertical-align:top; font-size:inherit;"><span class="st">&starf; SAMPLE</span></td><td style="font-size:inherit;">50,257 scores (or 152,064 for Qwen). Apply temperature, top-p, top-k. Draw one token. That's the output.</td></tr>
+<div style="padding: 1.2rem 1.4rem; font-size:0.88rem; line-height:1.6;">
+<table style="margin:0;">
+<tr><th style="width:120px;">Stage</th><th>What it does</th></tr>
+<tr><td style="vertical-align:top;"><span class="fn">&starf; EMBED</span></td><td>Token ID &rarr; vector lookup. Each integer maps to a row in a table of 50,257&times;768 (GPT-2) or 152,064&times;5,120 (Qwen). This same table reappears at the end &mdash; the model asks which embedding is closest to its output.</td></tr>
+<tr><td style="vertical-align:top;"><span class="kw">&starf; NORM</span></td><td>Stabilise numbers before each operation. RMSNorm (modern) or LayerNorm (GPT-2). Three passes over the vector &mdash; trivial cost.</td></tr>
+<tr><td style="vertical-align:top;"><span class="ty">&starf; ATTENTION</span></td><td>"Who matters to me?" Each token broadcasts a query, every previous token advertises a key. High dot-product = relevance. The output is a weighted blend of value vectors &mdash; the token absorbs information from its context.</td></tr>
+<tr><td style="vertical-align:top;"><span class="fn">&starf; FFN</span></td><td>Expand &rarr; activate &rarr; compress. The vector inflates to 4&times; width (17,408 dims in Qwen), a gating function decides which features survive, then it shrinks back. The heaviest computation in the block &mdash; 78% of per-block FLOPs.</td></tr>
+<tr><td style="vertical-align:top;"><span class="fn">&starf; PROJECT</span></td><td>Multiply by the embedding table transposed &rarr; one score per vocabulary token. The model is asking: "which word's embedding vector is closest to my output?"</td></tr>
+<tr><td style="vertical-align:top;"><span class="st">&starf; SAMPLE</span></td><td>50,257 scores (or 152,064 for Qwen). Apply temperature, top-p, top-k. Draw one token. That's the output.</td></tr>
 </table>
 <p style="margin-top:1rem; margin-bottom:0;">Seven matrix multiplications per block. Twelve blocks (GPT-2) or 64 (Qwen). That's <strong>86 big matmuls</strong> for GPT-2, <strong>448</strong> for Qwen &mdash; to produce <em>one</em> token. For GPT-2: ~250M FLOPs. For Qwen-3.5 27B: 44 <em>billion</em>. Same recipe, 176&times; the bill.</p>
 </div>
