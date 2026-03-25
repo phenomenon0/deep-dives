@@ -2845,57 +2845,25 @@ out  = h @ W_down     <span class="cm"># [17408] &rarr; [5120]  compress back</s
 })();
 </script>
 
-<pre><code><span class="label">Practical recipes</span>
-<span class="st">Code generation:</span>  temperature=<span class="nm">0</span> (greedy). Determinism matters.
-<span class="fn">Chat:</span>             temperature=<span class="nm">0.7</span>, min_p=<span class="nm">0.05</span>, rep_penalty=<span class="nm">1.1</span>
-<span class="kw">Creative writing:</span> temperature=<span class="nm">1.0</span>, min_p=<span class="nm">0.02</span>, top_p=<span class="nm">0.95</span>
-<span class="pp">Factual Q&amp;A:</span>      temperature=<span class="nm">0</span>. Always greedy for facts.
-</code></pre>
+<h3>Practical Recipes</h3>
 
-<div class="power">
-<div class="power-label">The Complete Machine</div>
-<p>We started with a question: what happens when you type something and words appear? Now we know. Raw text becomes tokens. Tokens become vectors. Vectors pass through 64 identical blocks &mdash; each one normalizing, attending, transforming, routing &mdash; until a single vector emerges. That vector projects back to vocabulary space. Temperature, top-p, and min-p shape the distribution. One random draw. One word. Append it, run everything again. That's the whole machine.</p>
+<p>Different tasks want different sampling. Here are four starting points &mdash; not gospel, but the defaults most engines converge on:</p>
+
+<table>
+<tr><th>Task</th><th>Temperature</th><th>Filters</th><th>Why</th></tr>
+<tr><td><strong>Code generation</strong></td><td><span class="nm">0</span> (greedy)</td><td>&mdash;</td><td>Determinism matters. One wrong token = broken syntax.</td></tr>
+<tr><td><strong>Chat</strong></td><td><span class="nm">0.7</span></td><td>min_p=0.05, rep_penalty=1.1</td><td>Warm but not wild. Repetition penalty keeps it from looping.</td></tr>
+<tr><td><strong>Creative writing</strong></td><td><span class="nm">1.0</span></td><td>min_p=0.02, top_p=0.95</td><td>Let rare words win sometimes. Top-p still prunes nonsense.</td></tr>
+<tr><td><strong>Factual Q&amp;A</strong></td><td><span class="nm">0</span> (greedy)</td><td>&mdash;</td><td>Always pick the highest-probability answer. No dice.</td></tr>
+</table>
+
+<div class="power" style="margin-top:2.5rem; border-left-color:var(--green); background:rgba(0,255,136,0.04);">
+<div class="power-label" style="font-size:13px; letter-spacing:0.12em;">The Complete Machine</div>
+<p style="font-size:1rem; line-height:1.7;">We started with a question: <em>what happens when you type something and words appear?</em></p>
+<p style="font-size:1rem; line-height:1.7;">Now we know. Raw text becomes tokens. Tokens become vectors &mdash; points in a 768-dimensional space where meaning has geometry. Those vectors pass through 12 identical blocks, each one normalising, attending across context, and rewriting through a gated feed-forward network. Twelve times the same structure, twelve different sets of learned weights, each refining the representation a little further. What emerges is a single vector that has absorbed the entire context of everything before it.</p>
+<p style="font-size:1rem; line-height:1.7;">That vector projects back to vocabulary space &mdash; a dot product against every word the model knows. Temperature, top-p, and min-p shape the resulting distribution. One random draw. One word. Append it to the sequence, and run the entire pipeline again.</p>
+<p style="font-size:1rem; line-height:1.7; margin-bottom:0;"><strong>That's the whole machine.</strong> No magic, no understanding, no intent &mdash; just matrix multiplications, applied in the right order, with the right learned numbers. The rest is engineering. And that's where <a href="inference-engine-deep-dive-2.html" style="color:var(--green);">Part II</a> begins.</p>
 </div>
-
-<p style="color:var(--text-dim); font-style:italic; font-size:0.95rem;">The model's math is fixed. The engineering battle is moving weights and KV entries fast enough to keep up.</p>
-
-<h3>Two Modes</h3>
-
-<p>The pipeline you just traced runs in two very different regimes. The distinction matters so much that it shapes every optimization in Part II.</p>
-
-<div class="diagram">
-<span class="diagram-label">Prefill vs Decode &mdash; the same model, two workloads</span>
-<pre><code>
-  <span style="color:var(--green);font-weight:bold">PREFILL</span> &mdash; processing the prompt
-
-  "What is the capital of France?"
-
-  All tokens processed <span style="color:var(--green)">in parallel</span>.
-  One big batch matrix multiply.
-  GPU compute units: <span style="color:var(--green)">busy</span>.
-  Bottleneck: <span style="color:var(--green)">compute (FLOPS)</span>.
-  Fast &mdash; thousands of tokens per second.
-
-  <span style="color:var(--border)">&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;</span>
-
-  <span style="color:var(--orange);font-weight:bold">DECODE</span> &mdash; generating the response
-
-  "The" &rarr; "capital" &rarr; "of" &rarr; "France" &rarr; "is" &rarr; "Paris" &rarr; "."
-
-  One token at a time. <span style="color:var(--orange)">Serial</span>.
-  Each token reads the <em>entire model</em> from memory.
-  GPU compute units: <span style="color:var(--orange)">95% idle</span>, waiting for data.
-  Bottleneck: <span style="color:var(--orange)">memory bandwidth</span>.
-  Slow &mdash; tens of tokens per second.
-
-  <span class="cm">Same weights. Same code. Same GPU.</span>
-  <span class="cm">Entirely different performance profiles.</span>
-</code></pre>
-</div>
-
-<p>Prefill is what GPUs were built for &mdash; parallel math on big matrices. Decode is the opposite: a single vector multiplied against the entire model, over and over, one token at a time. This asymmetry is why long prompts process surprisingly fast but responses stream out slowly. It's why every optimization in Part II exists, and why Part III's serving systems must schedule these two phases differently.</p>
-
-<p>Now we know the machine &mdash; and we know it has two faces. Part II asks the harder question: how do you make it <em>run?</em> 54 GB of weights that won't fit on your GPU. A KV cache that grows with every word. The memory bus as the true bottleneck. Quantization, FlashAttention, speculative decoding &mdash; and the engines that put it all together. The math doesn't change. The engineering changes everything.</p>
 
 </section>
 
