@@ -816,16 +816,38 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 <div class="tab-panel p1">
 <div class="diagram" style="border:none; margin:0; border-radius:0;">
 <span class="diagram-label">The Complete Forward Pass</span>
-<div id="pipeline-map-container" style="position:relative;">
-<pre id="pipeline-map-pre"><code id="pipeline-map-code"></code></pre>
-</div>
-<div id="pipeline-map-explain" style="min-height:2.8rem; padding:0.6rem 0; font-size:0.88rem; line-height:1.6;"></div>
-<div class="viz-controls" style="padding-bottom:0.4rem;">
-<button id="pipeline-map-play">Play</button>
-<button id="pipeline-map-step">Step</button>
-<button id="pipeline-map-reset" class="secondary">Reset</button>
-<button id="pipeline-map-show" class="secondary">Show All</button>
-</div>
+<pre><code>
+  <span class="st">"The capital of France"</span>
+      &darr;
+  <span class="fn">&starf; EMBED</span>    Look up each token in a table of 50,257 vectors.
+  &boxv;           "The"&thinsp;&rarr;&thinsp;[0.12, -0.34, 0.56, &hellip;]  (768 numbers)
+  &boxv;           Add a position signal so the model knows word order.
+      &darr;
+  ┌───────────────────────────────────────────────────────┐
+  &boxv; <span class="kw">&starf; NORM</span>      Stabilise the numbers (rescale to unit RMS)         &boxv;
+  &boxv;     &darr;                                                        &boxv;
+  &boxv; <span class="ty">&starf; ATTENTION</span>  <strong>Each token asks: "who in this sentence matters</strong>  &boxv;
+  &boxv;              <strong>to me?"</strong>  Produces a relevance-weighted blend    &boxv;
+  &boxv;              of all previous tokens' information.              &boxv;
+  &boxv;     &darr;  <span class="pp">+ skip connection (add original input back)</span>        &boxv;
+  &boxv;                                                               &boxv;
+  &boxv; <span class="kw">&starf; NORM</span>      Stabilise again                                   &boxv;
+  &boxv;     &darr;                                                        &boxv;
+  &boxv; <span class="fn">&starf; FFN</span>       Expand 768&thinsp;&rarr;&thinsp;3072, apply non-linearity, shrink     &boxv;
+  &boxv;              back to 768.  <strong>Attention gathers; the FFN</strong>      &boxv;
+  &boxv;              <strong>rewrites</strong> &mdash; transforming mixed context into      &boxv;
+  &boxv;              new features.                                     &boxv;
+  &boxv;     &darr;  <span class="pp">+ skip connection</span>                                   &boxv;
+  └───────────────────────────────────── <span class="cm">&times;12 identical</span> ──┘
+      &darr;
+  <span class="kw">&starf; NORM</span>    Final stabilisation
+      &darr;
+  <span class="fn">&starf; PROJECT</span>  Multiply by the embedding table <em>transposed</em> to get
+  &boxv;           a score for every word in the vocabulary.
+      &darr;
+  <span class="st">[0.01, 0.02, &hellip;, <span class="nm">0.73</span>, &hellip;]</span>  &larr; 50,257 scores (<strong>logits</strong>)
+  Highest score: token 318 = <span class="nm">" is"</span>
+</code></pre>
 </div>
 </div>
 
@@ -844,173 +866,6 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 </div>
 </div>
 </div>
-
-<script>
-(function() {
-    // The ASCII map broken into reveal stages — each stage is an array of HTML lines
-    // that appear together, plus an explanation.
-    const stages = [
-        {
-            lines: [
-                '',
-                '  <span class="st">"The capital of France"</span>',
-                '      \u2193'
-            ],
-            explain: '<span style="color:var(--text-dim)">The input: four words. About to become four token IDs, then four vectors of 768 numbers each.</span>'
-        },
-        {
-            lines: [
-                '  <span class="fn">\u2605 EMBED</span>    Look up each token in a table of 50,257 vectors.',
-                '  \u2502           "The"\u2009\u2192\u2009[0.12, -0.34, 0.56, \u2026]  (768 numbers)',
-                '  \u2502           Add a position signal so the model knows word order.',
-                '      \u2193'
-            ],
-            explain: '<strong style="color:#4488ff">EMBED</strong> \u2014 Each token ID indexes into a table of 50,257 rows. Out comes a vector of 768 numbers. The word \u201cThe\u201d becomes <code>[0.12, -0.34, 0.56, \u2026]</code>. No math \u2014 just a lookup. This same table reappears at the very end.'
-        },
-        {
-            lines: [
-                '  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510',
-                '  \u2502 <span class="kw">\u2605 NORM</span>      Stabilise the numbers (rescale to unit RMS)         \u2502',
-                '  \u2502     \u2193                                                        \u2502'
-            ],
-            explain: '<strong style="color:#ffdd00">NORM</strong> \u2014 Divide every dimension by the root-mean-square of the vector, then multiply by a learned scale. Keeps numbers from drifting to huge or tiny values between layers. Cost: trivial \u2014 three passes over 768 numbers.'
-        },
-        {
-            lines: [
-                '  \u2502 <span class="ty">\u2605 ATTENTION</span>  <strong>Each token asks: \u201cwho in this sentence matters</strong>  \u2502',
-                '  \u2502              <strong>to me?\u201d</strong>  Produces a relevance-weighted blend    \u2502',
-                '  \u2502              of all previous tokens\u2019 information.              \u2502',
-                '  \u2502     \u2193  <span class="pp">+ skip connection (add original input back)</span>        \u2502',
-                '  \u2502                                                               \u2502'
-            ],
-            explain: '<strong style="color:#ff00aa">ATTENTION</strong> \u2014 Each token broadcasts a query: \u201cwhat am I looking for?\u201d Every other token advertises a key: \u201chere\u2019s what I contain.\u201d Dot-product scores find the matches. The output is a weighted blend of value vectors \u2014 the token absorbs context from the tokens that matter most.'
-        },
-        {
-            lines: [
-                '  \u2502 <span class="kw">\u2605 NORM</span>      Stabilise again                                   \u2502',
-                '  \u2502     \u2193                                                        \u2502'
-            ],
-            explain: '<strong style="color:#ffdd00">NORM</strong> \u2014 Attention just mixed information across tokens, which can push dimensions to extreme values. This second normalisation resets the magnitudes so the FFN sees a clean input.'
-        },
-        {
-            lines: [
-                '  \u2502 <span class="fn">\u2605 FFN</span>       Expand 768\u2009\u2192\u20093072, apply non-linearity, shrink     \u2502',
-                '  \u2502              back to 768.  <strong>Attention gathers; the FFN</strong>      \u2502',
-                '  \u2502              <strong>rewrites</strong> \u2014 transforming mixed context into      \u2502',
-                '  \u2502              new features.                                     \u2502',
-                '  \u2502     \u2193  <span class="pp">+ skip connection</span>                                   \u2502'
-            ],
-            explain: '<strong style="color:#ff8800">FFN</strong> \u2014 The vector expands to 4\u00d7 width (3,072 dims for GPT-2, 17,408 for Qwen). A gate decides which features survive, an up projection computes candidates. Multiply them \u2014 selective routing. Compress back. <strong>78% of per-block compute.</strong>'
-        },
-        {
-            lines: [
-                '  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 <span class="cm">\u00d712 identical</span> \u2500\u2500\u2518',
-                '      \u2193'
-            ],
-            explain: '<strong style="color:#00ff88">REPEAT \u00d712</strong> \u2014 That entire block \u2014 norm, attention, residual, norm, FFN, residual \u2014 runs 12 times (GPT-2) or 64 times (Qwen). Same structure, different learned weights each time. Each layer refines the representation further.'
-        },
-        {
-            lines: [
-                '  <span class="kw">\u2605 NORM</span>    Final stabilisation',
-                '      \u2193'
-            ],
-            explain: '<strong style="color:#ffdd00">FINAL NORM</strong> \u2014 One last normalisation after all blocks. The vectors have passed through 12 layers of transformations. Stabilise before the final projection.'
-        },
-        {
-            lines: [
-                '  <span class="fn">\u2605 PROJECT</span>  Multiply by the embedding table <em>transposed</em> to get',
-                '  \u2502           a score for every word in the vocabulary.',
-                '      \u2193'
-            ],
-            explain: '<strong style="color:#4488ff">PROJECT</strong> \u2014 Multiply the last token\u2019s vector by the embedding table <em>transposed</em>. This produces a dot-product score against every word in the vocabulary. The same table from EMBED, used backwards \u2014 <strong>tied weights</strong>.'
-        },
-        {
-            lines: [
-                '  <span class="st">[0.01, 0.02, \u2026, <span class="nm">0.73</span>, \u2026]</span>  \u2190 50,257 scores (<strong>logits</strong>)',
-                '  Highest score: token 318 = <span class="nm">\u201c is\u201d</span>'
-            ],
-            explain: '<strong style="color:#00ff88">SAMPLE</strong> \u2014 50,257 logits \u2014 a ranked ballot. Temperature controls conviction, top-p and top-k prune the tail. One random draw: <strong style="color:#00ff88">\u201c is\u201d</strong>. Append it, run the whole pipeline again. 86 matmuls for one word.'
-        }
-    ];
-
-    const codeEl = document.getElementById('pipeline-map-code');
-    const explainEl = document.getElementById('pipeline-map-explain');
-    let currentStage = -1;
-    let animTimer = null;
-    let allRevealed = [];
-
-    function render() {
-        // Build the revealed lines with opacity classes
-        let html = '';
-        for (let si = 0; si <= Math.min(currentStage, stages.length - 1); si++) {
-            const isCurrent = si === currentStage;
-            const opacity = isCurrent ? '1' : '0.55';
-            stages[si].lines.forEach(line => {
-                html += '<span style="opacity:' + opacity + (isCurrent ? ';transition:opacity 0.3s' : '') + '">' + line + '</span>\n';
-            });
-        }
-        codeEl.innerHTML = html;
-
-        // Explanation
-        if (currentStage >= 0 && currentStage < stages.length) {
-            explainEl.innerHTML = stages[currentStage].explain;
-        } else if (currentStage >= stages.length) {
-            explainEl.innerHTML = '<strong style="color:#00ff88">Done.</strong> One token produced. Append it, run the whole pipeline again. That\u2019s the autoregressive loop.';
-        } else {
-            explainEl.innerHTML = '<span style="color:var(--text-dim)">Hit <strong>Play</strong> to reveal the pipeline stage by stage, or <strong>Step</strong> to advance manually.</span>';
-        }
-    }
-
-    function showAll() {
-        currentStage = stages.length;
-        let html = '';
-        stages.forEach(s => {
-            s.lines.forEach(line => {
-                html += '<span style="opacity:1">' + line + '</span>\n';
-            });
-        });
-        codeEl.innerHTML = html;
-        explainEl.innerHTML = '<span style="color:var(--text-dim)">The complete map. Use <strong>Step</strong> to walk through it with explanations.</span>';
-    }
-
-    render();
-
-    function advance() {
-        if (currentStage >= stages.length) return;
-        currentStage++;
-        render();
-    }
-
-    document.getElementById('pipeline-map-play').addEventListener('click', function() {
-        if (animTimer) return;
-        currentStage = -1;
-        render();
-        function tick() {
-            currentStage++;
-            if (currentStage > stages.length) { animTimer = null; render(); return; }
-            render();
-            animTimer = setTimeout(tick, currentStage < stages.length ? 2200 : 1200);
-        }
-        animTimer = setTimeout(tick, 400);
-    });
-
-    document.getElementById('pipeline-map-step').addEventListener('click', function() {
-        if (animTimer) { clearTimeout(animTimer); animTimer = null; }
-        advance();
-    });
-
-    document.getElementById('pipeline-map-reset').addEventListener('click', function() {
-        if (animTimer) { clearTimeout(animTimer); animTimer = null; }
-        currentStage = -1;
-        render();
-    });
-
-    document.getElementById('pipeline-map-show').addEventListener('click', function() {
-        if (animTimer) { clearTimeout(animTimer); animTimer = null; }
-        showAll();
-    });
-})();
-</script>
 
 <p>That diagram is the whole model. Here it is as working code &mdash; 60 lines of Python that implement GPT-2's forward pass. Every stage from the diagram maps to a function below.</p>
 
