@@ -2579,47 +2579,52 @@ out  = h @ W_down     <span class="cm"># [17408] &rarr; [5120]  compress back</s
 </code></pre>
 </div>
 
-<details>
-<summary>1. Repetition Penalty &mdash; penalize the past</summary>
-<p>Tokens the model recently generated get their logits divided by a penalty factor (typically 1.1). Already said &ldquo;Paris&rdquo;? Its logit drops from 5.2 &rarr; 4.7. Prevents loops.</p>
-<p style="color:var(--orange); font-size:0.9rem;">Without this: &ldquo;Paris Paris Paris Paris Paris&hellip;&rdquo;</p>
-</details>
+<div class="diagram">
+<span class="diagram-label">Pruning &mdash; remove candidates</span>
+<pre><code>
+  <span class="nm">1.</span> <span class="kw">Repetition Penalty</span>                              <span class="cm">penalize the past</span>
+     Recently generated tokens get their logits divided by 1.1.
+     Already said &ldquo;Paris&rdquo;? Its score drops. Prevents loops.
 
-<details>
-<summary>2. Top-K &mdash; hard ceiling (K=50)</summary>
-<p>Sort by score, keep only the top K. Everything else &rarr; &minus;&infin;. Brutal but fast. If K=50, tokens ranked 51+ are dead.</p>
-<p style="color:var(--orange); font-size:0.9rem;">Problem: K=50 is too many when the model is confident, too few when it&rsquo;s uncertain. That&rsquo;s why we also need:</p>
-</details>
+  <span class="nm">2.</span> <span class="fn">Top-K</span>          K=50                             <span class="cm">hard ceiling</span>
+     Keep only the top K scores. Everything else &rarr; &minus;&infin;.
+     <span class="pp">Problem: K=50 is too many when confident, too few when uncertain.</span>
+</code></pre>
+</div>
 
-<details>
-<summary>3. Top-P (nucleus) &mdash; adaptive cutoff (p=0.95)</summary>
-<p>Sort by probability. Walk down the list, accumulating. Stop when cumulative probability hits p. Discard the rest.</p>
-<p style="font-family:'JetBrains Mono',monospace; font-size:0.82rem; color:var(--text-dim);">Confident: [0.91, 0.04, 0.02, &hellip;] &rarr; keeps 1&ndash;2 tokens<br>Uncertain: [0.15, 0.12, 0.10, &hellip;] &rarr; keeps 8&ndash;10 tokens</p>
-<p style="color:var(--orange); font-size:0.9rem;">Adapts to the model&rsquo;s confidence. Top-K can&rsquo;t do this.</p>
-</details>
+<p>Pruning removes the obvious junk. But a fixed ceiling can't adapt to how confident the model is. The next three filters shape the distribution dynamically:</p>
 
-<details>
-<summary>4. Min-P &mdash; floor filter (min_p=0.05)</summary>
-<p>Any token with probability &lt; min_p &times; max_probability is cut. If the top token has p=0.6, the floor is 0.03. Anything below 3% is noise &mdash; kill it.</p>
-<p style="color:var(--orange); font-size:0.9rem;">Newer than top-p. Simpler. Many practitioners prefer it alone.</p>
-</details>
+<div class="diagram">
+<span class="diagram-label">Shaping &mdash; adjust the distribution</span>
+<pre><code>
+  <span class="nm">3.</span> <span class="st">Top-P (nucleus)</span>  p=0.95                       <span class="cm">adaptive cutoff</span>
+     Walk down the sorted list, accumulating probability. Stop at p.
+     <span class="cm">Confident: [0.91, 0.04, &hellip;] &rarr; keeps 1&ndash;2 tokens</span>
+     <span class="cm">Uncertain: [0.15, 0.12, &hellip;] &rarr; keeps 8&ndash;10 tokens</span>
 
-<details>
-<summary>5. Temperature &mdash; sharpen or flatten (T=0.7)</summary>
-<p>Divide all logits by T <em>before</em> softmax. T&lt;1 &rarr; sharpen (confident picks). T&gt;1 &rarr; flatten (creative). T=0 &rarr; always pick the top token (greedy).</p>
-<p style="font-family:'JetBrains Mono',monospace; font-size:0.82rem; color:var(--text-dim);">T=0.3: [0.99, 0.01, 0.00, &hellip;] &mdash; locks in<br>T=1.5: [0.37, 0.22, 0.15, &hellip;] &mdash; anything goes</p>
-</details>
+  <span class="nm">4.</span> <span class="pp">Min-P</span>          min_p=0.05                       <span class="cm">floor filter</span>
+     Cut anything below min_p &times; top_probability.
+     <span class="pp">Newer than top-p. Simpler. Many practitioners prefer it alone.</span>
 
-<details>
-<summary>6. Softmax &mdash; logits &rarr; probabilities</summary>
-<p>e<sup>logit</sup> / &Sigma;e<sup>logits</sup>. Converts raw scores to a proper probability distribution that sums to 1.</p>
-</details>
+  <span class="nm">5.</span> <span class="kw">Temperature</span>    T=0.7                            <span class="cm">sharpen/flatten</span>
+     Divide all logits by T before softmax.
+     <span class="cm">T=0.3: [0.99, 0.01, &hellip;] locks in.   T=1.5: [0.37, 0.22, &hellip;] anything goes.</span>
+</code></pre>
+</div>
 
-<details>
-<summary>7. Random Sample &mdash; roll the dice</summary>
-<p>Draw one token from the distribution. Done. This is where determinism ends and generation begins.</p>
-<p style="color:var(--orange); font-size:0.9rem;">Same prompt, same model, different roll &rarr; different story.</p>
-</details>
+<p>What remains is a shaped set of scores. Two final steps turn them into a word:</p>
+
+<div class="diagram">
+<span class="diagram-label">Output &mdash; scores become a word</span>
+<pre><code>
+  <span class="nm">6.</span> <span class="fn">Softmax</span>         e<sup>logit</sup> / &Sigma;e<sup>logits</sup>               <span class="cm">logits &rarr; probabilities</span>
+     Raw scores become a distribution that sums to 1.
+
+  <span class="nm">7.</span> <span class="st">Random Sample</span>                                    <span class="cm">roll the dice</span>
+     Draw one token. Done. Determinism ends, generation begins.
+     <span class="pp">Same prompt, same model, different roll &rarr; different story.</span>
+</code></pre>
+</div>
 
 <h3 id="sampling-explorer">Sampling Explorer: Watch the Words Change</h3>
 
