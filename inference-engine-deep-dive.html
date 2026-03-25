@@ -533,7 +533,7 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 <h2>// 01 &mdash; The Pipeline</h2>
 <div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--green)">EMBED</span> &rarr; <span style="color:var(--yellow)">NORM</span> &rarr; <span style="color:var(--magenta)">ATTN</span> &rarr; <span style="color:var(--orange)">FFN</span> &rarr; <span style="color:var(--cyan)">PROJECT</span> &rarr; <span style="color:var(--green)">SAMPLE</span> &nbsp; <span style="color:var(--green)">&larr; the whole map</span></div>
 <div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
-    Text in, probability distribution out. 86 matrix multiplies for GPT-2, 448 for Qwen-3.5 27B.<br>
+    Text in, probability distribution out. 73 matrix multiplies for GPT-2, 449 for Qwen-3.5 27B.<br>
     Same skeleton, different scale. This chapter is the map you'll reference for everything after.<span class="blink">_</span>
 </div>
 
@@ -862,7 +862,7 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 <tr><td style="vertical-align:top;"><span class="fn">&starf; PROJECT</span></td><td>Multiply by the embedding table transposed &rarr; one score per vocabulary token. The model is asking: "which word's embedding vector is closest to my output?"</td></tr>
 <tr><td style="vertical-align:top;"><span class="st">&starf; SAMPLE</span></td><td>50,257 scores (or 152,064 for Qwen). Apply temperature, top-p, top-k. Draw one token. That's the output.</td></tr>
 </table>
-<p style="margin-top:1rem; margin-bottom:0;">Seven matrix multiplications per block. Twelve blocks (GPT-2) or 64 (Qwen). That's <strong>86 big matmuls</strong> for GPT-2, <strong>448</strong> for Qwen &mdash; to produce <em>one</em> token. For GPT-2: ~250M FLOPs. For Qwen-3.5 27B: 44 <em>billion</em>. Same recipe, 176&times; the bill.</p>
+<p style="margin-top:1rem; margin-bottom:0;">Six weight-matrix multiplications per block (GPT-2) or seven (Qwen's SwiGLU adds a gate matrix). Twelve blocks (GPT-2) or 64 (Qwen). That's <strong>73 matmuls</strong> for GPT-2, <strong>449</strong> for Qwen &mdash; to produce <em>one</em> token. For GPT-2: ~250M FLOPs. For Qwen-3.5 27B: ~44 <em>billion</em>. Same recipe, 176&times; the bill.</p>
 </div>
 </div>
 </div>
@@ -985,7 +985,7 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
 <div class="diagram" style="border:none; margin:0; border-radius:0;">
 <span class="diagram-label">Why vocab size matters for speed</span>
 <pre><code>
-  Every token costs compute: <strong>~54 billion FLOPs</strong> in a 27B model.
+  Every token costs compute: <strong>~250 million FLOPs</strong> in GPT-2, <strong>~44 billion</strong> in a 27B model.
   Fewer tokens = proportionally less work.
 
   <span class="cm">GPT-2 (50K vocab):</span>   ~4.5 chars/token  <span class="cm">→ more tokens, more compute</span>
@@ -1052,7 +1052,7 @@ details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
         {
             text: '🔥',
             label: 'Emoji: 1 glyph, 3+ tokens',
-            insight: 'A single fire emoji is 4 bytes in UTF-8. GPT-2\'s BPE sees bytes, not glyphs &mdash; so it produces <strong>3-4 tokens</strong> for one emoji. Each token consumed costs 54 billion FLOPs in a 27B model. Emoji-heavy text is absurdly expensive per visible character. Newer tokenizers (Qwen, Llama 3) handle this better by including common emoji as single tokens.',
+            insight: 'A single fire emoji is 4 bytes in UTF-8. GPT-2\'s BPE sees bytes, not glyphs &mdash; so it produces <strong>3-4 tokens</strong> for one emoji. Each token consumed costs ~44 billion FLOPs in a 27B model. Emoji-heavy text is absurdly expensive per visible character. Newer tokenizers (Qwen, Llama 3) handle this better by including common emoji as single tokens.',
             tokens: [{t:'\\xf0\\x9f', id:8582}, {t:'\\x94', id:166}, {t:'\\xa5', id:97}]
         },
         {
@@ -1439,7 +1439,7 @@ logits = final_vector @ embedding_table.T   <span class="cm"># shape: [50257]</s
 <h2>// 03 &mdash; The Forward Pass</h2>
 <div style="font-family:'JetBrains Mono',monospace; font-size:10px; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-dim); margin-bottom:0.8rem; padding:0.4rem 0.8rem; border:1px solid var(--border); border-radius:4px; display:inline-block;"><span style="color:var(--text-dim)">EMBED</span> &rarr; <span style="color:var(--yellow);font-weight:bold">&#9654; NORM</span> &rarr; <span style="color:var(--magenta);font-weight:bold">ATTN</span> &rarr; <span style="color:var(--orange);font-weight:bold">FFN</span> &rarr; <span style="color:var(--text-dim)">PROJECT</span> &rarr; <span style="color:var(--text-dim)">SAMPLE</span> &nbsp; <span style="color:var(--magenta)">inside the block</span></div>
 <div style="font-size:1rem; color:var(--text-dim); font-style:italic; margin-bottom:1.5rem; line-height:1.6;">
-    One vector enters a transformer block. Seven matrix multiplications later, it exits &mdash; changed.<br>
+    One vector enters a transformer block. Six matrix multiplications later, it exits &mdash; changed.<br>
     Same shape, different meaning. Then the next block does it again. Sixty-four times.<span class="blink">_</span>
 </div>
 
@@ -1447,10 +1447,10 @@ logits = final_vector @ embedding_table.T   <span class="cm"># shape: [50257]</s
 
 <h3>One Block, Traced</h3>
 
-<p>One vector enters the top of a transformer block. Seven matrix multiplications and two skip connections later, one updated vector exits the bottom. That block repeats 64 times (GPT-2: 12). Here's the complete map &mdash; every weight matrix, every shape, every operation. The sections below trace each stage with real numbers.</p>
+<p>One vector enters the top of a transformer block. Six matrix multiplications and two skip connections later, one updated vector exits the bottom. That block repeats 12 times (GPT-2) or 64 (Qwen). Here's the complete map &mdash; every weight matrix, every shape, every operation. The sections below trace each stage with real numbers.</p>
 
 <div class="diagram">
-<span class="diagram-label">One Transformer Block &mdash; Data Flow</span>
+<span class="diagram-label">One Transformer Block &mdash; Data Flow (Qwen 27B dimensions; GPT-2: 768 dims, 12 heads &times; 64, FFN 768&rarr;3072&rarr;768)</span>
 <pre><code>
   <span class="cm">input x [5120]</span>
       &boxv;
@@ -1483,7 +1483,8 @@ logits = final_vector @ embedding_table.T   <span class="cm"># shape: [50257]</s
       &boxv;
   <span class="cm">output &rarr; next block (or final norm + logits)</span>
 
-  <span class="pp">7 matmuls per block: W_q, W_k, W_v, W_out, W_gate, W_up, W_down</span>
+  <span class="pp">GPT-2: 6 matmuls (W_q, W_k, W_v, W_out, W_up, W_down)</span>
+  <span class="pp">Qwen:  7 matmuls (adds W_gate for SwiGLU)</span>
   <span class="pp">&times; 64 blocks = 448 learned projections per token</span>
   <span class="cm">(not counting score computation, softmax, norms, or cache ops)</span>
 </code></pre>
@@ -1491,7 +1492,7 @@ logits = final_vector @ embedding_table.T   <span class="cm"># shape: [50257]</s
 
 <h4 id="rmsnorm">Step 1: RMSNorm</h4>
 
-<p>Before any matrix multiply, the vector gets normalized. Why? Each layer multiplies the vector by large weight matrices. After a few layers, some numbers in the vector get enormous while others shrink toward zero &mdash; the scale drifts. If the next layer's weights were tuned for inputs around 1.0 and they receive 340.0, everything breaks. <strong>RMSNorm</strong> &mdash; Root Mean Square Normalization &mdash; fixes this by dividing every number in the vector by a single value: the <em>root mean square</em> of the whole vector. That's literally: square every number, take the average, take the square root. Divide through. Now the vector's overall scale is back to ~1.0, and the next layer sees inputs in the range it expects. Two of these per block, 64 blocks &mdash; 128 resets per token.</p>
+<p>Before any matrix multiply, the vector gets normalized. Why? Each layer multiplies the vector by large weight matrices. After a few layers, some numbers in the vector get enormous while others shrink toward zero &mdash; the scale drifts. If the next layer's weights were tuned for inputs around 1.0 and they receive 340.0, everything breaks. <strong>RMSNorm</strong> &mdash; Root Mean Square Normalization &mdash; fixes this by dividing every number in the vector by a single value: the <em>root mean square</em> of the whole vector. That's literally: square every number, take the average, take the square root. Divide through. Now the vector's overall scale is back to ~1.0, and the next layer sees inputs in the range it expects. Two of these per block, 12 blocks in GPT-2 &mdash; 24 resets per token (128 in Qwen's 64 blocks).</p>
 
 <div class="tabbed">
 <input type="radio" name="rms" id="rms-t1" class="t1" checked>
@@ -1576,7 +1577,7 @@ logits = final_vector @ embedding_table.T   <span class="cm"># shape: [50257]</s
 
     &bull; cuts norm parameters in half  <span class="cm">(no &beta; vectors)</span>
     &bull; saves one pass over the vector per norm call
-    &bull; 64 blocks &times; 2 norms = 128 fewer reductions per token
+    &bull; 12 blocks &times; 2 norms = 24 fewer reductions per token (GPT-2)
     &bull; simpler numerics &rarr; fewer edge cases in FP16/BF16
 </code></pre>
 </div>
@@ -2343,33 +2344,36 @@ out  = h @ W_down     <span class="cm"># [17408] &rarr; [5120]  compress back</s
 
 <p>That's one block: six matmuls for GPT-2 (seven for Qwen's SwiGLU), two norms, two residual adds. The vector that enters is [768]. The vector that exits is [768]. Same shape, transformed meaning. Now do it 11 more times.</p>
 
-<h3 id="full-stack">The Full Stack: 64 Blocks Deep</h3>
+<h3 id="full-stack">The Full Stack: 12 Blocks Deep</h3>
 
-<p>We traced one block. The model runs 64 of them, in sequence, on every token. The same seven matrix multiplications, repeated with different learned weights. Here's what that stack looks like:</p>
+<p>We traced one block. GPT-2 runs 12 of them, in sequence, on every token. The same six matrix multiplications, repeated with different learned weights. Here's what that stack looks like:</p>
 
 <div class="diagram">
-<span class="diagram-label">One Token Through 64 Blocks &mdash; Qwen 27B</span>
+<span class="diagram-label">One Token Through 12 Blocks &mdash; GPT-2 (124M)</span>
 <pre><code>
   <span class="cm">Block</span>    <span class="cm">Operations</span>                                    <span class="cm">FLOPs</span>         <span class="cm">Cumulative</span>
   <span class="cm">─────    ──────────                                    ─────         ──────────</span>
-  <span style="color:var(--green)">  1</span>      RMSNorm &rarr; QKV &rarr; RoPE &rarr; Attn &rarr; Proj &rarr; FFN    <span class="nm">682M</span>          682M
-  <span style="color:var(--green)">  2</span>      RMSNorm &rarr; QKV &rarr; RoPE &rarr; Attn &rarr; Proj &rarr; FFN    <span class="nm">682M</span>          1.4B
-  <span style="color:var(--green)">  3</span>      RMSNorm &rarr; QKV &rarr; RoPE &rarr; Attn &rarr; Proj &rarr; FFN    <span class="nm">682M</span>          2.0B
-  <span style="color:var(--text-dim)">  &vellip;      same weights shape, different learned values      &vellip;             &vellip;</span>
-  <span style="color:var(--cyan)"> 64</span>      RMSNorm &rarr; QKV &rarr; RoPE &rarr; Attn &rarr; Proj &rarr; FFN    <span class="nm">682M</span>          <span style="color:var(--yellow)">43.6B</span>
+  <span style="color:var(--green)">  1</span>      LayerNorm &rarr; QKV &rarr; Attn &rarr; Proj &rarr; FFN          <span class="nm">~20M</span>          20M
+  <span style="color:var(--green)">  2</span>      LayerNorm &rarr; QKV &rarr; Attn &rarr; Proj &rarr; FFN          <span class="nm">~20M</span>          40M
+  <span style="color:var(--green)">  3</span>      LayerNorm &rarr; QKV &rarr; Attn &rarr; Proj &rarr; FFN          <span class="nm">~20M</span>          60M
+  <span style="color:var(--text-dim)">  &vellip;      same structure, different learned weights          &vellip;             &vellip;</span>
+  <span style="color:var(--cyan)"> 12</span>      LayerNorm &rarr; QKV &rarr; Attn &rarr; Proj &rarr; FFN          <span class="nm">~20M</span>          <span style="color:var(--yellow)">240M</span>
 
   <span class="cm">Then:</span>
-  <span style="color:var(--yellow)"> +1</span>      Final RMSNorm &rarr; logit projection (W_embed<sup>T</sup>)     <span class="nm">778M</span>          <span style="color:var(--yellow)">44.4B</span>
+  <span style="color:var(--yellow)"> +1</span>      Final LayerNorm &rarr; logit projection (W_embed<sup>T</sup>)   <span class="nm">~10M</span>          <span style="color:var(--yellow)">~250M</span>
 
   ─────────────────────────────────────────────────────────────────────
 
-  <span class="cm">Per block:</span>   7 matmuls &times; 1 block  = 7 matmuls           <span class="nm">682M FLOPs</span>
-  <span class="cm">Per token:</span>   7 matmuls &times; 64 blocks = <strong>448 matmuls</strong>          <span style="color:var(--yellow)"><strong>~54B FLOPs</strong></span>
-  <span class="cm">100 tokens:</span> 448 &times; 100            = <strong>44,800 matmuls</strong>       <span style="color:var(--yellow)"><strong>~5.4T FLOPs</strong></span>
+  <span class="cm">Per block:</span>   6 matmuls &times; 1 block   = 6 matmuls           <span class="nm">~20M FLOPs</span>
+  <span class="cm">Per token:</span>   6 matmuls &times; 12 blocks  = <strong>72 matmuls</strong> + 1 proj  <span style="color:var(--yellow)"><strong>~250M FLOPs</strong></span>
+  <span class="cm">100 tokens:</span> 73 &times; 100              = <strong>7,300 matmuls</strong>        <span style="color:var(--yellow)"><strong>~25B FLOPs</strong></span>
 
-  <span class="pp">Every token you see streaming? All 64 blocks ran. All 448 matmuls fired.</span>
-  <span class="pp">The vector that entered block 1 as a raw embedding exits block 64</span>
+  <span class="pp">Every token you see streaming? All 12 blocks ran. All 73 matmuls fired.</span>
+  <span class="pp">The vector that entered block 1 as a raw embedding exits block 12</span>
   <span class="pp">as a rich, context-aware representation. Same shape in, same shape out.</span>
+
+  <span class="cm">Scale comparison: Qwen-3.5 27B runs 64 blocks with 7 matmuls each</span>
+  <span class="cm">= 449 matmuls per token, ~44B FLOPs. Same recipe, 176&times; the cost.</span>
 </code></pre>
 </div>
 
