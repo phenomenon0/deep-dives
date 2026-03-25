@@ -1491,7 +1491,7 @@ logits = final_vector @ embedding_table.T   <span class="cm"># shape: [50257]</s
 
 <h4 id="rmsnorm">Step 1: RMSNorm</h4>
 
-<p>Before any matrix multiply, the vector gets normalized. Without this, hidden-state magnitudes drift after each layer &mdash; some dimensions explode, others shrink &mdash; and downstream weights can't keep up. Normalization resets the scale so every layer sees inputs in a predictable range.</p>
+<p>Before any matrix multiply, the vector gets normalized. Why? Each layer multiplies the vector by large weight matrices. After a few layers, some numbers in the vector get enormous while others shrink toward zero &mdash; the scale drifts. If the next layer's weights were tuned for inputs around 1.0 and they receive 340.0, everything breaks. <strong>RMSNorm</strong> &mdash; Root Mean Square Normalization &mdash; fixes this by dividing every number in the vector by a single value: the <em>root mean square</em> of the whole vector. That's literally: square every number, take the average, take the square root. Divide through. Now the vector's overall scale is back to ~1.0, and the next layer sees inputs in the range it expects. Two of these per block, 64 blocks &mdash; 128 resets per token.</p>
 
 <div class="tabbed">
 <input type="radio" name="rms" id="rms-t1" class="t1" checked>
@@ -1509,9 +1509,12 @@ logits = final_vector @ embedding_table.T   <span class="cm"># shape: [50257]</s
 <div class="diagram">
 <span class="diagram-label">RMSNorm &mdash; why normalize at all?</span>
 <pre><code>
-  <strong>Problem:</strong> after each layer, vector magnitudes drift.
-  Some dimensions explode, others shrink. Without correction,
-  later layers see wildly different scales &rarr; training collapses.
+  <strong>The problem:</strong> each layer multiplies by weight matrices.
+  After a few layers, numbers drift &mdash; some hit 340, others drop
+  to 0.003. The next layer&rsquo;s weights expect inputs near 1.0.
+
+  <strong>The fix:</strong> divide every number by the RMS of the whole vector.
+  RMS = &radic;(mean of all values&sup2;). One number. Divide through. Done.
 
   ─────────────────────────────────────────────────────────────
 
