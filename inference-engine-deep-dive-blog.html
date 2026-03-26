@@ -262,6 +262,9 @@ nav a {
     padding: 0.3rem 0;
 }
 nav a:hover { color: var(--gold); }
+nav a.active { color: var(--silver-bright); }
+[data-theme="hacker"] nav a.active { color: #00ff88; text-shadow: 0 0 6px rgba(0,255,136,0.3); }
+[data-theme="light"] nav a.active { color: var(--accent); }
 nav .nav-title {
     color: var(--silver-bright);
     font-weight: 600;
@@ -3433,10 +3436,37 @@ out  = h @ W_down     <span class="cm"># [17408] &rarr; [5120]  compress back</s
         };
     }
 
+    // ── Scroll Spy for Nav ──
+    function initScrollSpy() {
+        const navLinks = document.querySelectorAll('nav a[href^="#"]');
+        const sections = [];
+        navLinks.forEach(link => {
+            const id = link.getAttribute('href').slice(1);
+            const el = document.getElementById(id);
+            if (el) sections.push({ el, link });
+        });
+        if (!sections.length) return;
+
+        const obs = new IntersectionObserver((entries) => {
+            entries.forEach(e => {
+                const match = sections.find(s => s.el === e.target);
+                if (match) {
+                    if (e.isIntersecting) {
+                        navLinks.forEach(l => l.classList.remove('active'));
+                        match.link.classList.add('active');
+                    }
+                }
+            });
+        }, { rootMargin: '-20% 0px -60% 0px' });
+
+        sections.forEach(s => obs.observe(s.el));
+    }
+
     // Wait for scripts to load, then init
     function initAll() {
         init3D();
         initWipe();
+        initScrollSpy();
         setTimeout(revealSections, 100);
     }
     if (document.readyState === 'loading') {
