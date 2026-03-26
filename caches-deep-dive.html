@@ -1,0 +1,1333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CPU Caches — The Invisible Memory Hierarchy</title>
+  <meta
+    name="description"
+    content="A first-principles deep dive into CPU caches: how cache lookups work, why associativity matters, how coherence protocols keep multicore honest, and what cache-friendly code actually looks like."
+  >
+  <link
+    href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+    rel="stylesheet"
+  >
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --bg-card: #12121a;
+      --bg-code: #0e0e16;
+      --border: #1e1e2e;
+      --border-glow: #2a2a4a;
+      --text: #c8c8d4;
+      --text-dim: #6a6a7e;
+      --white: #e8e8f0;
+      --green: #00ff88;
+      --green-dim: #00aa55;
+      --cyan: #00ddff;
+      --magenta: #ff00aa;
+      --orange: #ff8800;
+      --red: #ff3344;
+      --yellow: #ffdd00;
+      --blue: #4488ff;
+      --purple: #aa44ff;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; scroll-padding-top: 3rem; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Source Serif 4", Georgia, serif;
+      font-size: 18px;
+      line-height: 1.7;
+      overflow-x: hidden;
+    }
+
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0, 0, 0, 0.03) 2px,
+        rgba(0, 0, 0, 0.03) 4px
+      );
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 1000;
+      background: rgba(10, 10, 15, 0.92);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      padding: 0.5rem 1.5rem;
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      overflow-x: auto;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      white-space: nowrap;
+    }
+
+    nav a {
+      color: var(--text-dim);
+      text-decoration: none;
+      transition: color 0.2s, text-shadow 0.2s;
+      padding: 0.3rem 0;
+    }
+
+    nav a:hover {
+      color: var(--green);
+      text-shadow: 0 0 8px rgba(0, 255, 136, 0.3);
+    }
+
+    .nav-title {
+      color: var(--green);
+      font-weight: 600;
+      margin-right: 0.5rem;
+      text-shadow: 0 0 10px rgba(0, 255, 136, 0.25);
+      flex-shrink: 0;
+    }
+
+    .content {
+      max-width: 820px;
+      margin: 0 auto;
+      padding: 5rem 2rem 6rem;
+    }
+
+    .hero {
+      text-align: center;
+      padding: 4rem 0 5rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 4rem;
+    }
+
+    .hero h1 {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 3rem;
+      font-weight: 600;
+      color: var(--green);
+      text-shadow: 0 0 30px rgba(0, 255, 136, 0.2), 0 0 60px rgba(0, 255, 136, 0.1);
+      margin-bottom: 0.8rem;
+      letter-spacing: -0.02em;
+    }
+
+    .subtitle {
+      font-size: 1.1rem;
+      color: var(--text-dim);
+      font-style: italic;
+      max-width: 640px;
+      margin: 0 auto;
+    }
+
+    .glitch {
+      position: relative;
+      display: inline-block;
+    }
+
+    .glitch::before,
+    .glitch::after {
+      content: attr(data-text);
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    .glitch::before {
+      color: var(--cyan);
+      animation: glitch-1 3s infinite linear alternate-reverse;
+      clip-path: inset(0 0 80% 0);
+    }
+
+    .glitch::after {
+      color: var(--magenta);
+      animation: glitch-2 2.5s infinite linear alternate-reverse;
+      clip-path: inset(80% 0 0 0);
+    }
+
+    .blink {
+      display: inline-block;
+      animation: blink 1s step-end infinite;
+      color: var(--green);
+    }
+
+    @keyframes blink {
+      50% { opacity: 0; }
+    }
+
+    @keyframes glitch-1 {
+      0%, 90% { transform: translate(0); }
+      92% { transform: translate(-3px, 1px); }
+      94% { transform: translate(3px, -1px); }
+      96% { transform: translate(-2px, 2px); }
+      100% { transform: translate(0); }
+    }
+
+    @keyframes glitch-2 {
+      0%, 88% { transform: translate(0); }
+      90% { transform: translate(2px, -1px); }
+      93% { transform: translate(-3px, 2px); }
+      96% { transform: translate(1px, -2px); }
+      100% { transform: translate(0); }
+    }
+
+    section {
+      margin-bottom: 5rem;
+      padding-top: 1rem;
+    }
+
+    h2 {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 1.5rem;
+      color: var(--green);
+      margin-bottom: 1.5rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border);
+      text-shadow: 0 0 10px rgba(0, 255, 136, 0.15);
+      letter-spacing: 0.02em;
+    }
+
+    h3 {
+      font-size: 1.25rem;
+      color: var(--cyan);
+      margin: 2.5rem 0 1rem;
+      font-weight: 600;
+    }
+
+    h4 {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.85rem;
+      color: var(--magenta);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin: 2rem 0 0.8rem;
+    }
+
+    p { margin-bottom: 1rem; }
+    strong { color: var(--white); }
+    a { color: var(--cyan); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .drop-cap::first-letter {
+      float: left;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 4rem;
+      line-height: 0.8;
+      padding: 0.1em 0.15em 0 0;
+      color: var(--green);
+      font-weight: 700;
+      text-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+    }
+
+    code {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.85em;
+      background: var(--bg-code);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 0.15em 0.4em;
+    }
+
+    pre {
+      position: relative;
+      background: var(--bg-code);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1.2rem;
+      overflow-x: auto;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      margin: 1.2rem 0;
+    }
+
+    pre code {
+      background: none;
+      border: none;
+      padding: 0;
+      font-size: inherit;
+      color: var(--text);
+    }
+
+    .label {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.8rem;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-dim);
+    }
+
+    .cm { color: var(--text-dim); }
+    .kw { color: var(--magenta); }
+    .ty { color: var(--cyan); }
+    .st { color: var(--green); }
+    .nm { color: var(--yellow); }
+    .fn { color: var(--blue); }
+    .pp { color: var(--orange); }
+
+    .diagram {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1.5rem;
+      margin: 1.5rem 0;
+      overflow-x: auto;
+    }
+
+    .diagram-label {
+      display: block;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-dim);
+      margin-bottom: 0.8rem;
+    }
+
+    .diagram pre {
+      background: none;
+      border: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    .power {
+      border-left: 3px solid var(--green-dim);
+      background: rgba(0, 255, 136, 0.04);
+      padding: 1rem 1.2rem;
+      margin: 1.5rem 0;
+      border-radius: 0 6px 6px 0;
+    }
+
+    .power.danger {
+      border-left-color: var(--red);
+      background: rgba(255, 51, 68, 0.04);
+    }
+
+    .power.hack {
+      border-left-color: var(--magenta);
+      background: rgba(255, 0, 170, 0.04);
+    }
+
+    .power.wild {
+      border-left-color: var(--orange);
+      background: rgba(255, 136, 0, 0.04);
+    }
+
+    .power.zen {
+      border-left-color: var(--cyan);
+      background: rgba(0, 221, 255, 0.04);
+    }
+
+    .power-label {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--green);
+      margin-bottom: 0.5rem;
+    }
+
+    .power.danger .power-label { color: var(--red); }
+    .power.hack .power-label { color: var(--magenta); }
+    .power.wild .power-label { color: var(--orange); }
+    .power.zen .power-label { color: var(--cyan); }
+
+    .vs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin: 1.5rem 0;
+    }
+
+    .vs-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1rem 1.1rem;
+    }
+
+    .vs-card h4 {
+      margin-top: 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.2rem 0;
+      font-size: 0.92rem;
+    }
+
+    th {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--green);
+      text-align: left;
+      padding: 0.6rem 0.8rem;
+      border-bottom: 2px solid var(--border);
+    }
+
+    td {
+      padding: 0.5rem 0.8rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    tr:hover td {
+      background: rgba(0, 255, 136, 0.03);
+    }
+
+    .mem-row {
+      display: flex;
+      gap: 1px;
+      margin: 0.4rem 0;
+      flex-wrap: wrap;
+    }
+
+    .mc {
+      width: 30px;
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 9px;
+      border-radius: 2px;
+    }
+
+    .mc.g { background: rgba(0, 255, 136, 0.25); color: var(--green); }
+    .mc.c { background: rgba(0, 221, 255, 0.25); color: var(--cyan); }
+    .mc.m { background: rgba(255, 0, 170, 0.25); color: var(--magenta); }
+    .mc.o { background: rgba(255, 136, 0, 0.25); color: var(--orange); }
+    .mc.r { background: rgba(255, 51, 68, 0.25); color: var(--red); }
+    .mc.y { background: rgba(255, 221, 0, 0.25); color: var(--yellow); }
+    .mc.b { background: rgba(68, 136, 255, 0.25); color: var(--blue); }
+    .mc.d { background: rgba(106, 106, 126, 0.15); color: var(--text-dim); }
+    .mc.e { background: rgba(106, 106, 126, 0.06); color: var(--text-dim); }
+    .mc.w { background: rgba(232, 232, 240, 0.15); color: var(--white); }
+    .mc.p { background: rgba(170, 68, 255, 0.25); color: var(--purple); }
+
+    .mc-label {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 9px;
+      color: var(--text-dim);
+      width: 50px;
+      display: flex;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    details {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin: 1.2rem 0;
+    }
+
+    summary {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.85rem;
+      color: var(--green);
+      padding: 0.8rem 1.2rem;
+      cursor: pointer;
+    }
+
+    details[open] summary {
+      border-bottom: 1px solid var(--border);
+    }
+
+    details > div {
+      padding: 1rem 1.2rem;
+    }
+
+    @media (max-width: 700px) {
+      body { font-size: 16px; }
+      nav { font-size: 9px; gap: 0.7rem; }
+      .content { padding: 3rem 0.8rem 4rem; }
+      .hero h1 { font-size: 2rem; }
+      .vs { grid-template-columns: 1fr; }
+      pre { font-size: 10.5px; padding: 0.7rem; }
+      .diagram { padding: 1rem; }
+      .power { padding: 0.6rem 0.8rem; }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <span class="nav-title">&gt;_ CACHES</span>
+    <a href="#wall">Wall</a>
+    <a href="#hierarchy">Hierarchy</a>
+    <a href="#lookup">Lookup</a>
+    <a href="#associativity">Associativity</a>
+    <a href="#eviction">Eviction</a>
+    <a href="#writes">Writes</a>
+    <a href="#locality">Locality</a>
+    <a href="#coherence">Coherence</a>
+    <a href="#prefetch">Prefetch</a>
+    <a href="#measure">Measure</a>
+    <a href="#patterns">Patterns</a>
+    <a href="#craft">Craft</a>
+  </nav>
+
+  <div class="content">
+    <div class="hero">
+      <h1><span class="glitch" data-text="CPU CACHES">CPU CACHES</span></h1>
+      <div class="subtitle">
+        The invisible memory hierarchy that makes or breaks every cycle your code executes<span class="blink">_</span>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- CHAPTER 01 — THE WALL                              -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section id="wall">
+      <h2>01 // The Wall</h2>
+      <p class="drop-cap">
+        Your CPU can retire four billion operations per second. Main memory can answer one request every two hundred of those operations. The gap between those two numbers is the single most important fact in computer performance.
+      </p>
+      <p>
+        This was not always true. In 1980, a processor and its DRAM ran at roughly the same clock rate. A memory access cost one cycle. You asked for a byte and it was there. But transistor budgets grew faster for logic than for storage, and by the early 1990s a memory fetch took ten cycles. By 2000 it took a hundred. Today, on a modern server chip running at 4 GHz, a round trip to DDR5 costs <strong>150&ndash;200 cycles</strong>. That is not a bottleneck. That is a wall.
+      </p>
+
+      <div class="diagram">
+        <span class="diagram-label">The Memory Wall &mdash; CPU vs DRAM Latency (1980&ndash;2025)</span>
+<pre><code><span class="cm">Relative performance (log scale, 1980 = 1&times;)</span>
+
+  10,000&times; &boxv;
+            &boxv;                                              <span class="g" style="color:var(--green)">&#9679;</span> CPU
+   1,000&times; &boxv;                                      <span class="g" style="color:var(--green)">&#9679;</span>
+            &boxv;                                <span class="g" style="color:var(--green)">&#9679;</span>
+     100&times; &boxv;                         <span class="g" style="color:var(--green)">&#9679;</span>                    <span class="cm">&larr; the gap is the problem</span>
+            &boxv;                  <span class="g" style="color:var(--green)">&#9679;</span>
+      10&times; &boxv;           <span class="g" style="color:var(--green)">&#9679;</span>                    <span class="r" style="color:var(--red)">&#9679;</span>  <span class="r" style="color:var(--red)">&#9679;</span>  <span class="r" style="color:var(--red)">&#9679;</span>  <span class="r" style="color:var(--red)">&#9679;</span>  DRAM
+            &boxv;     <span class="g" style="color:var(--green)">&#9679;</span>         <span class="r" style="color:var(--red)">&#9679;</span>  <span class="r" style="color:var(--red)">&#9679;</span>
+       1&times; &boxv; <span class="g" style="color:var(--green)">&#9679;</span><span class="r" style="color:var(--red)">&#9679;</span>     <span class="r" style="color:var(--red)">&#9679;</span>
+            &boxur;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;
+           1980    1985    1990    1995    2000    2005    2015    2025</code></pre>
+      </div>
+
+      <p>
+        The processor got ten thousand times faster. DRAM got maybe ten times faster. The result is a <strong>1,000&times; mismatch</strong> between compute speed and memory speed. Without something to bridge that gap, every program would spend almost all of its time waiting for data.
+      </p>
+      <p>
+        That something is the <strong>cache</strong>: a small, fast memory built from SRAM transistors, placed between the CPU and main memory, holding copies of the data the processor is most likely to need next. Caches are not an optimization. They are the reason your programs run at all.
+      </p>
+
+      <div class="power">
+        <div class="power-label">The Bet</div>
+        <p>Every cache is a bet that <strong>the future will look like the recent past</strong>. Data you just touched, you will touch again. Data near what you just touched, you will touch next. When the bet pays off, memory looks fast. When it does not, the wall reappears.</p>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- CHAPTER 02 — THE HIERARCHY                         -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section id="hierarchy">
+      <h2>02 // The Hierarchy</h2>
+      <p class="drop-cap">
+        One cache would be either too slow or too small. So we build a ladder.
+      </p>
+      <p>
+        Modern CPUs have three levels of cache, each trading size for speed. The first level is tiny and blindingly fast &mdash; a lookup completes in the same cycle the instruction needs the data. The last level is large enough to hold working sets but slow enough that a miss still hurts. Beyond it lies main memory, and beyond that, the abyss of storage.
+      </p>
+
+      <div class="diagram">
+        <span class="diagram-label">Cache Hierarchy &mdash; Modern x86 Multi-Core Layout</span>
+<pre><code>  <span class="ty">Core 0</span>             <span class="ty">Core 1</span>             <span class="ty">Core 2</span>             <span class="ty">Core 3</span>
+  &boxdr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxdl;     &boxdr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxdl;     &boxdr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxdl;     &boxdr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxdl;
+  &boxv; <span class="kw">L1-I</span> <span class="kw">L1-D</span> &boxv;     &boxv; <span class="kw">L1-I</span> <span class="kw">L1-D</span> &boxv;     &boxv; <span class="kw">L1-I</span> <span class="kw">L1-D</span> &boxv;     &boxv; <span class="kw">L1-I</span> <span class="kw">L1-D</span> &boxv;
+  &boxv; <span class="nm">32K</span>  <span class="nm">48K</span>  &boxv;     &boxv; <span class="nm">32K</span>  <span class="nm">48K</span>  &boxv;     &boxv; <span class="nm">32K</span>  <span class="nm">48K</span>  &boxv;     &boxv; <span class="nm">32K</span>  <span class="nm">48K</span>  &boxv;
+  &boxv; <span class="st">~1 ns</span>     &boxv;     &boxv; <span class="st">~1 ns</span>     &boxv;     &boxv; <span class="st">~1 ns</span>     &boxv;     &boxv; <span class="st">~1 ns</span>     &boxv;
+  &boxur;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxh;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxul;     &boxur;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxh;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxul;     &boxur;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxh;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxul;     &boxur;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxh;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxul;
+  &boxdr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxdl;     &boxdr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxdl;     &boxdr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxdl;     &boxdr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxdl;
+  &boxv;  <span class="fn">L2</span>       &boxv;     &boxv;  <span class="fn">L2</span>       &boxv;     &boxv;  <span class="fn">L2</span>       &boxv;     &boxv;  <span class="fn">L2</span>       &boxv;
+  &boxv; <span class="nm">1.25 MB</span>   &boxv;     &boxv; <span class="nm">1.25 MB</span>   &boxv;     &boxv; <span class="nm">1.25 MB</span>   &boxv;     &boxv; <span class="nm">1.25 MB</span>   &boxv;
+  &boxv; <span class="st">~4 ns</span>     &boxv;     &boxv; <span class="st">~4 ns</span>     &boxv;     &boxv; <span class="st">~4 ns</span>     &boxv;     &boxv; <span class="st">~4 ns</span>     &boxv;
+  &boxur;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxh;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxul;     &boxur;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxh;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxul;     &boxur;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxh;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxul;     &boxur;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxh;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxul;
+        &bsol;              &boxv;               &boxv;             &sol;
+  &boxdr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxdl;
+  &boxv;            <span class="pp">L3 — Shared Last-Level Cache</span>                   &boxv;
+  &boxv;                  <span class="nm">12&ndash;36 MB</span>  &middot;  <span class="st">~12 ns</span>                    &boxv;
+  &boxur;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxul;
+                              &boxv;
+  &boxdr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxdl;
+  &boxv;                     <span class="r" style="color:var(--red)">DRAM</span>                             &boxv;
+  &boxv;               <span class="nm">16&ndash;512 GB</span>  &middot;  <span class="st">~100 ns</span>                   &boxv;
+  &boxur;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxul;</code></pre>
+      </div>
+
+      <p>
+        The L1 is split into two caches: one for instructions (<strong>L1-I</strong>), one for data (<strong>L1-D</strong>). This is not arbitrary. The instruction fetch unit and the data load/store unit run in parallel stages of the pipeline. Separate caches let them access memory simultaneously without port contention. Intel's recent cores give L1-D 48 KB and L1-I 32 KB. AMD's Zen 4 gives both 32 KB.
+      </p>
+      <p>
+        L2 is unified &mdash; it holds both instructions and data &mdash; and private to each core. On modern chips, L2 has grown to 1&ndash;2 MB per core, making it large enough to hold the hot working set of most single-threaded workloads.
+      </p>
+      <p>
+        L3 is shared across all cores. It acts as a victim cache and a coherence directory, so when Core 0 needs data that Core 3 modified, the L3 mediates the transfer. Server chips allocate 2&ndash;3 MB of L3 per core; a 16-core chip might have 36 MB of shared last-level cache.
+      </p>
+
+      <h3>The Latency Ladder</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Level</th>
+            <th>Size</th>
+            <th>Latency</th>
+            <th>Cycles @ 4 GHz</th>
+            <th>Analogy</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>L1</strong></td>
+            <td>32&ndash;48 KB</td>
+            <td>~1 ns</td>
+            <td>4</td>
+            <td>Picking up a pen from your desk</td>
+          </tr>
+          <tr>
+            <td><strong>L2</strong></td>
+            <td>256 KB&ndash;2 MB</td>
+            <td>~4 ns</td>
+            <td>16</td>
+            <td>Grabbing a book from your shelf</td>
+          </tr>
+          <tr>
+            <td><strong>L3</strong></td>
+            <td>8&ndash;36 MB</td>
+            <td>~12 ns</td>
+            <td>48</td>
+            <td>Walking to the office library</td>
+          </tr>
+          <tr>
+            <td><strong>DRAM</strong></td>
+            <td>16&ndash;512 GB</td>
+            <td>~100 ns</td>
+            <td>400</td>
+            <td>Driving to the city archive</td>
+          </tr>
+          <tr>
+            <td><strong>NVMe SSD</strong></td>
+            <td>1&ndash;8 TB</td>
+            <td>~10 &mu;s</td>
+            <td>40,000</td>
+            <td>Ordering a book from another state</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>
+        Every level is a bet on locality. The closer to the core, the smaller and faster &mdash; and the more it depends on your access patterns being predictable. When they are, L1 delivers data in a single cycle, and the processor never sees the wall. When they are not, the entire pipeline stalls while the cache hierarchy goes hunting.
+      </p>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- CHAPTER 03 — ANATOMY OF A LOOKUP                   -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section id="lookup">
+      <h2>03 // Anatomy of a Lookup</h2>
+      <p class="drop-cap">
+        A cache is not a hash table. It is something more constrained, more elegant, and more fragile. Understanding how a single lookup works is the key to understanding everything else.
+      </p>
+      <p>
+        The fundamental unit is the <strong>cache line</strong>: 64 bytes on every modern x86 and ARM processor. When you load a single <code>int</code> from memory, the cache does not fetch 4 bytes. It fetches the entire 64-byte line that contains it. This is the spatial locality bet made manifest in hardware: if you touched one byte, you will probably touch its neighbors.
+      </p>
+
+      <h3>Address Decomposition</h3>
+      <p>
+        Given a 64-bit virtual address (after TLB translation to a physical address), the cache splits it into three fields:
+      </p>
+
+      <div class="diagram">
+        <span class="diagram-label">Address Decomposition &mdash; 32 KB, 8-way Set-Associative, 64B Lines</span>
+<pre><code>  64-bit physical address
+  &boxdr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxh;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxh;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxdl;
+  &boxv; <span class="pp">tag  (bits 63&ndash;12)</span>          &boxv; <span class="fn">set (11&ndash;6)</span> &boxv; <span class="st">offset (5&ndash;0)</span> &boxv;
+  &boxv; <span class="pp">52 bits</span>                    &boxv; <span class="fn">6 bits</span>     &boxv; <span class="st">6 bits</span>      &boxv;
+  &boxur;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxh;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxh;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxul;
+
+  <span class="st">offset</span>  &rarr;  which byte within the 64-byte line       (2&sup6; = 64 bytes)
+  <span class="fn">set</span>     &rarr;  which row (set) in the cache              (2&sup6; = 64 sets)
+  <span class="pp">tag</span>     &rarr;  which address maps to this set             (unique ID)</code></pre>
+      </div>
+
+      <p>
+        The math is straightforward. A 32 KB, 8-way set-associative cache with 64-byte lines has:
+      </p>
+      <pre><span class="label">Math</span><code><span class="cm">// Cache geometry</span>
+cache_size    = <span class="nm">32768</span> bytes   <span class="cm">// 32 KB</span>
+line_size     = <span class="nm">64</span> bytes
+associativity = <span class="nm">8</span> ways
+
+num_sets      = cache_size / (line_size &times; associativity)
+              = <span class="nm">32768</span> / (<span class="nm">64</span> &times; <span class="nm">8</span>)
+              = <span class="nm">64</span> sets
+
+offset_bits   = log2(<span class="nm">64</span>)   = <span class="nm">6</span>   <span class="cm">// byte within line</span>
+set_bits      = log2(<span class="nm">64</span>)   = <span class="nm">6</span>   <span class="cm">// which set</span>
+tag_bits      = <span class="nm">64</span> - <span class="nm">6</span> - <span class="nm">6</span> = <span class="nm">52</span>  <span class="cm">// everything else</span></code></pre>
+
+      <h3>The Lookup Path</h3>
+      <p>
+        When the CPU issues a load, the cache does the following in a single cycle:
+      </p>
+      <p>
+        <strong>1.</strong> Extract the set index (bits 11&ndash;6) and use it to select one row of the cache.<br>
+        <strong>2.</strong> Read all 8 tags in that set simultaneously (parallel comparators).<br>
+        <strong>3.</strong> Compare each tag against the address&rsquo;s tag field.<br>
+        <strong>4.</strong> If one matches and the valid bit is set: <strong>hit</strong>. Use the offset to select the requested bytes from that line.<br>
+        <strong>5.</strong> If none match: <strong>miss</strong>. Forward the request to the next level and stall (or queue) until it returns.
+      </p>
+
+      <div class="diagram">
+        <span class="diagram-label">One Set of an 8-Way Cache (64 sets &times; 8 ways = 32 KB)</span>
+<pre><code>  Set 17:
+  &boxdr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxdl;&boxdr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxdl;&boxdr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxdl;
+  &boxv; <span class="cm">V D</span> &boxv;&boxv; <span class="pp">tag</span>              &boxv;&boxv; <span class="st">64 bytes of data ...</span>                &boxv;  Way 0
+  &boxur;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxul;&boxur;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxul;&boxur;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxul;
+  &boxdr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxdl;&boxdr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxdl;&boxdr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxdl;
+  &boxv; <span class="cm">V D</span> &boxv;&boxv; <span class="pp">tag</span>              &boxv;&boxv; <span class="st">64 bytes of data ...</span>                &boxv;  Way 1
+  &boxur;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxul;&boxur;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxul;&boxur;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxul;
+  <span class="cm">  ...</span>                                                             Way 2&ndash;6
+  &boxdr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxdl;&boxdr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxdl;&boxdr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxdl;
+  &boxv; <span class="cm">V D</span> &boxv;&boxv; <span class="pp">tag</span>              &boxv;&boxv; <span class="st">64 bytes of data ...</span>                &boxv;  Way 7
+  &boxur;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxul;&boxur;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxul;&boxur;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxul;
+
+  <span class="cm">V</span> = valid bit     <span class="cm">D</span> = dirty bit     8 parallel tag comparators per lookup</code></pre>
+      </div>
+
+      <p>
+        Notice the two metadata bits per line. The <strong>valid bit</strong> says whether the line holds real data (a cold cache starts with all valid bits cleared). The <strong>dirty bit</strong> marks whether the line has been written to &mdash; if it has, it must be written back to memory before eviction. These two bits, multiplied across millions of cache lines, quietly govern every memory operation your processor executes.
+      </p>
+
+      <div class="power zen">
+        <div class="power-label">The 64-Byte Rule</div>
+        <p>The cache line &mdash; not the byte &mdash; is the atom of the memory system. Every access loads 64 bytes whether you need them or not. This means a <code>bool</code> and a <code>struct</code> next to it share a cache line. Change the <code>bool</code>, and you invalidate the <code>struct</code>. Understand this, and false sharing, padding, and alignment all make sense.</p>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- CHAPTER 04 — ASSOCIATIVITY                         -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section id="associativity">
+      <h2>04 // Associativity</h2>
+      <p class="drop-cap">
+        Direct-mapped caches are fast and fragile. Fully associative caches are flexible and impossibly expensive. Every real cache lives in the tension between them.
+      </p>
+      <p>
+        Associativity answers a simple question: when a new line arrives and it maps to a particular set, <strong>how many places can it go?</strong> In a direct-mapped cache, the answer is one. In an 8-way set-associative cache, the answer is eight. In a fully associative cache, the answer is anywhere &mdash; but you need a comparator for every line in the cache, and that does not scale.
+      </p>
+
+      <div class="diagram">
+        <span class="diagram-label">The Associativity Spectrum &mdash; Same Four Accesses, Three Designs</span>
+<pre><code><span class="kw">Direct-Mapped (1-way)</span>                   Addresses A, B, C, D all map to set 5
+&boxdr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxdl;
+&boxv;  Set 5:     &boxv;
+&boxv;  [<span class="st">A</span>]        &boxv;  &larr; load A: <span class="st">miss, fill</span>
+&boxv;  [<span class="fn">B</span>]        &boxv;  &larr; load B: <span class="st">miss</span>, <span class="r" style="color:var(--red)">evict A</span>
+&boxv;  [<span class="pp">C</span>]        &boxv;  &larr; load C: <span class="st">miss</span>, <span class="r" style="color:var(--red)">evict B</span>
+&boxv;  [<span class="st">A</span>]        &boxv;  &larr; load A: <span class="r" style="color:var(--red)">MISS again</span> &mdash; conflict!
+&boxur;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxul;
+  Hit rate: <span class="r" style="color:var(--red)">0%</span>
+
+<span class="fn">2-Way Set-Associative</span>
+&boxdr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxdl;
+&boxv;  Set 5:           &boxv;
+&boxv;  [<span class="st">A</span>] [<span class="fn">B</span>]         &boxv;  &larr; A and B both fit
+&boxv;  [<span class="pp">C</span>] [<span class="fn">B</span>]         &boxv;  &larr; load C: evict A (LRU)
+&boxv;  [<span class="pp">C</span>] [<span class="st">A</span>]         &boxv;  &larr; load A: evict B (LRU)
+&boxur;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxul;
+  Hit rate: <span class="nm" style="color:var(--yellow)">0%</span> <span class="cm">(still thrashing with 4 addresses and 2 ways)</span>
+
+<span class="pp">4-Way Set-Associative</span>
+&boxdr;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxdl;
+&boxv;  Set 5:                 &boxv;
+&boxv;  [<span class="st">A</span>] [<span class="fn">B</span>] [<span class="pp">C</span>] [<span class="nm">D</span>]       &boxv;  &larr; all four fit
+&boxv;  [<span class="st">A</span>] [<span class="fn">B</span>] [<span class="pp">C</span>] [<span class="nm">D</span>]       &boxv;  &larr; reload A: <span class="st">HIT</span>
+&boxur;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&HorizontalLine;&boxul;
+  Hit rate: <span class="st" style="color:var(--green)">higher</span> &mdash; conflict misses eliminated</code></pre>
+      </div>
+
+      <div class="vs">
+        <div class="vs-card">
+          <h4>Direct-Mapped</h4>
+          <p><strong>Speed:</strong> Fastest lookup &mdash; one tag comparison, one data read.</p>
+          <p><strong>Fragility:</strong> Any two addresses that map to the same set fight to the death. Conflict misses dominate.</p>
+          <p><strong>Used for:</strong> TLBs in some microcontrollers, embedded L1 caches.</p>
+        </div>
+        <div class="vs-card">
+          <h4>N-Way Set-Associative</h4>
+          <p><strong>Speed:</strong> Slightly slower &mdash; N parallel tag comparisons, mux on the result.</p>
+          <p><strong>Resilience:</strong> N addresses can coexist in the same set. Conflict misses drop dramatically at 4&ndash;8 ways.</p>
+          <p><strong>Used for:</strong> Every modern L1, L2, and L3 cache. 8-way is the dominant L1 choice; L3 is often 12&ndash;16 way.</p>
+        </div>
+      </div>
+
+      <p>
+        The returns diminish quickly. Going from direct-mapped to 2-way cuts conflict misses by roughly half. Going from 2-way to 4-way halves them again. Beyond 8-way, the marginal benefit is measurable only in pathological access patterns, and the power and area cost of additional comparators starts to matter. This is why 8-way has been the L1 sweet spot for over a decade: it is the point where the conflict miss rate drops low enough that replacement policy, not associativity, becomes the dominant factor.
+      </p>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- CHAPTER 05 — EVICTION                              -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section id="eviction">
+      <h2>05 // Eviction</h2>
+      <p class="drop-cap">
+        Every cache line loaded is a bet that it will be used again. Replacement policy is how the cache decides which bet to cancel.
+      </p>
+      <p>
+        When a new line arrives and all ways in the target set are occupied, the cache must choose a victim. The ideal policy would evict the line that will be used furthest in the future &mdash; Belady&rsquo;s optimal algorithm &mdash; but that requires seeing the future. Real hardware approximates it.
+      </p>
+
+      <h3>LRU and Its Limits</h3>
+      <p>
+        <strong>Least Recently Used</strong> evicts the line that has not been accessed for the longest time. For small associativities (2&ndash;4 way), true LRU is implemented with a few bits of state tracking the access order. But for 8 or more ways, maintaining a precise ordering requires <code>log2(N!)</code> bits per set &mdash; 15 bits for 8-way &mdash; and the update logic runs on every access. That is too expensive.
+      </p>
+
+      <h3>Tree-Based Pseudo-LRU</h3>
+      <p>
+        Modern L1 caches use <strong>tree-PLRU</strong>: a binary tree of single-bit pointers that approximates LRU with only <code>N&minus;1</code> bits per set. For 8-way, that is 7 bits instead of 15.
+      </p>
+
+      <div class="diagram">
+        <span class="diagram-label">Tree-PLRU for 8-Way &mdash; 7 Bits Per Set</span>
+<pre><code>                     <span class="pp">[0]</span>                  <span class="cm">&larr; root: 0=go left, 1=go right</span>
+                    &sol;   &bsol;
+                <span class="pp">[0]</span>       <span class="pp">[1]</span>
+               &sol;   &bsol;    &sol;   &bsol;
+            <span class="pp">[1]</span>   <span class="pp">[0]</span> <span class="pp">[0]</span>   <span class="pp">[1]</span>
+            &sol;&bsol;   &sol;&bsol;  &sol;&bsol;   &sol;&bsol;
+           <span class="st">W0</span> <span class="fn">W1</span> <span class="st">W2</span> <span class="fn">W3</span> <span class="st">W4</span> <span class="fn">W5</span> <span class="st">W6</span> <span class="fn">W7</span>    <span class="cm">&larr; 8 ways</span>
+
+  <span class="cm">To find victim: follow pointers from root to leaf.</span>
+  <span class="cm">Root=0 &rarr; go left. Next=0 &rarr; go left. Next=1 &rarr; go right.</span>
+  <span class="cm">Victim = <span class="fn">W1</span></span>
+
+  <span class="cm">After access: flip every bit on the path from the accessed</span>
+  <span class="cm">way back to the root. This points the tree away from</span>
+  <span class="cm">what was just used &mdash; a rough LRU approximation.</span></code></pre>
+      </div>
+
+      <p>
+        PLRU does not track the exact access order. It can make suboptimal eviction choices, especially under scan patterns where every line gets touched once and the tree bits all point the same direction. But for typical workloads, it is within 1&ndash;2% of true LRU&rsquo;s hit rate while costing half the state and running in a single cycle.
+      </p>
+
+      <h3>RRIP: Scan Resistance for L3</h3>
+      <p>
+        Last-level caches face a different problem: <strong>scan pollution</strong>. A one-time scan through a large array can evict frequently used data, poisoning the cache for subsequent accesses. Intel&rsquo;s RRIP (Re-Reference Interval Prediction) counters this by assigning each line a re-reference prediction value. New lines enter with a near-distant prediction (not most-recently-used), so they are evicted quickly unless they are accessed again. Lines that prove useful get promoted. This simple bias protects the cache from single-pass scans while still responding to genuine working-set changes.
+      </p>
+
+      <div class="power zen">
+        <div class="power-label">First Optimization</div>
+        <p>The best replacement policy is the one that never runs. If your working set fits in the cache, eviction policy is irrelevant. The first optimization is always: <strong>make the data smaller.</strong></p>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- CHAPTER 06 — WRITES                                -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section id="writes">
+      <h2>06 // Writes</h2>
+      <p class="drop-cap">
+        Reading is simple: the data is either there or it is not. Writing is where caches get political.
+      </p>
+      <p>
+        When the CPU stores a value, the cache must decide two things: <strong>where to put it</strong> and <strong>when to tell memory</strong>. The answers define the write policy, and the choice has consequences that ripple through bus bandwidth, coherence traffic, and store buffer pressure.
+      </p>
+
+      <div class="vs">
+        <div class="vs-card">
+          <h4>Write-Through</h4>
+          <p><strong>Rule:</strong> Every store goes to the cache <em>and</em> immediately to the next level.</p>
+          <p><strong>Pro:</strong> Simple. Memory is always consistent. Recovery from crashes is straightforward.</p>
+          <p><strong>Con:</strong> Heavy bus traffic. Every store becomes a memory write, regardless of whether the line is about to be written again.</p>
+          <p><strong>Used in:</strong> Some embedded caches. L1 on older ARM cores. Almost nowhere on modern desktop/server CPUs.</p>
+        </div>
+        <div class="vs-card">
+          <h4>Write-Back</h4>
+          <p><strong>Rule:</strong> Stores update only the cache. The dirty bit gets set. Memory is updated only when the line is evicted.</p>
+          <p><strong>Pro:</strong> Dramatically less bus traffic. Multiple stores to the same line collapse into one writeback.</p>
+          <p><strong>Con:</strong> Memory is stale. Coherence protocol must track dirty state. Eviction becomes a write.</p>
+          <p><strong>Used in:</strong> Every modern L1, L2, and L3 cache.</p>
+        </div>
+      </div>
+
+      <h3>Write-Allocate vs No-Write-Allocate</h3>
+      <p>
+        On a <strong>write miss</strong> (the target line is not in the cache), there is a second choice: should the cache fetch the line first? <strong>Write-allocate</strong> says yes: bring the line in, then modify it in-place. This makes sense for write-back caches because subsequent reads will find the data locally. <strong>No-write-allocate</strong> says no: send the store directly to memory and do not pollute the cache with data that might not be read. This pairs naturally with write-through.
+      </p>
+
+      <h3>The Store Buffer</h3>
+      <p>
+        Even with write-back, a store cannot always complete instantly. If the cache is busy with a fill, or if the coherence protocol is waiting for an invalidation acknowledgment, the store must wait. Rather than stalling the pipeline, the CPU places the store in a <strong>store buffer</strong> &mdash; a small queue between the core and the L1 cache.
+      </p>
+
+      <div class="power wild">
+        <div class="power-label">The Hidden Bottleneck</div>
+        <p>Modern Intel cores have a 56-entry store buffer. When it fills &mdash; because of a burst of cache misses on stores &mdash; the pipeline stalls. This is the real cost of write-side cache misses: not the miss latency itself, but the store buffer draining. Scatter writes to random addresses can stall a processor more effectively than random reads, because the store buffer saturates while the loads at least benefit from out-of-order execution and miss-status holding registers.</p>
+      </div>
+
+      <h3>Write-Combining</h3>
+      <p>
+        For writes to uncacheable memory (MMIO, framebuffers, certain device-mapped regions), the CPU uses <strong>write-combining buffers</strong>. These collect multiple small stores to the same cache-line-sized region and send them as a single burst write. If you are writing 16 consecutive 4-byte values to a GPU buffer, write-combining turns 16 bus transactions into one &mdash; a 16&times; bandwidth improvement. But the stores must be sequential and to contiguous addresses; interleaved writes to different lines flush the WC buffer early and destroy the benefit.
+      </p>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- CHAPTER 07 — LOCALITY                              -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section id="locality">
+      <h2>07 // Locality</h2>
+      <p class="drop-cap">
+        The cache does not know your algorithm. It knows two things: what you just touched, and what was next to it.
+      </p>
+      <p>
+        <strong>Temporal locality</strong> means reusing the same address. If you read a variable inside a loop, the first iteration misses and every subsequent iteration hits. <strong>Spatial locality</strong> means touching addresses near each other. When you iterate through an array, each cache line fetch gives you 64 bytes &mdash; sixteen 4-byte integers &mdash; for the price of one miss.
+      </p>
+
+      <h3>Sequential vs Random: The Quantitative Story</h3>
+      <p>
+        Consider iterating over a million elements. In an array, each element sits next to the previous one:
+      </p>
+
+      <div class="diagram">
+        <span class="diagram-label">Array Scan &mdash; Sequential Access (64B line = 16 ints per miss)</span>
+        <div class="mem-row">
+          <span class="mc-label">Line 0</span>
+          <div class="mc g">0</div><div class="mc g">1</div><div class="mc g">2</div><div class="mc g">3</div>
+          <div class="mc g">4</div><div class="mc g">5</div><div class="mc g">6</div><div class="mc g">7</div>
+          <div class="mc g">8</div><div class="mc g">9</div><div class="mc g">10</div><div class="mc g">11</div>
+          <div class="mc g">12</div><div class="mc g">13</div><div class="mc g">14</div><div class="mc g">15</div>
+        </div>
+        <div class="mem-row">
+          <span class="mc-label">Line 1</span>
+          <div class="mc g">16</div><div class="mc g">17</div><div class="mc g">18</div><div class="mc g">19</div>
+          <div class="mc g">20</div><div class="mc g">21</div><div class="mc g">22</div><div class="mc g">23</div>
+          <div class="mc g">24</div><div class="mc g">25</div><div class="mc g">26</div><div class="mc g">27</div>
+          <div class="mc g">28</div><div class="mc g">29</div><div class="mc g">30</div><div class="mc g">31</div>
+        </div>
+        <div class="mem-row">
+          <span class="mc-label">Line 2</span>
+          <div class="mc g">32</div><div class="mc g">33</div><div class="mc g">34</div><div class="mc g">35</div>
+          <div class="mc g">36</div><div class="mc g">37</div><div class="mc g">38</div><div class="mc g">39</div>
+          <div class="mc g">40</div><div class="mc g">41</div><div class="mc g">42</div><div class="mc g">43</div>
+          <div class="mc g">44</div><div class="mc g">45</div><div class="mc g">46</div><div class="mc g">47</div>
+        </div>
+<pre><code>  <span class="cm">Miss rate: 1 miss per 16 accesses = <span class="st">6.25%</span></span>
+  <span class="cm">Effective latency: ~6 ns/element (prefetcher hides most misses)</span></code></pre>
+      </div>
+
+      <p>
+        Now compare with a linked list where each node is heap-allocated at a random address:
+      </p>
+
+      <div class="diagram">
+        <span class="diagram-label">Linked List Traversal &mdash; Random Access (1 useful element per line)</span>
+        <div class="mem-row">
+          <span class="mc-label">Line 0</span>
+          <div class="mc g">0</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div>
+          <div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div>
+          <div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div>
+          <div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div>
+        </div>
+        <div class="mem-row">
+          <span class="mc-label">Line 847</span>
+          <div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div>
+          <div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc r">1</div>
+          <div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div>
+          <div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div>
+        </div>
+        <div class="mem-row">
+          <span class="mc-label">Line 312</span>
+          <div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div>
+          <div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div>
+          <div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc r">2</div><div class="mc d">&middot;</div>
+          <div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div><div class="mc d">&middot;</div>
+        </div>
+<pre><code>  <span class="cm">Miss rate: 1 miss per 1 access = <span class="r" style="color:var(--red)">100%</span> (if nodes exceed cache capacity)</span>
+  <span class="cm">Effective latency: ~100 ns/element (full DRAM round trip each time)</span></code></pre>
+      </div>
+
+      <p>
+        Same data. Same computation. <strong>17&times; difference in throughput</strong>, entirely because of memory layout. The array wins not because arrays are intrinsically better, but because contiguous layout maximizes the value of each cache line fill.
+      </p>
+
+      <h3>Loop Tiling</h3>
+      <p>
+        The canonical example of locality-aware design is <strong>loop tiling</strong> (also called loop blocking) in matrix multiplication. The naive triple loop touches matrix B in column order, striding across cache lines on every access:
+      </p>
+
+      <pre><span class="label">C &mdash; Naive</span><code><span class="cm">// Naive: B accessed in column-major stride</span>
+<span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i &lt; N; i++)
+  <span class="kw">for</span> (<span class="ty">int</span> j = <span class="nm">0</span>; j &lt; N; j++)
+    <span class="kw">for</span> (<span class="ty">int</span> k = <span class="nm">0</span>; k &lt; N; k++)
+      C[i][j] += A[i][k] * B[k][j];  <span class="cm">// B[k][j] strides by N &times; 4 bytes</span></code></pre>
+
+      <pre><span class="label">C &mdash; Tiled</span><code><span class="cm">// Tiled: process T&times;T blocks that fit in L1</span>
+<span class="kw">#define</span> <span class="pp">T</span> <span class="nm">64</span>  <span class="cm">// tile size chosen so T&sup2; &times; sizeof(double) &lt; L1 size</span>
+<span class="kw">for</span> (<span class="ty">int</span> ii = <span class="nm">0</span>; ii &lt; N; ii += <span class="pp">T</span>)
+  <span class="kw">for</span> (<span class="ty">int</span> jj = <span class="nm">0</span>; jj &lt; N; jj += <span class="pp">T</span>)
+    <span class="kw">for</span> (<span class="ty">int</span> kk = <span class="nm">0</span>; kk &lt; N; kk += <span class="pp">T</span>)
+      <span class="kw">for</span> (<span class="ty">int</span> i = ii; i &lt; ii+<span class="pp">T</span>; i++)
+        <span class="kw">for</span> (<span class="ty">int</span> j = jj; j &lt; jj+<span class="pp">T</span>; j++)
+          <span class="kw">for</span> (<span class="ty">int</span> k = kk; k &lt; kk+<span class="pp">T</span>; k++)
+            C[i][j] += A[i][k] * B[k][j];</code></pre>
+
+      <p>
+        The tiled version processes small blocks that fit entirely in L1. Instead of striding across the entire matrix, B&rsquo;s column accesses stay within a few cache lines. For a 1024&times;1024 matrix, tiling can deliver <strong>8&ndash;10&times; speedup</strong> over the naive loop on the same CPU &mdash; not by reducing the number of floating-point operations, but by reducing the number of cache misses by an order of magnitude.
+      </p>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- CHAPTER 08 — COHERENCE                             -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section id="coherence">
+      <h2>08 // Coherence</h2>
+      <p class="drop-cap">
+        One core writes. Another core reads. The cache has to decide which truth to tell.
+      </p>
+      <p>
+        On a single-core machine, the cache is a private optimization. On a multicore chip, it becomes a distributed system. Each core has its own L1 and L2, and they can hold copies of the same memory address. If Core 0 modifies its copy, Core 1&rsquo;s copy is now stale. The hardware must resolve this, on every write, without software intervention. The protocol that does this is called <strong>cache coherence</strong>.
+      </p>
+
+      <h3>MESI: The Four States</h3>
+      <p>
+        The MESI protocol assigns every cache line one of four states:
+      </p>
+
+      <div class="diagram">
+        <span class="diagram-label">MESI State Machine</span>
+<pre><code>  <span class="kw">M</span>odified     This core wrote it. No other core has a copy. Memory is stale.
+               Responsible for writing back on eviction.
+
+  <span class="fn">E</span>xclusive    This core is the only holder, and it matches memory.
+               Can be silently promoted to M on a local write (no bus traffic).
+
+  <span class="st">S</span>hared       Multiple cores may hold copies. All match memory.
+               A local write must first invalidate all other copies.
+
+  <span class="r" style="color:var(--red)">I</span>nvalid      The line is not present (or has been invalidated).
+               Any access is a miss.
+
+
+  State Transitions:
+
+  <span class="r" style="color:var(--red)">I</span> &mdash;local read&mdash;&rarr; <span class="fn">E</span> (if no other core has it) or <span class="st">S</span> (if shared)
+  <span class="fn">E</span> &mdash;local write&mdash;&rarr; <span class="kw">M</span> (silent, no bus traffic)
+  <span class="st">S</span> &mdash;local write&mdash;&rarr; <span class="kw">M</span> (broadcast invalidate to all other holders)
+  <span class="kw">M</span> &mdash;snoop read&mdash;&rarr; <span class="st">S</span> (write back dirty data, downgrade to shared)
+  <span class="kw">M</span>/<span class="fn">E</span>/<span class="st">S</span> &mdash;snoop invalidate&mdash;&rarr; <span class="r" style="color:var(--red)">I</span></code></pre>
+      </div>
+
+      <p>
+        Every transition from <strong>S &rarr; M</strong> requires a broadcast invalidation: the writing core must notify every other core that holds the line. On a bus-based system, this is a single broadcast. On a mesh interconnect (modern server chips), it goes through the L3 slice directory, which tracks which cores hold which lines. Either way, it costs time &mdash; typically 40&ndash;80 ns for a cross-core invalidation on a modern chip.
+      </p>
+
+      <h3>False Sharing: The Invisible Killer</h3>
+      <p>
+        Coherence operates on <strong>cache lines</strong>, not on variables. If two threads on different cores write to different variables that happen to live on the same 64-byte line, MESI sees them as writing to the same location. Each write triggers an invalidation. The line bounces between cores like a hot potato, turning what should be embarrassingly parallel into a serialized coherence storm.
+      </p>
+
+      <pre><span class="label">C &mdash; False Sharing</span><code><span class="kw">struct</span> <span class="ty">Counters</span> {
+    <span class="ty">uint64_t</span> a;  <span class="cm">// 8 bytes — used by thread 0</span>
+    <span class="ty">uint64_t</span> b;  <span class="cm">// 8 bytes — used by thread 1 (SAME CACHE LINE)</span>
+};
+
+<span class="cm">// Both threads hammer the same 64-byte line:</span>
+<span class="cm">// Thread 0: counter-&gt;a++   (invalidates core 1's copy)</span>
+<span class="cm">// Thread 1: counter-&gt;b++   (invalidates core 0's copy)</span>
+<span class="cm">// Result: ~100M ops/sec instead of ~2B ops/sec</span></code></pre>
+
+      <pre><span class="label">C &mdash; Fixed</span><code><span class="kw">struct</span> <span class="ty">Counters</span> {
+    <span class="kw">alignas</span>(<span class="nm">64</span>) <span class="ty">uint64_t</span> a;  <span class="cm">// own cache line</span>
+    <span class="kw">alignas</span>(<span class="nm">64</span>) <span class="ty">uint64_t</span> b;  <span class="cm">// own cache line</span>
+};
+
+<span class="cm">// Now each thread writes to a private line.</span>
+<span class="cm">// No invalidations. Full parallel throughput.</span></code></pre>
+
+      <div class="power danger">
+        <div class="power-label">The Performance Trap</div>
+        <p>False sharing is the most common cache performance bug in concurrent programs. It does not cause incorrect results. It causes correct results at <strong>10&ndash;100&times; slower</strong> than necessary. The fix is always the same: pad or align so that independently-written data lives on separate cache lines. The cost is 56 bytes of wasted space per boundary. The alternative is serializing your cores.</p>
+      </div>
+
+      <h3>MOESI and Beyond</h3>
+      <p>
+        AMD&rsquo;s extension, MOESI, adds an <strong>Owned</strong> state: a core can hold a dirty line and share it with others without writing it back to memory first. This enables direct cache-to-cache transfer of modified data, reducing memory traffic in workloads where one producer feeds multiple consumers. Intel achieves similar effects with its MESIF protocol, adding a <strong>Forward</strong> state that designates which sharer should respond to snoop requests, preventing redundant replies on a multi-socket system.
+      </p>
+      <p>
+        The details differ, but the lesson is the same: cache coherence is the hidden cost of shared memory. Every shared mutable cache line triggers a distributed consensus protocol in hardware. The fastest coherence message is the one that never needs to be sent &mdash; because the data was not shared in the first place.
+      </p>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- CHAPTER 09 — PREFETCHING                           -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section id="prefetch">
+      <h2>09 // Prefetching</h2>
+      <p class="drop-cap">
+        The best cache miss is the one that started 200 cycles before you needed it.
+      </p>
+      <p>
+        Prefetching is the cache system&rsquo;s attempt to predict the future. If it can start fetching a line before the CPU asks for it, the data arrives in the cache just as the load instruction fires, and the miss becomes invisible. Modern processors have multiple hardware prefetchers running in parallel, each watching for a different access pattern.
+      </p>
+
+      <h3>Hardware Prefetchers</h3>
+      <p>
+        <strong>Next-line prefetcher:</strong> After a miss on line N, speculatively fetch line N+1. Simple, effective for sequential scans, and essentially free. This is why iterating forward through an array is almost never bottlenecked by misses after the first few lines.
+      </p>
+      <p>
+        <strong>Stride prefetcher:</strong> Tracks the distance between consecutive accesses. If you access offsets 0, 128, 256, 384, it detects the stride (128 bytes = 2 cache lines) and starts prefetching two lines ahead. This handles column traversal of matrices and strided structure access.
+      </p>
+      <p>
+        <strong>Stream prefetcher:</strong> Monitors miss addresses for ascending or descending sequences and opens a hardware stream that fetches multiple lines ahead. Intel&rsquo;s L2 streamer can track up to 32 independent streams simultaneously.
+      </p>
+
+      <h3>Software Prefetch</h3>
+      <p>
+        When the access pattern is predictable to the programmer but not to the hardware &mdash; because it depends on data values rather than address arithmetic &mdash; software prefetch instructions give the programmer direct control.
+      </p>
+
+      <pre><span class="label">C &mdash; Binary Search with Prefetch</span><code><span class="ty">int</span> <span class="fn">binary_search</span>(<span class="ty">int</span> *arr, <span class="ty">int</span> n, <span class="ty">int</span> target) {
+    <span class="ty">int</span> lo = <span class="nm">0</span>, hi = n - <span class="nm">1</span>;
+    <span class="kw">while</span> (lo &lt;= hi) {
+        <span class="ty">int</span> mid = lo + (hi - lo) / <span class="nm">2</span>;
+
+        <span class="cm">// Prefetch both children before the comparison.</span>
+        <span class="cm">// One of them will be needed; the other is wasted</span>
+        <span class="cm">// but the memory-level parallelism hides the cost.</span>
+        <span class="fn">__builtin_prefetch</span>(&amp;arr[(lo + mid) / <span class="nm">2</span>], <span class="nm">0</span>, <span class="nm">1</span>);
+        <span class="fn">__builtin_prefetch</span>(&amp;arr[(mid + <span class="nm">1</span> + hi) / <span class="nm">2</span>], <span class="nm">0</span>, <span class="nm">1</span>);
+
+        <span class="kw">if</span> (arr[mid] == target) <span class="kw">return</span> mid;
+        <span class="kw">else if</span> (arr[mid] &lt; target) lo = mid + <span class="nm">1</span>;
+        <span class="kw">else</span> hi = mid - <span class="nm">1</span>;
+    }
+    <span class="kw">return</span> -<span class="nm">1</span>;
+}</code></pre>
+
+      <p>
+        Each iteration of binary search touches one element at an unpredictable location &mdash; the hardware stride prefetcher cannot help. But the programmer knows that the next access will be at either the left or right midpoint. Prefetching both costs one wasted fetch but converts the critical-path miss from ~100 ns to ~0 ns. For a large sorted array that does not fit in L3, this can cut binary search time by <strong>2&ndash;3&times;</strong>.
+      </p>
+
+      <h3>When Prefetch Hurts</h3>
+      <p>
+        Software prefetch is not free. Each instruction consumes a slot in the memory pipeline and may evict useful data. If the data was already in cache (hot path), the prefetch instruction is pure overhead. If the access pattern is truly random and the working set exceeds cache capacity, prefetching just evicts other useful lines sooner. The rule of thumb: <strong>use software prefetch only when you can predict access addresses at least 100&ndash;200 cycles in advance</strong>, and only when profiling confirms that L3 misses dominate the stall time.
+      </p>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- CHAPTER 10 — MEASURING                             -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section id="measure">
+      <h2>10 // Measuring</h2>
+      <p class="drop-cap">
+        You cannot optimize what you have not measured. And cache behavior is invisible without the right counters.
+      </p>
+      <p>
+        Every modern CPU contains <strong>hardware performance counters</strong> &mdash; special registers that silently count events like cache hits, misses, branch mispredictions, and TLB flushes while your code runs. They add zero overhead and provide ground truth. The challenge is not collecting the data but knowing which counters to read and how to interpret the ratios.
+      </p>
+
+      <h3>perf stat: The First Tool</h3>
+      <pre><span class="label">Shell</span><code><span class="fn">$</span> perf stat -e L1-dcache-loads,L1-dcache-load-misses,\
+             LLC-loads,LLC-load-misses,\
+             dTLB-loads,dTLB-load-misses \
+             ./my_program
+
+ Performance counter stats for './my_program':
+
+     <span class="nm">1,847,293,041</span>  L1-dcache-loads
+        <span class="nm">28,412,885</span>  L1-dcache-load-misses     <span class="cm">#  1.54% of L1 loads</span>
+         <span class="nm">3,291,047</span>  LLC-loads
+           <span class="nm">847,219</span>  LLC-load-misses           <span class="cm"># 25.74% of LLC loads</span>
+     <span class="nm">1,844,102,337</span>  dTLB-loads
+            <span class="nm">12,847</span>  dTLB-load-misses          <span class="cm">#  0.00% of dTLB loads</span></code></pre>
+
+      <p>
+        This single command gives you the three-level diagnostic: L1 miss rate tells you about spatial locality. LLC (Last-Level Cache) miss rate tells you about working set size. TLB miss rate tells you about page-level access patterns. From these three numbers, you can already diagnose most cache problems.
+      </p>
+
+      <h3>Diagnostic Ratios</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Symptom</th>
+            <th>Counter Pattern</th>
+            <th>Likely Cause</th>
+            <th>Fix Direction</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>High L1 miss, low LLC miss</td>
+            <td>L1 miss &gt;5%, LLC miss &lt;5%</td>
+            <td>Poor spatial locality; data fits in L3 but not L1</td>
+            <td>Improve layout: SoA, tiling, pack structs</td>
+          </tr>
+          <tr>
+            <td>High L1 miss, high LLC miss</td>
+            <td>Both &gt;5%</td>
+            <td>Working set exceeds cache; capacity misses dominate</td>
+            <td>Reduce footprint, batch processing, streaming</td>
+          </tr>
+          <tr>
+            <td>Low L1 miss, high LLC miss</td>
+            <td>L1 miss &lt;2%, LLC miss &gt;20%</td>
+            <td>Good spatial locality but large footprint; L1 hits are from prefetch but L3 cannot hold it all</td>
+            <td>Tile for L3, reduce data size, compress</td>
+          </tr>
+          <tr>
+            <td>High dTLB miss</td>
+            <td>dTLB miss &gt;0.1%</td>
+            <td>Scattered page-level access; many pages touched</td>
+            <td>Use huge pages (2 MB), improve access pattern</td>
+          </tr>
+          <tr>
+            <td>Stalls despite low miss rate</td>
+            <td>Misses low, IPC still low</td>
+            <td>False sharing, lock contention, or store buffer full</td>
+            <td>Check <code>perf c2c</code> for false sharing</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>Going Deeper: perf record + Cachegrind</h3>
+      <p>
+        <code>perf stat</code> gives you the big picture. <code>perf record</code> with <code>perf annotate</code> shows you <em>which instructions</em> are missing &mdash; down to the assembly line. Cachegrind (part of Valgrind) simulates the cache hierarchy and reports miss counts per source line, at the cost of 20&ndash;50&times; slowdown. Intel VTune provides similar instruction-level profiling with native counter support and lower overhead.
+      </p>
+      <p>
+        For false sharing specifically, Linux provides <code>perf c2c</code> (cache-to-cache), which identifies cache lines that are being bounced between cores. It reports the exact data addresses and the source lines responsible. If you suspect false sharing but cannot find it by code inspection, <code>perf c2c</code> will show you the line.
+      </p>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- CHAPTER 11 — PATTERNS                              -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section id="patterns">
+      <h2>11 // Patterns</h2>
+      <p class="drop-cap">
+        Every data structure is a cache strategy in disguise.
+      </p>
+      <p>
+        The way you lay out data in memory determines how the cache sees your program. Two programs that compute the same result can differ by 10&times; in throughput &mdash; not because of algorithmic complexity, but because one organizes memory for the cache and the other organizes it for the programmer.
+      </p>
+
+      <h3>Array of Structs vs Struct of Arrays</h3>
+
+      <div class="vs">
+        <div class="vs-card">
+          <h4>Array of Structs (AoS)</h4>
+<pre><code><span class="kw">struct</span> <span class="ty">Particle</span> {
+  <span class="ty">float</span> x, y, z;    <span class="cm">// position</span>
+  <span class="ty">float</span> vx, vy, vz; <span class="cm">// velocity</span>
+  <span class="ty">float</span> mass;
+  <span class="ty">float</span> charge;
+  <span class="ty">int</span>   id;
+  <span class="ty">int</span>   flags;
+};
+<span class="cm">// 40 bytes per particle</span>
+<span class="ty">Particle</span> particles[<span class="nm">1000000</span>];</code></pre>
+          <p>Update position: loads 40 bytes per particle, uses 24 (x,y,z,vx,vy,vz). <strong>60% of fetched data is wasted.</strong></p>
+        </div>
+        <div class="vs-card">
+          <h4>Struct of Arrays (SoA)</h4>
+<pre><code><span class="kw">struct</span> <span class="ty">Particles</span> {
+  <span class="ty">float</span> *x, *y, *z;
+  <span class="ty">float</span> *vx, *vy, *vz;
+  <span class="ty">float</span> *mass;
+  <span class="ty">float</span> *charge;
+  <span class="ty">int</span>   *id;
+  <span class="ty">int</span>   *flags;
+};
+<span class="cm">// Each array is contiguous</span>
+<span class="ty">Particles</span> p;
+p.x = <span class="fn">malloc</span>(<span class="nm">1000000</span> * <span class="kw">sizeof</span>(<span class="ty">float</span>));</code></pre>
+          <p>Update position: loads only x,y,z,vx,vy,vz arrays. <strong>100% of fetched data is used.</strong></p>
+        </div>
+      </div>
+
+      <p>
+        The arithmetic is simple: if your hot loop touches 6 fields out of 10, AoS wastes 40% of every cache line fetch. SoA wastes nothing. For a million particles, that is the difference between fitting in L3 and spilling to DRAM.
+      </p>
+
+      <h3>Hot/Cold Splitting</h3>
+      <p>
+        When only some fields are accessed frequently, split the struct into hot and cold parts:
+      </p>
+      <pre><span class="label">C</span><code><span class="kw">struct</span> <span class="ty">EntityHot</span> {
+    <span class="ty">float</span> x, y, z;       <span class="cm">// position — accessed every frame</span>
+    <span class="ty">float</span> vx, vy, vz;    <span class="cm">// velocity — accessed every frame</span>
+    <span class="ty">uint32_t</span> cold_idx;   <span class="cm">// index into cold array</span>
+};  <span class="cm">// 28 bytes — fits 2 per cache line</span>
+
+<span class="kw">struct</span> <span class="ty">EntityCold</span> {
+    <span class="ty">char</span> name[<span class="nm">64</span>];
+    <span class="ty">uint64_t</span> creation_time;
+    <span class="ty">uint32_t</span> flags;
+    <span class="cm">// ... rarely-accessed metadata</span>
+};</code></pre>
+      <p>
+        The hot array is tight and sequential. The cold array is only touched when needed. The per-frame loop iterates over dense, cache-friendly data, and the cache lines are not diluted by metadata that is only read on spawn or despawn.
+      </p>
+
+      <h3>Data-Oriented Design (ECS)</h3>
+      <p>
+        Game engines formalized this into the <strong>Entity-Component-System</strong> pattern: entities are just IDs, components are stored in contiguous arrays indexed by entity, and systems iterate over arrays of matching components. A physics system that needs position and velocity iterates two tight arrays. A rendering system that needs position and mesh iterates two different tight arrays. The data layout matches the access pattern, not the object hierarchy.
+      </p>
+      <p>
+        This is not just a game engine trick. Database column stores work on the same principle &mdash; store each column contiguously so that analytical queries scan only the columns they need. The cache does not care whether your domain is particles, database rows, or network packets. It cares whether your memory access is sequential.
+      </p>
+
+      <h3>Cache-Oblivious Algorithms</h3>
+      <p>
+        A <strong>cache-oblivious</strong> algorithm achieves optimal cache behavior without knowing the cache size or line size. The classic example is the recursive matrix multiply: instead of tiling with a fixed block size, you recursively subdivide the problem until the subproblems naturally fit in whatever cache level they hit. At some recursion depth, the subproblem fits in L1. At a higher depth, it fits in L2. The algorithm adapts to the entire hierarchy without a single tuning parameter.
+      </p>
+      <p>
+        The same principle applies to the van Emde Boas tree layout for search trees: instead of storing a binary tree in breadth-first or depth-first order, you lay it out recursively so that the subtree rooted at any node is stored contiguously. Searching the tree touches a logarithmic number of nodes, and each subtree that fits in a cache line gives you several levels of the tree for the price of one miss.
+      </p>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!-- CHAPTER 12 — THE CRAFT                             -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <section id="craft">
+      <h2>12 // The Craft</h2>
+      <p class="drop-cap">
+        The cache is not something you fight. It is something you design for.
+      </p>
+      <p>
+        Every topic in this series touches the cache. Allocators choose where data lives in memory &mdash; and adjacent allocations land on the same cache line, while scattered ones do not. Concurrency pays the coherence tax on every shared mutable line. Hash tables live or die by whether probe sequences stay within a few cache lines or scatter across thousands. GPU shared memory is an explicit, programmer-managed cache &mdash; the same principles apply, just without the hardware automation.
+      </p>
+      <p>
+        The abstraction layers we build &mdash; objects, containers, virtual dispatch, garbage collection &mdash; are all, at the hardware level, patterns of memory access. The compiler does not see your class hierarchy. The cache does not see your algorithm. They see addresses, and they see timing. When your addresses are sequential and your reuse is tight, the hardware rewards you with the illusion that memory is fast. When they are not, the illusion breaks, and the wall reappears.
+      </p>
+      <p>
+        Cache-aware programming is not a collection of micro-optimizations. It is a design discipline. It starts at data structure selection, flows through memory layout decisions, and surfaces in the measurement tools that tell you whether your bets paid off. The question is never &ldquo;how do I make this cache-friendly?&rdquo; applied to finished code. The question is &ldquo;what memory access pattern does this design imply?&rdquo; asked before the first line is written.
+      </p>
+
+      <div class="power zen">
+        <div class="power-label">The Contract</div>
+        <p>The cache is the hardware&rsquo;s contract with your code: <strong>touch memory predictably, and I will make it fast. Touch it randomly, and no amount of clock speed will save you.</strong> Every data structure, every algorithm, every layout decision is a clause in that contract. The programmers who understand this write code that runs 10&times; faster on the same hardware. Not because they know tricks, but because they design with the machine.</p>
+      </div>
+    </section>
+  </div>
+</body>
+</html>
