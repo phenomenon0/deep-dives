@@ -777,41 +777,25 @@ sudo ./plasma
 
 <p class="drop-cap">You press a key. It feels instant. It isn't. Between your finger and the character appearing on screen, the keystroke passes through <em>five separate buffers</em>:</p>
 
-<div class="tabbed">
-  <input type="radio" name="keystroke-viz" class="t1" id="ks-interactive" checked />
-  <input type="radio" name="keystroke-viz" class="t2" id="ks-ascii" />
-  <div class="tab-bar">
-    <label for="ks-interactive">Interactive</label>
-    <label for="ks-ascii">ASCII</label>
-  </div>
-  <div class="tab-panel p1">
-    <svg id="viz-keystroke" viewBox="0 0 780 200" style="width:100%;height:auto;display:block;"></svg>
-    <div style="text-align:center;margin-top:8px;">
-      <button id="viz-ks-press" style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 16px;border-radius:4px;cursor:pointer;border:1px solid #1e1e2e;background:#12121a;color:#00ff88;">Press A</button>
-      <button id="viz-ks-reset" style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 12px;border-radius:4px;cursor:pointer;border:1px solid #1e1e2e;background:#12121a;color:#6a6a7e;">Reset</button>
-    </div>
-  </div>
-  <div class="tab-panel p2">
-    <div class="diagram">
-<span class="diagram-label">Keystroke Journey</span>
-<pre><code>
-  Physical Key     Keyboard        USB/PS2         Kernel           Application
-  ────────────     ────────        ───────         ──────           ───────────
-  [A] pressed  →  scan code  →   interrupt   →  /dev/input/  →   stdin buffer
-                  0x1E            handler        event queue       getchar()
-                                 IRQ 1
-                                                  evdev            termios
-                                                  buffer           line buffer
-                                                  (64 events)      (4096 bytes)
-
-  Timeline:
-  ├── 1μs ──┤── 125μs USB ──┤── 5μs IRQ ──┤── ~100μs ──┤── ??? ms ──┤
-  key press   USB poll        ISR runs      queued       app reads
-              interval        schedules     in evdev     when ready
-</code></pre>
-    </div>
-  </div>
+<svg id="viz-keystroke" viewBox="0 0 780 200" style="width:100%;height:auto;display:block;background:#0c0c14;border:1px solid #1e1e2e;border-radius:6px;"></svg>
+<div style="text-align:center;margin-top:8px;">
+  <button id="viz-ks-press" style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 16px;border-radius:4px;cursor:pointer;border:1px solid #1e1e2e;background:#12121a;color:#00ff88;">Press A</button>
+  <button id="viz-ks-reset" style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 12px;border-radius:4px;cursor:pointer;border:1px solid #1e1e2e;background:#12121a;color:#6a6a7e;">Reset</button>
 </div>
+
+<details>
+<summary>The five buffers, explained</summary>
+<div class="det">
+<table>
+<tr><th>#</th><th>Buffer</th><th>Size</th><th>What it does</th></tr>
+<tr><td style="color:#00ddff">1</td><td style="color:#00ddff">HW buffer</td><td>16 bytes</td><td>Keyboard controller stores scan codes until USB polls</td></tr>
+<tr><td style="color:#00aacc">2</td><td style="color:#00aacc">USB poll buffer</td><td>8ms interval</td><td>USB host controller polls at 125Hz (1000Hz for gaming). Each poll drains HW buffer</td></tr>
+<tr><td style="color:#00ff88">3</td><td style="color:#00ff88">evdev ring</td><td>64 events</td><td>Kernel translates scan code &rarr; <code>input_event</code>, queues in ring buffer. Keyloggers tap here</td></tr>
+<tr><td style="color:#44cc88">4</td><td style="color:#44cc88">Terminal line buffer</td><td>4096 bytes</td><td>Cooked mode: accumulates until Enter. Raw mode: bypassed entirely. This is the buffer vim disables</td></tr>
+<tr><td style="color:#00ff88">5</td><td style="color:#00ff88">stdin buffer</td><td>varies</td><td>C library <code>FILE*</code> buffer. <code>getchar()</code> reads from here. App sees characters, not scan codes</td></tr>
+</table>
+</div>
+</details>
 
 <p>Every one of those stages is a buffer you can intercept. A keylogger taps the kernel's evdev ring. A game engine bypasses the terminal line buffer entirely. A macro recorder timestamps the events and replays them. The terminal itself is a character buffer &mdash; a framebuffer made of text &mdash; with an output side (the grid you see) and an input side (where keystrokes queue).</p>
 
@@ -912,29 +896,9 @@ recording[rec_pos++] = (KeyEvent){
 }
 <span class="label">C — input recording/replay</span></code></pre>
 
-<h3>From keystrokes to music</h3>
-
-<p>A MIDI keyboard is a keyboard buffer with timestamps and velocity. Press a key &rarr; <code>note_on(pitch, velocity)</code>. Release &rarr; <code>note_off(pitch)</code>. Your QWERTY keyboard can do the same thing:</p>
-
-<div class="js-demo" id="demo-midi">
-  <div class="js-demo-header">
-    <span class="js-demo-title">QWERTY &rarr; MIDI</span>
-    <span class="js-demo-badge">Interactive + Audio</span>
-  </div>
-  <div class="js-demo-body">
-    <canvas id="midi-canvas" width="700" height="220"></canvas>
-    <div class="readout" id="midi-readout">Click canvas to focus, then play: Z X C V B N M = C4&ndash;B4 | A S D F G H J K = C5&ndash;C6</div>
-  </div>
-</div>
-
-<div class="power">
-<div class="power-label">A $500 MIDI controller is a keyboard buffer</div>
-<p>An Akai MPK Mini sends <code>note_on</code> and <code>note_off</code> over USB &mdash; same evdev path, different event type. Velocity is 8 bits. Pitch is 7 bits. Everything in music production starts as timestamped events in a buffer.</p>
-</div>
-
 <div class="power zen">
-<div class="power-label">From keystrokes to music</div>
-<p>You've turned your keyboard into a MIDI controller &mdash; key events flowing through buffers into a synthesizer. Clean notes, no effects. In the audio chapter below, the same piano returns with echo, reverb, and a low-pass filter &mdash; each one a buffer transformation.</p>
+<div class="power-label">Next: from keystrokes to sound</div>
+<p>Every keypress in that recording is a timestamped event in a ring buffer. That's exactly how MIDI works &mdash; <code>note_on(pitch, velocity)</code> with a timestamp. In the next chapter, we turn your keyboard into a synthesizer and add effects. Same buffers, different payload.</p>
 </div>
 
 </section>
@@ -943,94 +907,11 @@ recording[rec_pos++] = (KeyEvent){
 <section id="ch4">
 <h2>// audio buffers &mdash; shaping sound in real-time</h2>
 
-<div class="tabbed">
-  <input type="radio" name="ch4-tabs" class="t1" id="ch4-intuition" checked />
-  <input type="radio" name="ch4-tabs" class="t2" id="ch4-code-tab" />
-  <input type="radio" name="ch4-tabs" class="t3" id="ch4-daw" />
-  <div class="tab-bar">
-    <label for="ch4-intuition">Intuition</label>
-    <label for="ch4-code-tab">The Code</label>
-    <label for="ch4-daw">For Producers</label>
-  </div>
+<p class="drop-cap">Imagine you're trying to drink directly from a fire hose. The water comes out at 48,000 drops per second. You can swallow maybe a mouthful every 20 milliseconds. Without something between you and the hose, you either choke or go thirsty.</p>
 
-  <div class="tab-panel p1">
-    <p>Imagine you're trying to drink directly from a fire hose. The water comes out at 48,000 drops per second. You can swallow maybe a mouthful every 20 milliseconds. Without something between you and the hose, you either choke (overflow) or the hose pauses and you go thirsty (underrun).</p>
+<p>The <strong>buffer</strong> is a bucket between the hose and your mouth. <strong>Big bucket</strong> = safe, but you're drinking water that landed 200ms ago &mdash; in audio, that's <em>latency</em>. <strong>Tiny bucket</strong> = fresh, but one hiccup and it's empty &mdash; you hear a click, a pop, a stutter. That's an <strong>underrun</strong>.</p>
 
-    <p>The <strong>buffer</strong> is a bucket between the hose and your mouth. The hose fills the bucket. You drink from the bucket. As long as the bucket isn't empty when you go to drink, everything is smooth. But here's the tension:</p>
-
-    <p><strong>Big bucket</strong> = safe, always has water, but you're drinking water that landed 200ms ago. In audio terms, that's <em>latency</em>. Press a piano key, hear the note a fifth of a second later. Unplayable.</p>
-
-    <p><strong>Tiny bucket</strong> = fresh water, almost no delay, but if the hose hiccups for even a millisecond, the bucket goes empty. You hear a <em>click</em>. A <em>pop</em>. A stutter. That's an <strong>underrun</strong> &mdash; the consumer reached for audio and the bucket was dry.</p>
-
-    <p>Every audio application you've ever used is negotiating this tradeoff. A 1024-sample buffer at 48kHz = 21ms of safety. A 64-sample buffer = 1.3ms &mdash; imperceptible latency, but the CPU cannot flinch.</p>
-
-    <div class="power zen">
-<div class="power-label">The tension you can hear</div>
-<p>In the demo below, drag the write speed slider down. The bucket goes dry. You'll hear it.</p>
-    </div>
-  </div>
-
-  <div class="tab-panel p2">
-<p class="drop-cap">Audio is the most time-sensitive buffer in your system. At 48kHz, you have 20.8 microseconds per sample. Miss a single buffer deadline and you hear a click, a pop, a glitch. The audio buffer is a contract between you and time itself &mdash; and hacking it lets you synthesize, filter, and transform sound in real-time.</p>
-
-<div class="diagram">
-<span class="diagram-label">Audio Pipeline: Your Code → Speaker</span>
-<pre><code>  Your Code          Ring Buffer          Sound Card         Speaker
-  ─────────          ───────────          ──────────         ───────
-  Generate           ┌──┬──┬──┬──┐       DMA reads          Analog
-  samples  ────────→ │S1│S2│S3│S4│ ────→ from ring  ────→   Output
-  (float32)          └──┴──┴──┴──┘       at 48kHz
-                      ↑W        ↑R
-                      write     read
-                      cursor    cursor
-
-  Buffer size = latency tradeoff:
-    256 samples  = 5.3ms   (tight, risk of underrun)
-    512 samples  = 10.7ms  (sweet spot for music)
-    1024 samples = 21.3ms  (safe, noticeable lag for instruments)
-    2048 samples = 42.7ms  (streaming/playback only)</code></pre>
-</div>
-  </div>
-
-  <div class="tab-panel p3">
-    <h4>If you use a DAW, you already know this</h4>
-
-    <p>Open FL Studio. Go to <strong>Options → Audio Settings</strong>. There's a slider labeled <strong>Buffer Length</strong>. You've probably fought with it. Here's what you were actually doing:</p>
-
-    <p>That slider controls how many audio samples the system accumulates before sending them to your speakers. Every buffer fill is a batch delivery. Smaller batch = less waiting (lower latency) but the CPU has to finish processing before the batch ships. If it doesn't finish in time &mdash; <strong>buffer underrun</strong> &mdash; the batch goes out empty. You hear a pop.</p>
-
-    <div class="diagram">
-<span class="diagram-label">DAW Buffer Settings — What They Actually Mean</span>
-<pre><code>  FL Studio / Ableton / Logic / Reaper:
-
-  Buffer: 64 samples   →  1.3ms latency  →  MIDI feels instant
-         but CPU MUST finish in 1.3ms or you get crackle
-
-  Buffer: 256 samples  →  5.3ms latency  →  playable for keys/guitar
-         safe for most machines, studio standard
-
-  Buffer: 512 samples  →  10.7ms latency →  comfortable for mixing
-         almost never crackles
-
-  Buffer: 2048 samples →  42.7ms latency →  mixing/mastering only
-         you'll feel the delay if you play live
-
-  ──────────────────────────────────────────────────────
-  The "crackle" when you lower the buffer?
-  That's a buffer underrun. The CPU didn't fill the
-  batch in time. The sound card played silence instead.
-  ──────────────────────────────────────────────────────</code></pre>
-    </div>
-
-    <p>When you freeze a track in Ableton, you're pre-rendering it into a buffer so the CPU doesn't have to compute it in real-time. When you increase the ASIO buffer in FL Studio because a heavy plugin is crackling, you're giving the CPU more time per batch. When a guitarist plugs into an audio interface and complains about "latency," they're feeling the buffer &mdash; the time it takes to fill one batch, process it, and ship it out.</p>
-
-    <div class="power">
-<div class="power-label">The $200 guitar pedal is a ring buffer</div>
-<p>Every delay pedal, every reverb plugin, every echo effect is a ring buffer with feedback. Store the current sample, read the sample from N positions ago, mix them, advance. A Boss DD-7 delay pedal is <code>delay_buf[pos] = input + delay_buf[(pos - delay_samples) % buf_size] * decay</code>. That's it. The $200 is for the enclosure and the knob.</p>
-    </div>
-  </div>
-
-</div><!-- /tabbed ch4 -->
+<p>Every audio application negotiates this tension. A 1024-sample buffer at 48kHz = 21ms of safety. A 64-sample buffer = 1.3ms &mdash; imperceptible latency, but the CPU cannot flinch. Drag the write speed slider down in the demo below and hear the bucket go dry:</p>
 
 <div class="js-demo" id="demo-audioring">
   <div class="js-demo-header">
@@ -1049,7 +930,26 @@ recording[rec_pos++] = (KeyEvent){
   </div>
 </div>
 
-<h3>Synthesize Sound From Scratch</h3>
+<div class="diagram">
+<span class="diagram-label">Audio Pipeline</span>
+<pre><code>  Your Code          Ring Buffer          Sound Card         Speaker
+  ─────────          ───────────          ──────────         ───────
+  Generate           ┌──┬──┬──┬──┐       DMA reads          Analog
+  samples  ────────→ │S1│S2│S3│S4│ ────→ from ring  ────→   Output
+  (float32)          └──┴──┴──┴──┘       at 48kHz
+                      ↑W        ↑R
+                      write     read
+                      cursor    cursor</code></pre>
+</div>
+
+<div class="power">
+<div class="power-label">If you use a DAW, you already know this</div>
+<p>FL Studio &rarr; Options &rarr; Audio Settings &rarr; Buffer Length. That slider controls how many samples accumulate before shipping to speakers. 64 samples = 1.3ms (instant MIDI, crackles if CPU flinches). 256 = 5.3ms (studio standard). 512 = 10.7ms (mixing comfort zone). 2048 = 42.7ms (mastering only). The crackle when you lower it? That's a buffer underrun. Freezing a track in Ableton = pre-rendering into a buffer. The ASIO slider in FL Studio = giving the CPU more time per batch.</p>
+</div>
+
+<h3>Synthesize sound from scratch</h3>
+
+<p>A sine wave, a phase counter, and a buffer. That's a synthesizer:</p>
 
 <pre><code><span class="pp">#include</span> <span class="st">&lt;math.h&gt;</span>
 <span class="pp">#include</span> <span class="st">&lt;alsa/asoundlib.h&gt;</span>
@@ -1079,17 +979,27 @@ recording[rec_pos++] = (KeyEvent){
 }
 <span class="label">C — raw audio synthesis</span></code></pre>
 
-<h3>Effects: Transform the Buffer</h3>
+<h3>Play it</h3>
 
-<pre><code><span class="cm">// DISTORTION — clip the signal. Heavy metal in 3 lines.</span>
-<span class="kw">void</span> <span class="fn">distort</span>(<span class="ty">float</span> *buf, <span class="ty">int</span> n, <span class="ty">float</span> gain) {
-    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i < n; i++) {
-        buf[i] = <span class="fn">fmaxf</span>(-<span class="nm">1.0f</span>, <span class="fn">fminf</span>(<span class="nm">1.0f</span>, buf[i] * gain));
-    }
-}
+<p>Each key is a <code>note_on</code> event &mdash; the same timestamped buffer events from the keyboard chapter, now feeding a synthesizer:</p>
 
-<span class="cm">// ECHO — mix current buffer with a delayed copy</span>
-<span class="ty">float</span> delay_buf[SAMPLE_RATE];  <span class="cm">// 1 second delay buffer</span>
+<div class="js-demo" id="demo-midi">
+  <div class="js-demo-header">
+    <span class="js-demo-title">QWERTY &rarr; MIDI</span>
+    <span class="js-demo-badge">Interactive + Audio</span>
+  </div>
+  <div class="js-demo-body">
+    <canvas id="midi-canvas" width="700" height="220"></canvas>
+    <div class="readout" id="midi-readout">Click canvas to focus, then play: Q W E R T Y U = C4&ndash;B4 | A S D F G H J K = C5&ndash;C6</div>
+  </div>
+</div>
+
+<h3>Add effects</h3>
+
+<p>Every effect is a buffer transformation. Distortion clips the signal. Echo reads from a delayed position in a ring buffer. Low-pass smooths with an exponential average:</p>
+
+<pre><code><span class="cm">// ECHO — mix current buffer with a delayed copy</span>
+<span class="ty">float</span> delay_buf[SAMPLE_RATE];  <span class="cm">// 1 second ring buffer</span>
 <span class="ty">int</span> delay_pos = <span class="nm">0</span>;
 <span class="kw">void</span> <span class="fn">echo</span>(<span class="ty">float</span> *buf, <span class="ty">int</span> n, <span class="ty">float</span> decay) {
     <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i < n; i++) {
@@ -1108,25 +1018,14 @@ recording[rec_pos++] = (KeyEvent){
         prev = buf[i];
     }
 }
-
-<span class="cm">// REVERSE — play the buffer backwards. Instant psychedelia.</span>
-<span class="kw">void</span> <span class="fn">reverse</span>(<span class="ty">float</span> *buf, <span class="ty">int</span> n) {
-    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i < n/<span class="nm">2</span>; i++) {
-        <span class="ty">float</span> tmp = buf[i];
-        buf[i] = buf[n - <span class="nm">1</span> - i];
-        buf[n - <span class="nm">1</span> - i] = tmp;
-    }
-}
-<span class="label">C — audio buffer effects</span></code></pre>
+<span class="label">C — echo + lowpass (buffer effects)</span></code></pre>
 
 <div class="power">
-<div class="power-label">The Echo Is A Ring Buffer</div>
-<p>Look at the echo effect above. <code>delay_buf</code> is a ring buffer. The delay position wraps around with modulo. The delayed sample from 48000 samples ago (1 second) gets mixed into the current output. Every guitar pedal, every reverb plugin, every delay effect in music production is fundamentally a ring buffer with feedback. A $200 guitar pedal is a ring buffer with a knob.</p>
+<div class="power-label">The $200 guitar pedal is a ring buffer</div>
+<p><code>delay_buf</code> wraps with modulo. The delayed sample from 48000 positions ago (1 second) mixes into the current output. Every delay pedal, every reverb plugin is this: a ring buffer with feedback and a knob.</p>
 </div>
 
-<h3>Hear It: Lofi Piano with Effects</h3>
-
-<p>The piano from the keyboard chapter (Ch.3), but now with effect knobs. Every slider is a buffer parameter &mdash; the echo delay is how far back in the ring buffer you read, the low-pass cutoff is how aggressively the exponential average smooths, the feedback is how much signal recirculates.</p>
+<p>Now play it again &mdash; same keyboard, now with knobs:</p>
 
 <div class="js-demo" id="demo-lofi">
   <div class="js-demo-header">
@@ -1140,7 +1039,7 @@ recording[rec_pos++] = (KeyEvent){
       <label>Feedback:</label><input type="range" id="lofi-feedback" min="0" max="90" value="0">
       <label>Low-pass:</label><input type="range" id="lofi-lpf" min="200" max="8000" value="8000">
     </div>
-    <div class="readout" id="lofi-readout">Click canvas, play keys (ZXCVBNM / ASDFGHJK). Drag sliders to add effects — each one is a buffer operation.</div>
+    <div class="readout" id="lofi-readout">Click canvas, play keys (QWERTYU / ASDFGHJK). Drag sliders to add effects — each one is a buffer operation.</div>
   </div>
 </div>
 
@@ -2842,12 +2741,12 @@ sections.forEach(s => observer.observe(s));
   var W = canvas.width, H = canvas.height;
   canvas.setAttribute('tabindex', '0');
 
-  // Two octave mapping: bottom row = C4-B4, home row = C5-C6
+  // QWERTY layout: top row = C4-B4, home row = C5-C6
   var keymap = [
-    { key: 'z', note: 60, name: 'C4' },  { key: 'x', note: 62, name: 'D4' },
-    { key: 'c', note: 64, name: 'E4' },  { key: 'v', note: 65, name: 'F4' },
-    { key: 'b', note: 67, name: 'G4' },  { key: 'n', note: 69, name: 'A4' },
-    { key: 'm', note: 71, name: 'B4' },
+    { key: 'q', note: 60, name: 'C4' },  { key: 'w', note: 62, name: 'D4' },
+    { key: 'e', note: 64, name: 'E4' },  { key: 'r', note: 65, name: 'F4' },
+    { key: 't', note: 67, name: 'G4' },  { key: 'y', note: 69, name: 'A4' },
+    { key: 'u', note: 71, name: 'B4' },
     { key: 'a', note: 72, name: 'C5' },  { key: 's', note: 74, name: 'D5' },
     { key: 'd', note: 76, name: 'E5' },  { key: 'f', note: 77, name: 'F5' },
     { key: 'g', note: 79, name: 'G5' },  { key: 'h', note: 81, name: 'A5' },
@@ -2938,13 +2837,15 @@ sections.forEach(s => observer.observe(s));
       ctx.strokeRect(x, y, kw, kh);
       ctx.lineWidth = 1;
 
-      // Note name
-      ctx.fillStyle = isPressed ? '#00ff88' : '#6a6a7e';
-      ctx.fillText(km.name, x + kw/2, y + 25);
+      // QWERTY key label (prominent)
+      ctx.fillStyle = isPressed ? '#00ff88' : '#8888a0';
+      ctx.font = '14px "JetBrains Mono", monospace';
+      ctx.fillText(km.key.toUpperCase(), x + kw/2, y + 30);
 
-      // Key label
-      ctx.fillStyle = isPressed ? '#00ff88' : '#3a3a4e';
-      ctx.fillText(km.key.toUpperCase(), x + kw/2, y + kh - 10);
+      // Note name (smaller, below)
+      ctx.fillStyle = isPressed ? '#00ff88' : '#4a4a5e';
+      ctx.font = '9px "JetBrains Mono", monospace';
+      ctx.fillText(km.name, x + kw/2, y + kh - 8);
     }
 
     // Event buffer log (right side)
@@ -3016,10 +2917,10 @@ sections.forEach(s => observer.observe(s));
   canvas.setAttribute('tabindex', '0');
 
   var keymap = [
-    { key: 'z', note: 60, name: 'C4' },  { key: 'x', note: 62, name: 'D4' },
-    { key: 'c', note: 64, name: 'E4' },  { key: 'v', note: 65, name: 'F4' },
-    { key: 'b', note: 67, name: 'G4' },  { key: 'n', note: 69, name: 'A4' },
-    { key: 'm', note: 71, name: 'B4' },
+    { key: 'q', note: 60, name: 'C4' },  { key: 'w', note: 62, name: 'D4' },
+    { key: 'e', note: 64, name: 'E4' },  { key: 'r', note: 65, name: 'F4' },
+    { key: 't', note: 67, name: 'G4' },  { key: 'y', note: 69, name: 'A4' },
+    { key: 'u', note: 71, name: 'B4' },
     { key: 'a', note: 72, name: 'C5' },  { key: 's', note: 74, name: 'D5' },
     { key: 'd', note: 76, name: 'E5' },  { key: 'f', note: 77, name: 'F5' },
     { key: 'g', note: 79, name: 'G5' },  { key: 'h', note: 81, name: 'A5' },
@@ -3139,10 +3040,14 @@ sections.forEach(s => observer.observe(s));
       ctx.strokeRect(x, y, kw, kh);
       ctx.lineWidth = 1;
 
-      ctx.fillStyle = isPressed ? '#00ff88' : '#6a6a7e';
-      ctx.fillText(km.name, x + kw/2, y + 22);
-      ctx.fillStyle = isPressed ? '#00ff88' : '#3a3a4e';
-      ctx.fillText(km.key.toUpperCase(), x + kw/2, y + kh - 8);
+      // QWERTY key (prominent)
+      ctx.fillStyle = isPressed ? '#00ff88' : '#8888a0';
+      ctx.font = '13px "JetBrains Mono", monospace';
+      ctx.fillText(km.key.toUpperCase(), x + kw/2, y + 26);
+      // Note name (small)
+      ctx.fillStyle = isPressed ? '#00ff88' : '#4a4a5e';
+      ctx.font = '9px "JetBrains Mono", monospace';
+      ctx.fillText(km.name, x + kw/2, y + kh - 6);
     }
 
     // Effects chain visualization (right side)
@@ -3220,116 +3125,212 @@ sections.forEach(s => observer.observe(s));
   var svg = d3.select('#viz-keystroke');
   if (!svg.node()) return;
   var W = 780, H = 200;
+  var m = 'JetBrains Mono, monospace';
 
-  var stages = [
-    { label: 'Physical\nKey', x: 30, color: '#00ff88' },
-    { label: 'Scan\nCode', x: 180, color: '#00ddff' },
-    { label: 'USB\nIRQ', x: 330, color: '#ff8800' },
-    { label: 'Kernel\nevdev', x: 480, color: '#ff00aa' },
-    { label: 'App\nstdin', x: 630, color: '#00ff88' }
+  var cols = [
+    { x: 5,   label: '\u2328 Key',       items: ['[A] pressed'],           color: '#7a7a90' },
+    { x: 120, label: 'buf 1: HW',        items: ['scan code 0x1E'],        color: '#00ddff', buf: '16 B' },
+    { x: 235, label: 'buf 2: USB',        items: ['poll \u2192 IRQ'],       color: '#00aacc', buf: '8 ms' },
+    { x: 350, label: 'buf 3: evdev',      items: ['kernel ring'],           color: '#00ff88', buf: '64 ev' },
+    { x: 470, label: 'buf 4: line',       items: ['terminal buffer'],       color: '#44cc88', buf: '4 KB' },
+    { x: 600, label: 'buf 5: stdin',      items: ['getchar()'],             color: '#00ff88', buf: 'app' }
   ];
 
-  var timings = ['1\u03BCs', '125\u03BCs', '5\u03BCs', '~100\u03BCs', '???ms'];
-  var boxW = 100, boxH = 60, cy = 70;
-  var animating = false;
+  var colW = 110, row1 = 28, row2 = 52, row3 = 68, row4 = 80;
+  var arrowY = 55;
+  var animating = false, cancelAnim = false;
 
-  function drawStatic() {
+  function sleep(ms) { return new Promise(function(r){setTimeout(r,ms);}); }
+
+  function drawStatic(isReset) {
     svg.selectAll('*').remove();
-    var defs = svg.append('defs');
-    var filt = defs.append('filter').attr('id', 'ks-glow');
-    filt.append('feGaussianBlur').attr('stdDeviation', '3').attr('result', 'blur');
-    filt.append('feMerge').selectAll('feMergeNode')
-      .data(['blur', 'SourceGraphic']).enter()
-      .append('feMergeNode').attr('in', function(d) { return d; });
+    if (isReset) { cancelAnim = true; animating = false; }
 
-    stages.forEach(function(s, i) {
-      svg.append('rect').attr('x', s.x).attr('y', cy).attr('width', boxW).attr('height', boxH)
-        .attr('fill', 'rgba(18,18,26,0.8)').attr('stroke', '#1e1e2e').attr('stroke-width', 1).attr('rx', 4);
-      var lines = s.label.split('\n');
-      lines.forEach(function(line, li) {
-        svg.append('text').attr('x', s.x + boxW / 2).attr('y', cy + 25 + li * 16)
-          .attr('text-anchor', 'middle').attr('fill', '#6a6a7e')
-          .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 11)
-          .text(line);
+    // Glow filter
+    var defs = svg.append('defs');
+    var f = defs.append('filter').attr('id','kg');
+    f.append('feGaussianBlur').attr('stdDeviation','5').attr('result','b');
+    f.append('feMerge').selectAll('feMergeNode').data(['b','SourceGraphic']).enter()
+      .append('feMergeNode').attr('in',function(d){return d;});
+
+    // Column headers (bright, like ASCII)
+    cols.forEach(function(c,i) {
+      // Header — starts dim, animation brightens it
+      svg.append('text').attr('class', 'hdr-' + i)
+        .attr('x', c.x + colW/2).attr('y', row1)
+        .attr('text-anchor','middle').attr('fill', c.color + '66')
+        .attr('font-family',m).attr('font-size',13).attr('font-weight',600)
+        .text(c.label);
+
+      // Separator line under header
+      svg.append('line').attr('class', 'sep-' + i)
+        .attr('x1', c.x + 8).attr('y1', row1 + 6)
+        .attr('x2', c.x + colW - 8).attr('y2', row1 + 6)
+        .attr('stroke', c.color + '22');
+
+      // Detail lines — start dim
+      c.items.forEach(function(item, li) {
+        if (!item) return;
+        svg.append('text').attr('class', 'desc-' + i)
+          .attr('x', c.x + colW/2).attr('y', row2 + li * 15)
+          .attr('text-anchor','middle').attr('fill','#5a5a6e')
+          .attr('font-family',m).attr('font-size',11)
+          .text(item);
       });
-      if (i < stages.length - 1) {
-        svg.append('line').attr('x1', s.x + boxW + 4).attr('y1', cy + boxH / 2)
-          .attr('x2', stages[i + 1].x - 4).attr('y2', cy + boxH / 2)
-          .attr('stroke', '#1e1e2e').attr('stroke-width', 1);
-        svg.append('text')
-          .attr('x', (s.x + boxW + stages[i + 1].x) / 2)
-          .attr('y', cy - 8).attr('text-anchor', 'middle')
-          .attr('fill', '#3a3a4e').attr('font-family', 'JetBrains Mono, monospace')
-          .attr('font-size', 9).text(timings[i]);
+
+      // Buffer size badge
+      if (c.buf) {
+        svg.append('text').attr('class', 'buf-' + i)
+          .attr('x', c.x + colW/2).attr('y', row2 + 28)
+          .attr('text-anchor','middle').attr('fill', c.color + '55')
+          .attr('font-family',m).attr('font-size',9)
+          .text(c.buf);
+      }
+
+      // Arrow to next column
+      if (i < cols.length - 1) {
+        svg.append('text').attr('class', 'arrow-' + i)
+          .attr('x', c.x + colW + (cols[i+1].x - c.x - colW)/2)
+          .attr('y', arrowY)
+          .attr('text-anchor','middle').attr('fill','#2a2a3e')
+          .attr('font-family',m).attr('font-size',14)
+          .text('\u2192');
       }
     });
+
+    // Timeline bar
+    var tlY = 110;
+    svg.append('text').attr('x',20).attr('y',tlY)
+      .attr('fill','#6a6a7e').attr('font-family',m).attr('font-size',10).text('Timeline:');
+
+    var ticks = [
+      { x: 80,  w: 40,  t: '1\u03BCs',    d: 'press',       c: '#5a5a6e' },
+      { x: 122, w: 90,  t: '~0',           d: 'buffered',    c: '#00ddff' },
+      { x: 214, w: 80,  t: '125\u03BCs',   d: 'USB poll',    c: '#00aacc' },
+      { x: 296, w: 80,  t: '5\u03BCs',     d: 'IRQ \u2192 evdev', c: '#00ff88' },
+      { x: 378, w: 70,  t: '~0',           d: 'line buf',    c: '#44cc88' },
+      { x: 450, w: 120, t: '??? ms',       d: 'app reads',   c: '#00ff88' }
+    ];
+    var barY = tlY + 8;
+
+    // Continuous bar background
+    svg.append('rect').attr('x',100).attr('y',barY).attr('width',518).attr('height',3)
+      .attr('fill','#1a1a2a').attr('rx',1);
+
+    ticks.forEach(function(tk) {
+      // Colored segment
+      svg.append('rect').attr('x',tk.x).attr('y',barY)
+        .attr('width',tk.w).attr('height',3).attr('fill',tk.c+'44').attr('rx',1);
+      // Tick
+      svg.append('line').attr('x1',tk.x).attr('y1',barY-3)
+        .attr('x2',tk.x).attr('y2',barY+6).attr('stroke',tk.c+'66');
+      // Time above
+      svg.append('text').attr('x',tk.x+tk.w/2).attr('y',barY-7)
+        .attr('text-anchor','middle').attr('fill',tk.c+'aa')
+        .attr('font-family',m).attr('font-size',10).text(tk.t);
+      // Desc below
+      svg.append('text').attr('x',tk.x+tk.w/2).attr('y',barY+17)
+        .attr('text-anchor','middle').attr('fill','#6a6a7e')
+        .attr('font-family',m).attr('font-size',9).text(tk.d);
+    });
+    // End tick
+    svg.append('line').attr('x1',618).attr('y1',barY-3)
+      .attr('x2',618).attr('y2',barY+6).attr('stroke','#4a4a5e');
+
+    // Status line
+    svg.append('text').attr('id','ks-st').attr('x',W/2).attr('y',H-8)
+      .attr('text-anchor','middle').attr('fill','#3a3a4e')
+      .attr('font-family',m).attr('font-size',10).text('Press A to trace the journey');
   }
 
   async function animate() {
     if (animating) return;
-    animating = true;
+    animating = true; cancelAnim = false;
     drawStatic();
+    var st = svg.select('#ks-st');
+    await sleep(200);
 
-    for (var i = 0; i < stages.length; i++) {
-      if (!animating) return;
-      var s = stages[i];
+    var msgs = [
+      'Finger hits key switch',
+      'Buffer 1: scan code 0x1E stored in 16-byte HW buffer',
+      'Buffer 2: USB controller polls at 125Hz, IRQ fires',
+      'Buffer 3: kernel evdev ring (64 events), input_event queued',
+      'Buffer 4: terminal line buffer (4KB), waits for Enter or raw mode bypasses',
+      'Buffer 5: app calls read() \u2192 "A" delivered'
+    ];
 
-      svg.append('rect').attr('class', 'ks-glow-ring')
-        .attr('x', s.x - 3).attr('y', cy - 3)
-        .attr('width', boxW + 6).attr('height', boxH + 6)
-        .attr('fill', 'none').attr('stroke', s.color).attr('stroke-width', 2).attr('rx', 6)
-        .attr('filter', 'url(#ks-glow)')
-        .attr('opacity', 0)
-        .transition().duration(200).attr('opacity', 0.8)
-        .transition().duration(500).attr('opacity', 0.3)
-        .transition().duration(500).attr('opacity', 0.8)
-        .transition().duration(500).attr('opacity', 0.3);
+    var ticks = [
+      { x: 80,  w: 40,  c: '#5a5a6e' },
+      { x: 122, w: 90,  c: '#00ddff' },
+      { x: 214, w: 80,  c: '#00aacc' },
+      { x: 296, w: 80,  c: '#00ff88' },
+      { x: 378, w: 70,  c: '#44cc88' },
+      { x: 450, w: 120, c: '#00ff88' }
+    ];
+    var barY = 118;
 
-      svg.append('rect').attr('x', s.x).attr('y', cy).attr('width', boxW).attr('height', boxH)
-        .attr('fill', s.color + '15').attr('stroke', s.color + '44').attr('stroke-width', 1).attr('rx', 4);
+    for (var i = 0; i < cols.length; i++) {
+      if (cancelAnim) return;
+      var c = cols[i];
 
-      var lines = s.label.split('\n');
-      lines.forEach(function(line, li) {
-        svg.append('text').attr('x', s.x + boxW / 2).attr('y', cy + 25 + li * 16)
-          .attr('text-anchor', 'middle').attr('fill', s.color)
-          .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 11)
-          .attr('font-weight', 600).text(line);
-      });
+      // Brighten EXISTING elements by selecting by class and transitioning fill
+      svg.selectAll('.hdr-' + i)
+        .transition().duration(300)
+        .attr('fill', c.color).attr('font-weight', 700);
 
+      svg.selectAll('.sep-' + i)
+        .transition().duration(300)
+        .attr('stroke', c.color + '88');
+
+      svg.selectAll('.desc-' + i)
+        .transition().duration(300)
+        .attr('fill', c.color + 'dd');
+
+      // Brighten the arrow leading INTO this stage
       if (i > 0) {
-        svg.append('text')
-          .attr('x', (stages[i - 1].x + boxW + s.x) / 2)
-          .attr('y', cy - 8).attr('text-anchor', 'middle')
-          .attr('fill', s.color).attr('font-family', 'JetBrains Mono, monospace')
-          .attr('font-size', 10).attr('font-weight', 600).text(timings[i - 1]);
+        svg.selectAll('.arrow-' + (i-1))
+          .transition().duration(200)
+          .attr('fill', c.color);
       }
 
-      if (i < stages.length - 1) {
+      // Brighten buffer badge
+      svg.selectAll('.buf-' + i)
+        .transition().duration(300)
+        .attr('fill', c.color + 'cc');
+
+      // Status text
+      st.text(msgs[i]).attr('fill', c.color);
+
+      // Light up timeline segment
+      svg.append('rect').attr('x',ticks[i].x).attr('y',barY)
+        .attr('width',ticks[i].w).attr('height',3).attr('fill',ticks[i].c+'aa').attr('rx',1)
+        .attr('opacity',0).transition().duration(200).attr('opacity',1);
+
+      // Traveling dot to next stage
+      if (i < cols.length - 1) {
+        await sleep(500);
+        if (cancelAnim) return;
         var dot = svg.append('circle')
-          .attr('cx', s.x + boxW).attr('cy', cy + boxH / 2)
-          .attr('r', 4).attr('fill', s.color).attr('filter', 'url(#ks-glow)');
+          .attr('cx', c.x + colW).attr('cy', arrowY - 2)
+          .attr('r', 5).attr('fill', c.color).attr('filter','url(#kg)');
         await new Promise(function(resolve) {
-          dot.transition().duration(300).ease(d3.easeCubicInOut)
-            .attr('cx', stages[i + 1].x).on('end', resolve);
+          dot.transition().duration(500).ease(d3.easeCubicInOut)
+            .attr('cx', cols[i+1].x).on('end', resolve);
         });
         dot.remove();
+        await sleep(200);
+      } else {
+        await sleep(500);
       }
-
-      await new Promise(function(r) { setTimeout(r, 200); });
     }
 
-    svg.append('text').attr('x', W / 2).attr('y', H - 15)
-      .attr('text-anchor', 'middle').attr('fill', '#00ff88')
-      .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 13)
-      .attr('opacity', 0).text('\u2192 "A" appears on screen')
-      .transition().duration(300).attr('opacity', 1);
-
+    st.text('\u2192 "A" on screen \u2014 five buffers, under 1ms total').attr('fill','#00ff88');
     animating = false;
   }
 
-  d3.select('#viz-ks-press').on('click', animate);
-  d3.select('#viz-ks-reset').on('click', function() { animating = false; drawStatic(); });
-  drawStatic();
+  document.getElementById('viz-ks-press').addEventListener('click', function() { animate(); });
+  document.getElementById('viz-ks-reset').addEventListener('click', function() { drawStatic(true); });
+  drawStatic(true);
 })();
 
 /* ── D3 Viz 2: Write Path ── */
