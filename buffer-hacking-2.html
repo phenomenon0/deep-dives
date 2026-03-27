@@ -1,0 +1,2118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Buffer Hacking Part II — Network, Disk, and the OS</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+    --white: #e8e8f0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  /* === SCANLINE OVERLAY === */
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.03) 2px,
+      rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  /* === NAV === */
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 2rem;
+    display: flex;
+    gap: 1.2rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color 0.2s, text-shadow 0.2s;
+    padding: 0.3rem 0;
+  }
+  nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+  nav a.active { color: var(--green); text-shadow: 0 0 12px rgba(0,255,136,0.4); }
+  nav .nav-title {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 1rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.3);
+  }
+
+  /* === LAYOUT === */
+  .content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+  }
+
+  /* === HERO === */
+  .hero {
+    text-align: center;
+    padding: 4rem 0 5rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4rem;
+    position: relative;
+  }
+  .hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3.2rem;
+    font-weight: 600;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+  }
+  .hero .subtitle {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 500px;
+    margin: 0 auto;
+  }
+  .hero .blink {
+    display: inline-block;
+    animation: blink 1s step-end infinite;
+    color: var(--green);
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* === SECTIONS === */
+  section {
+    margin-bottom: 5rem;
+    padding-top: 1rem;
+  }
+  h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: var(--green);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: 0.02em;
+  }
+  h3 {
+    font-size: 1.25rem;
+    color: var(--cyan);
+    margin: 2.5rem 0 1rem;
+    font-weight: 600;
+  }
+  h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 2rem 0 0.8rem;
+  }
+  p { margin-bottom: 1rem; }
+
+  /* === DROP CAP === */
+  .drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4rem;
+    line-height: 0.8;
+    padding: 0.1em 0.15em 0 0;
+    color: var(--green);
+    font-weight: 600;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+  }
+
+  /* === CODE === */
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    padding: 0.12em 0.4em;
+    border-radius: 3px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem 1.4rem;
+    overflow-x: auto;
+    margin: 1.2rem 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13.5px;
+    line-height: 1.55;
+    position: relative;
+  }
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+  }
+  .cm { color: var(--text-dim); }
+  .kw { color: var(--magenta); }
+  .ty { color: var(--cyan); }
+  .st { color: var(--green); }
+  .nm { color: var(--yellow); }
+  .fn { color: var(--blue); }
+  .pp { color: var(--orange); }
+  .label {
+    position: absolute;
+    top: 0.3rem; right: 0.7rem;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    opacity: 0.5;
+  }
+
+  /* === DIAGRAM === */
+  .diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+  }
+  .diagram pre {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text);
+  }
+  .diagram pre code { color: var(--text); }
+  .diagram-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--green-dim);
+    margin-bottom: 0.8rem;
+    display: block;
+  }
+
+  /* === POWER BOX (insight) === */
+  .power {
+    background: var(--bg-card);
+    border-left: 3px solid var(--green);
+    padding: 1.2rem 1.4rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  .power-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    margin-bottom: 0.3rem;
+  }
+  .power p { margin-bottom: 0; font-size: 0.95rem; }
+  .power.danger { border-left-color: var(--red); }
+  .power.danger .power-label { color: var(--red); }
+  .power.hack { border-left-color: var(--magenta); }
+  .power.hack .power-label { color: var(--magenta); }
+  .power.wild { border-left-color: var(--orange); }
+  .power.wild .power-label { color: var(--orange); }
+  .power.zen { border-left-color: var(--cyan); }
+  .power.zen .power-label { color: var(--cyan); }
+
+  /* === MEMORY VIS === */
+  .mem-row {
+    display: flex;
+    gap: 1px;
+    margin: 0.4rem 0;
+    flex-wrap: wrap;
+  }
+  .mc {
+    width: 30px; height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    font-weight: 600;
+    border-radius: 2px;
+  }
+  .mc.g { background: var(--green); color: var(--bg); }
+  .mc.c { background: var(--cyan); color: var(--bg); }
+  .mc.m { background: var(--magenta); color: var(--bg); }
+  .mc.o { background: var(--orange); color: var(--bg); }
+  .mc.r { background: var(--red); color: var(--bg); }
+  .mc.y { background: var(--yellow); color: var(--bg); }
+  .mc.b { background: var(--blue); color: var(--bg); }
+  .mc.d { background: var(--text-dim); color: var(--bg); opacity: 0.3; }
+  .mc.e { background: transparent; border: 1px dashed var(--border); color: var(--text-dim); }
+  .mc.w { background: var(--white); color: var(--bg); }
+  .mc.p { background: var(--purple); color: #fff; }
+
+  /* === TABLE === */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.88rem;
+  }
+  th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--green);
+    text-align: left;
+    padding: 0.5rem 0.7rem;
+    border-bottom: 2px solid var(--border);
+  }
+  td {
+    padding: 0.45rem 0.7rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:hover { background: rgba(0,255,136,0.02); }
+
+  /* === EXPANDABLE === */
+  details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1rem 0;
+    overflow: hidden;
+  }
+  details summary {
+    padding: 0.7rem 1.1rem;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--green);
+    user-select: none;
+    transition: background 0.2s;
+  }
+  details summary:hover { background: rgba(0,255,136,0.04); }
+  details[open] summary { border-bottom: 1px solid var(--border); }
+  details .det { padding: 1.1rem; }
+  details pre { margin: 0.8rem 0; }
+
+  /* === COMPARISON === */
+  .vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+  }
+  .vs-col {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.1rem;
+  }
+  .vs-col h4 { margin-top: 0; }
+
+  /* === GLITCH TEXT === */
+  .glitch {
+    position: relative;
+    display: inline-block;
+  }
+  .glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+  .glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 2s infinite linear alternate-reverse;
+    clip-path: inset(0 0 65% 0);
+  }
+  .glitch::after {
+    color: var(--magenta);
+    animation: glitch-2 3s infinite linear alternate-reverse;
+    clip-path: inset(65% 0 0 0);
+  }
+  @keyframes glitch-1 {
+    0%, 95% { transform: translateX(0); }
+    96% { transform: translateX(-2px); }
+    97% { transform: translateX(2px); }
+    98% { transform: translateX(-1px); }
+    100% { transform: translateX(0); }
+  }
+  @keyframes glitch-2 {
+    0%, 93% { transform: translateX(0); }
+    94% { transform: translateX(2px); }
+    96% { transform: translateX(-2px); }
+    98% { transform: translateX(1px); }
+    100% { transform: translateX(0); }
+  }
+
+  /* === TICKER === */
+  .ticker {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--green);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.5rem 1rem;
+    margin: 1rem 0;
+    display: inline-block;
+    text-shadow: 0 0 6px rgba(0,255,136,0.3);
+  }
+
+  /* === TABBED PANELS === */
+  .tabbed {
+    margin: 1.5rem 0;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .tabbed input[type="radio"] { display: none; }
+  .tab-bar {
+    display: flex;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+  }
+  .tab-bar label {
+    flex: 1;
+    padding: 0.7rem 1rem;
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-right: 1px solid var(--border);
+    transition: color 0.2s, background 0.2s;
+  }
+  .tab-bar label:last-child { border-right: none; }
+  .tab-bar label:hover { color: var(--green); }
+  .tab-panel { display: none; padding: 1.2rem 1.4rem; font-size: 0.92rem; line-height: 1.6; }
+
+  .tabbed .t1:checked ~ .tab-bar label:nth-child(1),
+  .tabbed .t2:checked ~ .tab-bar label:nth-child(2),
+  .tabbed .t3:checked ~ .tab-bar label:nth-child(3),
+  .tabbed .t4:checked ~ .tab-bar label:nth-child(4) {
+    color: var(--green);
+    background: var(--bg);
+    text-shadow: 0 0 8px rgba(0,255,136,0.2);
+  }
+  .tabbed .t1:checked ~ .p1,
+  .tabbed .t2:checked ~ .p2,
+  .tabbed .t3:checked ~ .p3,
+  .tabbed .t4:checked ~ .p4 { display: block; }
+
+  /* === DINER SIGN === */
+  .diner-sign { text-align: center; padding: 1.5rem 0; }
+  .diner-board {
+    display: inline-flex; gap: 20px;
+    background: #0c0c0c; border: 3px solid #1a1a1a;
+    border-radius: 8px; padding: 20px 28px;
+    box-shadow: inset 0 2px 8px rgba(0,0,0,0.8), 0 0 30px rgba(0,0,0,0.5);
+  }
+  .diner-row { display: flex; flex-direction: column; gap: 3px; }
+  .bulb {
+    width: 12px; height: 12px; border-radius: 50%;
+    position: relative; cursor: pointer;
+    transition: background 0.15s;
+  }
+  .bulb.on {
+    background: radial-gradient(circle at 40% 35%, #ffe8a0, #ff9500);
+    box-shadow: 0 0 6px rgba(255,160,0,0.7), 0 0 14px rgba(255,140,0,0.3);
+  }
+  .bulb.on::after {
+    content: ''; position: absolute; inset: -5px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(255,160,0,0.35), transparent 70%);
+    animation: bulb-glow var(--flicker, 2s) ease-in-out infinite;
+  }
+  .bulb.off {
+    background: radial-gradient(circle at 40% 35%, #1a1a1a, #111);
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.8);
+  }
+  .bulb.off[data-wired="0"] { cursor: default; opacity: 0.3; }
+  .bulb.off::after { display: none; }
+  @keyframes bulb-glow {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+  }
+
+  /* === JS DEMOS === */
+  .js-demo { margin: 1.5rem 0; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--bg-code); }
+  .js-demo-header { display: flex; align-items: center; justify-content: space-between; padding: 0.7rem 1.1rem; background: var(--bg-card); border-bottom: 1px solid var(--border); }
+  .js-demo-title { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--green); letter-spacing: 0.05em; text-transform: uppercase; }
+  .js-demo-badge { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--cyan); background: rgba(0,221,255,0.08); padding: 2px 8px; border-radius: 3px; border: 1px solid rgba(0,221,255,0.2); }
+  .js-demo-body { padding: 1.2rem; }
+  .js-demo canvas { display: block; margin: 0 auto; border: 1px solid var(--border); border-radius: 4px; }
+  .js-demo .controls { display: flex; align-items: center; gap: 0.75rem; margin-top: 0.8rem; flex-wrap: wrap; }
+  .js-demo .controls button { font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 4px 12px; border-radius: 4px; cursor: pointer; border: 1px solid var(--border); background: var(--bg-card); color: var(--green); transition: background 0.2s; }
+  .js-demo .controls button:hover { background: rgba(0,255,136,0.08); }
+  .js-demo .controls label { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-dim); }
+  .js-demo .controls input[type="range"] { width: 100px; accent-color: var(--green); }
+  .js-demo .readout { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-dim); margin-top: 0.6rem; padding: 0.4rem 0.7rem; background: rgba(0,0,0,0.3); border-radius: 3px; }
+
+  /* === RESPONSIVE === */
+  @media (max-width: 700px) {
+    .vs { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2rem; }
+    .content { padding: 4rem 1rem 4rem; }
+    nav { font-size: 10px; gap: 0.8rem; padding: 0.4rem 1rem; }
+  }
+</style>
+
+<script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+
+<nav>
+  <span class="nav-title">&gt;_ BUFFERS II</span>
+  <a href="buffer-hacking.html" style="color:var(--cyan)">&larr; Part I</a>
+  <a href="#ch5">network</a>
+  <a href="#ch6">disk</a>
+  <a href="#ch7">overflow</a>
+  <a href="#ch8">double buffer</a>
+  <a href="#ch9">dma</a>
+  <a href="#ch10">tricks</a>
+  <a href="#ch11">raw power</a>
+</nav>
+
+<div class="content">
+
+<div class="hero">
+  <h1><span class="glitch" data-text="BUFFER HACKING &mdash; PART II">BUFFER HACKING &mdash; PART II</span></h1>
+  <div class="subtitle">Network, disk, memory, and the operating system's hidden buffers.<span class="blink">_</span></div>
+</div>
+
+<!-- ============================================================ -->
+<section id="ch5">
+<h2>// network buffers &mdash; packets in flight</h2>
+
+<p class="drop-cap">Every TCP connection has four buffers: a send buffer and receive buffer on each side. When you call <code>write()</code> on a socket, you're copying data into the kernel's send buffer. The kernel's TCP stack decides when and how to actually transmit it. This is why <code>write()</code> returns instantly even though the data hasn't reached the other side yet.</p>
+
+<div class="tabbed">
+  <input type="radio" name="ch5-tcp-tabs" class="t1" id="ch5-tcp-interactive" checked />
+  <input type="radio" name="ch5-tcp-tabs" class="t2" id="ch5-tcp-ascii" />
+  <div class="tab-bar">
+    <label for="ch5-tcp-interactive">Interactive</label>
+    <label for="ch5-tcp-ascii">ASCII</label>
+  </div>
+
+  <div class="tab-panel p1">
+    <svg id="viz-tcp" viewBox="0 0 780 260" style="width:100%;height:auto;display:block;"></svg>
+    <div style="text-align:center;margin-top:8px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+      <button id="viz-tcp-write" style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 12px;border-radius:4px;cursor:pointer;border:1px solid #1e1e2e;background:#12121a;color:#00ff88;">write(data)</button>
+      <button id="viz-tcp-ack" style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 12px;border-radius:4px;cursor:pointer;border:1px solid #1e1e2e;background:#12121a;color:#00ddff;">ACK received</button>
+      <button id="viz-tcp-fill" style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 12px;border-radius:4px;cursor:pointer;border:1px solid #1e1e2e;background:#12121a;color:#ff8800;">Fill buffer</button>
+      <button id="viz-tcp-reset" style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 12px;border-radius:4px;cursor:pointer;border:1px solid #1e1e2e;background:#12121a;color:#6a6a7e;">Reset</button>
+    </div>
+  </div>
+
+  <div class="tab-panel p2">
+    <div class="diagram" style="margin:0;border:none;">
+    <span class="diagram-label">TCP Buffer Architecture</span>
+    <pre><code>
+  Your App                  Kernel                    Network
+  ────────                  ──────                    ───────
+                     ┌─────────────────┐
+  write(sock, ──────→│  Send Buffer    │────→ TCP segment ────→ ...
+  data, len)         │  (128 KB default)│     with seq #
+                     └─────────────────┘
+                                              ACK comes back
+                     ┌─────────────────┐         │
+  read(sock, ◄───────│  Recv Buffer    │◄────────┘
+  buf, len)          │  (128 KB default)│
+                     └─────────────────┘
+
+  Buffer states:
+  ┌──────┬──────┬──────┬──────┬──────┬──────┬──────┐
+  │ sent │ sent │ sent │write │      │      │      │
+  │ ACKd │ ACKd │ wait │ head │ free │ free │ free │
+  └──────┴──────┴──────┴──────┴──────┴──────┴──────┘
+  ← can free →  ← in flight →  ← available for write →
+
+  When send buffer is FULL → write() BLOCKS (or returns EAGAIN)
+  When recv buffer is FULL → TCP advertises window=0 → sender stops
+  This is TCP FLOW CONTROL — it's all buffer management
+    </code></pre>
+    </div>
+  </div>
+</div>
+
+<h3>Tune the Buffers</h3>
+
+<pre><code><span class="cm">// Default socket buffers are 128KB — fine for most things</span>
+<span class="cm">// For high-throughput (video streaming, model weight transfer): go bigger</span>
+
+<span class="ty">int</span> bufsize = <span class="nm">4</span> * <span class="nm">1024</span> * <span class="nm">1024</span>;  <span class="cm">// 4MB buffer</span>
+<span class="fn">setsockopt</span>(sock, SOL_SOCKET, SO_SNDBUF, &bufsize, <span class="kw">sizeof</span>(bufsize));
+<span class="fn">setsockopt</span>(sock, SOL_SOCKET, SO_RCVBUF, &bufsize, <span class="kw">sizeof</span>(bufsize));
+
+<span class="cm">// System-wide limits (needs root):</span>
+<span class="cm">// echo 16777216 > /proc/sys/net/core/wmem_max   # 16MB send</span>
+<span class="cm">// echo 16777216 > /proc/sys/net/core/rmem_max   # 16MB recv</span>
+
+<span class="cm">// TCP_NODELAY: disable Nagle's algorithm</span>
+<span class="cm">// Nagle buffers small writes to combine them into bigger packets</span>
+<span class="cm">// Great for throughput, terrible for latency (games, trading)</span>
+<span class="ty">int</span> one = <span class="nm">1</span>;
+<span class="fn">setsockopt</span>(sock, IPPROTO_TCP, TCP_NODELAY, &one, <span class="kw">sizeof</span>(one));
+<span class="cm">// Now every write() becomes its own packet immediately</span>
+<span class="label">C — socket buffer tuning</span></code></pre>
+
+<h3>Raw Packet Crafting</h3>
+
+<pre><code><span class="cm">// With raw sockets, YOU fill the buffer that becomes the packet</span>
+<span class="cm">// You write IP headers, TCP headers, payload — the whole thing</span>
+
+<span class="ty">int</span> sock = <span class="fn">socket</span>(AF_INET, SOCK_RAW, IPPROTO_RAW);
+
+<span class="ty">uint8_t</span> packet[<span class="nm">4096</span>];  <span class="cm">// YOUR packet buffer</span>
+
+<span class="cm">// IP header (20 bytes)</span>
+<span class="kw">struct</span> iphdr *ip = (<span class="kw">struct</span> iphdr *)packet;
+ip->version = <span class="nm">4</span>;
+ip->ihl = <span class="nm">5</span>;                  <span class="cm">// 20 bytes / 4</span>
+ip->tot_len = <span class="fn">htons</span>(<span class="nm">40</span>);      <span class="cm">// IP + TCP headers</span>
+ip->protocol = IPPROTO_TCP;
+ip->saddr = <span class="fn">inet_addr</span>(<span class="st">"10.0.0.1"</span>);
+ip->daddr = <span class="fn">inet_addr</span>(<span class="st">"10.0.0.2"</span>);
+
+<span class="cm">// TCP header (20 bytes)</span>
+<span class="kw">struct</span> tcphdr *tcp = (<span class="kw">struct</span> tcphdr *)(packet + <span class="nm">20</span>);
+tcp->source = <span class="fn">htons</span>(<span class="nm">12345</span>);
+tcp->dest = <span class="fn">htons</span>(<span class="nm">80</span>);
+tcp->syn = <span class="nm">1</span>;                  <span class="cm">// SYN packet</span>
+tcp->seq = <span class="fn">htonl</span>(<span class="nm">0xDEADBEEF</span>);
+
+<span class="fn">sendto</span>(sock, packet, <span class="nm">40</span>, <span class="nm">0</span>, ...);
+<span class="cm">// You just hand-crafted a TCP SYN packet from raw bytes in a buffer</span>
+<span class="cm">// This is how nmap, scapy, and network testing tools work</span>
+<span class="label">C — raw packet crafting (authorized testing only)</span></code></pre>
+
+<div class="power zen">
+<div class="power-label">Insight: Protocols Are Buffer Formats</div>
+<p>TCP, UDP, HTTP, DNS, TLS &mdash; they're all just conventions for how to fill a buffer. An IP header is 20 bytes at specific offsets, just like your shard header is 64 bytes. A DNS query is a buffer with a 12-byte header, then variable-length question sections. <strong>If you can build a shard file, you can build a network packet.</strong> Same skills: offset math, endianness, length-prefixed fields, checksums.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch6">
+<h2>// disk buffers &mdash; the page cache</h2>
+
+<p class="drop-cap">You think you're writing to disk. You're not. You're writing to a buffer. The Linux kernel maintains a massive in-memory cache of disk data called the <strong>page cache</strong>. When you <code>write()</code>, data goes to the page cache. The kernel flushes dirty pages to disk in the background, whenever it feels like it. This is why a power failure can lose your last few seconds of writes &mdash; they were in a buffer, not on disk.</p>
+
+<div class="tabbed">
+  <input type="radio" name="writepath-viz" class="t1" id="wp-interactive" checked />
+  <input type="radio" name="writepath-viz" class="t2" id="wp-ascii" />
+  <div class="tab-bar">
+    <label for="wp-interactive">Interactive</label>
+    <label for="wp-ascii">ASCII</label>
+  </div>
+  <div class="tab-panel p1">
+    <svg id="viz-writepath" viewBox="0 0 780 220" style="width:100%;height:auto;display:block;"></svg>
+    <div style="text-align:center;margin-top:8px;">
+      <button id="viz-wp-write" style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 16px;border-radius:4px;cursor:pointer;border:1px solid #1e1e2e;background:#12121a;color:#00ff88;">write()</button>
+      <button id="viz-wp-fsync" style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 16px;border-radius:4px;cursor:pointer;border:1px solid #1e1e2e;background:#12121a;color:#ff8800;">fsync()</button>
+      <button id="viz-wp-powerloss" style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 16px;border-radius:4px;cursor:pointer;border:1px solid #1e1e2e;background:#12121a;color:#ff00aa;">Power Loss</button>
+      <button id="viz-wp-reset" style="font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 12px;border-radius:4px;cursor:pointer;border:1px solid #1e1e2e;background:#12121a;color:#6a6a7e;">Reset</button>
+    </div>
+  </div>
+  <div class="tab-panel p2">
+    <div class="diagram">
+<span class="diagram-label">The Write Path: App → Disk</span>
+<pre><code>
+  write(fd, buf, 4096)
+       │
+       ▼
+  ┌────────────────┐
+  │  App Buffer    │  Your []byte or char buf[4096]
+  └───────┬────────┘
+          │ copy_from_user()
+          ▼
+  ┌────────────────┐
+  │  Page Cache    │  Kernel memory. Marked "dirty".
+  │  (RAM)         │  write() returns HERE. Not at disk.
+  └───────┬────────┘
+          │ pdflush / writeback thread (background, async)
+          ▼
+  ┌────────────────┐
+  │  Block Layer   │  I/O scheduler reorders for disk efficiency
+  │  Queue         │  (elevator algorithm: minimize seek distance)
+  └───────┬────────┘
+          │ DMA transfer
+          ▼
+  ┌────────────────┐
+  │  NVMe / SSD    │  Actually persistent now.
+  │  (Disk)        │  But SSD has its OWN buffer too...
+  └────────────────┘
+
+  Total buffers: 4 (app → page cache → block queue → SSD FTL)
+</code></pre>
+    </div>
+  </div>
+</div>
+
+<h3>Force Data to Disk</h3>
+
+<pre><code><span class="cm">// write() is a LIE — data might still be in page cache</span>
+<span class="fn">write</span>(fd, tensor_data, size);  <span class="cm">// Returns "success" but it's in RAM</span>
+
+<span class="cm">// fsync() — force THIS file's dirty pages to disk</span>
+<span class="fn">fsync</span>(fd);  <span class="cm">// Blocks until data is on disk. Slow (~1ms SSD, ~10ms HDD)</span>
+
+<span class="cm">// fdatasync() — like fsync but skips metadata (faster)</span>
+<span class="fn">fdatasync</span>(fd);  <span class="cm">// Only flushes data, not timestamps/size</span>
+
+<span class="cm">// O_DIRECT — bypass page cache entirely</span>
+<span class="ty">int</span> fd = <span class="fn">open</span>(<span class="st">"data.bin"</span>, O_WRONLY | O_DIRECT);
+<span class="cm">// Now write() goes straight to disk. But:</span>
+<span class="cm">//   - Buffer must be 512-byte aligned (use posix_memalign)</span>
+<span class="cm">//   - Write size must be multiple of 512</span>
+<span class="cm">//   - No page cache = no read-ahead = terrible for small reads</span>
+<span class="cm">// Used by databases (PostgreSQL, MySQL) that manage their own cache</span>
+
+<span class="cm">// O_SYNC — every write is an implicit fsync</span>
+<span class="ty">int</span> fd = <span class="fn">open</span>(<span class="st">"wal.log"</span>, O_WRONLY | O_SYNC);
+<span class="cm">// Every write() blocks until disk confirms. Bulletproof but slow.</span>
+<span class="cm">// WAL (write-ahead log) files use this for crash safety.</span>
+<span class="label">C — disk buffer control</span></code></pre>
+
+<div class="power">
+<div class="power-label">Page Cache Is Why mmap Is Fast</div>
+<p>When you mmap a file, you're mapping the <em>page cache</em> into your address space, not the disk. If the file was recently read, the pages are already in RAM &mdash; mmap access is a memory read, not a disk read. Multiple processes mmap'ing the same file share the same physical pages. This is why your MoSH <code>InstantLoader</code> works: the first load pages the file into cache, subsequent loads are instant.</p>
+</div>
+
+<h3>The readahead() Trick</h3>
+
+<pre><code><span class="cm">// Tell the kernel: "I'm going to read this region soon"</span>
+<span class="cm">// The kernel starts loading pages in the background</span>
+<span class="fn">posix_fadvise</span>(fd, offset, length, POSIX_FADV_WILLNEED);
+<span class="cm">// ...or the more direct version:</span>
+<span class="fn">readahead</span>(fd, offset, length);
+
+<span class="cm">// While the kernel is fetching from disk, you do other work</span>
+<span class="fn">prepare_compute_graph</span>();
+
+<span class="cm">// By the time you actually read, the data is already in page cache</span>
+<span class="fn">read</span>(fd, buf, length);  <span class="cm">// Cache hit! No disk wait.</span>
+
+<span class="cm">// Conversely, tell the kernel you're done with these pages:</span>
+<span class="fn">posix_fadvise</span>(fd, offset, length, POSIX_FADV_DONTNEED);
+<span class="cm">// Kernel evicts them from page cache, freeing RAM</span>
+<span class="cm">// Essential for large model files — don't hog the page cache</span>
+<span class="label">C — page cache prefetch</span></code></pre>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch7">
+<h2>// buffer overflow &mdash; the legendary exploit</h2>
+
+<p class="drop-cap">The buffer overflow is the most consequential bug in computing history. It's been exploited since the Morris Worm in 1988. The idea is devastatingly simple: write more data into a buffer than it can hold, and the excess overwrites whatever comes next in memory. If "whatever comes next" is a return address on the stack, you can redirect execution to code you control.</p>
+
+<div class="diagram">
+<span class="diagram-label">Stack Buffer Overflow (Classic)</span>
+<pre><code>
+  BEFORE overflow:                 AFTER overflow:
+  ┌─────────────────┐             ┌─────────────────┐
+  │  Return Address │ ← CPU      │  0xDEADBEEF     │ ← OVERWRITTEN
+  │  (back to main) │   jumps    │  (attacker's    │    CPU jumps to
+  ├─────────────────┤   here     │   shellcode)    │    attacker code!
+  │  Saved EBP      │            ├─────────────────┤
+  ├─────────────────┤            │  AAAAAAAAAA     │
+  │                 │            │  AAAAAAAAAA     │
+  │  char buf[16]   │            │  AAAAAAAAAA     │
+  │                 │            │  AAAAAAAAAA     │ ← Overflow
+  ├─────────────────┤            ├─────────────────┤
+  │                 │            │                 │
+  │  (other vars)   │            │  (other vars)   │
+  └─────────────────┘            └─────────────────┘
+     Stack grows ↓                  Stack grows ↓
+
+  The write goes PAST buf[16] and smashes the return address.
+  When the function returns, CPU jumps to attacker-controlled address.
+</code></pre>
+</div>
+
+<pre><code><span class="cm">// THE VULNERABLE CODE — never do this</span>
+<span class="kw">void</span> <span class="fn">vulnerable</span>(<span class="ty">char</span> *user_input) {
+    <span class="ty">char</span> buf[<span class="nm">16</span>];
+    <span class="fn">strcpy</span>(buf, user_input);  <span class="cm">// No length check! Copies until \0</span>
+    <span class="cm">// If user_input is 32 bytes, the extra 16 bytes</span>
+    <span class="cm">// overwrite saved EBP + return address</span>
+}
+
+<span class="cm">// THE SAFE VERSION</span>
+<span class="kw">void</span> <span class="fn">safe</span>(<span class="ty">char</span> *user_input) {
+    <span class="ty">char</span> buf[<span class="nm">16</span>];
+    <span class="fn">strncpy</span>(buf, user_input, <span class="kw">sizeof</span>(buf) - <span class="nm">1</span>);
+    buf[<span class="kw">sizeof</span>(buf) - <span class="nm">1</span>] = <span class="st">'\0'</span>;  <span class="cm">// Ensure null termination</span>
+}
+<span class="label">C — the classic vulnerability</span></code></pre>
+
+<h3>Modern Defenses</h3>
+
+<table>
+<tr><th>Defense</th><th>What It Does</th><th>How To Bypass (CTF context)</th></tr>
+<tr><td>Stack Canary</td><td>Random value between buffer and return address. Function checks it before returning.</td><td>Leak the canary value via format string or info disclosure, then include it in the overflow.</td></tr>
+<tr><td>ASLR</td><td>Randomize stack/heap/library addresses each run. Attacker can't hardcode jump targets.</td><td>Info leak to discover base address, then calculate offsets.</td></tr>
+<tr><td>NX / DEP</td><td>Mark stack memory as non-executable. Can't run shellcode on the stack.</td><td>ROP (Return-Oriented Programming): chain existing code gadgets instead of injecting new code.</td></tr>
+<tr><td>RELRO</td><td>Make GOT (Global Offset Table) read-only after loading.</td><td>Target other writable memory (stack, heap).</td></tr>
+<tr><td>PIE</td><td>Position-Independent Executable: code at random address.</td><td>Same as ASLR — need an info leak first.</td></tr>
+</table>
+
+<div class="power danger">
+<div class="power-label">Why This Still Matters</div>
+<p>Go, Rust, Python, JavaScript &mdash; they all prevent buffer overflows through bounds checking. But the libraries they call are often written in C. OpenSSL, zlib, libc, database drivers, image parsers &mdash; one unchecked <code>memcpy</code> in a C library and the whole process is compromised. Heartbleed (2014) was a buffer over-<em>read</em> in OpenSSL: the server returned up to 64KB of whatever was adjacent in memory &mdash; private keys, passwords, session tokens. All because a length field wasn't validated.</p>
+</div>
+
+<h3>Heap Overflow: Corrupting Metadata</h3>
+
+<pre><code><span class="cm">// Heap overflow targets malloc's internal metadata</span>
+<span class="cm">// Each heap chunk has a header with size and pointers:</span>
+
+<span class="cm">//  ┌──────────┬──────────┬──────────────────────┐</span>
+<span class="cm">//  │ prev_size│   size   │     user data...     │</span>
+<span class="cm">//  │  8 bytes │ 8 bytes  │     N bytes           │</span>
+<span class="cm">//  └──────────┴──────────┴──────────────────────┘</span>
+<span class="cm">//</span>
+<span class="cm">// Overflow from chunk A into chunk B's header</span>
+<span class="cm">// → corrupt size field → malloc returns overlapping chunks</span>
+<span class="cm">// → write to "your" chunk modifies "their" data</span>
+<span class="cm">//</span>
+<span class="cm">// This is how modern exploits work: heap grooming + corruption</span>
+<span class="cm">// Way harder than stack overflow but way harder to defend against</span>
+<span class="label">heap exploitation concept</span></code></pre>
+
+<div class="power zen">
+<div class="power-label">Your Shard Format Is Immune</div>
+<p>Your TensorV1 decoder validates sizes before allocation: <code>if numElements > math.MaxInt64/es { return -1 }</code>. The overflow gauntlet tests confirmed this. Go's slice bounds checking prevents buffer overflows at runtime. But the <em>concept</em> &mdash; that buffers have boundaries and crossing them has consequences &mdash; applies everywhere. Every time you check <code>if offset+size > len(data)</code> in your decoder, you're preventing a buffer overread.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch8">
+<h2>// double buffering &mdash; the flicker killer</h2>
+
+<p class="drop-cap">If you draw directly to the framebuffer while the display controller is reading it, the user sees half-drawn frames &mdash; tearing, flickering, visual garbage. Double buffering solves this: draw to a back buffer, then swap it to the front in one atomic operation. The user only ever sees complete frames.</p>
+
+<div class="diagram">
+<span class="diagram-label">Double Buffering</span>
+<pre><code>
+  Frame N:                          Frame N+1:
+  ┌─────────────────┐              ┌─────────────────┐
+  │  FRONT BUFFER   │ ← display   │  FRONT BUFFER   │ ← was back
+  │  (being shown)  │   reads     │  (Frame N+1)    │   NOW shown
+  ├─────────────────┤              ├─────────────────┤
+  │  BACK BUFFER    │ ← you       │  BACK BUFFER    │ ← was front
+  │  (being drawn)  │   write     │  (drawing N+2)  │   NOW drawing
+  └─────────────────┘              └─────────────────┘
+           │                                │
+           └───── SWAP (pointer swap) ──────┘
+                  ~0 ns (just change which buffer the display reads)
+
+  Triple buffering: add a third buffer so the GPU never waits.
+  ┌───────────┐  ┌───────────┐  ┌───────────┐
+  │  DISPLAY  │  │  READY    │  │  DRAWING  │
+  │  (front)  │  │  (middle) │  │  (back)   │
+  └───────────┘  └───────────┘  └───────────┘
+  Display shows   GPU done,      GPU currently
+  this one        waiting        rendering here
+</code></pre>
+</div>
+
+<pre><code><span class="cm">// Double buffering in practice — even for terminal rendering</span>
+
+<span class="ty">char</span> front[<span class="nm">80</span> * <span class="nm">24</span>];  <span class="cm">// What's on screen now</span>
+<span class="ty">char</span> back[<span class="nm">80</span> * <span class="nm">24</span>];   <span class="cm">// What we're building</span>
+
+<span class="kw">void</span> <span class="fn">render_frame</span>() {
+    <span class="cm">// Clear back buffer</span>
+    <span class="fn">memset</span>(back, <span class="st">' '</span>, <span class="kw">sizeof</span>(back));
+
+    <span class="cm">// Draw into back buffer (no screen updates yet)</span>
+    <span class="fn">draw_player</span>(back, player_x, player_y);
+    <span class="fn">draw_enemies</span>(back, enemies, enemy_count);
+    <span class="fn">draw_ui</span>(back, health, score);
+
+    <span class="cm">// Diff and flush only changed characters</span>
+    <span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i < <span class="nm">80</span>*<span class="nm">24</span>; i++) {
+        <span class="kw">if</span> (back[i] != front[i]) {
+            <span class="ty">int</span> row = i / <span class="nm">80</span>, col = i % <span class="nm">80</span>;
+            <span class="fn">printf</span>(<span class="st">"\033[%d;%dH%c"</span>, row+<span class="nm">1</span>, col+<span class="nm">1</span>, back[i]);
+        }
+    }
+    <span class="fn">fflush</span>(stdout);  <span class="cm">// Send all updates at once</span>
+
+    <span class="cm">// Swap</span>
+    <span class="fn">memcpy</span>(front, back, <span class="kw">sizeof</span>(back));
+}
+<span class="label">C — terminal double buffering</span></code></pre>
+
+<div class="js-demo" id="demo-tearing">
+  <div class="js-demo-header">
+    <span class="js-demo-title">Tearing vs Double Buffer</span>
+    <span class="js-demo-badge">Interactive</span>
+  </div>
+  <div class="js-demo-body">
+    <canvas id="tear-canvas" width="700" height="280"></canvas>
+    <div class="controls">
+      <button id="tear-toggle" onclick="tearToggle()">Mode: Single Buffer (tearing)</button>
+      <label>Render speed:</label><input type="range" id="tear-speed" min="1" max="20" value="12">
+    </div>
+    <div class="readout" id="tear-readout">Single buffer: renderer writes while display scans → tearing. Toggle to see the fix.</div>
+  </div>
+</div>
+
+<div class="power hack">
+<div class="power-label">Hack: Diff-Based Rendering</div>
+<p>The diff step above is the key optimization. Instead of redrawing the whole screen (2000 characters), you only send escape codes for the characters that <em>changed</em>. On a 60 FPS game where 90% of the screen is static, this reduces terminal output from 120KB/s to ~12KB/s. Libraries like <code>ncurses</code>, React's virtual DOM, and GPU command buffers all use this same idea: diff the buffers, emit minimal updates.</p>
+</div>
+
+<h3 id="double-buffering-pattern">Double Buffering as a Pattern &mdash; Not Just Graphics</h3>
+
+<p>The terminal renderer above is one instance. But double buffering is bigger than graphics. It appears whenever you need to read old state and write new state without corrupting either.</p>
+
+<p>Consider the classic demoscene <strong>fire effect</strong>. Flames lick upward from the bottom of the screen. Each frame, every pixel is computed from the pixels <em>below</em> it in the previous frame &mdash; average the neighbors, subtract some random cooling. But if you read and write to the same buffer, a pixel at row 10 reads from row 11 which you already overwrote this frame. The fire collapses into garbage.</p>
+
+<p>Two buffers solve it:</p>
+
+<pre><code><span class="cm">/* The fire effect IS double buffering */</span>
+
+<span class="ty">uint8_t</span> buf_A[W * H], buf_B[W * H];
+
+<span class="kw">for</span> (<span class="ty">int</span> y = <span class="nm">0</span>; y < H - <span class="nm">1</span>; y++) {
+    <span class="kw">for</span> (<span class="ty">int</span> x = <span class="nm">0</span>; x < W; x++) {
+        <span class="cm">/* Read neighbors from buf_A (last frame) */</span>
+        <span class="ty">int</span> avg = (buf_A[(y+<span class="nm">1</span>)*W + x-<span class="nm">1</span>] + buf_A[(y+<span class="nm">1</span>)*W + x]
+                 + buf_A[(y+<span class="nm">1</span>)*W + x+<span class="nm">1</span>] + buf_A[(y+<span class="nm">2</span>)*W + x]) >> <span class="nm">2</span>;
+
+        <span class="cm">/* Write cooled value to buf_B (this frame) */</span>
+        <span class="ty">int</span> decay = rand() % cooling;
+        buf_B[y * W + x] = avg > decay ? avg - decay : <span class="nm">0</span>;
+    }
+}
+
+<span class="cm">/* Swap */</span>
+<span class="ty">uint8_t</span> *tmp = buf_A;
+buf_A = buf_B;
+buf_B = tmp;
+<span class="label">fire effect — double buffering for simulation</span></code></pre>
+
+<p>Conway's Game of Life uses the same trick &mdash; read neighbors from generation N, write births and deaths to generation N+1, swap. GPU swap chains are the same pattern at hardware speed. React's virtual DOM diffs two trees the same way. <strong>Read old state, write new state, swap</strong> &mdash; this is one of the most fundamental patterns in computing.</p>
+
+<div class="power zen">
+<div class="power-label">When You Need Double Buffering</div>
+<p>Any time your computation reads from the same data structure it writes to, and the reads depend on seeing the <em>previous</em> state, not partially-updated state. Simulation (fire, Game of Life, physics). Rendering (framebuffer, terminal). State machines (current state → next state). Networking (incoming packet buffer while processing previous batch). If you're seeing corruption or "feedback loops" in your output, you probably need two buffers.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch9">
+<h2>// DMA &mdash; buffers without the CPU</h2>
+
+<p class="drop-cap">Direct Memory Access (DMA) is the ultimate buffer trick: data moves between devices and memory <strong>without the CPU touching it</strong>. The CPU sets up a transfer &mdash; "copy from this address to that address, this many bytes" &mdash; then does other work while the DMA controller handles the copy. The CPU gets interrupted when it's done.</p>
+
+<div class="diagram">
+<span class="diagram-label">DMA vs CPU-Driven I/O</span>
+<pre><code>
+  CPU-DRIVEN (PIO):                        DMA:
+  ┌─────┐     ┌────────┐                  ┌─────┐     ┌────────┐
+  │ CPU │────→│ Buffer │                  │ CPU │     │ Buffer │
+  │     │◄────│        │                  │     │     │        │
+  │     │────→│        │  CPU busy        │ SET │     │        │  CPU free!
+  │     │◄────│        │  the ENTIRE      │ UP  │     │        │
+  │     │────→│        │  time...         │     │     │ ↕↕↕↕↕  │
+  │     │◄────│        │                  │ IRQ │◄────│ DONE   │
+  └─────┘     └────────┘                  └─────┘     └────────┘
+                                                 ↑
+  CPU copies each word manually          DMA controller does it
+  100% CPU utilization                   CPU does useful work meanwhile
+
+  GPU VRAM example:
+  ┌──────────┐    DMA     ┌──────────┐    DMA     ┌──────────┐
+  │ System   │ ─────────→ │ PCIe     │ ─────────→ │ GPU VRAM │
+  │ RAM      │   bus      │ Bridge   │   bus      │ (tensor) │
+  └──────────┘            └──────────┘            └──────────┘
+  CPU just says "transfer these 100MB of weights to GPU"
+  Then CPU prepares the next batch while GPU receives the first
+</code></pre>
+</div>
+
+<pre><code><span class="cm">// CUDA: async memory transfer = DMA under the hood</span>
+
+<span class="cm">// Pin host memory (prevent page-out, enable DMA)</span>
+<span class="ty">float</span> *host_weights;
+<span class="fn">cudaMallocHost</span>(&host_weights, size);  <span class="cm">// Pinned (non-pageable)</span>
+
+<span class="cm">// Allocate GPU memory</span>
+<span class="ty">float</span> *gpu_weights;
+<span class="fn">cudaMalloc</span>(&gpu_weights, size);
+
+<span class="cm">// Async copy: CPU → GPU via DMA</span>
+<span class="fn">cudaMemcpyAsync</span>(gpu_weights, host_weights, size,
+                cudaMemcpyHostToDevice, stream);
+
+<span class="cm">// CPU is FREE right now — DMA engine handles the copy</span>
+<span class="fn">prepare_next_layer</span>();  <span class="cm">// Overlap compute with transfer</span>
+
+<span class="cm">// Wait for DMA to finish</span>
+<span class="fn">cudaStreamSynchronize</span>(stream);
+<span class="label">CUDA — DMA-powered tensor transfer</span></code></pre>
+
+<div class="power">
+<div class="power-label">Pinned Memory: The DMA Prerequisite</div>
+<p>DMA needs physical memory addresses that don't change. Normal <code>malloc</code> memory can be paged out to swap at any time &mdash; the physical address changes, breaking the DMA. Pinned memory (<code>cudaMallocHost</code>, <code>mlock</code>) tells the OS "never page this out." The trade-off: pinned memory reduces available RAM for other processes. Pin too much and you starve the system.</p>
+</div>
+
+<h3>Overlap: The Pipeline of Buffers</h3>
+
+<pre><code><span class="cm">// The REAL power: double-buffer with DMA for pipeline overlap</span>
+<span class="cm">// While GPU computes on buffer A, DMA fills buffer B</span>
+
+<span class="ty">float</span> *buf_a, *buf_b;  <span class="cm">// Two GPU buffers</span>
+<span class="fn">cudaMalloc</span>(&buf_a, layer_size);
+<span class="fn">cudaMalloc</span>(&buf_b, layer_size);
+
+<span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i < num_layers; i++) {
+    <span class="ty">float</span> *current = (i % <span class="nm">2</span> == <span class="nm">0</span>) ? buf_a : buf_b;
+    <span class="ty">float</span> *next    = (i % <span class="nm">2</span> == <span class="nm">0</span>) ? buf_b : buf_a;
+
+    <span class="cm">// Start DMA for next layer while computing current</span>
+    <span class="kw">if</span> (i + <span class="nm">1</span> < num_layers) {
+        <span class="fn">cudaMemcpyAsync</span>(next, host_layers[i+<span class="nm">1</span>], layer_size,
+                        cudaMemcpyHostToDevice, copy_stream);
+    }
+
+    <span class="cm">// Compute on current layer</span>
+    <span class="fn">matmul_kernel</span><<<grid, block, <span class="nm">0</span>, compute_stream>>>(current, ...);
+
+    <span class="cm">// Both streams run concurrently!</span>
+    <span class="cm">// DMA engine: copying next layer</span>
+    <span class="cm">// GPU SMs: computing current layer</span>
+}
+<span class="label">CUDA — double-buffered DMA pipeline</span></code></pre>
+
+<div class="diagram">
+<span class="diagram-label">Pipeline Timeline: Transfer + Compute Overlap</span>
+<pre><code>
+  WITHOUT overlap:
+  Time →  ████████░░░░░░░░████████░░░░░░░░████████░░░░░░░░
+          copy L1  compute  copy L2  compute  copy L3  compute
+          Total: 6 units
+
+  WITH double-buffer overlap:
+  Time →  ████████████████████████████████
+  DMA:    ████    ████    ████
+  GPU:        ████    ████    ████
+          Total: ~3.5 units (nearly 2x speedup)
+</code></pre>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch10">
+<h2>// dirty tricks &amp; little gains</h2>
+
+<p class="drop-cap">These are the buffer tricks that separate the hackers from the textbook readers. Small, sharp techniques that come from understanding how the metal actually works.</p>
+
+<h3>Trick 1: The Bounce Buffer</h3>
+
+<p>When you need to transform data between two different formats, use a small bounce buffer instead of converting in-place (which might corrupt data on failure).</p>
+
+<pre><code><span class="cm">// Convert BFloat16 → Float32 through a bounce buffer</span>
+<span class="cm">// Read raw BF16 from mmap'd shard, convert to F32 in bounce,</span>
+<span class="cm">// hand the bounce buffer to the compute kernel</span>
+
+<span class="ty">float</span> bounce[<span class="nm">256</span>];  <span class="cm">// Small, fits in L1 cache</span>
+<span class="ty">uint16_t</span> *src = (<span class="ty">uint16_t</span> *)mapped_tensor;
+
+<span class="kw">for</span> (<span class="ty">int</span> i = <span class="nm">0</span>; i < total; i += <span class="nm">256</span>) {
+    <span class="ty">int</span> chunk = <span class="fn">min</span>(<span class="nm">256</span>, total - i);
+    <span class="kw">for</span> (<span class="ty">int</span> j = <span class="nm">0</span>; j < chunk; j++) {
+        bounce[j] = <span class="fn">bf16_to_f32</span>(src[i + j]);  <span class="cm">// Convert in L1</span>
+    }
+    <span class="fn">process_chunk</span>(bounce, chunk);  <span class="cm">// All data hot in cache</span>
+}
+<span class="label">bounce buffer — cache-friendly conversion</span></code></pre>
+
+<h3>Trick 2: Sentinel Values</h3>
+
+<pre><code><span class="cm">// Instead of checking buffer length on every iteration,</span>
+<span class="cm">// place a sentinel value at the end</span>
+
+<span class="ty">char</span> buf[SIZE + <span class="nm">1</span>];
+buf[SIZE] = <span class="st">'\n'</span>;  <span class="cm">// Sentinel — guaranteed to terminate the loop</span>
+
+<span class="ty">int</span> i = <span class="nm">0</span>;
+<span class="kw">while</span> (buf[i] != <span class="st">'\n'</span>) i++;  <span class="cm">// No bounds check needed in the loop!</span>
+<span class="cm">// After loop: if (i == SIZE) → wasn't found; else → found at i</span>
+
+<span class="cm">// Standard library strlen() uses this trick internally.</span>
+<span class="cm">// Saves one comparison per iteration = 10-30% faster on tight loops.</span>
+<span class="label">sentinel elimination</span></code></pre>
+
+<h3>Trick 3: Buffer Gap (Text Editors)</h3>
+
+<pre><code><span class="cm">// How real text editors store text: gap buffer</span>
+<span class="cm">// Cursor position = gap position. Insert/delete at cursor is O(1).</span>
+
+<span class="cm">// Buffer: "Hello World" with cursor at position 5</span>
+<span class="cm">// ┌─┬─┬─┬─┬─┬───────┬─┬─┬─┬─┬─┬─┐</span>
+<span class="cm">// │H│e│l│l│o│       │ │W│o│r│l│d│</span>
+<span class="cm">// └─┴─┴─┴─┴─┴───────┴─┴─┴─┴─┴─┴─┘</span>
+<span class="cm">//  ←── pre-gap ──→ GAP ←── post-gap ──→</span>
+<span class="cm">//</span>
+<span class="cm">// Type 'X': put X before gap, shrink gap by 1. O(1)!</span>
+<span class="cm">// ┌─┬─┬─┬─┬─┬─┬─────┬─┬─┬─┬─┬─┬─┐</span>
+<span class="cm">// │H│e│l│l│o│X│     │ │W│o│r│l│d│</span>
+<span class="cm">// └─┴─┴─┴─┴─┴─┴─────┴─┴─┴─┴─┴─┴─┘</span>
+<span class="cm">//</span>
+<span class="cm">// Move cursor left: shift one char across the gap. O(1)!</span>
+<span class="cm">// Delete: just widen the gap. O(1)!</span>
+<span class="cm">//</span>
+<span class="cm">// Used by: Emacs, Scintilla, many editors</span>
+<span class="cm">// Alternative: piece table (VS Code), rope (Xi editor)</span>
+
+<span class="kw">typedef struct</span> {
+    <span class="ty">char</span> *buf;
+    <span class="ty">int</span> gap_start;  <span class="cm">// First byte of gap</span>
+    <span class="ty">int</span> gap_end;    <span class="cm">// First byte after gap</span>
+    <span class="ty">int</span> buf_size;
+} GapBuffer;
+
+<span class="kw">void</span> <span class="fn">insert</span>(GapBuffer *g, <span class="ty">char</span> c) {
+    g->buf[g->gap_start++] = c;  <span class="cm">// That's it. O(1).</span>
+}
+
+<span class="kw">void</span> <span class="fn">delete_back</span>(GapBuffer *g) {
+    g->gap_start--;  <span class="cm">// That's it. O(1). No memmove.</span>
+}
+<span class="label">C — gap buffer</span></code></pre>
+
+<h3>Trick 4: XOR Swap Buffer</h3>
+
+<pre><code><span class="cm">// Swap two buffers without a temporary — for the truly unhinged</span>
+<span class="cm">// Works because XOR is its own inverse: a ^ b ^ b = a</span>
+
+<span class="kw">void</span> <span class="fn">xor_swap_buffers</span>(<span class="ty">uint8_t</span> *a, <span class="ty">uint8_t</span> *b, <span class="ty">size_t</span> n) {
+    <span class="kw">for</span> (<span class="ty">size_t</span> i = <span class="nm">0</span>; i < n; i++) {
+        a[i] ^= b[i];
+        b[i] ^= a[i];
+        a[i] ^= b[i];
+    }
+}
+<span class="cm">// No temp buffer needed. But modern CPUs: just use memcpy.</span>
+<span class="cm">// This is slower on anything with a cache. It's a party trick.</span>
+<span class="label">C — XOR swap (party trick)</span></code></pre>
+
+<h3 id="ring-buffers">Trick 5: Ring Buffers (Circular Queues)</h3>
+
+<div class="tabbed">
+  <input type="radio" name="ring-tabs" class="t1" id="ring-intuition" checked />
+  <input type="radio" name="ring-tabs" class="t2" id="ring-impl" />
+  <div class="tab-bar">
+    <label for="ring-intuition">Intuition</label>
+    <label for="ring-impl">Implementation</label>
+  </div>
+
+  <div class="tab-panel p1">
+    <p>Picture a conveyor belt in a factory &mdash; not a straight one, a <strong>circular</strong> one that loops back on itself. One worker places items on the belt (the producer). Another worker picks items off (the consumer). The belt keeps moving. When it reaches the end, it doesn't stop &mdash; it wraps around and the empty section comes back to the producer, ready for more.</p>
+
+    <p>Now picture what happens without the loop. A straight belt. The producer puts items on the left end. The consumer takes from the right. After a while, the belt is full of empty space on the right and items piling up on the left. To reuse the space, you'd have to <strong>stop the belt and shift everything back</strong>. That shift is O(n) &mdash; the more items, the slower it gets. Every normal array queue pays this tax.</p>
+
+    <p>The circular belt never shifts. The consumer takes an item, and that slot comes back around to the producer automatically. Two pointers &mdash; write and read &mdash; chase each other around the loop forever. Adding is O(1). Removing is O(1). The memory never grows, never shrinks, never fragments. It just <em>circulates</em>.</p>
+
+    <div class="power zen">
+<div class="power-label">The chase</div>
+<p>The producer runs ahead, filling slots. The consumer follows behind, emptying them. If the producer <em>laps</em> the consumer, the buffer is full &mdash; the belt is packed, nowhere to put new items. If the consumer <em>catches</em> the producer, the buffer is empty &mdash; nothing to take. They dance around the circle forever. The whole thing is two integers (write position, read position) and one array. That's it. That's the data structure used by audio engines, network stacks, kernel queues, and GPU command rings.</p>
+    </div>
+  </div>
+
+  <div class="tab-panel p2">
+<p>A ring buffer is an array with a write position and a read position that chase each other in circles. One end produces data, the other consumes it. When a position reaches the end, it wraps to the beginning. This is the fundamental data structure for streaming &mdash; audio, video, network packets, inter-thread communication.</p>
+
+<div class="diagram">
+<span class="diagram-label">Ring Buffer</span>
+<pre><code>
+  Write position advances clockwise →
+
+          ┌──┬──┬──┬──┬──┬──┬──┬──┐
+          │  │██│██│██│██│  │  │  │
+          └──┴──┴──┴──┴──┴──┴──┴──┘
+           ↑  R              W  ↑
+           │  read_pos    write_pos
+           │                    │
+           └── empty ───────────┘
+
+  Available data: write_pos - read_pos
+  Free space:     capacity - available
+</code></pre>
+</div>
+
+<p>The classic problem: what happens when a write <em>crosses the boundary</em>? You want to write 5 bytes starting at position 30 in a 32-byte ring. Bytes 30-31 fit at the end, but bytes 32-34 need to wrap to positions 0-2. Without tricks, you need two <code>memcpy</code> calls:</p>
+
+<pre><code><span class="cm">/* Without tricks: split the write at the boundary */</span>
+<span class="ty">size_t</span> offset = wpos % capacity;
+<span class="ty">size_t</span> first = capacity - offset;       <span class="cm">/* bytes until end */</span>
+<span class="kw">if</span> (first > len) first = len;
+<span class="fn">memcpy</span>(buf + offset, data, first);      <span class="cm">/* tail end */</span>
+<span class="kw">if</span> (len > first)
+    <span class="fn">memcpy</span>(buf, data + first, len - first); <span class="cm">/* wrapped portion */</span>
+<span class="label">ring buffer — the boundary problem</span></code></pre>
+
+<div class="power hack">
+<div class="power-label">Power-of-2 Trick</div>
+<p>If the capacity is a power of 2, you can replace expensive modulo (<code>%</code>) with a bitwise AND: <code>offset = wpos &amp; (capacity - 1)</code>. When capacity is 2<sup>n</sup>, <code>capacity - 1</code> is a bitmask of all 1s. This also means positions never need to wrap explicitly &mdash; they're monotonically increasing unsigned counters, and the bitmask extracts the correct offset automatically. This is why every serious ring buffer implementation requires power-of-2 capacity.</p>
+</div>
+
+<h4 id="spsc">SPSC: Single-Producer, Single-Consumer</h4>
+
+<p>If exactly one thread writes and exactly one thread reads, you don't need locks. The writer only modifies <code>write_pos</code>; the reader only modifies <code>read_pos</code>. Each reads the other's position to compute available space. C11 <code>atomic_store</code>/<code>atomic_load</code> suffice &mdash; no compare-and-swap loops, no mutexes. This is how audio engines, network stacks, and inter-thread queues work at maximum throughput.</p>
+
+<pre><code><span class="cm">/* Lock-free SPSC ring buffer — the positions are the only shared state */</span>
+<span class="ty">_Atomic size_t</span> write_pos;  <span class="cm">/* only writer touches this */</span>
+<span class="ty">_Atomic size_t</span> read_pos;   <span class="cm">/* only reader touches this */</span>
+
+<span class="cm">/* Writer: */</span>
+<span class="ty">size_t</span> avail = capacity - (<span class="fn">atomic_load</span>(&write_pos) - <span class="fn">atomic_load</span>(&read_pos));
+<span class="kw">if</span> (avail >= len) {
+    <span class="fn">memcpy</span>(buf + (wpos & (capacity-<span class="nm">1</span>)), data, len);
+    <span class="fn">atomic_store</span>(&write_pos, wpos + len);
+}
+
+<span class="cm">/* Reader: */</span>
+<span class="ty">size_t</span> have = <span class="fn">atomic_load</span>(&write_pos) - <span class="fn">atomic_load</span>(&read_pos);
+<span class="kw">if</span> (have >= len) {
+    <span class="fn">memcpy</span>(out, buf + (rpos & (capacity-<span class="nm">1</span>)), len);
+    <span class="fn">atomic_store</span>(&read_pos, rpos + len);
+}
+<span class="label">SPSC lock-free ring — no mutex, no CAS</span></code></pre>
+
+<div class="power wild">
+<div class="power-label">Where SPSC Rings Live</div>
+<p><strong>JACK audio</strong> uses lock-free rings between the real-time audio thread and the UI thread. <strong>io_uring</strong> (Linux kernel) uses submission and completion ring buffers shared between user space and kernel. <strong>LMAX Disruptor</strong> (Java trading systems) extends the pattern to multi-producer with CAS loops. The simple SPSC version above handles the vast majority of real-world streaming use cases.</p>
+</div>
+
+<h4 id="backpressure">Backpressure: When the Ring Is Full</h4>
+
+<p>What happens when the producer is faster than the consumer? The ring fills up. You have three choices: <strong>block</strong> (wait until space is available), <strong>drop</strong> (discard the data), or <strong>overwrite</strong> (oldest data lost). Unix pipes choose blocking &mdash; <code>write()</code> to a full pipe sleeps until the reader drains some. This is <strong>backpressure</strong>, and it's the simplest correct flow control:</p>
+
+<pre><code><span class="cm">/* Pipe-based backpressure: write() blocks when pipe is full */</span>
+<span class="cm">/* This IS the timing mechanism for audio synthesis:</span>
+<span class="cm">   - Synthesis thread generates samples</span>
+<span class="cm">   - write(pipe_fd, samples, bytes) pushes to audio player</span>
+<span class="cm">   - If player hasn't drained enough, write() blocks</span>
+<span class="cm">   - Blocking = natural rate limiting = no explicit timer needed */</span>
+
+<span class="kw">while</span> (running) {
+    <span class="fn">generate_audio</span>(buffer, <span class="nm">1024</span>);
+    <span class="fn">write</span>(pipe_fd, buffer, <span class="nm">1024</span> * <span class="kw">sizeof</span>(<span class="ty">int16_t</span>));  <span class="cm">/* blocks when full */</span>
+}
+<span class="label">backpressure via blocking write()</span></code></pre>
+
+  </div><!-- /tab-panel p2 -->
+</div><!-- /tabbed ring-buffers -->
+
+<p>Now for the trick that eliminates the two-<code>memcpy</code> boundary problem entirely:</p>
+
+<h3>The mmap Double-Map: Eliminating the Boundary</h3>
+
+<pre><code><span class="cm">// The ULTIMATE ring buffer hack: map the same physical memory TWICE</span>
+<span class="cm">// adjacent in virtual memory. Wrap-around becomes invisible!</span>
+
+<span class="ty">size_t</span> size = <span class="nm">4096</span>;  <span class="cm">// Must be page-aligned</span>
+
+<span class="cm">// Create a shared memory region</span>
+<span class="ty">int</span> fd = <span class="fn">memfd_create</span>(<span class="st">"ring"</span>, <span class="nm">0</span>);
+<span class="fn">ftruncate</span>(fd, size);
+
+<span class="cm">// Map it TWICE, adjacent:</span>
+<span class="ty">void</span> *addr = <span class="fn">mmap</span>(NULL, size * <span class="nm">2</span>, PROT_NONE, MAP_PRIVATE|MAP_ANON, -<span class="nm">1</span>, <span class="nm">0</span>);
+<span class="fn">mmap</span>(addr,        size, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_FIXED, fd, <span class="nm">0</span>);
+<span class="fn">mmap</span>(addr + size, size, PROT_READ|PROT_WRITE, MAP_SHARED|MAP_FIXED, fd, <span class="nm">0</span>);
+
+<span class="cm">// Now addr[0..4095] and addr[4096..8191] are the SAME physical memory!</span>
+<span class="cm">//</span>
+<span class="cm">// Virtual:  [────── Page A ──────][────── Page A (mirror) ──────]</span>
+<span class="cm">// Physical: [────── Page A ──────]</span>
+<span class="cm">//</span>
+<span class="cm">// Write past the end → automatically wraps to the beginning</span>
+<span class="cm">// memcpy across the "boundary" Just Works — no split logic!</span>
+<span class="cm">// This is how high-performance audio engines and network stacks work</span>
+<span class="label">C — mmap'd ring buffer (zero-copy wrap)</span></code></pre>
+
+<div class="power wild">
+<div class="power-label">Why This Is Beautiful</div>
+<p>Normal ring buffers need special handling when a read or write wraps around the end: you split into two memcpy's. With the mmap trick, the virtual memory system <em>is</em> the ring. A <code>memcpy</code> that crosses the boundary in virtual space quietly wraps in physical space. You can <code>write(fd, ring + offset, length)</code> even when it spans the wrap point. The kernel handles it. No branch. No split. Zero overhead. This is the kind of trick that makes you sit back and stare at the ceiling for a while.</p>
+</div>
+
+</section>
+
+<!-- ============================================================ -->
+<section id="ch11">
+<h2>// raw power &mdash; what you can build</h2>
+
+<p class="drop-cap">Every one of these techniques is a building block. Combined, they let you build systems that feel impossible. Here's what opens up when you truly understand buffers.</p>
+
+<h3>Build a Live Audio Synthesizer</h3>
+<div class="power">
+<div class="power-label">Ingredients</div>
+<p>Audio ring buffer (Ch. 3) + keyboard raw input (Ch. 4) + double buffering (Ch. 8). Map keyboard keys to frequencies. On keypress, start filling the audio buffer with sine waves at that frequency. On release, fade out. You've built a piano in ~200 lines of C. Add the echo effect and you have a reverb piano. Add FFT and render bars to the framebuffer &mdash; now you have a music visualizer.</p>
+</div>
+
+<h3>Build a Network Protocol Analyzer</h3>
+<div class="power">
+<div class="power-label">Ingredients</div>
+<p>Raw socket buffer (Ch. 5) + ring buffer (Ch. 10) + terminal double buffer (Ch. 8). Capture packets into a ring buffer. Parse headers (same offset math as shard format). Render packet flow in the terminal with colors. You've built a mini Wireshark. All buffer manipulation.</p>
+</div>
+
+<h3>Build a GPU Tensor Loader</h3>
+<div class="power">
+<div class="power-label">Ingredients</div>
+<p>mmap (Ch. 7) + DMA double buffering (Ch. 9) + your MoSH format. mmap the .mosh file. Use <code>posix_fadvise(WILLNEED)</code> to prefetch the next layer while DMA transfers the current one to GPU. Overlap disk → RAM → GPU pipeline with three buffers. This is how vLLM and llama.cpp load models at near-hardware-speed.</p>
+</div>
+
+<h3>Build a Demoscene Demo</h3>
+<div class="power">
+<div class="power-label">Ingredients</div>
+<p>Framebuffer direct access (Ch. 2) + double buffering (Ch. 8) + audio synthesis (Ch. 3). Render plasma/tunnel/raymarching into back buffer. Sync visual transitions to audio beats via the audio buffer position. Swap front/back every 16ms. The entire thing fits in 4KB if you're creative with the math. No GPU. No libraries. Just buffers and sin().</p>
+</div>
+
+<div class="tabbed">
+  <input type="radio" name="ch11-buf-tabs" class="t1" id="ch11-buf-interactive" checked />
+  <input type="radio" name="ch11-buf-tabs" class="t2" id="ch11-buf-ascii" />
+  <div class="tab-bar">
+    <label for="ch11-buf-interactive">Interactive</label>
+    <label for="ch11-buf-ascii">ASCII</label>
+  </div>
+
+  <div class="tab-panel p1">
+    <p style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#6a6a7e;text-align:center;margin-bottom:8px;">Click a node to see how buffers connect.</p>
+    <svg id="viz-unified" viewBox="0 0 780 320" style="width:100%;height:auto;display:block;"></svg>
+  </div>
+
+  <div class="tab-panel p2">
+    <div class="diagram" style="margin:0;border:none;">
+    <span class="diagram-label">The Grand Unified Buffer Theory</span>
+    <pre><code>
+                          ┌─────────────────────────────────┐
+                          │     YOUR APPLICATION            │
+                          │                                 │
+                          │   "Everything is a buffer.      │
+                          │    Buffers all the way down."   │
+                          └────────────┬────────────────────┘
+                                       │
+              ┌────────────────────────┼────────────────────────┐
+              │                        │                        │
+        ┌─────▼─────┐           ┌──────▼──────┐          ┌─────▼─────┐
+        │  INPUT    │           │  COMPUTE    │          │  OUTPUT   │
+        │           │           │             │          │           │
+        │ keyboard  │           │ arena alloc │          │ framebuf  │
+        │ network   │───────────│ ring buffer │──────────│ audio out │
+        │ disk read │           │ bounce buf  │          │ network   │
+        │ mic input │           │ gap buffer  │          │ disk write│
+        └───────────┘           └─────────────┘          └───────────┘
+
+        Absorb speed               Transform              Emit at
+        differences                the data               device speed
+
+        Every I/O device           Every algorithm         Every output
+        has a buffer               has a buffer            has a buffer
+    </code></pre>
+    </div>
+  </div>
+</div>
+
+<div class="ticker" style="display: block; text-align: center; margin: 3rem auto; max-width: 600px; padding: 1rem;">
+  &gt; buffers are the connective tissue of computing.<br>
+  &gt; master them and you master the machine._
+</div>
+
+<div class="power zen">
+<div class="power-label">What to Read Next</div>
+<p>If you want to see these buffer patterns composed into a real creative tool — a single-header C library that uses double buffering for terminal rendering, SPSC ring buffers for audio streaming, and the mmap trick for zero-copy thread communication — read the <a href="/hardware/rawbuf/blog/rawbuf-deep-dive.html" style="color:var(--green)">RawBuf Deep Dive</a>. It builds a game engine, a piano synthesizer, and an FFT visualizer from three buffers and a terminal.</p>
+</div>
+
+</section>
+
+</div>
+
+<script>
+document.querySelectorAll('nav a[href^="#"]').forEach(a => {
+  a.addEventListener('click', e => {
+    e.preventDefault();
+    const target = document.querySelector(a.getAttribute('href'));
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+});
+const sections = document.querySelectorAll('section[id]');
+const navLinks = document.querySelectorAll('nav a[href^="#"]');
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      navLinks.forEach(l => l.classList.remove('active'));
+      const link = document.querySelector(`nav a[href="#${entry.target.id}"]`);
+      if (link) link.classList.add('active');
+    }
+  });
+}, { rootMargin: '-20% 0px -70% 0px' });
+sections.forEach(s => observer.observe(s));
+</script>
+
+<script>
+/* VIZ 4: Tearing vs Double Buffer */
+(function() {
+  var canvas = document.getElementById('tear-canvas');
+  if (!canvas) return;
+  var ctx = canvas.getContext('2d');
+  var W = canvas.width, H = canvas.height;
+
+  var doubleBuffered = false;
+  var frameA = 0, frameB = 1; // two "frames" as hue values
+  var scanY = 0;
+  var renderY = 0;
+  var tears = 0, frames = 0;
+  var currentDisplay = 0; // which frame is being displayed
+  var backBuffer = 1; // which frame is being rendered to
+
+  function getFrameColor(f, y) {
+    var hue = (f * 47 + y * 0.3) % 360;
+    return 'hsl(' + hue + ',60%,40%)';
+  }
+
+  window.tearToggle = function() {
+    doubleBuffered = !doubleBuffered;
+    tears = 0; frames = 0;
+    document.getElementById('tear-toggle').textContent =
+      doubleBuffered ? 'Mode: Double Buffer (clean)' : 'Mode: Single Buffer (tearing)';
+    document.getElementById('tear-readout').textContent =
+      doubleBuffered
+        ? 'Double buffer: renderer writes to back buffer. Display only sees complete frames.'
+        : 'Single buffer: renderer writes while display scans → tearing. Toggle to see the fix.';
+  };
+
+  var renderFrame = 0;
+  var displayFrame = 0;
+  var tick = 0;
+
+  function animate() {
+    tick++;
+    var speed = parseInt(document.getElementById('tear-speed').value) || 12;
+
+    // Advance display scan line
+    scanY += 3;
+    if (scanY >= H) {
+      scanY = 0;
+      frames++;
+      displayFrame++;
+      if (doubleBuffered) {
+        // Swap: display now shows what was being rendered
+        currentDisplay = backBuffer;
+        backBuffer = (backBuffer + 1) % 1000;
+      }
+    }
+
+    // Advance render (writes happen at render speed)
+    if (tick % (21 - speed) === 0) {
+      renderY += 8;
+      if (renderY >= H) {
+        renderY = 0;
+        renderFrame++;
+        if (!doubleBuffered) {
+          // Single buffer: the "current frame" just changed mid-scan
+          // This is what causes tearing
+        }
+      }
+    }
+
+    // Draw
+    ctx.fillStyle = '#0e0e16';
+    ctx.fillRect(0, 0, W, H);
+
+    var hw = W / 2 - 10;
+
+    // Left: what the display shows
+    ctx.fillStyle = '#6a6a7e';
+    ctx.font = '11px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('DISPLAY OUTPUT', hw / 2, 15);
+
+    for (var y = 0; y < H - 20; y++) {
+      var displayY = y;
+      var whichFrame;
+
+      if (doubleBuffered) {
+        whichFrame = currentDisplay;
+      } else {
+        // Single buffer: above scan line shows old frame, at render boundary shows new
+        if (y < scanY) {
+          // Already scanned this frame
+          whichFrame = (y < renderY) ? renderFrame : renderFrame - 1;
+        } else {
+          whichFrame = (y < renderY) ? renderFrame : renderFrame - 1;
+        }
+      }
+
+      ctx.fillStyle = getFrameColor(whichFrame, y);
+      ctx.fillRect(5, y + 20, hw - 10, 1);
+    }
+
+    // Scan line indicator
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(5, scanY + 20, hw - 10, 1);
+    ctx.fillStyle = '#fff';
+    ctx.font = '9px "JetBrains Mono", monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('scan', hw - 30, scanY + 18);
+
+    // Tear line (single buffer only)
+    if (!doubleBuffered && renderY > 0 && renderY < H - 20) {
+      ctx.strokeStyle = '#ff3344';
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(5, renderY + 20);
+      ctx.lineTo(hw - 5, renderY + 20);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Count tear if scan crosses render boundary
+      if (Math.abs(scanY - renderY) < 5) tears++;
+    }
+
+    // Right: back buffer state
+    var rx = W / 2 + 5;
+    ctx.fillStyle = '#6a6a7e';
+    ctx.font = '11px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(doubleBuffered ? 'BACK BUFFER (rendering)' : 'SAME BUFFER (shared!)', rx + hw/2, 15);
+
+    for (var y = 0; y < H - 20; y++) {
+      var whichFrame = (y < renderY) ? renderFrame : renderFrame - 1;
+      ctx.fillStyle = getFrameColor(whichFrame, y);
+      ctx.fillRect(rx, y + 20, hw - 10, 1);
+    }
+
+    // Render position
+    ctx.fillStyle = '#ffdd00';
+    ctx.fillRect(rx, renderY + 20, hw - 10, 2);
+    ctx.fillStyle = '#ffdd00';
+    ctx.font = '9px "JetBrains Mono", monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('render', rx + hw - 40, renderY + 18);
+
+    // Stats
+    ctx.fillStyle = '#6a6a7e';
+    ctx.font = '11px "JetBrains Mono", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('frames: ' + frames + '  tears: ' + tears, W/2, H - 3);
+
+    requestAnimationFrame(animate);
+  }
+  animate();
+})();
+</script>
+
+<script>
+(function() {
+  var svg = d3.select('#viz-writepath');
+  if (!svg.node()) return;
+  var W = 780, H = 220;
+
+  var tiers = [
+    { label: 'App Buffer', x: 30, color: '#00ff88' },
+    { label: 'Page Cache\n(RAM)', x: 220, color: '#ff8800' },
+    { label: 'Block Layer', x: 420, color: '#00ddff' },
+    { label: 'Disk / NVMe', x: 620, color: '#ff00aa' }
+  ];
+  var boxW = 130, boxH = 55, cy = 30;
+  var dirtyPages = [];
+  var pageId = 0;
+  var bgTimer = null;
+  var powerLost = false;
+
+  function ensureDefs() {
+    svg.selectAll('defs').remove();
+    var defs = svg.append('defs');
+    var f = defs.append('filter').attr('id', 'wp-glow');
+    f.append('feGaussianBlur').attr('stdDeviation', '3').attr('result', 'blur');
+    f.append('feMerge').selectAll('feMergeNode')
+      .data(['blur', 'SourceGraphic']).enter()
+      .append('feMergeNode').attr('in', function(d) { return d; });
+  }
+
+  function drawStatic() {
+    svg.selectAll('*').remove();
+    ensureDefs();
+    dirtyPages = [];
+    pageId = 0;
+    powerLost = false;
+    if (bgTimer) clearInterval(bgTimer);
+
+    tiers.forEach(function(t, i) {
+      svg.append('rect').attr('x', t.x).attr('y', cy).attr('width', boxW).attr('height', boxH)
+        .attr('fill', 'rgba(18,18,26,0.8)').attr('stroke', '#1e1e2e').attr('stroke-width', 1).attr('rx', 4);
+      var lines = t.label.split('\n');
+      lines.forEach(function(line, li) {
+        svg.append('text').attr('x', t.x + boxW / 2).attr('y', cy + 24 + li * 15)
+          .attr('text-anchor', 'middle').attr('fill', '#6a6a7e')
+          .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 11)
+          .text(line);
+      });
+      if (i < tiers.length - 1) {
+        svg.append('line')
+          .attr('x1', t.x + boxW + 4).attr('y1', cy + boxH / 2)
+          .attr('x2', tiers[i + 1].x - 4).attr('y2', cy + boxH / 2)
+          .attr('stroke', '#1e1e2e').attr('stroke-width', 1);
+      }
+    });
+
+    svg.append('text').attr('x', tiers[1].x + boxW / 2).attr('y', cy + boxH + 18)
+      .attr('text-anchor', 'middle').attr('fill', '#3a3a4e')
+      .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
+      .text('dirty pages \u2193');
+    svg.append('text').attr('x', tiers[3].x + boxW / 2).attr('y', cy + boxH + 18)
+      .attr('text-anchor', 'middle').attr('fill', '#3a3a4e')
+      .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
+      .text('synced pages \u2193');
+
+    startBgFlush();
+  }
+
+  function pageSlot(tier, index) {
+    var base = tiers[tier].x;
+    var row = Math.floor(index / 5);
+    var col = index % 5;
+    return { x: base + 8 + col * 26, y: cy + boxH + 26 + row * 22 };
+  }
+
+  function renderPages() {
+    svg.selectAll('.data-page').remove();
+    var cachePages = dirtyPages.filter(function(p) { return p.tier === 1; });
+    var diskPages = dirtyPages.filter(function(p) { return p.tier === 3; });
+
+    cachePages.forEach(function(p, i) {
+      var pos = pageSlot(1, i);
+      var color = p.lost ? '#ff0044' : '#ff8800';
+      var label = p.lost ? 'LOST' : 'dirty';
+      svg.append('rect').attr('class', 'data-page')
+        .attr('x', pos.x).attr('y', pos.y).attr('width', 22).attr('height', 16)
+        .attr('fill', color + '33').attr('stroke', color).attr('stroke-width', 1).attr('rx', 2);
+      svg.append('text').attr('class', 'data-page')
+        .attr('x', pos.x + 11).attr('y', pos.y + 12)
+        .attr('text-anchor', 'middle').attr('fill', color)
+        .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 7)
+        .text(label);
+    });
+
+    diskPages.forEach(function(p, i) {
+      var pos = pageSlot(3, i);
+      var color = p.safe ? '#00ff88' : '#00ddff';
+      var label = p.safe ? 'SAFE' : 'synced';
+      svg.append('rect').attr('class', 'data-page')
+        .attr('x', pos.x).attr('y', pos.y).attr('width', 22).attr('height', 16)
+        .attr('fill', color + '33').attr('stroke', color).attr('stroke-width', 1).attr('rx', 2);
+      svg.append('text').attr('class', 'data-page')
+        .attr('x', pos.x + 11).attr('y', pos.y + 12)
+        .attr('text-anchor', 'middle').attr('fill', color)
+        .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 7)
+        .text(label);
+    });
+  }
+
+  function showStatus(msg, color) {
+    svg.selectAll('.wp-status').remove();
+    svg.append('text').attr('class', 'wp-status')
+      .attr('x', W / 2).attr('y', H - 6)
+      .attr('text-anchor', 'middle').attr('fill', color)
+      .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 11)
+      .attr('opacity', 0).text(msg)
+      .transition().duration(200).attr('opacity', 1)
+      .transition().delay(1500).duration(500).attr('opacity', 0).remove();
+  }
+
+  function flushOne() {
+    if (powerLost) return;
+    var idx = -1;
+    for (var i = 0; i < dirtyPages.length; i++) {
+      if (dirtyPages[i].tier === 1) { idx = i; break; }
+    }
+    if (idx === -1) return;
+    dirtyPages[idx].tier = 3;
+    renderPages();
+  }
+
+  function startBgFlush() {
+    if (bgTimer) clearInterval(bgTimer);
+    bgTimer = setInterval(flushOne, 2000);
+  }
+
+  function doWrite() {
+    if (powerLost) return;
+    if (dirtyPages.filter(function(p) { return p.tier === 1; }).length >= 10) {
+      showStatus('Page cache full! fsync() to flush.', '#ff8800');
+      return;
+    }
+    pageId++;
+    dirtyPages.push({ tier: 1, id: pageId });
+
+    svg.append('rect').attr('x', tiers[0].x - 2).attr('y', cy - 2)
+      .attr('width', boxW + 4).attr('height', boxH + 4)
+      .attr('fill', 'none').attr('stroke', '#00ff88').attr('stroke-width', 2).attr('rx', 5)
+      .attr('filter', 'url(#wp-glow)').attr('opacity', 0.9)
+      .transition().duration(400).attr('opacity', 0).remove();
+
+    svg.append('rect').attr('x', tiers[1].x - 2).attr('y', cy - 2)
+      .attr('width', boxW + 4).attr('height', boxH + 4)
+      .attr('fill', 'none').attr('stroke', '#ff8800').attr('stroke-width', 2).attr('rx', 5)
+      .attr('filter', 'url(#wp-glow)').attr('opacity', 0)
+      .transition().delay(150).duration(200).attr('opacity', 0.9)
+      .transition().duration(400).attr('opacity', 0).remove();
+
+    renderPages();
+    showStatus('write() returned! (0.1ms) \u2014 data in page cache, NOT on disk', '#00ff88');
+  }
+
+  function doFsync() {
+    if (powerLost) return;
+    var count = 0;
+    dirtyPages.forEach(function(p) {
+      if (p.tier === 1) { p.tier = 3; count++; }
+    });
+    if (count === 0) {
+      showStatus('Nothing to flush.', '#6a6a7e');
+      return;
+    }
+
+    svg.append('rect').attr('x', tiers[3].x - 2).attr('y', cy - 2)
+      .attr('width', boxW + 4).attr('height', boxH + 4)
+      .attr('fill', 'none').attr('stroke', '#ff00aa').attr('stroke-width', 2).attr('rx', 5)
+      .attr('filter', 'url(#wp-glow)').attr('opacity', 0.9)
+      .transition().duration(600).attr('opacity', 0).remove();
+
+    renderPages();
+    showStatus('fsync() complete \u2014 ' + count + ' page(s) flushed to disk (~1ms SSD)', '#ff8800');
+  }
+
+  function doPowerLoss() {
+    if (powerLost) return;
+    powerLost = true;
+    if (bgTimer) clearInterval(bgTimer);
+
+    dirtyPages.forEach(function(p) {
+      if (p.tier === 1) p.lost = true;
+      if (p.tier === 3) p.safe = true;
+    });
+
+    svg.append('rect').attr('x', tiers[1].x - 3).attr('y', cy - 3)
+      .attr('width', boxW + 6).attr('height', boxH + 6)
+      .attr('fill', '#ff004422').attr('stroke', '#ff0044').attr('stroke-width', 2).attr('rx', 5)
+      .attr('opacity', 0).transition().duration(100).attr('opacity', 1)
+      .transition().duration(200).attr('opacity', 0.6);
+
+    svg.append('rect').attr('x', tiers[3].x - 3).attr('y', cy - 3)
+      .attr('width', boxW + 6).attr('height', boxH + 6)
+      .attr('fill', '#00ff8822').attr('stroke', '#00ff88').attr('stroke-width', 2).attr('rx', 5)
+      .attr('opacity', 0).transition().duration(100).attr('opacity', 1)
+      .transition().duration(200).attr('opacity', 0.6);
+
+    renderPages();
+    var lost = dirtyPages.filter(function(p) { return p.lost; }).length;
+    var safe = dirtyPages.filter(function(p) { return p.safe; }).length;
+    showStatus('POWER LOSS \u2014 ' + lost + ' page(s) LOST in RAM, ' + safe + ' page(s) SAFE on disk', '#ff0044');
+  }
+
+  d3.select('#viz-wp-write').on('click', doWrite);
+  d3.select('#viz-wp-fsync').on('click', doFsync);
+  d3.select('#viz-wp-powerloss').on('click', doPowerLoss);
+  d3.select('#viz-wp-reset').on('click', function() { drawStatic(); });
+  drawStatic();
+})();
+</script>
+
+<script>
+/* VIZ: TCP Buffer Architecture (Ch.5) */
+(function() {
+  var svg = d3.select('#viz-tcp');
+  if (!svg.node()) return;
+  var W = 780, H = 260;
+
+  var SLOTS = 16;
+  var sendBuf = [];
+  var blocked = false;
+
+  function draw() {
+    svg.selectAll('*').remove();
+
+    var font = "'JetBrains Mono', monospace";
+
+    // Arrow marker defs
+    var defs = svg.append('defs');
+    defs.append('marker').attr('id', 'arrowGreen').attr('viewBox', '0 0 10 10')
+      .attr('refX', 10).attr('refY', 5).attr('markerWidth', 6).attr('markerHeight', 6)
+      .attr('orient', 'auto')
+      .append('path').attr('d', 'M 0 0 L 10 5 L 0 10 z').attr('fill', '#00ff88');
+
+    // Labels
+    svg.append('text').attr('x', 40).attr('y', 30).text('YOUR APP')
+      .attr('fill', '#00ff88').attr('font-family', font).attr('font-size', 11);
+    svg.append('text').attr('x', 640).attr('y', 30).text('REMOTE')
+      .attr('fill', '#00ddff').attr('font-family', font).attr('font-size', 11);
+
+    // write() arrow
+    svg.append('line').attr('x1', 85).attr('y1', 90).attr('x2', 95).attr('y2', 90)
+      .attr('stroke', '#00ff88').attr('stroke-width', 1.5).attr('marker-end', 'url(#arrowGreen)');
+    svg.append('text').attr('x', 40).attr('y', 55).text('write()')
+      .attr('fill', '#00ff8888').attr('font-family', font).attr('font-size', 9);
+
+    // Send buffer label
+    svg.append('text').attr('x', 100).attr('y', 60).text('SEND BUFFER (128 KB)')
+      .attr('fill', '#6a6a7e').attr('font-family', font).attr('font-size', 9);
+
+    // Draw send buffer slots
+    var slotW = 30, slotH = 40, startX = 100, startY = 70;
+    for (var i = 0; i < SLOTS; i++) {
+      var x = startX + i * (slotW + 2);
+      var state = i < sendBuf.length ? sendBuf[i] : null;
+      var color;
+      if (state === 'ackd') color = '#00ff8844';
+      else if (state === 'sent') color = '#ffdd0044';
+      else if (state === 'waiting') color = '#00ddff33';
+      else color = '#12121a';
+
+      svg.append('rect').attr('x', x).attr('y', startY)
+        .attr('width', slotW).attr('height', slotH)
+        .attr('fill', color).attr('stroke', state ? '#2a2a4a' : '#1a1a2a').attr('rx', 2);
+
+      if (state) {
+        var label = state === 'ackd' ? '\u2713' : state === 'sent' ? '\u2192' : '\u25CF';
+        svg.append('text').attr('x', x + slotW / 2).attr('y', startY + slotH / 2 + 4)
+          .attr('text-anchor', 'middle').attr('fill', state === 'ackd' ? '#00ff88' : state === 'sent' ? '#ffdd00' : '#00ddff')
+          .attr('font-family', font).attr('font-size', 12).text(label);
+      }
+    }
+
+    // Network gap
+    var netX = startX + SLOTS * (slotW + 2) + 10;
+    svg.append('text').attr('x', netX + 20).attr('y', 60).text('NETWORK')
+      .attr('fill', '#6a6a7e').attr('font-family', font).attr('font-size', 9);
+    svg.append('rect').attr('x', netX).attr('y', startY).attr('width', 80).attr('height', slotH)
+      .attr('fill', 'none').attr('stroke', '#2a2a4a').attr('stroke-dasharray', '4,4').attr('rx', 4);
+
+    // Animated TCP segments in network gap
+    var inflight = sendBuf.filter(function(s) { return s === 'sent'; }).length;
+    for (var seg = 0; seg < Math.min(inflight, 3); seg++) {
+      svg.append('rect')
+        .attr('x', netX + 10 + seg * 22).attr('y', startY + 10 + seg * 6)
+        .attr('width', 16).attr('height', 10)
+        .attr('fill', '#ffdd0033').attr('stroke', '#ffdd0066').attr('rx', 2);
+      svg.append('text').attr('x', netX + 18 + seg * 22).attr('y', startY + 18 + seg * 6)
+        .attr('text-anchor', 'middle').attr('fill', '#ffdd00').attr('font-family', font).attr('font-size', 7)
+        .text('SEG');
+    }
+
+    // Write head indicator
+    var writeHead = sendBuf.length;
+    if (writeHead < SLOTS) {
+      svg.append('text').attr('x', startX + writeHead * (slotW + 2) + slotW / 2)
+        .attr('y', startY + slotH + 16).attr('text-anchor', 'middle')
+        .attr('fill', '#00ff88').attr('font-family', font).attr('font-size', 9)
+        .text('\u2191 write');
+    }
+
+    // Blocked indicator
+    if (blocked) {
+      svg.append('text').attr('x', W / 2).attr('y', startY + slotH + 40)
+        .attr('text-anchor', 'middle').attr('fill', '#ff3344')
+        .attr('font-family', font).attr('font-size', 12)
+        .text('write() BLOCKED \u2014 send buffer full');
+    }
+
+    // Legend
+    svg.append('text').attr('x', 100).attr('y', H - 30)
+      .attr('fill', '#6a6a7e').attr('font-family', font).attr('font-size', 9)
+      .text("\u2713 = ACK'd (freeable)   \u2192 = in flight   \u25CF = queued");
+
+    // Stats
+    var ackd = sendBuf.filter(function(s) { return s === 'ackd'; }).length;
+    var inflightN = sendBuf.filter(function(s) { return s === 'sent'; }).length;
+    var queued = sendBuf.filter(function(s) { return s === 'waiting'; }).length;
+    var free = SLOTS - sendBuf.length;
+    svg.append('text').attr('x', 100).attr('y', H - 12)
+      .attr('fill', '#6a6a7e').attr('font-family', font).attr('font-size', 9)
+      .text("ack'd: " + ackd + '  in-flight: ' + inflightN + '  queued: ' + queued + '  free: ' + free);
+
+    // Update button label
+    var writeBtn = document.getElementById('viz-tcp-write');
+    if (writeBtn) {
+      if (blocked) {
+        writeBtn.style.color = '#ff3344';
+        writeBtn.style.borderColor = '#ff3344';
+        writeBtn.textContent = 'BLOCKED (buffer full)';
+      } else {
+        writeBtn.style.color = '#00ff88';
+        writeBtn.style.borderColor = '#1e1e2e';
+        writeBtn.textContent = 'write(data)';
+      }
+    }
+  }
+
+  d3.select('#viz-tcp-write').on('click', function() {
+    if (sendBuf.length >= SLOTS) { blocked = true; draw(); return; }
+    blocked = false;
+    sendBuf.push('waiting');
+    setTimeout(function() {
+      for (var i = 0; i < sendBuf.length; i++) {
+        if (sendBuf[i] === 'waiting') { sendBuf[i] = 'sent'; break; }
+      }
+      draw();
+    }, 300);
+    draw();
+  });
+
+  d3.select('#viz-tcp-ack').on('click', function() {
+    for (var i = 0; i < sendBuf.length; i++) {
+      if (sendBuf[i] === 'sent') { sendBuf[i] = 'ackd'; break; }
+    }
+    while (sendBuf.length > 0 && sendBuf[0] === 'ackd') sendBuf.shift();
+    blocked = false;
+    draw();
+  });
+
+  d3.select('#viz-tcp-fill').on('click', function() {
+    while (sendBuf.length < SLOTS) sendBuf.push('sent');
+    blocked = true;
+    draw();
+  });
+
+  d3.select('#viz-tcp-reset').on('click', function() {
+    sendBuf = []; blocked = false; draw();
+  });
+
+  draw();
+})();
+</script>
+
+<script>
+/* VIZ: Grand Unified Buffer Theory (Ch.11) */
+(function() {
+  var svg = d3.select('#viz-unified');
+  if (!svg.node()) return;
+  var W = 780, H = 320;
+  var font = "'JetBrains Mono', monospace";
+
+  var columns = [
+    { label: 'INPUT', color: '#00ddff', x: 80, nodes: [
+      { name: 'Keyboard', ch: 'Ch.4' },
+      { name: 'Network', ch: 'Ch.5' },
+      { name: 'Microphone', ch: 'Ch.3' },
+      { name: 'Disk', ch: 'Ch.7' }
+    ]},
+    { label: 'COMPUTE', color: '#00ff88', x: 350, nodes: [
+      { name: 'Ring Buffer', ch: 'Ch.3' },
+      { name: 'Page Cache', ch: 'Ch.7' },
+      { name: 'Arena', ch: 'Ch.6' },
+      { name: 'Bounce', ch: 'Ch.9' }
+    ]},
+    { label: 'OUTPUT', color: '#ff00aa', x: 620, nodes: [
+      { name: 'Framebuffer', ch: 'Ch.2' },
+      { name: 'Audio Out', ch: 'Ch.3' },
+      { name: 'Network Out', ch: 'Ch.5' },
+      { name: 'Disk Out', ch: 'Ch.7' }
+    ]}
+  ];
+
+  // Connection map: [input_idx, compute_idx, output_idx]
+  var connections = [
+    [0, 0, 0], // Keyboard -> Ring Buffer -> Framebuffer
+    [1, 1, 2], // Network -> Page Cache -> Network Out
+    [2, 0, 1], // Microphone -> Ring Buffer -> Audio Out
+    [3, 1, 3], // Disk -> Page Cache -> Disk Out
+    [0, 2, 0], // Keyboard -> Arena -> Framebuffer
+    [1, 3, 2], // Network -> Bounce -> Network Out
+    [3, 2, 3], // Disk -> Arena -> Disk Out
+    [2, 3, 1]  // Microphone -> Bounce -> Audio Out
+  ];
+
+  var selected = null; // { col, idx }
+  var nodeW = 120, nodeH = 36, startY = 60, gapY = 52;
+
+  function nodePos(col, idx) {
+    var c = columns[col];
+    return { x: c.x, y: startY + idx * gapY };
+  }
+
+  function draw() {
+    svg.selectAll('*').remove();
+
+    // Background click to deselect
+    svg.append('rect').attr('width', W).attr('height', H).attr('fill', 'transparent')
+      .style('cursor', 'default')
+      .on('click', function() { selected = null; draw(); });
+
+    // Title
+    svg.append('text').attr('x', W / 2).attr('y', 24).attr('text-anchor', 'middle')
+      .attr('fill', '#6a6a7e').attr('font-family', font).attr('font-size', 10)
+      .text('YOUR APPLICATION \u2014 "Everything is a buffer. Buffers all the way down."');
+
+    // Column headers + subtitles
+    var subtitles = ['Absorb speed\ndifferences', 'Transform\nthe data', 'Emit at\ndevice speed'];
+    columns.forEach(function(col, ci) {
+      svg.append('text').attr('x', col.x + nodeW / 2).attr('y', 48)
+        .attr('text-anchor', 'middle').attr('fill', col.color)
+        .attr('font-family', font).attr('font-size', 10).attr('font-weight', 600)
+        .text(col.label);
+      svg.append('text').attr('x', col.x + nodeW / 2).attr('y', startY + 4 * gapY + 16)
+        .attr('text-anchor', 'middle').attr('fill', '#6a6a7e')
+        .attr('font-family', font).attr('font-size', 8)
+        .text(subtitles[ci].split('\n')[0]);
+      svg.append('text').attr('x', col.x + nodeW / 2).attr('y', startY + 4 * gapY + 28)
+        .attr('text-anchor', 'middle').attr('fill', '#6a6a7e')
+        .attr('font-family', font).attr('font-size', 8)
+        .text(subtitles[ci].split('\n')[1]);
+    });
+
+    // Draw connections for selected node
+    if (selected) {
+      connections.forEach(function(conn) {
+        var match = false;
+        if (selected.col === 0 && conn[0] === selected.idx) match = true;
+        if (selected.col === 1 && conn[1] === selected.idx) match = true;
+        if (selected.col === 2 && conn[2] === selected.idx) match = true;
+        if (!match) return;
+
+        var pairs = [[0, 1], [1, 2]];
+        pairs.forEach(function(p) {
+          var from = nodePos(p[0], conn[p[0]]);
+          var to = nodePos(p[1], conn[p[1]]);
+          var x1 = from.x + nodeW;
+          var y1 = from.y + nodeH / 2;
+          var x2 = to.x;
+          var y2 = to.y + nodeH / 2;
+          var mx = (x1 + x2) / 2;
+
+          svg.append('path')
+            .attr('d', 'M' + x1 + ',' + y1 + ' C' + mx + ',' + y1 + ' ' + mx + ',' + y2 + ' ' + x2 + ',' + y2)
+            .attr('fill', 'none').attr('stroke', columns[p[0]].color).attr('stroke-width', 1.5)
+            .attr('stroke-dasharray', '6,4').attr('opacity', 0.7)
+            .append('animate').attr('attributeName', 'stroke-dashoffset')
+            .attr('from', '0').attr('to', '-20').attr('dur', '1s').attr('repeatCount', 'indefinite');
+        });
+      });
+    }
+
+    // Draw nodes
+    columns.forEach(function(col, ci) {
+      col.nodes.forEach(function(node, ni) {
+        var pos = nodePos(ci, ni);
+        var isSel = selected && selected.col === ci && selected.idx === ni;
+        var isHighlighted = false;
+        if (selected) {
+          connections.forEach(function(conn) {
+            var match = false;
+            if (selected.col === 0 && conn[0] === selected.idx) match = true;
+            if (selected.col === 1 && conn[1] === selected.idx) match = true;
+            if (selected.col === 2 && conn[2] === selected.idx) match = true;
+            if (match && conn[ci] === ni) isHighlighted = true;
+          });
+        }
+
+        var g = svg.append('g').style('cursor', 'pointer')
+          .on('click', function(e) {
+            e.stopPropagation();
+            if (selected && selected.col === ci && selected.idx === ni) {
+              selected = null;
+            } else {
+              selected = { col: ci, idx: ni };
+            }
+            draw();
+          });
+
+        g.append('rect').attr('x', pos.x).attr('y', pos.y)
+          .attr('width', nodeW).attr('height', nodeH).attr('rx', 4)
+          .attr('fill', isSel ? col.color + '33' : (isHighlighted ? col.color + '1a' : '#12121a'))
+          .attr('stroke', isSel ? col.color : (isHighlighted ? col.color + '88' : '#2a2a4a'))
+          .attr('stroke-width', isSel ? 2 : 1);
+
+        if (isSel) {
+          g.append('rect').attr('x', pos.x - 2).attr('y', pos.y - 2)
+            .attr('width', nodeW + 4).attr('height', nodeH + 4).attr('rx', 6)
+            .attr('fill', 'none').attr('stroke', col.color).attr('stroke-width', 1)
+            .attr('opacity', 0.4);
+        }
+
+        g.append('text').attr('x', pos.x + nodeW / 2).attr('y', pos.y + nodeH / 2 - 2)
+          .attr('text-anchor', 'middle').attr('dominant-baseline', 'middle')
+          .attr('fill', isSel || isHighlighted ? col.color : '#6a6a7e')
+          .attr('font-family', font).attr('font-size', 10).attr('font-weight', isSel ? 600 : 400)
+          .text(node.name);
+
+        g.append('text').attr('x', pos.x + nodeW / 2).attr('y', pos.y + nodeH / 2 + 11)
+          .attr('text-anchor', 'middle').attr('dominant-baseline', 'middle')
+          .attr('fill', isSel || isHighlighted ? col.color + 'aa' : '#6a6a7e66')
+          .attr('font-family', font).attr('font-size', 7)
+          .text('Covered in ' + node.ch);
+      });
+    });
+  }
+
+  draw();
+})();
+</script>
+
+</body>
+</html>
