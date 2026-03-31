@@ -796,3 +796,227 @@ gpt_neox.layers.0.mlp.dense_4h_to_h.scales                        [48, 6144]    
 ```
 
 The naming convention diverges sharply from LLaMA's AWQ layout: `gpt_neox.layers.N.attention.query_key_value` vs `model.layers.N.self_attn.q_proj`. The GGUF converter normalizes both to `blk.N.attn_qkv`, erasing the HuggingFace namespace differences. When writing loaders that consume SafeTensors directly, the namespace prefix (`model.`, `gpt_neox.`, `transformer.`) must be detected and handled per-architecture — it is not standardized across model families.
+
+---
+
+## 11. Full Architecture Comparison
+
+The table below consolidates key structural parameters across four representative model families, covering both GGUF metadata fields and AWQ packaging characteristics.
+
+| Feature | LLaMA 3.1 8B | Qwen2 7B | GPT-NeoX 20B | GPT-2 124M |
+|---------|-------------|----------|--------------|------------|
+| GGUF `general.architecture` | `llama` | `qwen2` | `gptneox` | `gpt2` |
+| Parameters | 8B | 7B | 20B | 124M |
+| Layers | 32 | 28 | 44 | 12 |
+| Hidden dim | 4096 | 3584 | 6144 | 768 |
+| FFN dim | 14336 | 18944 | 24576 | 3072 |
+| Attention heads (Q) | 32 | 28 | 64 | 12 |
+| KV heads | 8 (GQA) | 4 (GQA) | 64 (MHA) | 12 (MHA) |
+| Head dim | 128 | 128 | 96 | 64 |
+| Vocab size | 128,256 | 152,064 | 50,432 | 50,257 |
+| Tokenizer | SentencePiece | BPE | BPE | BPE |
+| Position encoding | RoPE | RoPE | RoPE | Learned |
+| Norm type | RMSNorm | RMSNorm | LayerNorm | LayerNorm |
+| FFN type | SwiGLU (3 proj) | SwiGLU (3 proj) | GELU (2 proj) | GELU (2 proj) |
+| Attention bias | No | Yes (QKV) | Yes (all) | Yes (all) |
+| Tied embeddings | No | Sometimes | No | Yes |
+| GGUF tensors (total) | ~324 | ~370 | ~534 | ~148 |
+| GGUF Q4_K_M size | ~4.9 GB | ~4.4 GB | ~11.4 GB | ~80 MB |
+| AWQ tensors (total) | ~707 | ~800+ | ~1100+ | N/A |
+| AWQ model size | ~4.2 GB | ~3.7 GB | ~10.1 GB | N/A |
+
+**Tensor count differences** are driven by architectural bias coverage and quantization packaging overhead:
+
+- **Qwen2** carries 3 extra bias vectors per layer (`q_proj.bias`, `k_proj.bias`, `v_proj.bias`), pushing its GGUF tensor count ~46 above LLaMA's despite having fewer layers.
+- **GPT-NeoX** has bias on every projection — both attention and FFN — inflating tensor count to ~534 across 44 layers.
+- **AWQ roughly triples the GGUF tensor count** because each quantized weight matrix spawns three tensors: the packed `qweight`, the scale `scales`, and the zero-point `qzeros`. Unquantized tensors (norms, embeddings) remain as-is, so the multiplier is sub-3× in practice.
+- **GPT-2 124M is not a practical AWQ target**: the quantization metadata overhead (`scales`, `qzeros` per group) is significant relative to the tiny weight matrices, and the absolute memory savings are measured in tens of MB rather than GB.
+
+### File Size Comparison for 7B-Class Models
+
+| Format | LLaMA 3.1 8B | Qwen2 7B |
+|--------|-------------|----------|
+| FP16 SafeTensors | ~16 GB | ~14 GB |
+| AWQ INT4 | ~4.2 GB | ~3.7 GB |
+| GGUF Q4_K_M | ~4.9 GB | ~4.4 GB |
+| GGUF Q8_0 | ~8.5 GB | ~7.5 GB |
+| GGUF Q2_K | ~2.8 GB | ~2.5 GB |
+
+**GGUF Q4_K_M runs ~700 MB larger than AWQ INT4** for equivalent models for two compounding reasons. First, the **mixed-precision strategy** in Q4_K_M promotes certain sensitive tensors — attention norms, the output projection, and roughly 20% of FFN layers — to `Q6_K`, which is 6 bits rather than 4. Second, GGUF **embeds the full tokenizer** (vocabulary, merge rules, special token metadata) directly in the file header, adding 1–4 MB depending on vocab size. AWQ files carry no tokenizer; the tokenizer lives separately in `tokenizer.json` alongside the model shards.
+
+---
+
+## 12. GGUF Tensor Name Mapping
+
+The GGUF converter (`convert_hf_to_gguf.py` in llama.cpp) normalizes all architecture-specific HuggingFace tensor names into a **standardized flat namespace**. The authoritative pattern registry is `gguf-py/gguf/tensor_mapping.py`, which maps 80+ source name variants per logical tensor to handle HF-format checkpoints, original Meta/EleutherAI releases, and community fine-tunes. `{bid}` denotes the block (layer) index, zero-based.
+
+### Standard GGUF Tensor Names
+
+| GGUF Name | Role |
+|-----------|------|
+| `token_embd.weight` | Token embedding matrix |
+| `position_embd.weight` | Positional embedding (GPT-2 only) |
+| `blk.{bid}.attn_norm.weight` | Pre-attention layer norm |
+| `blk.{bid}.attn_q.weight` | Query projection |
+| `blk.{bid}.attn_k.weight` | Key projection |
+| `blk.{bid}.attn_v.weight` | Value projection |
+| `blk.{bid}.attn_qkv.weight` | Fused QKV (GPT-NeoX, GPT-2) |
+| `blk.{bid}.attn_output.weight` | Attention output projection |
+| `blk.{bid}.ffn_norm.weight` | Pre-FFN layer norm |
+| `blk.{bid}.ffn_gate.weight` | SwiGLU gate (LLaMA, Qwen2, Mistral) |
+| `blk.{bid}.ffn_up.weight` | FFN up/expansion projection |
+| `blk.{bid}.ffn_down.weight` | FFN down/contraction projection |
+| `output_norm.weight` | Final layer norm |
+| `output.weight` | LM head / output projection |
+
+Architectures that **fuse QKV** into a single checkpoint tensor (GPT-NeoX, GPT-2) map to `attn_qkv`; the converter splits it into `attn_q` / `attn_k` / `attn_v` only when the source stores them separately. Architectures with **tied embeddings** (GPT-2) omit `output.weight` entirely — at inference time llama.cpp reuses `token_embd.weight` transposed.
+
+### Source Name → GGUF Name Mapping
+
+**Embeddings & Output:**
+
+| GGUF Name | LLaMA (HF) | Qwen2 (HF) | GPT-NeoX | GPT-2 | Falcon |
+|-----------|-----------|------------|----------|-------|--------|
+| `token_embd` | `model.embed_tokens` | `model.embed_tokens` | `gpt_neox.embed_in` | `transformer.wte` | `transformer.word_embeddings` |
+| `position_embd` | — | — | — | `transformer.wpe` | — |
+| `output` | `lm_head` | `lm_head` | `embed_out` | `lm_head` *(tied)* | `lm_head` |
+| `output_norm` | `model.norm` | `model.norm` | `gpt_neox.final_layer_norm` | `transformer.ln_f` | `transformer.ln_f` |
+
+**Attention:**
+
+| GGUF Name | LLaMA (HF) | Qwen2 (HF) | GPT-NeoX | GPT-2 / GPT-J |
+|-----------|-----------|------------|----------|---------------|
+| `blk.{bid}.attn_norm` | `model.layers.{bid}.input_layernorm` | `model.layers.{bid}.input_layernorm` | `gpt_neox.layers.{bid}.input_layernorm` | `transformer.h.{bid}.ln_1` |
+| `blk.{bid}.attn_q` | `.self_attn.q_proj` | `.self_attn.q_proj` | — *(fused)* | — *(fused)* |
+| `blk.{bid}.attn_k` | `.self_attn.k_proj` | `.self_attn.k_proj` | — *(fused)* | — *(fused)* |
+| `blk.{bid}.attn_v` | `.self_attn.v_proj` | `.self_attn.v_proj` | — *(fused)* | — *(fused)* |
+| `blk.{bid}.attn_qkv` | — | — | `.attention.query_key_value` | `.attn.c_attn` |
+| `blk.{bid}.attn_output` | `.self_attn.o_proj` | `.self_attn.o_proj` | `.attention.dense` | `.attn.c_proj` |
+
+**FFN:**
+
+| GGUF Name | LLaMA (HF) | Qwen (original) | GPT-NeoX | GPT-2 |
+|-----------|-----------|-----------------|----------|-------|
+| `blk.{bid}.ffn_norm` | `.post_attention_layernorm` | `.post_attention_layernorm` | `.post_attention_layernorm` | `transformer.h.{bid}.ln_2` |
+| `blk.{bid}.ffn_gate` | `.mlp.gate_proj` | `.mlp.w2` | — *(no gate)* | — *(no gate)* |
+| `blk.{bid}.ffn_up` | `.mlp.up_proj` | `.mlp.w1` | `.mlp.dense_h_to_4h` | `.mlp.c_fc` |
+| `blk.{bid}.ffn_down` | `.mlp.down_proj` | `.mlp.c_proj` | `.mlp.dense_4h_to_h` | `.mlp.c_proj` |
+
+**Watch out for Qwen vs Qwen2 naming divergence.** The original Qwen checkpoints use a `transformer.h.{bid}` path inherited from GPT-style naming; Qwen2 switched to the LLaMA-style `model.layers.{bid}` convention. `tensor_mapping.py` handles both patterns but they resolve to different branch paths in the converter — a common source of confusion when loading Qwen v1 weights with a Qwen2 architecture class.
+
+**Original (non-HF) Meta checkpoints** use a further different scheme: `tok_embeddings.weight` instead of `model.embed_tokens`, `layers.{bid}.attention.wq` instead of `model.layers.{bid}.self_attn.q_proj`, and `norm.weight` instead of `model.norm`. `tensor_mapping.py` covers all three variants (Meta original, HF-converted, and GGUF canonical) to make the converter robust against whichever checkpoint format is provided.
+
+---
+
+## 13. Practical: Inspecting Files
+
+### Reading GGUF Metadata
+
+Use the `gguf` Python package (`pip install gguf`) to inspect metadata and tensor layout without loading weights into memory:
+
+```python
+from gguf import GGUFReader
+
+reader = GGUFReader("model.gguf")
+
+# Print all metadata
+for key in reader.fields:
+    field = reader.fields[key]
+    if len(field.parts) > 0:
+        print(f"{key} = {field.parts[-1].tolist() if hasattr(field.parts[-1], 'tolist') else field.parts[-1]}")
+
+# Key metadata
+arch = reader.fields['general.architecture'].parts[-1].tobytes().decode()
+print(f"Architecture: {arch}")
+print(f"Layers: {reader.fields[f'{arch}.block_count'].parts[-1][0]}")
+
+# List all tensors
+for tensor in reader.tensors:
+    print(f"{tensor.name}: shape={tensor.shape}, type={tensor.tensor_type.name}")
+```
+
+Example output for LLaMA-3.1-8B-Instruct Q4_K_M:
+
+```
+general.architecture = llama
+general.name = Llama-3.1-8B-Instruct
+llama.block_count = 32
+llama.attention.head_count = 32
+llama.attention.head_count_kv = 8
+llama.context_length = 131072
+llama.embedding_length = 4096
+llama.feed_forward_length = 14336
+...
+token_embd.weight: shape=(128256, 4096), type=Q6_K
+blk.0.attn_q.weight: shape=(4096, 4096), type=Q4_K
+blk.0.attn_k.weight: shape=(1024, 4096), type=Q4_K
+blk.0.attn_v.weight: shape=(1024, 4096), type=Q4_K
+blk.0.ffn_gate.weight: shape=(14336, 4096), type=Q4_K
+...
+```
+
+### Reading AWQ / SafeTensors
+
+AWQ metadata is split across two files: `model.safetensors` (or shards) for weights, and `config.json` for quantization parameters.
+
+```python
+from safetensors import safe_open
+import json
+
+# Inspect tensors without loading full weights
+with safe_open("model.safetensors", framework="pt") as f:
+    for name in f.keys():
+        tensor = f.get_tensor(name)
+        print(f"{name}: shape={list(tensor.shape)}, dtype={tensor.dtype}")
+
+# Or parse only the raw JSON header — zero weight I/O
+with open("model.safetensors", "rb") as f:
+    header_size = int.from_bytes(f.read(8), "little")
+    header = json.loads(f.read(header_size))
+    for name, info in header.items():
+        if name != "__metadata__":
+            print(f"{name}: dtype={info['dtype']}, shape={info['shape']}")
+
+# Check quantization config
+with open("config.json") as f:
+    config = json.load(f)
+    qconfig = config.get("quantization_config", {})
+    print(f"Method: {qconfig.get('quant_method')}")   # "awq"
+    print(f"Bits: {qconfig.get('bits')}")             # 4
+    print(f"Group size: {qconfig.get('group_size')}") # 128
+    print(f"Version: {qconfig.get('version')}")       # "gemm" or "marlin"
+```
+
+The raw header parse is useful for large sharded models where you want to audit layout without triggering any tensor allocation.
+
+### Quick Diagnostics
+
+`llama.cpp` ships CLI tools that require no Python:
+
+- **`llama-gguf-dump model.gguf`** — prints the complete metadata key-value store and full tensor list with types and shapes
+- **`llama-gguf-hash model.gguf`** — emits per-tensor and whole-file SHA256 hashes for integrity checks
+- **`huggingface-cli scan-cache`** — lists locally cached HF model files with sizes and revisions
+
+---
+
+## 14. Common Gotchas
+
+**GGUF dimension reversal.** GGUF stores tensor dimensions in the reverse order of PyTorch. A weight with PyTorch shape `[4096, 1024]` has GGUF dimensions `[1024, 4096]`. Any tool that compares shapes across formats must transpose before comparing, or it will report a false mismatch on every non-square tensor.
+
+**Alignment math.** Tensor data offsets in GGUF must be exact multiples of `general.alignment` (default `32`). When constructing or patching GGUF files manually, use `offset = ((pos + alignment - 1) // alignment) * alignment` to compute the next valid boundary. Off-by-one alignment errors produce models that load silently but have garbage weights, or segfault on mmap access.
+
+**Tied embeddings handling.** Some GGUF converters duplicate `token_embd.weight` as `output.weight`, doubling file size for that tensor. Others omit `output.weight` and rely on the loader to infer weight tying. In AWQ/SafeTensors, tied models may omit `lm_head.weight` entirely or include it as a zero-byte reference. Loaders must handle both patterns explicitly.
+
+**AWQ nibble packing order.** AWQ uses `AWQ_REVERSE_ORDER = [0, 4, 1, 5, 2, 6, 3, 7]` for nibble interleaving within each INT32 word. Unpacking with naive sequential order produces garbled weights that pass all shape checks but generate nonsense output. GPTQ uses a different interleaving — the two formats are not byte-compatible despite both being INT4 in SafeTensors.
+
+**SafeTensors alignment and GPU Direct Storage.** SafeTensors provides no alignment guarantee on tensor data offsets. If the JSON header byte count is odd, tensor data begins at an odd byte offset. CUDA GPU Direct Storage (GDS) requires aligned reads; direct loading will fail with cryptic CUDA errors or silently read incorrect data.
+
+**Tokenizer type mismatch on conversion.** SentencePiece tokenizers (LLaMA 2) embed vocabulary as `scores`; BPE tokenizers (LLaMA 3, Qwen2) embed vocabulary as `merges`. Swapping them produces shifted token IDs that appear functional but degrade output quality, particularly on code and non-English text. After any GGUF conversion, verify both `tokenizer.ggml.model` and `tokenizer.ggml.pre` match the source model.
+
+**Missing `tokenizer.ggml.pre`.** Older GGUF files often lack the `tokenizer.ggml.pre` key. Runtimes that fall back to a generic pre-tokenizer will produce incorrect token boundaries for architectures requiring specific pre-tokenization regexes — notably LLaMA 3 (`"llama-bpe"`) and Qwen2 (`"qwen2"`). The failure mode is subtle: plausible but degraded output, especially on code and multilingual input.
+
+**GPTQ vs AWQ kernel mismatch.** Both GPTQ and AWQ store INT4 weights in SafeTensors, but GPTQ uses different tensor names (`qweight`, `qzeros`, `scales`, `g_idx`) and a different packing layout. Loading an AWQ checkpoint with a GPTQ kernel (or vice versa) produces wrong results with no runtime error. Always check `quantization_config.quant_method` in `config.json` before selecting a kernel.
+
+**Marlin layout incompatibility.** AWQ models with `"version": "marlin"` in `quantization_config` have physically rearranged weight data optimized for Marlin GEMM. Loading them with a standard GEMM kernel produces garbage output. The `version` field must match the inference kernel — `"gemm"` and `"marlin"` checkpoints are not interchangeable at the file level.
+
+**GGUF version.** Version 3 is the only version produced by current tooling. Versions 1 and 2 existed briefly during early development. A file reporting `version != 3` is either from mid-2023 or corrupt; no current converter or loader targets those versions.
