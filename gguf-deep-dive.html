@@ -1375,159 +1375,225 @@
   })();
   </script>
 
-  <!-- ── VIZ 2: Block Infographic (3 models, clean SVG) ── -->
+  <!-- ── VIZ 2: Block Circuit (3 models, parallel lanes) ── -->
   <script>
   (function() {
     const svg = d3.select('#viz-block-circuit');
     const W = 720, H = 580;
     let mode = 'qwen3';
 
-    // Muted, elite color palette
     const P = {
-      norm:  { fill: '#a78bfa', stroke: '#7c3aed', bg: 'rgba(167,139,250,0.06)' },  // soft purple
-      attn:  { fill: '#818cf8', stroke: '#6366f1', bg: 'rgba(129,140,248,0.06)' },  // indigo
-      ffn:   { fill: '#fb923c', stroke: '#ea580c', bg: 'rgba(251,146,60,0.06)' },   // warm orange
-      flow:  { fill: '#4ade80', stroke: '#22c55e', bg: 'rgba(74,222,128,0.06)' },   // soft green
-      ssm:   { fill: '#22d3ee', stroke: '#06b6d4', bg: 'rgba(34,211,238,0.06)' },   // cyan/teal
-      dim:   '#3f3f46',
-      text:  '#a1a1aa',
-      white: '#e4e4e7',
+      norm:  { fill: '#a78bfa', stroke: '#7c3aed' },
+      attn:  { fill: '#818cf8', stroke: '#6366f1' },
+      ffn:   { fill: '#fb923c', stroke: '#ea580c' },
+      flow:  { fill: '#4ade80', stroke: '#22c55e' },
+      ssm:   { fill: '#22d3ee', stroke: '#06b6d4' },
+      dim: '#3f3f46', text: '#a1a1aa', white: '#e4e4e7',
     };
 
-    const models = {
-      gpt2: {
-        title: 'GPT-2 124M — blk.0',
-        sub: 'LayerNorm · Fused QKV · MHA · GELU · Bias everywhere',
-        nodes: [
-          { label: 'residual in',                     y: 24,  section: 'flow' },
-          { label: 'attn_norm [768] + bias',          y: 58,  section: 'norm', note: 'LayerNorm (mean + var + scale + shift)' },
-          { label: 'attn_qkv [2304, 768] + bias',    y: 100, section: 'attn', note: 'Fused Q+K+V in one matmul (3 × 768 = 2304)', wide: true },
-          { label: 'attention scores → softmax',      y: 146, section: 'attn', op: true, note: '12 heads × 64 dim, full MHA (no GQA)' },
-          { label: 'attn_output [768, 768] + bias',   y: 184, section: 'attn', note: 'Merge 12 heads' },
-          { label: '⊕ residual',                      y: 224, section: 'flow' },
-          { label: 'ffn_norm [768] + bias',           y: 258, section: 'norm', note: 'LayerNorm again' },
-          { label: 'ffn_up [3072, 768] + bias',       y: 300, section: 'ffn', note: 'GELU expand — no gate tensor', wide: true },
-          { label: 'ffn_down [768, 3072] + bias',     y: 344, section: 'ffn', note: 'Compress back' },
-          { label: '⊕ residual',                      y: 384, section: 'flow' },
-        ]
-      },
-      qwen3: {
-        title: 'Qwen3-8B — blk.0',
-        sub: 'RMSNorm · Separate Q/K/V · GQA 4:1 · SwiGLU · No bias',
-        nodes: [
-          { label: 'residual in',                     y: 24,  section: 'flow' },
-          { label: 'attn_norm [4096]',                y: 58,  section: 'norm', note: 'RMSNorm (no bias, no mean)' },
-          { label: 'attn_q [4096, 4096]',             y: 100, section: 'attn', note: '32 heads × 128 dim' },
-          { label: 'attn_k [1024, 4096]',             y: 138, section: 'attn', note: '8 KV heads — GQA 4:1 ←', accent: true },
-          { label: 'attn_v [1024, 4096]',             y: 172, section: 'attn', note: 'same GQA — KV cache 4× smaller' },
-          { label: 'attention scores → softmax',      y: 210, section: 'attn', op: true },
-          { label: 'attn_output [4096, 4096]',        y: 244, section: 'attn', note: 'Merge 32 heads' },
-          { label: '⊕ residual',                      y: 282, section: 'flow' },
-          { label: 'ffn_norm [4096]',                 y: 314, section: 'norm', note: 'RMSNorm' },
-          { label: 'ffn_gate [12288, 4096]',          y: 352, section: 'ffn', note: 'SwiGLU gate — this tensor = SwiGLU', accent: true },
-          { label: 'ffn_up [12288, 4096]',            y: 388, section: 'ffn', note: 'Expand to 3× width' },
-          { label: 'gate ⊙ up',                       y: 422, section: 'ffn', op: true },
-          { label: 'ffn_down [4096, 12288]',          y: 454, section: 'ffn', note: 'Compress back → residual' },
-          { label: '⊕ residual',                      y: 490, section: 'flow' },
-        ]
-      },
-      qwen35: {
-        title: 'Qwen3.5-9B — blk.0 (linear attention)',
-        sub: 'Gated Delta Net · Conv1D · No Q/K/V · SwiGLU · No bias',
-        nodes: [
-          { label: 'residual in',                     y: 24,  section: 'flow' },
-          { label: 'attn_norm [4096]',                y: 58,  section: 'norm', note: 'RMSNorm' },
-          { label: 'ssm_in [16384, 4096]',            y: 100, section: 'ssm', note: 'Fused Q+K+V+Z for linear attention', wide: true, accent: true },
-          { label: 'ssm_conv1d [4096, 1, 4]',         y: 142, section: 'ssm', note: '1D conv — local context mixing' },
-          { label: 'ssm_dt [16, 4096] + ssm_a [16]',  y: 178, section: 'ssm', note: 'Delta time + decay rate' },
-          { label: 'ssm_alpha [4096, 4096]',          y: 214, section: 'ssm', note: 'Gated delta alpha' },
-          { label: 'ssm_beta [4096, 4096]',           y: 248, section: 'ssm', note: 'Gated delta beta' },
-          { label: 'ssm_norm [4096]',                 y: 282, section: 'ssm', note: 'Output norm' },
-          { label: 'ssm_out [4096, 8192]',            y: 314, section: 'ssm', note: 'Output projection' },
-          { label: '⊕ residual',                      y: 350, section: 'flow' },
-          { label: 'ffn_norm [4096]',                 y: 382, section: 'norm', note: 'RMSNorm' },
-          { label: 'ffn_gate [12288, 4096]',          y: 418, section: 'ffn', note: 'SwiGLU gate' },
-          { label: 'ffn_up [12288, 4096]',            y: 450, section: 'ffn', note: 'Expand' },
-          { label: 'gate ⊙ up',                       y: 480, section: 'ffn', op: true },
-          { label: 'ffn_down [4096, 12288]',          y: 508, section: 'ffn', note: 'Compress → residual' },
-          { label: '⊕ residual',                      y: 542, section: 'flow' },
-        ]
+    const cx = 360; // center x
+
+    function node(svg, x, y, w, h, label, pal, opts) {
+      opts = opts || {};
+      const rx = opts.flow ? 10 : 3;
+      const fillOp = opts.op ? 0.04 : (opts.flow ? 0.06 : 0.1);
+      const strokeOp = opts.accent ? 0.6 : 0.2;
+
+      svg.append('rect').attr('x', x - w/2).attr('y', y).attr('width', w).attr('height', h)
+        .attr('fill', pal.fill).attr('fill-opacity', fillOp)
+        .attr('stroke', pal.stroke).attr('stroke-opacity', strokeOp)
+        .attr('stroke-width', opts.accent ? 1 : 0.5).attr('rx', rx);
+      svg.append('text').attr('x', x).attr('y', y + h/2 + 4).attr('text-anchor', 'middle')
+        .attr('fill', opts.flow ? pal.fill : P.white)
+        .attr('fill-opacity', opts.op ? 0.5 : (opts.flow ? 0.5 : 0.85))
+        .attr('font-family', 'JetBrains Mono, monospace')
+        .attr('font-size', opts.op ? 9 : 10).text(label);
+      if (opts.note) {
+        svg.append('text').attr('x', x + w/2 + 8).attr('y', y + h/2 + 3)
+          .attr('fill', opts.accent ? pal.fill : P.text).attr('fill-opacity', opts.accent ? 0.7 : 0.35)
+          .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 8).text(opts.note);
       }
-    };
+    }
+
+    function line(svg, x1, y1, x2, y2, color, op) {
+      svg.append('line').attr('x1',x1).attr('y1',y1).attr('x2',x2).attr('y2',y2)
+        .attr('stroke', color || P.dim).attr('stroke-width', 0.8).attr('opacity', op || 0.35);
+    }
+
+    function drawResidual(svg, y1, y2) {
+      svg.append('line').attr('x1', 70).attr('y1', y1).attr('x2', 70).attr('y2', y2)
+        .attr('stroke', P.flow.fill).attr('stroke-width', 2).attr('opacity', 0.12);
+      svg.append('line').attr('x1', 70).attr('y1', y1).attr('x2', 70).attr('y2', y2)
+        .attr('stroke', P.flow.fill).attr('stroke-width', 0.8).attr('opacity', 0.3)
+        .attr('stroke-dasharray', '6,4');
+    }
+
+    function resConn(svg, y) {
+      line(svg, 70, y, cx - 80, y, P.flow.fill, 0.2);
+    }
+
+    function sectionBg(svg, y, h, pal, label) {
+      svg.append('rect').attr('x', 95).attr('y', y).attr('width', W - 120).attr('height', h)
+        .attr('fill', pal.fill).attr('fill-opacity', 0.02).attr('rx', 6);
+      svg.append('text').attr('x', W - 30).attr('y', y + 14).attr('text-anchor', 'end')
+        .attr('fill', pal.fill).attr('fill-opacity', 0.25)
+        .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 8).text(label);
+    }
+
+    function drawQwen3() {
+      const g = svg;
+      g.append('text').attr('x', W/2).attr('y', 16).attr('text-anchor', 'middle')
+        .attr('fill', P.white).attr('font-family', 'JetBrains Mono, monospace')
+        .attr('font-size', 11).attr('font-weight', 600).text('Qwen3-8B — blk.0');
+
+      drawResidual(g, 28, 510);
+      sectionBg(g, 52, 220, P.attn, 'ATTENTION');
+      sectionBg(g, 290, 200, P.ffn, 'FFN');
+
+      const Y = { input: 30, norm1: 62, qkv: 110, scores: 170, out: 208, add1: 252,
+                  norm2: 298, gateup: 350, mul: 406, down: 438, add2: 484 };
+
+      // Flow
+      node(g, cx, Y.input, 160, 18, 'residual in', P.flow, {flow:true});
+      line(g, cx, Y.input+18, cx, Y.norm1);
+      // Norm
+      node(g, cx, Y.norm1, 200, 24, 'attn_norm [4096]', P.norm, {note:'RMSNorm'});
+      // Fan-out to Q/K/V
+      const qx = cx - 160, kx = cx, vx = cx + 160;
+      line(g, cx, Y.norm1+24, qx, Y.qkv); line(g, cx, Y.norm1+24, kx, Y.qkv); line(g, cx, Y.norm1+24, vx, Y.qkv);
+      // Q K V parallel
+      node(g, qx, Y.qkv, 155, 36, 'attn_q [4096,4096]', P.attn, {note:'32 heads'});
+      node(g, kx, Y.qkv, 155, 28, 'attn_k [1024,4096]', P.attn, {accent:true, note:'GQA 4:1'});
+      node(g, vx, Y.qkv, 155, 28, 'attn_v [1024,4096]', P.attn);
+      // Fan-in to scores
+      line(g, qx, Y.qkv+36, cx, Y.scores); line(g, kx, Y.qkv+28, cx, Y.scores); line(g, vx, Y.qkv+28, cx, Y.scores);
+      node(g, cx, Y.scores, 220, 20, 'scores → softmax → weighted sum', P.attn, {op:true});
+      line(g, cx, Y.scores+20, cx, Y.out);
+      node(g, cx, Y.out, 210, 28, 'attn_output [4096,4096]', P.attn, {note:'merge heads'});
+      line(g, cx, Y.out+28, cx, Y.add1);
+      node(g, cx, Y.add1, 130, 18, '⊕ residual', P.flow, {flow:true}); resConn(g, Y.add1+9);
+
+      // FFN
+      line(g, cx, Y.add1+18, cx, Y.norm2);
+      node(g, cx, Y.norm2, 200, 24, 'ffn_norm [4096]', P.norm, {note:'RMSNorm'});
+      // Fan-out to gate + up
+      const gx = cx - 120, ux = cx + 120;
+      line(g, cx, Y.norm2+24, gx, Y.gateup); line(g, cx, Y.norm2+24, ux, Y.gateup);
+      node(g, gx, Y.gateup, 195, 32, 'ffn_gate [12288,4096]', P.ffn, {accent:true, note:'SwiGLU'});
+      node(g, ux, Y.gateup, 195, 32, 'ffn_up [12288,4096]', P.ffn, {note:'expand 3×'});
+      // Fan-in to multiply
+      line(g, gx, Y.gateup+32, cx, Y.mul); line(g, ux, Y.gateup+32, cx, Y.mul);
+      node(g, cx, Y.mul, 140, 18, 'gate ⊙ up', P.ffn, {op:true});
+      line(g, cx, Y.mul+18, cx, Y.down);
+      node(g, cx, Y.down, 210, 28, 'ffn_down [4096,12288]', P.ffn, {note:'compress'});
+      line(g, cx, Y.down+28, cx, Y.add2);
+      node(g, cx, Y.add2, 130, 18, '⊕ residual', P.flow, {flow:true}); resConn(g, Y.add2+9);
+
+      g.append('text').attr('x', W/2).attr('y', H - 10).attr('text-anchor', 'middle')
+        .attr('fill', P.dim).attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
+        .text('RMSNorm · Separate Q/K/V · GQA 4:1 · SwiGLU · No bias');
+    }
+
+    function drawGPT2() {
+      const g = svg;
+      g.append('text').attr('x', W/2).attr('y', 16).attr('text-anchor', 'middle')
+        .attr('fill', P.white).attr('font-family', 'JetBrains Mono, monospace')
+        .attr('font-size', 11).attr('font-weight', 600).text('GPT-2 124M — blk.0');
+
+      drawResidual(g, 28, 430);
+      sectionBg(g, 52, 190, P.attn, 'ATTENTION');
+      sectionBg(g, 260, 150, P.ffn, 'FFN');
+
+      const Y = { input: 30, norm1: 62, qkv: 104, scores: 160, out: 196, add1: 232,
+                  norm2: 268, up: 310, down: 356, add2: 394 };
+
+      node(g, cx, Y.input, 160, 18, 'residual in', P.flow, {flow:true});
+      line(g, cx, Y.input+18, cx, Y.norm1);
+      node(g, cx, Y.norm1, 230, 24, 'attn_norm [768] + bias', P.norm, {note:'LayerNorm'});
+      line(g, cx, Y.norm1+24, cx, Y.qkv);
+      // Single fused QKV — wide box, no fan-out
+      node(g, cx, Y.qkv, 280, 36, 'attn_qkv [2304, 768] + bias', P.attn, {accent:true, note:'fused Q+K+V (3×768)'});
+      line(g, cx, Y.qkv+36, cx, Y.scores);
+      node(g, cx, Y.scores, 220, 20, 'scores → softmax → weighted sum', P.attn, {op:true, note:'12 heads × 64, MHA'});
+      line(g, cx, Y.scores+20, cx, Y.out);
+      node(g, cx, Y.out, 240, 24, 'attn_output [768, 768] + bias', P.attn, {note:'merge 12 heads'});
+      line(g, cx, Y.out+24, cx, Y.add1);
+      node(g, cx, Y.add1, 130, 18, '⊕ residual', P.flow, {flow:true}); resConn(g, Y.add1+9);
+
+      line(g, cx, Y.add1+18, cx, Y.norm2);
+      node(g, cx, Y.norm2, 230, 24, 'ffn_norm [768] + bias', P.norm, {note:'LayerNorm'});
+      line(g, cx, Y.norm2+24, cx, Y.up);
+      // No gate — single up, no fan-out
+      node(g, cx, Y.up, 260, 30, 'ffn_up [3072, 768] + bias', P.ffn, {accent:true, note:'GELU — no gate!'});
+      line(g, cx, Y.up+30, cx, Y.down);
+      node(g, cx, Y.down, 260, 28, 'ffn_down [768, 3072] + bias', P.ffn, {note:'compress'});
+      line(g, cx, Y.down+28, cx, Y.add2);
+      node(g, cx, Y.add2, 130, 18, '⊕ residual', P.flow, {flow:true}); resConn(g, Y.add2+9);
+
+      g.append('text').attr('x', W/2).attr('y', H - 10).attr('text-anchor', 'middle')
+        .attr('fill', P.dim).attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
+        .text('LayerNorm · Fused QKV · MHA · GELU (2 proj) · Bias everywhere');
+    }
+
+    function drawQwen35() {
+      const g = svg;
+      g.append('text').attr('x', W/2).attr('y', 16).attr('text-anchor', 'middle')
+        .attr('fill', P.white).attr('font-family', 'JetBrains Mono, monospace')
+        .attr('font-size', 11).attr('font-weight', 600).text('Qwen3.5-9B — blk.0 (linear attention)');
+
+      drawResidual(g, 28, 530);
+      sectionBg(g, 52, 270, P.ssm, 'GATED DELTA NET');
+      sectionBg(g, 340, 180, P.ffn, 'FFN');
+
+      const Y = { input: 30, norm1: 62, ssmIn: 104, conv: 150, dt: 186,
+                  ab: 228, normOut: 274, ssmOut: 306, add1: 348,
+                  norm2: 380, gateup: 418, mul: 468, down: 496, add2: 528 };
+
+      node(g, cx, Y.input, 160, 18, 'residual in', P.flow, {flow:true});
+      line(g, cx, Y.input+18, cx, Y.norm1);
+      node(g, cx, Y.norm1, 200, 24, 'attn_norm [4096]', P.norm, {note:'RMSNorm'});
+      line(g, cx, Y.norm1+24, cx, Y.ssmIn);
+      node(g, cx, Y.ssmIn, 280, 28, 'ssm_in [16384, 4096]', P.ssm, {accent:true, note:'fused Q+K+V+Z'});
+      line(g, cx, Y.ssmIn+28, cx, Y.conv);
+      node(g, cx, Y.conv, 230, 24, 'ssm_conv1d [4096, 1, 4]', P.ssm, {note:'local context'});
+      line(g, cx, Y.conv+24, cx, Y.dt);
+      node(g, cx, Y.dt, 260, 24, 'ssm_dt [16, 4096] + ssm_a [16]', P.ssm, {note:'delta + decay'});
+      // Alpha/beta parallel
+      const ax = cx - 120, bx = cx + 120;
+      line(g, cx, Y.dt+24, ax, Y.ab); line(g, cx, Y.dt+24, bx, Y.ab);
+      node(g, ax, Y.ab, 200, 28, 'ssm_alpha [4096,4096]', P.ssm, {note:'gate α'});
+      node(g, bx, Y.ab, 200, 28, 'ssm_beta [4096,4096]', P.ssm, {note:'gate β'});
+      line(g, ax, Y.ab+28, cx, Y.normOut); line(g, bx, Y.ab+28, cx, Y.normOut);
+      node(g, cx, Y.normOut, 180, 20, 'ssm_norm [4096]', P.ssm, {op:true});
+      line(g, cx, Y.normOut+20, cx, Y.ssmOut);
+      node(g, cx, Y.ssmOut, 220, 24, 'ssm_out [4096, 8192]', P.ssm, {note:'output proj'});
+      line(g, cx, Y.ssmOut+24, cx, Y.add1);
+      node(g, cx, Y.add1, 130, 18, '⊕ residual', P.flow, {flow:true}); resConn(g, Y.add1+9);
+
+      // FFN (same as Qwen3)
+      line(g, cx, Y.add1+18, cx, Y.norm2);
+      node(g, cx, Y.norm2, 200, 24, 'ffn_norm [4096]', P.norm, {note:'RMSNorm'});
+      const gx = cx - 120, ux = cx + 120;
+      line(g, cx, Y.norm2+24, gx, Y.gateup); line(g, cx, Y.norm2+24, ux, Y.gateup);
+      node(g, gx, Y.gateup, 195, 30, 'ffn_gate [12288,4096]', P.ffn, {note:'SwiGLU'});
+      node(g, ux, Y.gateup, 195, 30, 'ffn_up [12288,4096]', P.ffn, {note:'expand'});
+      line(g, gx, Y.gateup+30, cx, Y.mul); line(g, ux, Y.gateup+30, cx, Y.mul);
+      node(g, cx, Y.mul, 130, 16, 'gate ⊙ up', P.ffn, {op:true});
+      line(g, cx, Y.mul+16, cx, Y.down);
+      node(g, cx, Y.down, 210, 24, 'ffn_down [4096,12288]', P.ffn, {note:'compress'});
+      line(g, cx, Y.down+24, cx, Y.add2);
+      node(g, cx, Y.add2, 130, 18, '⊕ residual', P.flow, {flow:true}); resConn(g, Y.add2+9);
+
+      g.append('text').attr('x', W/2).attr('y', H - 10).attr('text-anchor', 'middle')
+        .attr('fill', P.dim).attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
+        .text('Gated Delta Net · Conv1D · α/β parallel · SwiGLU · No bias');
+    }
 
     function draw() {
       svg.selectAll('*').remove();
-      const m = models[mode];
-      const cx = 340; // center x for nodes
-      const nodeW = 340;
-
-      // Title
-      svg.append('text').attr('x', W/2).attr('y', 16).attr('text-anchor', 'middle')
-        .attr('fill', P.white).attr('font-family', 'JetBrains Mono, monospace')
-        .attr('font-size', 11).attr('font-weight', 600).text(m.title);
-
-      // Residual stream line
-      const firstY = m.nodes[0].y + 10;
-      const lastY = m.nodes[m.nodes.length - 1].y + 10;
-      svg.append('line').attr('x1', 80).attr('y1', firstY).attr('x2', 80).attr('y2', lastY)
-        .attr('stroke', P.flow.fill).attr('stroke-width', 2).attr('opacity', 0.15);
-      svg.append('line').attr('x1', 80).attr('y1', firstY).attr('x2', 80).attr('y2', lastY)
-        .attr('stroke', P.flow.fill).attr('stroke-width', 0.8).attr('opacity', 0.35)
-        .attr('stroke-dasharray', '6,4');
-
-      // Draw nodes
-      m.nodes.forEach((n, i) => {
-        const pal = P[n.section] || P.flow;
-        const w = n.wide ? nodeW + 40 : nodeW;
-        const h = n.op ? 18 : 24;
-        const x = cx - w/2 + 80;
-        const y = n.y;
-
-        // Connection line from previous
-        if (i > 0) {
-          const prev = m.nodes[i - 1];
-          const prevH = prev.op ? 18 : 24;
-          svg.append('line')
-            .attr('x1', cx + 80).attr('y1', prev.y + prevH)
-            .attr('x2', cx + 80).attr('y2', y)
-            .attr('stroke', P.dim).attr('stroke-width', 0.5).attr('opacity', 0.4);
-        }
-
-        // Residual connection for flow nodes
-        if (n.section === 'flow' && n.label.includes('⊕')) {
-          svg.append('line').attr('x1', 80).attr('y1', y + h/2).attr('x2', x).attr('y2', y + h/2)
-            .attr('stroke', P.flow.fill).attr('stroke-width', 0.8).attr('opacity', 0.25);
-        }
-
-        // Node background
-        svg.append('rect').attr('x', x).attr('y', y).attr('width', w).attr('height', h)
-          .attr('fill', pal.fill).attr('fill-opacity', n.op ? 0.04 : 0.08)
-          .attr('stroke', pal.stroke).attr('stroke-opacity', n.accent ? 0.6 : 0.25)
-          .attr('stroke-width', n.accent ? 1 : 0.5).attr('rx', 3);
-
-        // Label
-        svg.append('text').attr('x', x + 10).attr('y', y + h/2 + 4)
-          .attr('fill', n.section === 'flow' ? P.flow.fill : P.white)
-          .attr('fill-opacity', n.op ? 0.5 : (n.section === 'flow' ? 0.6 : 0.85))
-          .attr('font-family', 'JetBrains Mono, monospace')
-          .attr('font-size', n.op ? 9 : 10)
-          .text(n.label);
-
-        // Note on the right
-        if (n.note) {
-          svg.append('text').attr('x', x + w + 8).attr('y', y + h/2 + 3)
-            .attr('fill', n.accent ? pal.fill : P.text)
-            .attr('fill-opacity', n.accent ? 0.7 : 0.4)
-            .attr('font-family', 'JetBrains Mono, monospace')
-            .attr('font-size', 8)
-            .text(n.note);
-        }
-      });
-
-      // Footer
-      svg.append('text').attr('x', W/2).attr('y', H - 8).attr('text-anchor', 'middle')
-        .attr('fill', P.dim).attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
-        .text(m.sub);
+      if (mode === 'gpt2') drawGPT2();
+      else if (mode === 'qwen35') drawQwen35();
+      else drawQwen3();
     }
 
     draw();
