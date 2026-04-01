@@ -702,8 +702,8 @@
     <a href="#header">Header</a>
     <a href="#metadata">Metadata</a>
     <a href="#tensors">Tensors</a>
-    <a href="#weights">Weights</a>
-    <a href="#reading">Reading</a>
+    <a href="#bits">Weights</a>
+    <a href="#blueprint">Reading</a>
   </nav>
 
   <div class="content">
@@ -852,7 +852,7 @@
         <span style="color:var(--text-dim);"> &rarr; </span>
         <span style="color:var(--text-dim);">WEIGHTS</span>
       </p>
-      <p style="font-style:italic;color:var(--text-dim);margin-bottom:1.5rem;">300 typed key-value pairs. The runtime reads them and knows: 36 layers, 32 attention heads, GQA 4:1, SwiGLU activation, 152K vocabulary. It hasn&rsquo;t touched a single weight yet.</p>
+      <p style="font-style:italic;color:var(--text-dim);margin-bottom:1.5rem;">300 typed key-value pairs. The runtime reads them and knows: 36 layers, 32 attention heads, a 4:1 sharing ratio for key-value heads, SwiGLU activation, 152K vocabulary. It hasn&rsquo;t touched a single weight yet.</p>
 
       <p class="drop-cap">The runtime needs to build a computation graph before it can run inference. How many layers? How many attention heads? How many of those heads share key-value pairs? What tokenizer? What RoPE frequency? All of this lives in the metadata section &mdash; typed, namespaced key-value pairs that the runtime reads sequentially. By the time it finishes the metadata, it knows exactly which kernels to load, how many buffers to allocate, and how to wire them together.</p>
 
@@ -893,13 +893,15 @@
       </p>
       <p style="font-style:italic;color:var(--text-dim);margin-bottom:1.5rem;">The runtime knows the architecture. Now it reads the actual matrices &mdash; every weight in the model, listed by name.</p>
 
-      <p class="drop-cap">Let&rsquo;s start simple. A transformer layer does two things. First, it looks at context &mdash; that&rsquo;s <strong>attention</strong>, the mechanism that lets each token consider every other token in the sequence. Then it thinks about what it saw &mdash; that&rsquo;s the <strong>feed-forward network</strong>, a wider space where the model processes and transforms the information. Both are just matrix multiplications. And every matrix is listed in the GGUF file by name, shape, and type.</p>
+      <p class="drop-cap">Let&rsquo;s start simple. A transformer layer does two things. First, it looks at context &mdash; that&rsquo;s <strong>attention</strong>, the mechanism that lets each token consider every other token in the sequence. Then it thinks about what it saw &mdash; that&rsquo;s the <strong>feed-forward network</strong>, a wider space where the model processes and transforms the information. Both are just matrix multiplications. And every matrix is listed in the GGUF file by name, shape, and type. (You&rsquo;ll notice tensors have types like <code>Q4_K</code> alongside their shapes &mdash; those are quantization formats. We&rsquo;ll explain why different tensors get different precision in the next section.)</p>
+
+      <p>Both subsystems modify a shared representation called the <strong>residual stream</strong> &mdash; a vector that flows through all 36 layers, accumulating understanding. Each layer reads the stream, adds its contribution, and passes it on. Attention and FFN don&rsquo;t replace the representation; they refine it. This additive pattern &mdash; called a <strong>residual connection</strong> &mdash; is why transformers can be deep without losing information.</p>
 
       <p>But here is what makes this interesting: not every model does attention the same way. Not every model has the same feed-forward structure. And some models have replaced attention entirely. The tensor names in the file tell you exactly which variant you are looking at. Let&rsquo;s see.</p>
 
       <h3>One Layer, Five Architectures</h3>
 
-      <p>The diagram below shows a single layer &mdash; <code>blk.0</code> &mdash; from five different models. Toggle between them. Watch how the circuit reshapes: tensors appear and disappear, parallel lanes merge or split, entire subsystems get replaced. Every difference you see corresponds to a real tensor name in the GGUF file.</p>
+      <p>To see how expressive the GGUF naming convention is, here are five real architectures in a single diagram. Don&rsquo;t worry if some are unfamiliar &mdash; the point is that the file format handles all of them with no special cases. Toggle between them and watch the circuit reshape: tensors appear and disappear, parallel lanes merge or split, entire subsystems get replaced. Every difference corresponds to a real tensor name in the GGUF file.</p>
 
       <div class="viz-container" style="padding:1rem;">
         <div class="viz-controls" style="margin-top:0;margin-bottom:0.8rem;">
@@ -920,7 +922,7 @@
 
       <p><strong>Eight experts.</strong> Mixtral&rsquo;s attention looks like Qwen3&rsquo;s. But below the FFN norm, a <code>ffn_gate_inp</code> tensor routes each token to 2 of 8 expert FFNs. The file contains 8 complete sets of gate+up+down matrices &mdash; only 2 fire per token. 47 billion parameters total, 13 billion active.</p>
 
-      <p><strong>No attention at all.</strong> Switch to Mamba-2. The attention section is gone entirely. In its place: <code>ssm_in</code>, <code>ssm_conv1d</code>, <code>ssm_dt</code>, <code>ssm_a</code> &mdash; a recurrent state-space model that processes tokens in O(n) time instead of O(n&sup2;). No Q, K, or V tensors. No KV cache. Different tensor names, different computation, same GGUF format.</p>
+      <p><strong>No attention at all.</strong> Some models replace attention entirely with <strong>state-space models</strong> &mdash; a different mechanism that processes tokens sequentially in O(n) time, like an RNN but with better training properties. Switch to Mamba-2. The attention section is gone entirely. In its place: <code>ssm_in</code>, <code>ssm_conv1d</code>, <code>ssm_dt</code>, <code>ssm_a</code> &mdash; a recurrent state-space model that processes tokens in O(n) time instead of O(n&sup2;). No Q, K, or V tensors. No KV cache. Different tensor names, different computation, same GGUF format.</p>
 
       <p><strong>Hybrid layers.</strong> Qwen3.5 mixes both worlds. Some layers use full attention (<code>attn_q/k/v</code>), others use <span class="popup-link" data-popup="deltanet">Gated Delta Networks</span> (<code>ssm_alpha</code>, <code>ssm_beta</code>). The GGUF manifest tells the runtime which kernel to use for each layer &mdash; the tensor names <em>are</em> the dispatch table.</p>
 
@@ -1042,10 +1044,12 @@
         <div class="power-label">Three keys</div>
         <p><code>block_count</code> tells you depth. <code>feed_forward_length</code> tells you width. <code>full_attention_interval</code> tells you the attention budget. Three metadata keys, and you know the architect&rsquo;s priorities.</p>
       </div>
+
+      <p>Now you know the architecture &mdash; how many layers, which tensors, what shapes, which kernels. One question remains: how do you fit 8 billion 16-bit parameters into a 5.1 GB file?</p>
     </section>
 
     <!-- ═══════════════════════════════════════════════════════════════ -->
-    <!-- SECTION 4: NOT ALL BITS ARE EQUAL                             -->
+    <!-- SECTION 5: NOT ALL BITS ARE EQUAL                             -->
     <!-- ═══════════════════════════════════════════════════════════════ -->
     <section id="bits">
       <h2>05 // Not All Bits Are Equal</h2>
@@ -1137,10 +1141,12 @@
         <div class="power-label">The double quantization trick</div>
         <p>256 weights, 8 sub-blocks, each sub-block with its own scale. But the scales are quantized against a single FP16 super-scale. Compression of the compression. At 4-bit, this saves 0.8 bits per weight of overhead &mdash; the difference between &ldquo;noticeably degraded&rdquo; and &ldquo;barely distinguishable from FP16.&rdquo;</p>
       </div>
+
+      <p>The quantization type of each tensor &mdash; visible in the manifest alongside the name and shape &mdash; is the last piece. Architecture from metadata. Structure from tensor names. Precision from quant types. Now you have everything you need to read any model.</p>
     </section>
 
     <!-- ═══════════════════════════════════════════════════════════════ -->
-    <!-- SECTION 5: READING THE BLUEPRINT                              -->
+    <!-- SECTION 6: READING ANY MODEL                                  -->
     <!-- ═══════════════════════════════════════════════════════════════ -->
     <section id="blueprint">
       <h2>06 // Reading Any Model</h2>
@@ -1190,7 +1196,7 @@
           <tr><td>Multi-Head Attention</td><td>&rarr;</td><td>Grouped Query Attention</td></tr>
           <tr><td>GELU (2 projections)</td><td>&rarr;</td><td>SwiGLU (3 projections)</td></tr>
           <tr><td>Learned positions [1024, 768]</td><td>&rarr;</td><td>RoPE (no position tensor)</td></tr>
-          <tr><td>LayerNorm (weight + bias)</td><td>&rarr;</td><td>RMSNorm (weight only)</td></tr>
+          <tr><td>LayerNorm (weight + bias)</td><td>&rarr;</td><td>RMSNorm (weight only, simpler, faster)</td></tr>
           <tr><td>Bias on everything</td><td>&rarr;</td><td>Bias on nothing</td></tr>
           <tr><td>50K vocab, English</td><td>&rarr;</td><td>152K vocab, multilingual</td></tr>
           <tr><td>12 layers, 768 hidden</td><td>&rarr;</td><td>36 layers, 4096 hidden</td></tr>
@@ -1220,6 +1226,10 @@
         <div class="power-label">The universal language</div>
         <p>Every architecture &mdash; GPT-2, LLaMA, Qwen, Mistral, Gemma, Phi, Falcon &mdash; gets normalized into <code>blk.N.tensor_name</code>. Meta calls their query projection <code>layers.N.attention.wq</code>. HuggingFace calls it <code>model.layers.N.self_attn.q_proj</code>. GGUF calls it <code>blk.N.attn_q</code>. One namespace, every model. Once you learn to read it, you can open any GGUF file and understand the architecture in seconds. The file is the blueprint. Now you know how to read it.</p>
       </div>
+
+      <p style="margin-top:2.5rem;color:var(--text-dim);font-size:0.95rem;line-height:1.7;">
+        <strong style="color:var(--text);">Where this fits.</strong> This is Part II-B of the Efficiency Papers. Part II-A (<em>Fewer Bits, Same Brain</em>) covers quantization theory &mdash; why 4-bit works and when it doesn&rsquo;t. This article shows what those quantized weights look like inside the file. For the inference pipeline that executes these tensors, see <em>The Inference Engine</em>. For the serving infrastructure that loads them at scale, Part III is next.
+      </p>
     </section>
   </div>
 
