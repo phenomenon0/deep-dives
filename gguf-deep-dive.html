@@ -609,6 +609,77 @@
       line-height: 1.5;
     }
 
+    /* === GWERN-STYLE POPUPS === */
+    .popup-link {
+      color: var(--cyan);
+      text-decoration: none;
+      border-bottom: 1px dotted rgba(0,221,255,0.3);
+      cursor: help;
+    }
+    .popup-link:hover { border-bottom-color: var(--cyan); }
+    .popup-overlay {
+      position: fixed;
+      z-index: 2000;
+      max-width: 420px;
+      max-height: 380px;
+      background: #1a1a1f;
+      border: 1px solid #3f3f46;
+      border-radius: 6px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 0 1px rgba(255,255,255,0.1);
+      overflow: hidden;
+      display: none;
+      flex-direction: column;
+    }
+    .popup-overlay.visible { display: flex; }
+    .popup-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 10px;
+      background: #27272a;
+      border-bottom: 1px solid #3f3f46;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: #71717a;
+      flex-shrink: 0;
+      cursor: move;
+      user-select: none;
+    }
+    .popup-bar .popup-title { color: #a1a1aa; font-weight: 500; }
+    .popup-bar .popup-close {
+      cursor: pointer;
+      color: #52525b;
+      font-size: 14px;
+      line-height: 1;
+      padding: 0 4px;
+    }
+    .popup-bar .popup-close:hover { color: #a1a1aa; }
+    .popup-body {
+      padding: 10px 12px;
+      overflow-y: auto;
+      flex: 1;
+      font-family: 'Source Serif 4', serif;
+      font-size: 13px;
+      line-height: 1.6;
+      color: #a1a1aa;
+    }
+    .popup-body strong { color: #e4e4e7; }
+    .popup-body .popup-meta {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: #52525b;
+      margin-top: 8px;
+      padding-top: 6px;
+      border-top: 1px solid #27272a;
+    }
+    .popup-body iframe {
+      width: 100%;
+      height: 280px;
+      border: none;
+      border-radius: 4px;
+      background: #fff;
+    }
+
     @media (max-width: 700px) {
       body { font-size: 16px; }
       nav { font-size: 9px; gap: 0.7rem; }
@@ -620,6 +691,7 @@
       .power { padding: 0.6rem 0.8rem; }
       .viz-container { padding: 1rem; }
       .viz-controls { gap: 0.8rem; }
+      .popup-overlay { max-width: 90vw; left: 5vw !important; }
     }
   </style>
 </head>
@@ -666,9 +738,9 @@
 
       <p>This article is about opening that file up.</p>
 
-      <p>In March 2023, a developer named Georgi Gerganov ported Meta&rsquo;s freshly-leaked LLaMA model to run on a MacBook in pure C. The project &mdash; <code>llama.cpp</code> &mdash; needed a file format. The first attempt, GGML, was a prototype: hyperparameters stored as a flat list of unlabeled integers, different for every architecture. The tokenizer lived in a separate file. Adding a new model meant writing a new parser. It worked, barely, and broke constantly.</p>
+      <p>In March 2023, a developer named <span class="popup-link" data-popup="gerganov">Georgi Gerganov</span> ported Meta&rsquo;s freshly-leaked <span class="popup-link" data-popup="llama">LLaMA</span> model to run on a MacBook in pure C. The project &mdash; <code>llama.cpp</code> &mdash; needed a file format. The first attempt, GGML, was a prototype: hyperparameters stored as a flat list of unlabeled integers, different for every architecture. The tokenizer lived in a separate file. Adding a new model meant writing a new parser. It worked, barely, and broke constantly.</p>
 
-      <p>Five months later, Gerganov replaced it with GGUF &mdash; a ground-up redesign built around one idea: <strong>the file should describe itself</strong>. Architecture, tokenizer, quantization parameters, and weights, all in a single self-contained binary. No sidecar configs. No version mismatches. Download one file, run it. That philosophy turned <code>llama.cpp</code> into the engine behind Ollama, LM Studio, GPT4All, and most of the local AI ecosystem.</p>
+      <p>Five months later, Gerganov replaced it with GGUF &mdash; a ground-up redesign built around one idea: <strong>the file should describe itself</strong>. Architecture, tokenizer, quantization parameters, and weights, all in a single self-contained binary. No sidecar configs. No version mismatches. Download one file, run it. That philosophy turned <code>llama.cpp</code> into the engine behind <span class="popup-link" data-popup="ollama">Ollama</span>, <span class="popup-link" data-popup="lmstudio">LM Studio</span>, GPT4All, and most of the local AI ecosystem.</p>
 
       <p>So what is actually in that file? Let&rsquo;s find out.</p>
 
@@ -721,7 +793,7 @@
 
       <div class="power">
         <div class="power-label">The design decision</div>
-        <p>The file is the config. The file is the tokenizer. The file is the model. A GGUF file can be <code>mmap</code>&rsquo;d directly &mdash; every tensor padded to 32-byte boundaries. The OS virtual memory manager becomes your model loader. No parsing, no buffer allocation, no copying.</p>
+        <p>The file is the config. The file is the tokenizer. The file is the model. A GGUF file can be <span class="popup-link" data-popup="mmap"><code>mmap</code></span>&rsquo;d directly &mdash; every tensor padded to 32-byte boundaries. The OS virtual memory manager becomes your model loader. No parsing, no buffer allocation, no copying.</p>
       </div>
     </section>
 
@@ -799,7 +871,7 @@
 
       <div class="power">
         <div class="power-label">What the runtime builds</div>
-        <p>The metadata doesn&rsquo;t just describe the model &mdash; it <em>prescribes</em> the computation. <code>block_count=36</code> means allocate 36 layer blocks. <code>head_count_kv=8</code> with <code>head_count=32</code> means select the GQA attention kernel, not MHA. <code>feed_forward_length=12288</code> means wire a SwiGLU FFN with 3 projections. Every kernel selection, every buffer size, every matrix dimension is determined here.</p>
+        <p>The metadata doesn&rsquo;t just describe the model &mdash; it <em>prescribes</em> the computation. <code>block_count=36</code> means allocate 36 layer blocks. <code>head_count_kv=8</code> with <code>head_count=32</code> means select the GQA attention kernel, not MHA. <code>feed_forward_length=12288</code> means wire a <span class="popup-link" data-popup="swiglu">SwiGLU</span> FFN with 3 projections. Every kernel selection, every buffer size, every matrix dimension is determined here.</p>
       </div>
     </section>
 
@@ -847,7 +919,7 @@
 
       <p>Three things change across these eras and you can see all of them in the tensor manifest:</p>
 
-      <p><strong>Attention structure.</strong> GPT-2 fuses Q, K, V into a single <code>attn_qkv&thinsp;[2304, 768]</code> &mdash; one matmul, first dim = 3&times;768. Qwen3 separates them, with K and V smaller than Q (GQA). Qwen3.5&rsquo;s linear layers replace attention entirely with <code>ssm_*</code> tensors &mdash; a conv1d kernel, delta projections, and gated alpha/beta.</p>
+      <p><strong>Attention structure.</strong> GPT-2 fuses Q, K, V into a single <code>attn_qkv&thinsp;[2304, 768]</code> &mdash; one matmul, first dim = 3&times;768. Qwen3 separates them, with K and V smaller than Q (GQA). Qwen3.5&rsquo;s linear layers replace attention entirely with <code>ssm_*</code> tensors &mdash; a conv1d kernel, delta projections, and <span class="popup-link" data-popup="deltanet">Gated Delta Net</span> alpha/beta.</p>
 
       <p><strong>FFN activation.</strong> GPT-2 has two FFN tensors (GELU). Qwen3 and Qwen3.5 have three (SwiGLU). The presence of <code>ffn_gate</code> is the signal.</p>
 
@@ -1242,7 +1314,7 @@
 
       { name: 'attn_k', shape: '[1024, 4096]', color: C.attn, role: '"What do I contain?"',
         op: '<span class="op-in">token [4096]</span> <span class="op-sym">×</span> <span class="op-mat">W_k [1024, 4096]</span> <span class="op-sym">=</span> <span class="op-out">8 keys [8 × 128]</span>',
-        desc: 'Same input, but this matrix outputs only 8 key vectors — <strong>not 32</strong>. That\'s Grouped Query Attention. Each of the 8 key heads is shared by 4 query heads. The query heads ask different questions, but they search against the same set of keys. This means the KV cache (which stores keys and values for every token in the context) is 4× smaller than full MHA. For a 40K-token context, that\'s the difference between fitting in VRAM or not.',
+        desc: 'Same input, but this matrix outputs only 8 key vectors — <strong>not 32</strong>. That\'s <span class="popup-link" data-popup="gqa">Grouped Query Attention</span>. Each of the 8 key heads is shared by 4 query heads. The query heads ask different questions, but they search against the same set of keys. This means the KV cache (which stores keys and values for every token in the context) is 4× smaller than full MHA. For a 40K-token context, that\'s the difference between fitting in VRAM or not.',
         eureka: 'The shape tells you everything. [1024, 4096] not [4096, 4096] — that\'s 8 heads, not 32. The ratio (32 ÷ 8 = 4:1) IS the GQA ratio. You can read GQA from one tensor shape.' },
 
       { name: 'attn_v', shape: '[1024, 4096]', color: C.attn, role: '"Here is my content"',
@@ -2024,6 +2096,143 @@
       .attr('fill', '#6a6a7e').attr('font-family', 'Source Serif 4, serif')
       .attr('font-size', 11).attr('font-style', 'italic')
       .text('Every advancement from 2019 to 2025 is legible in the tensor manifest');
+  })();
+  </script>
+
+  <!-- ── Gwern-style popup system ── -->
+  <div class="popup-overlay" id="popup">
+    <div class="popup-bar">
+      <span class="popup-title" id="popup-title"></span>
+      <span class="popup-close" id="popup-close">&times;</span>
+    </div>
+    <div class="popup-body" id="popup-body"></div>
+  </div>
+
+  <script>
+  (function() {
+    const popups = {
+      gerganov: {
+        title: 'Georgi Gerganov',
+        body: `<strong>Georgi Gerganov</strong> is a Bulgarian software engineer who created the <code>ggml</code> tensor library and <code>llama.cpp</code> in March 2023. He ported Meta's LLaMA model to run on a MacBook in 7 days using pure C/C++ — no Python, no PyTorch. The project grew faster than Stable Diffusion's early adoption.
+        <br><br>In August 2023, he designed GGUF as a replacement for the brittle GGML/GGJT formats. The key insight: a model file should describe itself. His company <strong>ggml.ai</strong> was founded in Sofia, Bulgaria (not SF) — funded by Nat Friedman (former GitHub CEO).
+        <br><br>As of 2026, <code>llama.cpp</code> supports 50+ model architectures and is the inference engine behind Ollama, LM Studio, GPT4All, KoboldCpp, and most local AI tools.
+        <div class="popup-meta">Source: github.com/ggerganov · ggml.ai</div>`
+      },
+      llama: {
+        title: 'LLaMA (Large Language Model Meta AI)',
+        body: `<strong>LLaMA</strong> was Meta's family of open-weight language models, first released in February 2023. The original weights were intended for researchers only but leaked publicly within a week.
+        <br><br>That leak triggered the local AI revolution: Georgi Gerganov ported it to CPU inference in days, and within months a full ecosystem of quantized local models emerged. LLaMA's architecture — RMSNorm, SwiGLU, RoPE, GQA (in later versions) — became the template that Qwen, Mistral, and most open models now follow.
+        <br><br>Versions: <strong>LLaMA 1</strong> (Feb 2023, 7B-65B), <strong>LLaMA 2</strong> (Jul 2023, with chat fine-tuning), <strong>LLaMA 3</strong> (Apr 2024, 128K vocab), <strong>LLaMA 3.1</strong> (Jul 2024, 128K context).
+        <div class="popup-meta">Source: ai.meta.com/llama</div>`
+      },
+      ollama: {
+        title: 'Ollama',
+        body: `<strong>Ollama</strong> is a tool for running large language models locally. It wraps <code>llama.cpp</code> in a Docker-like CLI: <code>ollama pull qwen3:8b</code> downloads a GGUF file, <code>ollama run qwen3:8b</code> starts a chat.
+        <br><br>Under the hood, Ollama reads the GGUF metadata to determine which kernels to load, how to configure attention (MHA vs GQA), which tokenizer to use, and how to decode the quantized weights. The GGUF format's self-describing design is what makes this "just works" experience possible — no config files to manage.
+        <div class="popup-meta">Source: ollama.com · github.com/ollama/ollama</div>`
+      },
+      lmstudio: {
+        title: 'LM Studio',
+        body: `<strong>LM Studio</strong> is a desktop application for discovering, downloading, and running local LLMs with a chat UI. It uses <code>llama.cpp</code> as its inference backend and reads GGUF files directly.
+        <br><br>LM Studio's model browser connects to HuggingFace and filters for GGUF quantizations — the format is the standard interchange layer between model publishers and local inference tools.
+        <div class="popup-meta">Source: lmstudio.ai</div>`
+      },
+      mmap: {
+        title: 'Memory-Mapped I/O (mmap)',
+        body: `<strong>mmap</strong> maps a file directly into virtual memory. Instead of reading the file into a buffer with <code>read()</code>, the OS creates a mapping where accessing memory addresses transparently loads pages from disk on demand.
+        <br><br>For model loading, this means: <strong>no explicit read, no copy, no allocation</strong>. The 5 GB model file appears as a memory region. The first token's inference touches only the pages it needs — cold start time drops from "load entire file" to "page in the first few megabytes."
+        <br><br>GGUF enables this by aligning every tensor to 32-byte boundaries. Without alignment, the OS would need to copy data into aligned buffers, defeating the purpose.
+        <div class="popup-meta">POSIX: mmap(2) · Windows: CreateFileMapping</div>`
+      },
+      gqa: {
+        title: 'Grouped Query Attention (GQA)',
+        body: `<strong>GQA</strong> reduces the KV cache by sharing key/value heads across multiple query heads. In standard Multi-Head Attention (MHA), every query head has its own K and V — the KV cache scales linearly with head count.
+        <br><br>GQA groups query heads: if you have 32 query heads and 8 KV heads, each KV head serves 4 query heads. The KV cache is 4× smaller. This is directly visible in GGUF: <code>attn_k</code> has shape <code>[1024, 4096]</code> instead of <code>[4096, 4096]</code>.
+        <br><br><strong>Why it matters:</strong> During generation, the KV cache stores keys and values for every token in the context. At 40K tokens, full MHA needs ~2.5 GB of KV cache. GQA 4:1 needs ~625 MB. That's the difference between fitting on a consumer GPU or not.
+        <div class="popup-meta">Paper: Ainslie et al. 2023, "GQA: Training Generalized Multi-Query Transformers"</div>`
+      },
+      swiglu: {
+        title: 'SwiGLU Activation',
+        body: `<strong>SwiGLU</strong> is a gated activation function used in the FFN (feed-forward network) of modern transformers. It multiplies two parallel projections element-wise: one through a Swish activation (the "gate"), one linear (the "up" projection).
+        <br><br><code>output = Swish(x · W_gate) ⊙ (x · W_up)</code>
+        <br><br>This requires <strong>3 weight matrices</strong> per FFN instead of 2 (gate + up + down vs just up + down with GELU). You can identify SwiGLU in a GGUF manifest by the presence of <code>ffn_gate</code>. If it's missing, the model uses GELU (like GPT-2).
+        <br><br>SwiGLU consistently outperforms GELU and ReLU in quality benchmarks — the gating mechanism lets the model learn which neurons to activate per input.
+        <div class="popup-meta">Paper: Shazeer 2020, "GLU Variants Improve Transformer"</div>`
+      },
+      deltanet: {
+        title: 'Gated Delta Networks',
+        body: `<strong>Gated Delta Networks</strong> are a linear attention variant used in Qwen3.5. Instead of computing full O(n²) attention over all token pairs, they maintain a compressed state that gets updated incrementally — O(n) per token.
+        <br><br>The "delta" refers to how the state is updated: each token contributes a delta (change) to the running state, gated by learned alpha/beta parameters. A 1D convolution provides local context mixing.
+        <br><br>In GGUF, linear attention layers use <code>ssm_*</code> tensor names (borrowed from the SSM/Mamba naming convention): <code>ssm_in</code>, <code>ssm_conv1d</code>, <code>ssm_dt</code>, <code>ssm_alpha</code>, <code>ssm_beta</code>. Full attention layers still use <code>attn_q/k/v/output</code>.
+        <br><br>Qwen3.5 alternates: 3 linear layers then 1 full attention layer (<code>full_attention_interval=4</code>). The full attention layers provide global context; the linear layers handle the routine computation cheaply.
+        <div class="popup-meta">Architecture: Qwen3.5, 2026 · Yang et al. "Gated Delta Networks"</div>`
+      }
+    };
+
+    const overlay = document.getElementById('popup');
+    const titleEl = document.getElementById('popup-title');
+    const bodyEl = document.getElementById('popup-body');
+    const closeBtn = document.getElementById('popup-close');
+    let activeLink = null;
+    let hideTimeout = null;
+
+    function showPopup(link, key) {
+      const p = popups[key];
+      if (!p) return;
+
+      clearTimeout(hideTimeout);
+      titleEl.textContent = p.title;
+      bodyEl.innerHTML = p.body;
+
+      // Position near the link
+      const rect = link.getBoundingClientRect();
+      let top = rect.bottom + 8;
+      let left = rect.left;
+
+      // Keep in viewport
+      const popW = 420, popH = 380;
+      if (left + popW > window.innerWidth - 20) left = window.innerWidth - popW - 20;
+      if (left < 10) left = 10;
+      if (top + popH > window.innerHeight - 20) top = rect.top - popH - 8;
+
+      overlay.style.top = top + 'px';
+      overlay.style.left = left + 'px';
+      overlay.classList.add('visible');
+      activeLink = link;
+    }
+
+    function scheduleHide() {
+      hideTimeout = setTimeout(() => {
+        overlay.classList.remove('visible');
+        activeLink = null;
+      }, 300);
+    }
+
+    // Hover behavior
+    document.querySelectorAll('.popup-link').forEach(link => {
+      link.addEventListener('mouseenter', function() {
+        showPopup(this, this.dataset.popup);
+      });
+      link.addEventListener('mouseleave', scheduleHide);
+    });
+
+    // Keep popup open when hovering over it
+    overlay.addEventListener('mouseenter', () => clearTimeout(hideTimeout));
+    overlay.addEventListener('mouseleave', scheduleHide);
+
+    // Close button
+    closeBtn.addEventListener('click', () => {
+      overlay.classList.remove('visible');
+      activeLink = null;
+    });
+
+    // ESC to close
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        overlay.classList.remove('visible');
+        activeLink = null;
+      }
+    });
   })();
   </script>
 
