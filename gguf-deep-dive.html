@@ -832,30 +832,26 @@
 
       <p>Two global tensors bookend the entire network. At the bottom: <code>token_embd.weight&thinsp;[151936, 4096]</code> &mdash; the embedding matrix that maps each of the 151,936 vocabulary tokens into a 4,096-dimensional vector. At the top: <code>output.weight&thinsp;[151936, 4096]</code> &mdash; the language model head that projects the final representation back into vocabulary space to produce the next-token probabilities.</p>
 
-      <!-- ── VISUALIZATION: Transformer Block Circuit ── -->
-      <div class="viz-container">
-        <span class="diagram-label">Interactive: Inside One Transformer Block &mdash; blk.0</span>
-        <svg id="viz-block-circuit" viewBox="0 0 780 520"></svg>
-        <div class="viz-controls">
-          <button id="circuit-qwen3" class="secondary active">Qwen3-8B</button>
-          <button id="circuit-gpt2" class="secondary">GPT-2</button>
+      <!-- ── VISUALIZATION: Transformer Block Circuit (SVG infographic) ── -->
+      <h3>One Block, Three Eras</h3>
+      <p>The same logical circuit &mdash; normalize, attend, normalize, feed-forward &mdash; looks different in every generation. Toggle between three models and watch the tensor names, shapes, and structure change:</p>
+
+      <div class="viz-container" style="padding:1rem;">
+        <div class="viz-controls" style="margin-top:0;margin-bottom:0.8rem;">
+          <button id="blk-gpt2" class="secondary">GPT-2 (2019)</button>
+          <button id="blk-qwen3" class="secondary active">Qwen3 (2025)</button>
+          <button id="blk-qwen35" class="secondary">Qwen3.5 linear (2026)</button>
         </div>
+        <svg id="viz-block-circuit" viewBox="0 0 720 580" style="width:100%;height:auto;"></svg>
       </div>
 
-      <h3>The GPT-2 Contrast</h3>
+      <p>Three things change across these eras and you can see all of them in the tensor manifest:</p>
 
-      <p>Switch the toggle above to GPT-2 and the circuit transforms. Three changes jump out immediately.</p>
+      <p><strong>Attention structure.</strong> GPT-2 fuses Q, K, V into a single <code>attn_qkv&thinsp;[2304, 768]</code> &mdash; one matmul, first dim = 3&times;768. Qwen3 separates them, with K and V smaller than Q (GQA). Qwen3.5&rsquo;s linear layers replace attention entirely with <code>ssm_*</code> tensors &mdash; a conv1d kernel, delta projections, and gated alpha/beta.</p>
 
-      <p><strong>Fused QKV.</strong> Where Qwen3 shows three separate tensors &mdash; <code>attn_q</code>, <code>attn_k</code>, <code>attn_v</code> &mdash; GPT-2 shows a single <code>attn_qkv.weight&thinsp;[2304, 768]</code>. The first dimension is exactly 3&times; the embedding size (3&times;768). One big matrix multiply instead of three small ones. The information content is identical; the fusion is a performance decision.</p>
+      <p><strong>FFN activation.</strong> GPT-2 has two FFN tensors (GELU). Qwen3 and Qwen3.5 have three (SwiGLU). The presence of <code>ffn_gate</code> is the signal.</p>
 
-      <p><strong>No gate.</strong> GPT-2 has two FFN projections (<code>ffn_up</code> and <code>ffn_down</code>), not three. The missing tensor <em>is</em> the activation function: no <code>ffn_gate</code> means no SwiGLU. GPT-2 uses GELU instead &mdash; a simpler activation that doesn&rsquo;t need a gating projection. You can identify the activation function from the tensor manifest alone.</p>
-
-      <p><strong>Bias everywhere.</strong> Every projection in GPT-2 carries a <code>.bias</code> tensor. Qwen3 has none. Modern architectures dropped bias terms because they add parameters without improving quality &mdash; RMSNorm and improved training recipes made them unnecessary. The presence or absence of bias tensors is an architectural fingerprint you can read from the file.</p>
-
-      <div class="power zen">
-        <div class="power-label">Eureka</div>
-        <p>The tensor manifest is the architecture. When you see <code>attn_k.weight&thinsp;[1024, 4096]</code> instead of <code>[4096, 4096]</code>, you are looking at GQA. When you see <code>ffn_gate</code>, you are looking at SwiGLU. When you see <code>attn_qkv</code> instead of separate Q/K/V, you are looking at the GPT-2 lineage. Every design decision is encoded in a tensor name and a shape.</p>
-      </div>
+      <p><strong>Bias and normalization.</strong> GPT-2: LayerNorm with bias on every projection. Qwen3/3.5: RMSNorm, no bias anywhere. Modern architectures are <em>simpler</em> &mdash; fewer parameters, fewer ops, better quality.</p>
 
       <h3>The Full Stack: 36 Layers</h3>
 
@@ -1307,208 +1303,172 @@
   })();
   </script>
 
-  <!-- ── VIZ 2: Transformer Block Circuit ── -->
+  <!-- ── VIZ 2: Block Infographic (3 models, clean SVG) ── -->
   <script>
   (function() {
     const svg = d3.select('#viz-block-circuit');
-    const W = 780, H = 520;
+    const W = 720, H = 580;
     let mode = 'qwen3';
 
-    // Qwen3 tensor data with param counts for proportional sizing
-    const qwen3Tensors = [
-      { id: 'in', label: 'Input from residual stream', x: 390, y: 32, w: 200, h: 22, color: '#00ff88', type: 'flow', params: 0 },
-      { id: 'an', label: 'attn_norm [4096]', desc: 'RMSNorm — stabilize', x: 390, y: 72, w: 220, h: 30, color: '#ffdd00', type: 'tensor', params: 4096 },
-      { id: 'q', label: 'attn_q [4096, 4096]', desc: '"What am I looking for?"', x: 200, y: 130, w: 190, h: 36, color: '#ff00aa', type: 'tensor', params: 16e6 },
-      { id: 'k', label: 'attn_k [1024, 4096]', desc: '"What do I contain?" (GQA)', x: 390, y: 130, w: 190, h: 28, color: '#ff00aa', type: 'tensor', params: 4e6 },
-      { id: 'v', label: 'attn_v [1024, 4096]', desc: '"Here is my content" (GQA)', x: 580, y: 130, w: 190, h: 28, color: '#ff00aa', type: 'tensor', params: 4e6 },
-      { id: 'dot', label: 'Attention Scores → Softmax', x: 390, y: 192, w: 230, h: 24, color: '#ff00aa', type: 'op', params: 0 },
-      { id: 'ao', label: 'attn_output [4096, 4096]', desc: 'Merge heads back', x: 390, y: 236, w: 220, h: 36, color: '#ff00aa', type: 'tensor', params: 16e6 },
-      { id: 'a1', label: '⊕ add to residual', x: 390, y: 288, w: 160, h: 20, color: '#00ff88', type: 'flow', params: 0 },
-      { id: 'fn', label: 'ffn_norm [4096]', desc: 'RMSNorm — stabilize', x: 390, y: 324, w: 220, h: 30, color: '#ffdd00', type: 'tensor', params: 4096 },
-      { id: 'fg', label: 'ffn_gate [12288, 4096]', desc: 'SwiGLU: which neurons fire?', x: 210, y: 382, w: 210, h: 36, color: '#ff8800', type: 'tensor', params: 50e6 },
-      { id: 'fu', label: 'ffn_up [12288, 4096]', desc: 'Expand to thinking space', x: 510, y: 382, w: 210, h: 36, color: '#ff8800', type: 'tensor', params: 50e6 },
-      { id: 'mul', label: 'gate × up (element-wise)', x: 390, y: 432, w: 210, h: 20, color: '#ff8800', type: 'op', params: 0 },
-      { id: 'fd', label: 'ffn_down [4096, 12288]', desc: 'Compress back to 4096', x: 390, y: 464, w: 220, h: 36, color: '#ff8800', type: 'tensor', params: 50e6 },
-      { id: 'a2', label: '⊕ add to residual', x: 390, y: 506, w: 160, h: 20, color: '#00ff88', type: 'flow', params: 0 },
-    ];
+    // Muted, elite color palette
+    const P = {
+      norm:  { fill: '#a78bfa', stroke: '#7c3aed', bg: 'rgba(167,139,250,0.06)' },  // soft purple
+      attn:  { fill: '#818cf8', stroke: '#6366f1', bg: 'rgba(129,140,248,0.06)' },  // indigo
+      ffn:   { fill: '#fb923c', stroke: '#ea580c', bg: 'rgba(251,146,60,0.06)' },   // warm orange
+      flow:  { fill: '#4ade80', stroke: '#22c55e', bg: 'rgba(74,222,128,0.06)' },   // soft green
+      ssm:   { fill: '#22d3ee', stroke: '#06b6d4', bg: 'rgba(34,211,238,0.06)' },   // cyan/teal
+      dim:   '#3f3f46',
+      text:  '#a1a1aa',
+      white: '#e4e4e7',
+    };
 
-    const gpt2Tensors = [
-      { id: 'in', label: 'Input from residual stream', x: 390, y: 32, w: 200, h: 22, color: '#00ff88', type: 'flow', params: 0 },
-      { id: 'an', label: 'attn_norm [768] + bias', desc: 'LayerNorm (not RMSNorm)', x: 390, y: 72, w: 230, h: 30, color: '#ffdd00', type: 'tensor', params: 1536 },
-      { id: 'qkv', label: 'attn_qkv [2304, 768] + bias', desc: 'Fused Q+K+V — one matmul (3×768)', x: 390, y: 130, w: 280, h: 40, color: '#ff00aa', type: 'tensor', params: 1.8e6 },
-      { id: 'dot', label: 'Attention Scores → Softmax', x: 390, y: 196, w: 230, h: 24, color: '#ff00aa', type: 'op', params: 0 },
-      { id: 'ao', label: 'attn_output [768, 768] + bias', desc: 'Merge 12 heads', x: 390, y: 240, w: 250, h: 34, color: '#ff00aa', type: 'tensor', params: 590e3 },
-      { id: 'a1', label: '⊕ add to residual', x: 390, y: 290, w: 160, h: 20, color: '#00ff88', type: 'flow', params: 0 },
-      { id: 'fn', label: 'ffn_norm [768] + bias', desc: 'LayerNorm', x: 390, y: 326, w: 230, h: 30, color: '#ffdd00', type: 'tensor', params: 1536 },
-      { id: 'fu', label: 'ffn_up [3072, 768] + bias', desc: 'GELU expand (no gate!)', x: 390, y: 384, w: 250, h: 36, color: '#ff8800', type: 'tensor', params: 2.4e6 },
-      { id: 'fd', label: 'ffn_down [768, 3072] + bias', desc: 'Compress back', x: 390, y: 440, w: 250, h: 36, color: '#ff8800', type: 'tensor', params: 2.4e6 },
-      { id: 'a2', label: '⊕ add to residual', x: 390, y: 492, w: 160, h: 20, color: '#00ff88', type: 'flow', params: 0 },
-    ];
-
-    function drawLine(svg, x1, y1, x2, y2, color, width) {
-      svg.append('line').attr('x1',x1).attr('y1',y1).attr('x2',x2).attr('y2',y2)
-        .attr('stroke', color || '#2a2a4a').attr('stroke-width', width || 1.5).attr('opacity', 0.5);
-    }
+    const models = {
+      gpt2: {
+        title: 'GPT-2 124M — blk.0',
+        sub: 'LayerNorm · Fused QKV · MHA · GELU · Bias everywhere',
+        nodes: [
+          { label: 'residual in',                     y: 24,  section: 'flow' },
+          { label: 'attn_norm [768] + bias',          y: 58,  section: 'norm', note: 'LayerNorm (mean + var + scale + shift)' },
+          { label: 'attn_qkv [2304, 768] + bias',    y: 100, section: 'attn', note: 'Fused Q+K+V in one matmul (3 × 768 = 2304)', wide: true },
+          { label: 'attention scores → softmax',      y: 146, section: 'attn', op: true, note: '12 heads × 64 dim, full MHA (no GQA)' },
+          { label: 'attn_output [768, 768] + bias',   y: 184, section: 'attn', note: 'Merge 12 heads' },
+          { label: '⊕ residual',                      y: 224, section: 'flow' },
+          { label: 'ffn_norm [768] + bias',           y: 258, section: 'norm', note: 'LayerNorm again' },
+          { label: 'ffn_up [3072, 768] + bias',       y: 300, section: 'ffn', note: 'GELU expand — no gate tensor', wide: true },
+          { label: 'ffn_down [768, 3072] + bias',     y: 344, section: 'ffn', note: 'Compress back' },
+          { label: '⊕ residual',                      y: 384, section: 'flow' },
+        ]
+      },
+      qwen3: {
+        title: 'Qwen3-8B — blk.0',
+        sub: 'RMSNorm · Separate Q/K/V · GQA 4:1 · SwiGLU · No bias',
+        nodes: [
+          { label: 'residual in',                     y: 24,  section: 'flow' },
+          { label: 'attn_norm [4096]',                y: 58,  section: 'norm', note: 'RMSNorm (no bias, no mean)' },
+          { label: 'attn_q [4096, 4096]',             y: 100, section: 'attn', note: '32 heads × 128 dim' },
+          { label: 'attn_k [1024, 4096]',             y: 138, section: 'attn', note: '8 KV heads — GQA 4:1 ←', accent: true },
+          { label: 'attn_v [1024, 4096]',             y: 172, section: 'attn', note: 'same GQA — KV cache 4× smaller' },
+          { label: 'attention scores → softmax',      y: 210, section: 'attn', op: true },
+          { label: 'attn_output [4096, 4096]',        y: 244, section: 'attn', note: 'Merge 32 heads' },
+          { label: '⊕ residual',                      y: 282, section: 'flow' },
+          { label: 'ffn_norm [4096]',                 y: 314, section: 'norm', note: 'RMSNorm' },
+          { label: 'ffn_gate [12288, 4096]',          y: 352, section: 'ffn', note: 'SwiGLU gate — this tensor = SwiGLU', accent: true },
+          { label: 'ffn_up [12288, 4096]',            y: 388, section: 'ffn', note: 'Expand to 3× width' },
+          { label: 'gate ⊙ up',                       y: 422, section: 'ffn', op: true },
+          { label: 'ffn_down [4096, 12288]',          y: 454, section: 'ffn', note: 'Compress back → residual' },
+          { label: '⊕ residual',                      y: 490, section: 'flow' },
+        ]
+      },
+      qwen35: {
+        title: 'Qwen3.5-9B — blk.0 (linear attention)',
+        sub: 'Gated Delta Net · Conv1D · No Q/K/V · SwiGLU · No bias',
+        nodes: [
+          { label: 'residual in',                     y: 24,  section: 'flow' },
+          { label: 'attn_norm [4096]',                y: 58,  section: 'norm', note: 'RMSNorm' },
+          { label: 'ssm_in [16384, 4096]',            y: 100, section: 'ssm', note: 'Fused Q+K+V+Z for linear attention', wide: true, accent: true },
+          { label: 'ssm_conv1d [4096, 1, 4]',         y: 142, section: 'ssm', note: '1D conv — local context mixing' },
+          { label: 'ssm_dt [16, 4096] + ssm_a [16]',  y: 178, section: 'ssm', note: 'Delta time + decay rate' },
+          { label: 'ssm_alpha [4096, 4096]',          y: 214, section: 'ssm', note: 'Gated delta alpha' },
+          { label: 'ssm_beta [4096, 4096]',           y: 248, section: 'ssm', note: 'Gated delta beta' },
+          { label: 'ssm_norm [4096]',                 y: 282, section: 'ssm', note: 'Output norm' },
+          { label: 'ssm_out [4096, 8192]',            y: 314, section: 'ssm', note: 'Output projection' },
+          { label: '⊕ residual',                      y: 350, section: 'flow' },
+          { label: 'ffn_norm [4096]',                 y: 382, section: 'norm', note: 'RMSNorm' },
+          { label: 'ffn_gate [12288, 4096]',          y: 418, section: 'ffn', note: 'SwiGLU gate' },
+          { label: 'ffn_up [12288, 4096]',            y: 450, section: 'ffn', note: 'Expand' },
+          { label: 'gate ⊙ up',                       y: 480, section: 'ffn', op: true },
+          { label: 'ffn_down [4096, 12288]',          y: 508, section: 'ffn', note: 'Compress → residual' },
+          { label: '⊕ residual',                      y: 542, section: 'flow' },
+        ]
+      }
+    };
 
     function draw() {
       svg.selectAll('*').remove();
-      const tensors = mode === 'qwen3' ? qwen3Tensors : gpt2Tensors;
-      const isQwen = mode === 'qwen3';
-
-      // SVG defs for gradients and filters
-      const defs = svg.append('defs');
-      // Glow filter
-      const glow = defs.append('filter').attr('id', 'glow');
-      glow.append('feGaussianBlur').attr('stdDeviation', '3').attr('result', 'blur');
-      glow.append('feMerge').append('feMergeNode').attr('in', 'blur');
-      defs.select('#glow feMerge').append('feMergeNode').attr('in', 'SourceGraphic');
+      const m = models[mode];
+      const cx = 340; // center x for nodes
+      const nodeW = 340;
 
       // Title
-      svg.append('text').attr('x', W/2).attr('y', 18).attr('text-anchor', 'middle')
-        .attr('fill', '#e8e8f0').attr('font-family', 'JetBrains Mono, monospace')
-        .attr('font-size', 13).attr('font-weight', 600)
-        .text(isQwen ? 'Qwen3-8B — blk.0 (one layer)' : 'GPT-2 — blk.0 (one layer)');
+      svg.append('text').attr('x', W/2).attr('y', 16).attr('text-anchor', 'middle')
+        .attr('fill', P.white).attr('font-family', 'JetBrains Mono, monospace')
+        .attr('font-size', 11).attr('font-weight', 600).text(m.title);
 
-      // Residual stream — thick glowing line on the left
-      svg.append('line').attr('x1', 60).attr('y1', 28).attr('x2', 60).attr('y2', H - 6)
-        .attr('stroke', '#00ff88').attr('stroke-width', 3).attr('opacity', 0.15);
-      svg.append('line').attr('x1', 60).attr('y1', 28).attr('x2', 60).attr('y2', H - 6)
-        .attr('stroke', '#00ff88').attr('stroke-width', 1).attr('opacity', 0.4)
-        .attr('stroke-dasharray', '8,4');
-      svg.append('text').attr('x', 24).attr('y', H/2).attr('text-anchor', 'middle')
-        .attr('fill', '#00ff88').attr('opacity', 0.35)
-        .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
-        .attr('transform', `rotate(-90, 24, ${H/2})`).text('RESIDUAL STREAM');
+      // Residual stream line
+      const firstY = m.nodes[0].y + 10;
+      const lastY = m.nodes[m.nodes.length - 1].y + 10;
+      svg.append('line').attr('x1', 80).attr('y1', firstY).attr('x2', 80).attr('y2', lastY)
+        .attr('stroke', P.flow.fill).attr('stroke-width', 2).attr('opacity', 0.15);
+      svg.append('line').attr('x1', 80).attr('y1', firstY).attr('x2', 80).attr('y2', lastY)
+        .attr('stroke', P.flow.fill).attr('stroke-width', 0.8).attr('opacity', 0.35)
+        .attr('stroke-dasharray', '6,4');
 
-      // Horizontal connections to residual at add nodes
-      tensors.filter(t => t.type === 'flow' && t.id !== 'in').forEach(t => {
-        drawLine(svg, 60, t.y + t.h/2, t.x - t.w/2, t.y + t.h/2, '#00ff88', 1);
-      });
+      // Draw nodes
+      m.nodes.forEach((n, i) => {
+        const pal = P[n.section] || P.flow;
+        const w = n.wide ? nodeW + 40 : nodeW;
+        const h = n.op ? 18 : 24;
+        const x = cx - w/2 + 80;
+        const y = n.y;
 
-      // Section backgrounds
-      const attnBgY = 60;
-      const attnBgH = isQwen ? 252 : 240;
-      svg.append('rect').attr('x', 100).attr('y', attnBgY).attr('width', W - 130).attr('height', attnBgH)
-        .attr('fill', '#ff00aa').attr('opacity', 0.02).attr('rx', 8);
-      svg.append('text').attr('x', W - 40).attr('y', attnBgY + 16).attr('text-anchor', 'end')
-        .attr('fill', '#ff00aa').attr('opacity', 0.3)
-        .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9).text('ATTENTION');
-
-      const ffnBgY = attnBgY + attnBgH + 8;
-      svg.append('rect').attr('x', 100).attr('y', ffnBgY).attr('width', W - 130).attr('height', isQwen ? 210 : 190)
-        .attr('fill', '#ff8800').attr('opacity', 0.02).attr('rx', 8);
-      svg.append('text').attr('x', W - 40).attr('y', ffnBgY + 16).attr('text-anchor', 'end')
-        .attr('fill', '#ff8800').attr('opacity', 0.3)
-        .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9).text('FFN');
-
-      // Connection lines
-      if (isQwen) {
-        // norm → Q/K/V fan-out
-        const norm = tensors[1];
-        [tensors[2], tensors[3], tensors[4]].forEach(t => {
-          drawLine(svg, norm.x, norm.y + norm.h, t.x, t.y);
-        });
-        // Q/K/V → attention scores
-        [tensors[2], tensors[3], tensors[4]].forEach(t => {
-          drawLine(svg, t.x, t.y + t.h, tensors[5].x, tensors[5].y);
-        });
-        // scores → attn_output → add
-        drawLine(svg, tensors[5].x, tensors[5].y + tensors[5].h, tensors[6].x, tensors[6].y);
-        drawLine(svg, tensors[6].x, tensors[6].y + tensors[6].h, tensors[7].x, tensors[7].y);
-        // add → ffn_norm → gate/up
-        drawLine(svg, tensors[7].x, tensors[7].y + tensors[7].h, tensors[8].x, tensors[8].y);
-        drawLine(svg, tensors[8].x, tensors[8].y + tensors[8].h, tensors[9].x, tensors[9].y);
-        drawLine(svg, tensors[8].x, tensors[8].y + tensors[8].h, tensors[10].x, tensors[10].y);
-        // gate/up → multiply → down → add
-        drawLine(svg, tensors[9].x, tensors[9].y + tensors[9].h, tensors[11].x, tensors[11].y);
-        drawLine(svg, tensors[10].x, tensors[10].y + tensors[10].h, tensors[11].x, tensors[11].y);
-        drawLine(svg, tensors[11].x, tensors[11].y + tensors[11].h, tensors[12].x, tensors[12].y);
-        drawLine(svg, tensors[12].x, tensors[12].y + tensors[12].h, tensors[13].x, tensors[13].y);
-      } else {
-        // Sequential: norm → qkv → scores → output → add → norm → up → down → add
-        for (let i = 0; i < tensors.length - 1; i++) {
-          drawLine(svg, tensors[i].x, tensors[i].y + tensors[i].h, tensors[i+1].x, tensors[i+1].y);
-        }
-      }
-
-      // Draw tensor nodes with shadows and gradients
-      tensors.forEach(t => {
-        const g = svg.append('g').attr('cursor', 'pointer');
-        const rx = t.type === 'flow' ? 10 : 5;
-        const baseOpacity = t.type === 'flow' ? 0.12 : (t.type === 'op' ? 0.1 : 0.2);
-
-        // Shadow
-        if (t.type === 'tensor') {
-          g.append('rect')
-            .attr('x', t.x - t.w/2 + 2).attr('y', t.y + 2)
-            .attr('width', t.w).attr('height', t.h)
-            .attr('fill', 'rgba(0,0,0,0.3)').attr('rx', rx);
+        // Connection line from previous
+        if (i > 0) {
+          const prev = m.nodes[i - 1];
+          const prevH = prev.op ? 18 : 24;
+          svg.append('line')
+            .attr('x1', cx + 80).attr('y1', prev.y + prevH)
+            .attr('x2', cx + 80).attr('y2', y)
+            .attr('stroke', P.dim).attr('stroke-width', 0.5).attr('opacity', 0.4);
         }
 
-        // Main rect
-        const mainRect = g.append('rect')
-          .attr('x', t.x - t.w/2).attr('y', t.y)
-          .attr('width', t.w).attr('height', t.h)
-          .attr('fill', t.color).attr('opacity', baseOpacity)
-          .attr('stroke', t.color).attr('stroke-width', t.type === 'tensor' ? 1.5 : 0.8)
-          .attr('rx', rx);
+        // Residual connection for flow nodes
+        if (n.section === 'flow' && n.label.includes('⊕')) {
+          svg.append('line').attr('x1', 80).attr('y1', y + h/2).attr('x2', x).attr('y2', y + h/2)
+            .attr('stroke', P.flow.fill).attr('stroke-width', 0.8).attr('opacity', 0.25);
+        }
 
-        // Label (tensor name + shape)
-        g.append('text')
-          .attr('x', t.x).attr('y', t.y + (t.desc ? t.h/2 - 2 : t.h/2 + 4))
-          .attr('text-anchor', 'middle')
-          .attr('fill', t.type === 'flow' ? '#00ff88' : '#e8e8f0')
+        // Node background
+        svg.append('rect').attr('x', x).attr('y', y).attr('width', w).attr('height', h)
+          .attr('fill', pal.fill).attr('fill-opacity', n.op ? 0.04 : 0.08)
+          .attr('stroke', pal.stroke).attr('stroke-opacity', n.accent ? 0.6 : 0.25)
+          .attr('stroke-width', n.accent ? 1 : 0.5).attr('rx', 3);
+
+        // Label
+        svg.append('text').attr('x', x + 10).attr('y', y + h/2 + 4)
+          .attr('fill', n.section === 'flow' ? P.flow.fill : P.white)
+          .attr('fill-opacity', n.op ? 0.5 : (n.section === 'flow' ? 0.6 : 0.85))
           .attr('font-family', 'JetBrains Mono, monospace')
-          .attr('font-size', 10).attr('font-weight', t.type === 'tensor' ? 500 : 400)
-          .text(t.label);
+          .attr('font-size', n.op ? 9 : 10)
+          .text(n.label);
 
-        // Description sub-label (below the name, inside the box)
-        if (t.desc) {
-          g.append('text')
-            .attr('x', t.x).attr('y', t.y + t.h/2 + 11)
-            .attr('text-anchor', 'middle')
-            .attr('fill', t.color).attr('opacity', 0.55)
-            .attr('font-family', 'Source Serif 4, serif')
-            .attr('font-size', 10).attr('font-style', 'italic')
-            .text(t.desc);
+        // Note on the right
+        if (n.note) {
+          svg.append('text').attr('x', x + w + 8).attr('y', y + h/2 + 3)
+            .attr('fill', n.accent ? pal.fill : P.text)
+            .attr('fill-opacity', n.accent ? 0.7 : 0.4)
+            .attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 8)
+            .text(n.note);
         }
-
-        // Hover: glow + raise opacity
-        g.on('mouseenter', function() {
-          mainRect.attr('opacity', 0.45).attr('filter', 'url(#glow)');
-        });
-        g.on('mouseleave', function() {
-          mainRect.attr('opacity', baseOpacity).attr('filter', null);
-        });
       });
 
-      // GQA callout for Qwen3
-      if (isQwen) {
-        const kTensor = tensors[3];
-        svg.append('text').attr('x', kTensor.x + kTensor.w/2 + 8).attr('y', kTensor.y + 10)
-          .attr('fill', '#ff00aa').attr('opacity', 0.5)
-          .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 8)
-          .text('← [1024] not [4096]');
-        svg.append('text').attr('x', kTensor.x + kTensor.w/2 + 8).attr('y', kTensor.y + 22)
-          .attr('fill', '#ff00aa').attr('opacity', 0.5)
-          .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 8)
-          .text('   GQA 4:1');
-      }
+      // Footer
+      svg.append('text').attr('x', W/2).attr('y', H - 8).attr('text-anchor', 'middle')
+        .attr('fill', P.dim).attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
+        .text(m.sub);
     }
 
     draw();
 
-    document.getElementById('circuit-qwen3').addEventListener('click', function() {
-      mode = 'qwen3';
-      document.getElementById('circuit-qwen3').classList.add('active');
-      document.getElementById('circuit-gpt2').classList.remove('active');
-      draw();
-    });
-    document.getElementById('circuit-gpt2').addEventListener('click', function() {
-      mode = 'gpt2';
-      document.getElementById('circuit-gpt2').classList.add('active');
-      document.getElementById('circuit-qwen3').classList.remove('active');
-      draw();
+    const btns = ['blk-gpt2', 'blk-qwen3', 'blk-qwen35'];
+    const modes = ['gpt2', 'qwen3', 'qwen35'];
+    btns.forEach((id, i) => {
+      document.getElementById(id).addEventListener('click', function() {
+        mode = modes[i];
+        btns.forEach(b => document.getElementById(b).classList.remove('active'));
+        this.classList.add('active');
+        draw();
+      });
     });
   })();
   </script>
