@@ -891,22 +891,15 @@
         <span style="color:var(--text-dim);"> &rarr; </span>
         <span style="color:var(--text-dim);">WEIGHTS</span>
       </p>
-      <p style="font-style:italic;color:var(--text-dim);margin-bottom:1.5rem;">370 tensors. Only 12 unique names. Ten per layer, two globals. The tensor manifest IS the architecture.</p>
+      <p style="font-style:italic;color:var(--text-dim);margin-bottom:1.5rem;">The runtime knows the architecture. Now it reads the actual matrices &mdash; every weight in the model, listed by name.</p>
 
-      <p class="drop-cap">Now the runtime knows the architecture. Next it reads the tensor manifest &mdash; a list of every matrix in the model, with its name, shape, quantization type, and byte offset into the weight data. For Qwen3-8B, that is 370 entries. But there are only twelve unique tensor names &mdash; ten per layer, plus two global matrices at the top and bottom of the network. The same circuit repeats 36 times. Understanding one layer means understanding them all.</p>
+      <p class="drop-cap">Let&rsquo;s start simple. A transformer layer does two things. First, it looks at context &mdash; that&rsquo;s <strong>attention</strong>, the mechanism that lets each token consider every other token in the sequence. Then it thinks about what it saw &mdash; that&rsquo;s the <strong>feed-forward network</strong>, a wider space where the model processes and transforms the information. Both are just matrix multiplications. And every matrix is listed in the GGUF file by name, shape, and type.</p>
 
-      <p style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#52525b;margin-bottom:6px;">Click any tensor to see what it does &darr;</p>
+      <p>But here is what makes this interesting: not every model does attention the same way. Not every model has the same feed-forward structure. And some models have replaced attention entirely. The tensor names in the file tell you exactly which variant you are looking at. Let&rsquo;s see.</p>
 
-      <div id="tensor-cards">
-      </div>
+      <h3>One Layer, Five Architectures</h3>
 
-      <p>The <strong>residual stream</strong> is the invisible thread connecting everything. It is not a tensor in the file, but it is the architecture&rsquo;s central idea: attention and FFN outputs are <em>added</em> to the input, not piped through sequentially. Each layer refines the representation; it does not replace it. The residual stream accumulates understanding across all 36 layers.</p>
-
-      <p>Two global tensors bookend the entire network. At the bottom: <code>token_embd.weight&thinsp;[151936, 4096]</code> &mdash; the embedding matrix that maps each of the 151,936 vocabulary tokens into a 4,096-dimensional vector. At the top: <code>output.weight&thinsp;[151936, 4096]</code> &mdash; the language model head that projects the final representation back into vocabulary space to produce the next-token probabilities.</p>
-
-      <!-- ── VISUALIZATION: Transformer Block Circuit (SVG infographic) ── -->
-      <h3>One Block, Three Eras</h3>
-      <p>The same logical circuit &mdash; normalize, attend, normalize, feed-forward &mdash; looks different in every generation. Toggle between three models and watch the tensor names, shapes, and structure change:</p>
+      <p>The diagram below shows a single layer &mdash; <code>blk.0</code> &mdash; from five different models. Toggle between them. Watch how the circuit reshapes: tensors appear and disappear, parallel lanes merge or split, entire subsystems get replaced. Every difference you see corresponds to a real tensor name in the GGUF file.</p>
 
       <div class="viz-container" style="padding:1rem;">
         <div class="viz-controls" style="margin-top:0;margin-bottom:0.8rem;">
@@ -919,13 +912,32 @@
         <svg id="viz-block-circuit" viewBox="0 0 720 580" style="width:100%;height:auto;"></svg>
       </div>
 
-      <p>Three things change across these eras and you can see all of them in the tensor manifest:</p>
+      <p>Five things to notice as you toggle:</p>
 
-      <p><strong>Attention structure.</strong> GPT-2 fuses Q, K, V into a single <code>attn_qkv&thinsp;[2304, 768]</code> &mdash; one matmul, first dim = 3&times;768. Qwen3 separates them, with K and V smaller than Q (GQA). Qwen3.5&rsquo;s linear layers replace attention entirely with <code>ssm_*</code> tensors &mdash; a conv1d kernel, delta projections, and <span class="popup-link" data-popup="deltanet">Gated Delta Net</span> alpha/beta.</p>
+      <p><strong>Q, K, V &mdash; together or apart.</strong> GPT-2 fuses all three into a single <code>attn_qkv</code> tensor &mdash; one big matrix multiply. Qwen3 separates them, and the K and V matrices are <em>smaller</em> than Q. That shape difference is <span class="popup-link" data-popup="gqa">Grouped Query Attention</span>: 8 key-value heads shared across 32 query heads. The KV cache is 4&times; smaller. You can read the GQA ratio from one tensor shape.</p>
 
-      <p><strong>FFN activation.</strong> GPT-2 has two FFN tensors (GELU). Qwen3 and Qwen3.5 have three (SwiGLU). The presence of <code>ffn_gate</code> is the signal.</p>
+      <p><strong>Gate or no gate.</strong> Look at the FFN section. GPT-2 has two projections: expand and compress. Qwen3 has three &mdash; the extra one is <code>ffn_gate</code>, a <span class="popup-link" data-popup="swiglu">SwiGLU</span> gate that decides which neurons activate. If you see <code>ffn_gate</code> in the manifest, you know the activation function. If it&rsquo;s missing, it&rsquo;s GELU.</p>
 
-      <p><strong>Bias and normalization.</strong> GPT-2: LayerNorm with bias on every projection. Qwen3/3.5: RMSNorm, no bias anywhere. Modern architectures are <em>simpler</em> &mdash; fewer parameters, fewer ops, better quality.</p>
+      <p><strong>Eight experts.</strong> Mixtral&rsquo;s attention looks like Qwen3&rsquo;s. But below the FFN norm, a <code>ffn_gate_inp</code> tensor routes each token to 2 of 8 expert FFNs. The file contains 8 complete sets of gate+up+down matrices &mdash; only 2 fire per token. 47 billion parameters total, 13 billion active.</p>
+
+      <p><strong>No attention at all.</strong> Switch to Mamba-2. The attention section is gone entirely. In its place: <code>ssm_in</code>, <code>ssm_conv1d</code>, <code>ssm_dt</code>, <code>ssm_a</code> &mdash; a recurrent state-space model that processes tokens in O(n) time instead of O(n&sup2;). No Q, K, or V tensors. No KV cache. Different tensor names, different computation, same GGUF format.</p>
+
+      <p><strong>Hybrid layers.</strong> Qwen3.5 mixes both worlds. Some layers use full attention (<code>attn_q/k/v</code>), others use <span class="popup-link" data-popup="deltanet">Gated Delta Networks</span> (<code>ssm_alpha</code>, <code>ssm_beta</code>). The GGUF manifest tells the runtime which kernel to use for each layer &mdash; the tensor names <em>are</em> the dispatch table.</p>
+
+      <h3>What Each Tensor Does</h3>
+
+      <p>Now that you have seen the big picture, here are the individual tensors. Click any one to see the matrix operation it performs and why it exists. Start with <code>attn_k</code> (the GQA eureka) or <code>ffn_gate</code> (the SwiGLU signature).</p>
+
+      <p style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#52525b;margin-bottom:6px;">Click to expand &darr;</p>
+
+      <div id="tensor-cards">
+      </div>
+
+      <h3>The Residual Stream</h3>
+
+      <p>One thing the diagram doesn&rsquo;t show as a tensor &mdash; because it isn&rsquo;t one &mdash; is the <strong>residual stream</strong>. That green dashed line on the left side of the circuit. Attention and FFN outputs are <em>added</em> to the input, not piped through sequentially. Each layer refines the representation; it does not replace it. The residual stream accumulates understanding across all 36 layers &mdash; it&rsquo;s the bus that carries information from the first token embedding to the final output projection.</p>
+
+      <p>Two global tensors bookend the entire network. At the bottom: <code>token_embd.weight&thinsp;[151936, 4096]</code> maps each vocabulary token into a 4,096-dimensional vector. At the top: <code>output.weight&thinsp;[151936, 4096]</code> projects the final representation back into vocabulary space to produce the next-token probabilities.</p>
 
       <h3>The Full Stack: 36 Layers</h3>
 
@@ -1372,8 +1384,7 @@
       container.appendChild(card);
     });
 
-    // Open first two cards by default
-    container.children[0].classList.add('open');
+    // Don't open any by default — reader explores after seeing the circuit diagram
   })();
   </script>
 
