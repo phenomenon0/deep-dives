@@ -535,17 +535,62 @@
       .file-bar-note { display: none; }
     }
 
-    /* Tensor table custom */
-    .tensor-table td:first-child {
-      font-family: "JetBrains Mono", monospace;
-      font-size: 0.82rem;
-      color: var(--cyan);
+    /* === TENSOR CARDS (expandable with SVG ops) === */
+    .tensor-card {
+      background: #18181b;
+      border: 1px solid #27272a;
+      border-radius: 5px;
+      margin: 4px 0;
+      cursor: pointer;
+      transition: border-color 0.15s;
+      overflow: hidden;
     }
-    .tensor-table td:nth-child(2) {
-      font-family: "JetBrains Mono", monospace;
-      font-size: 0.82rem;
-      color: var(--yellow);
+    .tensor-card:hover { border-color: #3f3f46; }
+    .tensor-card.open { border-color: #52525b; }
+    .tensor-card-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
     }
+    .tensor-card-header .tc-chevron {
+      width: 14px; height: 14px;
+      color: #52525b;
+      transition: transform 0.2s;
+      flex-shrink: 0;
+    }
+    .tensor-card.open .tc-chevron { transform: rotate(90deg); color: #a1a1aa; }
+    .tensor-card-header .tc-color {
+      width: 3px; height: 18px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+    .tensor-card-header .tc-name { color: #e8e8f0; font-weight: 500; }
+    .tensor-card-header .tc-shape { color: #52525b; margin-left: auto; }
+    .tensor-card-header .tc-role { color: #71717a; font-size: 11px; }
+    .tensor-card-body {
+      display: none;
+      padding: 0 12px 14px 37px;
+    }
+    .tensor-card.open .tensor-card-body { display: block; }
+    .tensor-card-body .tc-desc {
+      font-size: 14px;
+      color: #a1a1aa;
+      line-height: 1.6;
+      margin-bottom: 10px;
+    }
+    .tensor-card-body .tc-eureka {
+      background: rgba(0,255,136,0.04);
+      border-left: 2px solid rgba(0,255,136,0.3);
+      padding: 6px 10px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: #00ff88;
+      margin-top: 8px;
+    }
+    .tensor-card-body svg { margin: 8px 0; }
 
     @media (max-width: 700px) {
       body { font-size: 16px; }
@@ -761,62 +806,10 @@
 
       <p class="drop-cap">Now the runtime knows the architecture. Next it reads the tensor manifest &mdash; a list of every matrix in the model, with its name, shape, quantization type, and byte offset into the weight data. For Qwen3-8B, that is 370 entries. But there are only twelve unique tensor names &mdash; ten per layer, plus two global matrices at the top and bottom of the network. The same circuit repeats 36 times. Understanding one layer means understanding them all.</p>
 
-      <table class="tensor-table">
-        <thead>
-          <tr>
-            <th>Tensor</th>
-            <th>Shape</th>
-            <th>What It Does</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>attn_norm.weight</td>
-            <td>[4096]</td>
-            <td>RMSNorm &mdash; a 4,096-element vector that stabilizes the input before attention touches it. Think of it as a per-dimension volume knob: scale each feature to a consistent magnitude so the attention math doesn&rsquo;t drift.</td>
-          </tr>
-          <tr>
-            <td>attn_q.weight</td>
-            <td>[4096, 4096]</td>
-            <td><strong>Query projection</strong> &mdash; &ldquo;what am I looking for?&rdquo; Transforms each token&rsquo;s representation into 32 query vectors of 128 dimensions each. This is the question every token asks of every other token.</td>
-          </tr>
-          <tr>
-            <td>attn_k.weight</td>
-            <td>[1024, 4096]</td>
-            <td><strong>Key projection</strong> &mdash; &ldquo;what do I contain?&rdquo; But notice the shape: <strong>[1024, 4096], not [4096, 4096]</strong>. That asymmetry <em>is</em> Grouped Query Attention. Eight key heads serve 32 query heads. Each key head is shared four ways. This is why the KV cache is 4&times; smaller than it would be with full multi-head attention.</td>
-          </tr>
-          <tr>
-            <td>attn_v.weight</td>
-            <td>[1024, 4096]</td>
-            <td><strong>Value projection</strong> &mdash; &ldquo;here is my content.&rdquo; Same GQA compression as the keys. When attention decides <em>which</em> tokens matter, the value projection provides <em>what</em> to retrieve from them.</td>
-          </tr>
-          <tr>
-            <td>attn_output.weight</td>
-            <td>[4096, 4096]</td>
-            <td>Recombines the multi-head attention output into a single vector. The &ldquo;merge&rdquo; after the &ldquo;scatter.&rdquo;</td>
-          </tr>
-          <tr>
-            <td>ffn_norm.weight</td>
-            <td>[4096]</td>
-            <td>Another RMSNorm, stabilizing before the FFN. Same job, different position.</td>
-          </tr>
-          <tr>
-            <td>ffn_gate.weight</td>
-            <td>[12288, 4096]</td>
-            <td><strong>SwiGLU gate</strong> &mdash; produces a gating signal that decides which of the 12,288 intermediate neurons activate. This tensor is why Qwen3 has three FFN projections and GPT-2 has two. SwiGLU versus GELU, visible in the tensor count.</td>
-          </tr>
-          <tr>
-            <td>ffn_up.weight</td>
-            <td>[12288, 4096]</td>
-            <td>Expands the 4,096-dimensional representation into a 12,288-dimensional &ldquo;thinking space&rdquo; &mdash; a wider canvas where the model computes.</td>
-          </tr>
-          <tr>
-            <td>ffn_down.weight</td>
-            <td>[4096, 12288]</td>
-            <td>Compresses back from 12,288 to 4,096. The result re-enters the residual stream.</td>
-          </tr>
-        </tbody>
-      </table>
+      <p style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#52525b;margin-bottom:6px;">Click any tensor to see what it does &darr;</p>
+
+      <div id="tensor-cards">
+      </div>
 
       <p>The <strong>residual stream</strong> is the invisible thread connecting everything. It is not a tensor in the file, but it is the architecture&rsquo;s central idea: attention and FFN outputs are <em>added</em> to the input, not piped through sequentially. Each layer refines the representation; it does not replace it. The residual stream accumulates understanding across all 36 layers.</p>
 
@@ -1215,6 +1208,131 @@
 
     // Auto-select first entry
     list.children[0].click();
+  })();
+  </script>
+
+  <!-- ── VIZ 1b: Tensor Cards ── -->
+  <script>
+  (function() {
+    const C = { attn: '#ff00aa', ffn: '#ff8800', norm: '#ffdd00', green: '#00ff88' };
+
+    // SVG helper: matrix operation diagram
+    function matOp(inLabel, inDim, matLabel, matDim, outLabel, outDim, color) {
+      return `<svg viewBox="0 0 520 56" style="width:100%;max-width:520px;height:auto;">
+        <rect x="4" y="14" width="90" height="28" rx="3" fill="${color}" fill-opacity="0.1" stroke="${color}" stroke-opacity="0.4" stroke-width="0.5"/>
+        <text x="49" y="25" text-anchor="middle" fill="${color}" font-family="JetBrains Mono,monospace" font-size="8" fill-opacity="0.7">${inLabel}</text>
+        <text x="49" y="37" text-anchor="middle" fill="#a1a1aa" font-family="JetBrains Mono,monospace" font-size="9">${inDim}</text>
+        <text x="112" y="32" fill="#52525b" font-family="JetBrains Mono,monospace" font-size="12">×</text>
+        <rect x="130" y="6" width="160" height="44" rx="3" fill="${color}" fill-opacity="0.15" stroke="${color}" stroke-opacity="0.5" stroke-width="0.8"/>
+        <text x="210" y="22" text-anchor="middle" fill="${color}" font-family="JetBrains Mono,monospace" font-size="9" font-weight="500">${matLabel}</text>
+        <text x="210" y="38" text-anchor="middle" fill="#a1a1aa" font-family="JetBrains Mono,monospace" font-size="9">${matDim}</text>
+        <text x="308" y="32" fill="#52525b" font-family="JetBrains Mono,monospace" font-size="12">=</text>
+        <rect x="326" y="14" width="120" height="28" rx="3" fill="${C.green}" fill-opacity="0.1" stroke="${C.green}" stroke-opacity="0.4" stroke-width="0.5"/>
+        <text x="386" y="25" text-anchor="middle" fill="${C.green}" font-family="JetBrains Mono,monospace" font-size="8" fill-opacity="0.7">${outLabel}</text>
+        <text x="386" y="37" text-anchor="middle" fill="#a1a1aa" font-family="JetBrains Mono,monospace" font-size="9">${outDim}</text>
+      </svg>`;
+    }
+
+    // SVG: element-wise multiply
+    function elemWise(aLabel, aDim, bLabel, bDim, outLabel, color) {
+      return `<svg viewBox="0 0 520 56" style="width:100%;max-width:520px;height:auto;">
+        <rect x="4" y="14" width="100" height="28" rx="3" fill="${color}" fill-opacity="0.1" stroke="${color}" stroke-opacity="0.4" stroke-width="0.5"/>
+        <text x="54" y="32" text-anchor="middle" fill="${color}" font-family="JetBrains Mono,monospace" font-size="9">${aLabel} ${aDim}</text>
+        <text x="120" y="32" fill="#52525b" font-family="JetBrains Mono,monospace" font-size="12">⊙</text>
+        <rect x="136" y="14" width="100" height="28" rx="3" fill="${color}" fill-opacity="0.1" stroke="${color}" stroke-opacity="0.4" stroke-width="0.5"/>
+        <text x="186" y="32" text-anchor="middle" fill="${color}" font-family="JetBrains Mono,monospace" font-size="9">${bLabel} ${bDim}</text>
+        <text x="252" y="32" fill="#52525b" font-family="JetBrains Mono,monospace" font-size="12">=</text>
+        <rect x="268" y="14" width="110" height="28" rx="3" fill="${C.green}" fill-opacity="0.1" stroke="${C.green}" stroke-opacity="0.4" stroke-width="0.5"/>
+        <text x="323" y="32" text-anchor="middle" fill="${C.green}" font-family="JetBrains Mono,monospace" font-size="9">${outLabel}</text>
+      </svg>`;
+    }
+
+    // SVG: simple scale operation (for norms)
+    function scaleOp(inLabel, scaleLabel, color) {
+      return `<svg viewBox="0 0 420 56" style="width:100%;max-width:420px;height:auto;">
+        <rect x="4" y="14" width="100" height="28" rx="3" fill="#3f3f46" fill-opacity="0.3" stroke="#52525b" stroke-width="0.5"/>
+        <text x="54" y="32" text-anchor="middle" fill="#a1a1aa" font-family="JetBrains Mono,monospace" font-size="9">${inLabel}</text>
+        <text x="118" y="32" fill="#52525b" font-family="JetBrains Mono,monospace" font-size="10">→ normalize →</text>
+        <text x="232" y="32" fill="#52525b" font-family="JetBrains Mono,monospace" font-size="12">×</text>
+        <rect x="248" y="14" width="70" height="28" rx="3" fill="${color}" fill-opacity="0.15" stroke="${color}" stroke-opacity="0.5" stroke-width="0.8"/>
+        <text x="283" y="32" text-anchor="middle" fill="${color}" font-family="JetBrains Mono,monospace" font-size="9">${scaleLabel}</text>
+        <text x="332" y="32" fill="#52525b" font-family="JetBrains Mono,monospace" font-size="12">=</text>
+        <rect x="346" y="14" width="60" height="28" rx="3" fill="${C.green}" fill-opacity="0.1" stroke="${C.green}" stroke-opacity="0.4" stroke-width="0.5"/>
+        <text x="376" y="32" text-anchor="middle" fill="${C.green}" font-family="JetBrains Mono,monospace" font-size="9">stable</text>
+      </svg>`;
+    }
+
+    const tensors = [
+      { name: 'attn_norm', shape: '[4096]', color: C.norm, role: 'RMSNorm',
+        desc: 'A 4,096-element vector. Each element is a per-dimension scale factor. The input vector gets normalized to unit magnitude, then multiplied by these learned scales. Think of it as a volume knob per feature &mdash; it ensures the attention math receives consistent magnitudes regardless of what earlier layers produced.',
+        svg: scaleOp('x [4096]', 'γ [4096]', C.norm),
+        eureka: 'RMSNorm has no bias, no mean subtraction. Just normalize ÷ √(mean(x²)), then scale. That simplicity is why modern models dropped LayerNorm.' },
+
+      { name: 'attn_q', shape: '[4096, 4096]', color: C.attn, role: 'Query — "what am I looking for?"',
+        desc: 'Every token\'s 4096-dim vector gets multiplied by this matrix to produce 32 independent query vectors of 128 dimensions each. Each query head learns to "look for" different kinds of relationships &mdash; one might track syntax, another coreference, another factual associations.',
+        svg: matOp('token', '[4096]', 'W_q', '[4096, 4096]', '32 queries', '[32×128]', C.attn),
+        eureka: '32 heads × 128 dims = 4096. The matrix is square because every input dimension contributes to every query head.' },
+
+      { name: 'attn_k', shape: '[1024, 4096]', color: C.attn, role: 'Key — "what do I contain?"',
+        desc: 'Same input vector, but this matrix is <strong>[1024, 4096] — not [4096, 4096]</strong>. It produces only 8 key vectors of 128 dims. That\'s Grouped Query Attention: 8 keys serve 32 queries. Each key head is shared by 4 query heads. The KV cache storing these vectors at inference time is 4× smaller.',
+        svg: matOp('token', '[4096]', 'W_k', '[1024, 4096]', '8 keys', '[8×128]', C.attn),
+        eureka: '[1024] not [4096] — the shape IS the GQA ratio. 8 KV heads ÷ 32 Q heads = 4:1. You can read GQA from one number.' },
+
+      { name: 'attn_v', shape: '[1024, 4096]', color: C.attn, role: 'Value — "here is my content"',
+        desc: 'When attention decides <em>which</em> tokens matter (via Q·K scores), the value projection provides <em>what</em> to retrieve from them. Same GQA compression as keys: 8 value heads, each shared by 4 query heads.',
+        svg: matOp('token', '[4096]', 'W_v', '[1024, 4096]', '8 values', '[8×128]', C.attn),
+        eureka: 'K and V are always the same shape. They\'re the "memory" that gets cached between tokens. Smaller K+V = faster generation.' },
+
+      { name: 'attn_output', shape: '[4096, 4096]', color: C.attn, role: 'Merge heads back',
+        desc: 'After attention, 32 separate head outputs get concatenated into one [4096] vector, then projected through this matrix. It\'s the "merge" after the "scatter" &mdash; combining what every head learned back into a single representation.',
+        svg: matOp('32 heads', '[4096]', 'W_o', '[4096, 4096]', 'merged', '[4096]', C.attn),
+        eureka: 'This is the only attention tensor that touches all heads at once. Everything else operates per-head.' },
+
+      { name: 'ffn_norm', shape: '[4096]', color: C.norm, role: 'RMSNorm',
+        desc: 'Identical mechanism to attn_norm, but positioned between attention and the FFN. Stabilizes the residual stream before the next transformation.',
+        svg: scaleOp('x [4096]', 'γ [4096]', C.norm),
+        eureka: 'Every transformer block has exactly two norms: one before attention, one before FFN. That\'s 72 norm vectors in a 36-layer model.' },
+
+      { name: 'ffn_gate', shape: '[12288, 4096]', color: C.ffn, role: 'SwiGLU gate — which neurons fire?',
+        desc: 'This tensor exists in SwiGLU models (LLaMA, Qwen, Mistral) but <strong>not</strong> in GELU models (GPT-2, GPT-NeoX). It produces a gating signal that element-wise multiplies the <code>ffn_up</code> output &mdash; selectively activating or suppressing each of the 12,288 intermediate neurons.',
+        svg: matOp('x', '[4096]', 'W_gate', '[12288, 4096]', 'gate signal', '[12288]', C.ffn),
+        eureka: 'This tensor is why the FFN has 3 projections, not 2. If you see ffn_gate in the manifest → SwiGLU. If it\'s missing → GELU. The tensor count tells you the activation function.' },
+
+      { name: 'ffn_up', shape: '[12288, 4096]', color: C.ffn, role: 'Expand to thinking space',
+        desc: 'Projects from 4,096 dims into a 12,288-dim intermediate space — 3× wider. This wider representation is where the model\'s "thinking" happens: pattern matching, knowledge retrieval, reasoning. The expansion gives it room to compute.',
+        svg: matOp('x', '[4096]', 'W_up', '[12288, 4096]', 'expanded', '[12288]', C.ffn),
+        eureka: 'The FFN width (12,288) is always a multiple of the hidden dim (4,096). The ratio (3×) is a key architectural choice — wider = more compute per layer.' },
+
+      { name: 'ffn_down', shape: '[4096, 12288]', color: C.ffn, role: 'Compress back to residual',
+        desc: 'After gate × up produces the activated intermediate, this matrix compresses it back to 4,096 dims. The result is added to the residual stream. One layer\'s contribution to the running representation, complete.',
+        svg: matOp('gate ⊙ up', '[12288]', 'W_down', '[4096, 12288]', 'output', '[4096]', C.ffn),
+        eureka: 'Notice the transposed shape: [4096, 12288] not [12288, 4096]. It\'s the mirror of ffn_up. Expand then compress — an autoencoder within each layer.' },
+    ];
+
+    const container = document.getElementById('tensor-cards');
+
+    tensors.forEach(t => {
+      const card = document.createElement('div');
+      card.className = 'tensor-card';
+      card.innerHTML = `
+        <div class="tensor-card-header" onclick="this.parentElement.classList.toggle('open')">
+          <svg class="tc-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+          <div class="tc-color" style="background:${t.color}"></div>
+          <span class="tc-name">${t.name}</span>
+          <span class="tc-role">${t.role}</span>
+          <span class="tc-shape">${t.shape}</span>
+        </div>
+        <div class="tensor-card-body">
+          ${t.svg}
+          <div class="tc-desc">${t.desc}</div>
+          <div class="tc-eureka">★ ${t.eureka}</div>
+        </div>
+      `;
+      container.appendChild(card);
+    });
+
+    // Open first card by default
+    container.children[0].classList.add('open');
   })();
   </script>
 
