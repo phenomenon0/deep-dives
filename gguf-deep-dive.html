@@ -600,11 +600,15 @@
       </p>
       <p style="font-style:italic;color:var(--text-dim);margin-bottom:1.5rem;">You download one file. It contains the architecture, the tokenizer, the quantization parameters, and the weights. This is what makes it work.</p>
 
-      <p class="drop-cap">You type <code>ollama pull qwen3:8b</code> and wait. Behind the scenes, ollama downloads a single <code>.gguf</code> file &mdash; 5.1 gigabytes. When it finishes, you type a question and get an answer. No config files. No tokenizer download. No Python environment. One file did everything. But ollama carries dozens of different kernels &mdash; attention implementations for different head counts, FFN routines for different activation functions, quantization decoders for different bit widths. How did it know which ones to activate? The file told it.</p>
+      <p class="drop-cap">If you have ever run a local model &mdash; typed <code>ollama pull</code>, downloaded a <code>.gguf</code> from HuggingFace, or pointed <code>llama.cpp</code> at a file &mdash; you have already used this format. You just never had to think about it. The model loaded, the chat worked, and the file sat there doing its job silently.</p>
 
-      <p>The predecessor format, GGML, required a custom loader per architecture. Adding a new model meant writing new parsing code. Changing a hyperparameter broke every existing file. The tokenizer lived in a separate file &mdash; lose it and the model was unrunnable. GGUF replaced all of that with <strong>typed key-value metadata</strong>. Every field has a name, a type tag, and a value. Readers skip keys they don&rsquo;t recognize. The tokenizer is embedded. One file carries everything.</p>
+      <p>This article is about opening that file up.</p>
 
-      <p>Why one file? Because GGUF was built for <code>llama.cpp</code>, which targets consumer hardware. The entire UX is: <em>download one file, run it</em>. The format encodes that philosophy in binary.</p>
+      <p>In March 2023, a developer named Georgi Gerganov ported Meta&rsquo;s freshly-leaked LLaMA model to run on a MacBook in pure C. The project &mdash; <code>llama.cpp</code> &mdash; needed a file format. The first attempt, GGML, was a prototype: hyperparameters stored as a flat list of unlabeled integers, different for every architecture. The tokenizer lived in a separate file. Adding a new model meant writing a new parser. It worked, barely, and broke constantly.</p>
+
+      <p>Five months later, Gerganov replaced it with GGUF &mdash; a ground-up redesign built around one idea: <strong>the file should describe itself</strong>. Architecture, tokenizer, quantization parameters, and weights, all in a single self-contained binary. No sidecar configs. No version mismatches. Download one file, run it. That philosophy turned <code>llama.cpp</code> into the engine behind Ollama, LM Studio, GPT4All, and most of the local AI ecosystem.</p>
+
+      <p>So what is actually in that file? Let&rsquo;s find out.</p>
 
       <!-- ── FILE LAYOUT: SVG (re-engineered from Cowrie FileStructureSVG) ── -->
       <svg viewBox="0 0 700 170" style="width:100%;height:auto;display:block;margin:1.5rem 0;" fill="none">
