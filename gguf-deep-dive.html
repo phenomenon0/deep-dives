@@ -910,9 +910,11 @@
 
       <div class="viz-container" style="padding:1rem;">
         <div class="viz-controls" style="margin-top:0;margin-bottom:0.8rem;">
-          <button id="blk-gpt2" class="secondary">GPT-2 (2019)</button>
-          <button id="blk-qwen3" class="secondary active">Qwen3 (2025)</button>
-          <button id="blk-qwen35" class="secondary">Qwen3.5 linear (2026)</button>
+          <button id="blk-gpt2" class="secondary">GPT-2</button>
+          <button id="blk-qwen3" class="secondary active">Qwen3</button>
+          <button id="blk-mixtral" class="secondary">Mixtral (MoE)</button>
+          <button id="blk-qwen35" class="secondary">Qwen3.5 (hybrid)</button>
+          <button id="blk-mamba" class="secondary">Mamba-2 (SSM)</button>
         </div>
         <svg id="viz-block-circuit" viewBox="0 0 720 580" style="width:100%;height:auto;"></svg>
       </div>
@@ -1589,17 +1591,148 @@
         .text('Gated Delta Net · Conv1D · α/β parallel · SwiGLU · No bias');
     }
 
+    function drawMixtral() {
+      const g = svg;
+      g.append('text').attr('x', W/2).attr('y', 16).attr('text-anchor', 'middle')
+        .attr('fill', P.white).attr('font-family', 'JetBrains Mono, monospace')
+        .attr('font-size', 11).attr('font-weight', 600).text('Mixtral 8×7B — blk.0');
+
+      drawResidual(g, 28, 540);
+      sectionBg(g, 52, 220, P.attn, 'ATTENTION');
+      sectionBg(g, 290, 230, P.ffn, 'MIXTURE OF EXPERTS');
+
+      const Y = { input: 30, norm1: 62, qkv: 110, scores: 170, out: 208, add1: 252,
+                  norm2: 298, router: 336, experts: 388, merge: 448, down_label: 472, add2: 502 };
+
+      // Attention — same as Qwen3 (GQA)
+      node(g, cx, Y.input, 160, 18, 'residual in', P.flow, {flow:true});
+      line(g, cx, Y.input+18, cx, Y.norm1);
+      node(g, cx, Y.norm1, 200, 24, 'attn_norm [4096]', P.norm, {note:'RMSNorm'});
+      const qx = cx - 160, kx = cx, vx = cx + 160;
+      line(g, cx, Y.norm1+24, qx, Y.qkv); line(g, cx, Y.norm1+24, kx, Y.qkv); line(g, cx, Y.norm1+24, vx, Y.qkv);
+      node(g, qx, Y.qkv, 155, 36, 'attn_q [4096,4096]', P.attn, {note:'32 heads'});
+      node(g, kx, Y.qkv, 155, 28, 'attn_k [1024,4096]', P.attn, {note:'GQA 4:1'});
+      node(g, vx, Y.qkv, 155, 28, 'attn_v [1024,4096]', P.attn);
+      line(g, qx, Y.qkv+36, cx, Y.scores); line(g, kx, Y.qkv+28, cx, Y.scores); line(g, vx, Y.qkv+28, cx, Y.scores);
+      node(g, cx, Y.scores, 220, 20, 'scores → softmax', P.attn, {op:true});
+      line(g, cx, Y.scores+20, cx, Y.out);
+      node(g, cx, Y.out, 210, 28, 'attn_output [4096,4096]', P.attn);
+      line(g, cx, Y.out+28, cx, Y.add1);
+      node(g, cx, Y.add1, 130, 18, '⊕ residual', P.flow, {flow:true}); resConn(g, Y.add1+9);
+
+      // FFN — MoE!
+      line(g, cx, Y.add1+18, cx, Y.norm2);
+      node(g, cx, Y.norm2, 200, 24, 'ffn_norm [4096]', P.norm, {note:'RMSNorm'});
+      line(g, cx, Y.norm2+24, cx, Y.router);
+      // Router
+      node(g, cx, Y.router, 240, 28, 'ffn_gate_inp [8, 4096]', P.ffn, {accent:true, note:'ROUTER → top-2 experts'});
+
+      // 8 expert lanes (show all 8 as thin colored bars)
+      const expertW = 60, expertGap = 8;
+      const totalExpertW = 8 * expertW + 7 * expertGap;
+      const expertStartX = cx - totalExpertW/2 + expertW/2;
+      // Fan-out lines from router to all 8
+      for (let e = 0; e < 8; e++) {
+        const ex = expertStartX + e * (expertW + expertGap);
+        line(g, cx, Y.router+28, ex, Y.experts);
+        // Expert box — show as a small colored bar
+        const active = e < 2; // top-2 active
+        g.append('rect').attr('x', ex - expertW/2).attr('y', Y.experts)
+          .attr('width', expertW).attr('height', 40)
+          .attr('fill', P.ffn.fill).attr('fill-opacity', active ? 0.15 : 0.04)
+          .attr('stroke', P.ffn.stroke).attr('stroke-opacity', active ? 0.5 : 0.12)
+          .attr('stroke-width', active ? 1 : 0.5).attr('rx', 2);
+        // Expert label
+        g.append('text').attr('x', ex).attr('y', Y.experts + 14).attr('text-anchor', 'middle')
+          .attr('fill', P.ffn.fill).attr('fill-opacity', active ? 0.8 : 0.25)
+          .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 8)
+          .text('E' + e);
+        g.append('text').attr('x', ex).attr('y', Y.experts + 26).attr('text-anchor', 'middle')
+          .attr('fill', P.text).attr('fill-opacity', active ? 0.5 : 0.15)
+          .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 6)
+          .text(active ? 'gate+up' : '');
+        g.append('text').attr('x', ex).attr('y', Y.experts + 35).attr('text-anchor', 'middle')
+          .attr('fill', P.text).attr('fill-opacity', active ? 0.5 : 0.15)
+          .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 6)
+          .text(active ? '+down' : 'idle');
+        // Fan-in
+        line(g, ex, Y.experts+40, cx, Y.merge, null, active ? 0.35 : 0.08);
+      }
+      // Active expert annotation
+      g.append('text').attr('x', expertStartX + totalExpertW + 12).attr('y', Y.experts + 20)
+        .attr('fill', P.ffn.fill).attr('fill-opacity', 0.6)
+        .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 8)
+        .text('2 of 8 active');
+
+      node(g, cx, Y.merge, 180, 18, 'weighted sum of experts', P.ffn, {op:true});
+      line(g, cx, Y.merge+18, cx, Y.add2);
+      node(g, cx, Y.add2, 130, 18, '⊕ residual', P.flow, {flow:true}); resConn(g, Y.add2+9);
+
+      g.append('text').attr('x', W/2).attr('y', H - 10).attr('text-anchor', 'middle')
+        .attr('fill', P.dim).attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
+        .text('RMSNorm · GQA · 8 expert FFNs (top-2 routing) · 47B total, 13B active');
+    }
+
+    function drawMamba() {
+      const g = svg;
+      g.append('text').attr('x', W/2).attr('y', 16).attr('text-anchor', 'middle')
+        .attr('fill', P.white).attr('font-family', 'JetBrains Mono, monospace')
+        .attr('font-size', 11).attr('font-weight', 600).text('Mamba-2 — blk.0 (pure SSM)');
+
+      drawResidual(g, 28, 400);
+      sectionBg(g, 52, 310, P.ssm, 'SELECTIVE STATE SPACE');
+
+      const Y = { input: 30, norm: 62, ssmIn: 104, conv: 150, dt: 190,
+                  a: 230, d: 268, norm2: 306, out: 342, add: 378 };
+
+      node(g, cx, Y.input, 160, 18, 'residual in', P.flow, {flow:true});
+      line(g, cx, Y.input+18, cx, Y.norm);
+      node(g, cx, Y.norm, 200, 24, 'attn_norm [2560]', P.norm, {note:'RMSNorm'});
+      line(g, cx, Y.norm+24, cx, Y.ssmIn);
+      node(g, cx, Y.ssmIn, 260, 30, 'ssm_in [5120, 2560]', P.ssm, {accent:true, note:'expand 2× (no Q/K/V)'});
+      line(g, cx, Y.ssmIn+30, cx, Y.conv);
+      node(g, cx, Y.conv, 240, 26, 'ssm_conv1d [5120, 1, 4]', P.ssm, {note:'local context window'});
+      // dt and A side by side
+      const dtx = cx - 100, ax = cx + 100;
+      line(g, cx, Y.conv+26, dtx, Y.dt); line(g, cx, Y.conv+26, ax, Y.dt);
+      node(g, dtx, Y.dt, 180, 26, 'ssm_dt [128, 5120]', P.ssm, {note:'time delta'});
+      node(g, ax, Y.dt, 160, 26, 'ssm_a [128]', P.ssm, {note:'decay rate'});
+      // Merge → D
+      line(g, dtx, Y.dt+26, cx, Y.a); line(g, ax, Y.dt+26, cx, Y.a);
+      node(g, cx, Y.a, 200, 22, 'selective scan (recurrence)', P.ssm, {op:true, note:'O(n) per token'});
+      line(g, cx, Y.a+22, cx, Y.d);
+      node(g, cx, Y.d, 200, 24, 'ssm_d [5120]', P.ssm, {note:'skip connection'});
+      line(g, cx, Y.d+24, cx, Y.norm2);
+      node(g, cx, Y.norm2, 180, 22, 'ssm_norm [5120]', P.ssm, {note:'output norm'});
+      line(g, cx, Y.norm2+22, cx, Y.out);
+      node(g, cx, Y.out, 220, 26, 'ssm_out [2560, 5120]', P.ssm, {note:'compress back'});
+      line(g, cx, Y.out+26, cx, Y.add);
+      node(g, cx, Y.add, 130, 18, '⊕ residual', P.flow, {flow:true}); resConn(g, Y.add+9);
+
+      // No FFN section at all!
+      g.append('text').attr('x', cx).attr('y', Y.add + 44).attr('text-anchor', 'middle')
+        .attr('fill', P.ssm.fill).attr('fill-opacity', 0.4)
+        .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
+        .text('No FFN. No attention. No KV cache. Pure recurrence.');
+
+      g.append('text').attr('x', W/2).attr('y', H - 10).attr('text-anchor', 'middle')
+        .attr('fill', P.dim).attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
+        .text('Selective State Space · Conv1D · O(n) recurrence · No Q/K/V · No FFN');
+    }
+
     function draw() {
       svg.selectAll('*').remove();
       if (mode === 'gpt2') drawGPT2();
+      else if (mode === 'mixtral') drawMixtral();
       else if (mode === 'qwen35') drawQwen35();
+      else if (mode === 'mamba') drawMamba();
       else drawQwen3();
     }
 
     draw();
 
-    const btns = ['blk-gpt2', 'blk-qwen3', 'blk-qwen35'];
-    const modes = ['gpt2', 'qwen3', 'qwen35'];
+    const btns = ['blk-gpt2', 'blk-qwen3', 'blk-mixtral', 'blk-qwen35', 'blk-mamba'];
+    const modes = ['gpt2', 'qwen3', 'mixtral', 'qwen35', 'mamba'];
     btns.forEach((id, i) => {
       document.getElementById(id).addEventListener('click', function() {
         mode = modes[i];
