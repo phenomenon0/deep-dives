@@ -3,8 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GGUF, Decoded — Model File Anatomy for AI Engineers</title>
-  <meta name="description" content="Crack open a GGUF model file and read the transformer inside. How headers, metadata KV pairs, and quantized tensors describe any architecture — GPT-2 to Qwen to Mamba.">
+  <title>GGUF vs AWQ vs EXL2: What's Inside Your LLM Model Files</title>
+  <meta name="description" content="Crack open the three model file formats you see on HuggingFace. GGUF, AWQ, and EXL2 dissected side-by-side — headers, metadata, weight encoding, and what Q4_K_M actually means.">
+  <meta property="og:title" content="GGUF vs AWQ vs EXL2: What's Inside Your LLM Model Files">
+  <meta property="og:description" content="Three downloads, same model, completely different internals. GGUF, AWQ, and EXL2 dissected side-by-side.">
+  <meta property="og:image" content="https://femiadeniran.com/blog/og-gguf-decoded.png">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://femiadeniran.com/blog/gguf-awq-exl2-model-files-decoded.html">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="GGUF vs AWQ vs EXL2: What's Inside Your LLM Model Files">
+  <meta name="twitter:description" content="Three downloads, same model, completely different internals.">
+  <meta name="twitter:image" content="https://femiadeniran.com/blog/og-gguf-decoded.png">
+  <script src="/favicon-anim.js" defer></script>
   <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     :root {
@@ -77,13 +87,13 @@
       flex-shrink: 0;
     }
 
-    .content { max-width: 820px; margin: 0 auto; padding: 5rem 2rem 6rem; }
+    .content { max-width: 820px; margin: 0 auto; padding: 2.5rem 2rem 6rem; }
 
     .hero {
       text-align: center;
-      padding: 4rem 0 5rem;
+      padding: 2rem 0 1.5rem;
       border-bottom: 1px solid var(--border);
-      margin-bottom: 4rem;
+      margin-bottom: 1.5rem;
     }
     .hero h1 {
       font-family: "JetBrains Mono", monospace;
@@ -136,7 +146,7 @@
       100% { transform: translate(0); }
     }
 
-    section { margin-bottom: 5rem; padding-top: 1rem; }
+    section { margin-bottom: 4rem; padding-top: 0; }
     h2 {
       font-family: "JetBrains Mono", monospace;
       font-size: 1.5rem; color: var(--green);
@@ -513,7 +523,7 @@
       border-left: 2px solid transparent;
     }
     .meta-entry:hover { background: rgba(39,39,42,0.6); }
-    .meta-entry.active { background: rgba(63,63,70,0.5); border-left-color: var(--cyan); }
+    .meta-entry.active { background: rgba(0,255,136,0.08); border-left-color: var(--green); box-shadow: inset 0 0 0 1px rgba(0,255,136,0.15); }
     .meta-entry .meta-key { color: #a1a1aa; }
     .meta-entry .meta-key .colon { color: #3f3f46; }
     .meta-entry .meta-val {
@@ -699,20 +709,20 @@
   <nav>
     <span class="nav-title">&gt;_ FORMAT ANATOMY</span>
     <a href="#file">The File</a>
-    <a href="#header">Header</a>
     <a href="#metadata">Metadata</a>
     <a href="#tensors">Tensors</a>
-    <a href="#bits">Weights</a>
-    <a href="#blueprint">Reading</a>
+    <a href="#alternatives">AWQ &amp; EXL2</a>
+    <a href="#bits">Weights &amp; Variants</a>
+    <a href="#blueprint">Run It</a>
   </nav>
 
   <div class="content">
     <div class="hero">
-      <h1><span class="glitch" data-text="GGUF, DECODED">GGUF, DECODED</span></h1>
+      <h1><span class="glitch" data-text="GGUF · AWQ · EXL2, DISSECTED">GGUF &middot; AWQ &middot; EXL2, DISSECTED</span></h1>
       <div class="subtitle">
-        You type <code style="border:none;background:none;padding:0;font-size:inherit;">ollama pull qwen3:8b</code>. Forty seconds later you&rsquo;re chatting with 8 billion parameters. The runtime loaded 370 matrices, wired a computation graph, and started generating. How did it know what to do? The answer is in the file.<span class="blink">_</span>
+        You search HuggingFace for Qwen3-8B. The results page shows GGUF, AWQ, EXL2 &mdash; three downloads, same model, completely different internals. One is a single self-describing binary. One is a directory of safetensors with external configs. One carries a per-column error map that lets you dial precision to the tenth of a bit. This article opens all three.<span class="blink">_</span>
       </div>
-      <div class="series-kicker">The Efficiency Papers, Part II-B</div>
+      <div class="series-kicker">The Efficiency Papers &mdash; Prologue</div>
     </div>
 
     <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -732,92 +742,111 @@
         <span style="color:var(--text-dim);">WEIGHTS</span>
         <span style="color:var(--text-dim);font-size:10px;margin-left:0.5rem;">&larr; the whole map</span>
       </p>
-      <p style="font-style:italic;color:var(--text-dim);margin-bottom:1.5rem;">You download one file. It contains the architecture, the tokenizer, the quantization parameters, and the weights. This is what makes it work.</p>
+      <p style="font-style:italic;color:var(--text-dim);margin-bottom:1.5rem;">Three ecosystems. Three design philosophies. One question: what is actually inside the file you downloaded?</p>
 
-      <p class="drop-cap">If you have ever run a local model &mdash; typed <code>ollama pull</code>, downloaded a <code>.gguf</code> from HuggingFace, or pointed <code>llama.cpp</code> at a file &mdash; you have already used this format. You just never had to think about it. The model loaded, the chat worked, and the file sat there doing its job silently.</p>
+      <p class="drop-cap">In February 2023, Meta&rsquo;s LLaMA weights leaked. Within a week, a Bulgarian developer named Georgi Gerganov had the model running on a MacBook &mdash; no Python, no PyTorch, pure C. His project, <code>llama.cpp</code>, needed a file format. The first attempt, GGML, broke constantly. Five months later he replaced it with <strong style="color:var(--green)">GGUF</strong>: a single self-describing binary. Architecture, tokenizer, quantization, weights &mdash; one file, no sidecar configs. That bet turned <code>llama.cpp</code> into the engine behind <span class="popup-link" data-popup="ollama">Ollama</span>, <span class="popup-link" data-popup="lmstudio">LM Studio</span>, and most of the local AI ecosystem.</p>
 
-      <p>This article is about opening that file up.</p>
+      <p>But Gerganov was not the only one building. From MIT&rsquo;s Han Lab came <strong style="color:var(--orange)">AWQ</strong> &mdash; a quantization algorithm that stores its outputs as standard HuggingFace safetensors. No self-describing header, but native to vLLM and the GPU serving stack. From the ExLlamaV2 project came <strong style="color:var(--cyan)">EXL2</strong> &mdash; same safetensors packaging, but with a <code>measurement.json</code> that maps reconstruction error per column, enabling precision to the tenth of a bit. Three bets on the same problem:</p>
 
-      <p>In March 2023, a developer named <span class="popup-link" data-popup="gerganov">Georgi Gerganov</span> ported Meta&rsquo;s freshly-leaked <span class="popup-link" data-popup="llama">LLaMA</span> model to run on a MacBook in pure C. The project &mdash; <code>llama.cpp</code> &mdash; needed a file format. The first attempt, GGML, was a prototype: hyperparameters stored as a flat list of unlabeled integers, different for every architecture. The tokenizer lived in a separate file. Adding a new model meant writing a new parser. It worked, barely, and broke constantly.</p>
+      <table>
+        <thead>
+          <tr><th></th><th>GGUF</th><th>AWQ</th><th>EXL2</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>On disk</strong></td><td>1 file</td><td>5&ndash;8 files</td><td>5&ndash;8 files</td></tr>
+          <tr><td><strong>Metadata</strong></td><td>Embedded</td><td>External JSON</td><td>External JSON + error map</td></tr>
+          <tr><td><strong>Runs on</strong></td><td>CPU, Apple Silicon, GPU</td><td>NVIDIA GPU</td><td>NVIDIA GPU</td></tr>
+          <tr><td><strong>Precision</strong></td><td>Per-tensor (S/M/L policy)</td><td>Per-group (128 weights)</td><td>Per-column (continuous bpw)</td></tr>
+        </tbody>
+      </table>
 
-      <p>Five months later, Gerganov replaced it with GGUF &mdash; a ground-up redesign built around one idea: <strong>the file should describe itself</strong>. Architecture, tokenizer, quantization parameters, and weights, all in a single self-contained binary. No sidecar configs. No version mismatches. Download one file, run it. That philosophy turned <code>llama.cpp</code> into the engine behind <span class="popup-link" data-popup="ollama">Ollama</span>, <span class="popup-link" data-popup="lmstudio">LM Studio</span>, GPT4All, and most of the local AI ecosystem.</p>
+      <!-- ── THREE-FORMAT COMPARISON DIAGRAM ── -->
+      <svg viewBox="0 0 780 350" style="width:100%;height:auto;display:block;margin:1.5rem 0;" fill="none">
+        <!-- ── GGUF: Single File ── -->
+        <text x="130" y="20" font-size="13" fill="#00ff88" font-family="JetBrains Mono, monospace" font-weight="600" text-anchor="middle">GGUF</text>
+        <text x="130" y="36" font-size="9" fill="#6a6a7e" font-family="JetBrains Mono, monospace" text-anchor="middle">single file</text>
+        <rect x="30" y="48" width="200" height="280" rx="4" fill="#18181b" stroke="#00ff88" stroke-opacity="0.4" stroke-width="1"/>
+        <rect x="38" y="58" width="184" height="24" rx="3" fill="#ff00aa" fill-opacity="0.15" stroke="#ff00aa" stroke-opacity="0.3" stroke-width="0.5"/>
+        <text x="130" y="74" font-size="9" fill="#ff00aa" font-family="JetBrains Mono, monospace" text-anchor="middle">Header (24 B)</text>
+        <rect x="38" y="88" width="184" height="36" rx="3" fill="#ffdd00" fill-opacity="0.08" stroke="#ffdd00" stroke-opacity="0.3" stroke-width="0.5"/>
+        <text x="130" y="108" font-size="9" fill="#ffdd00" font-family="JetBrains Mono, monospace" text-anchor="middle">Metadata KV (~3.2 MB)</text>
+        <text x="130" y="118" font-size="7" fill="#6a6a7e" font-family="JetBrains Mono, monospace" text-anchor="middle">arch + tokenizer + quant config</text>
+        <rect x="38" y="130" width="184" height="24" rx="3" fill="#00ddff" fill-opacity="0.08" stroke="#00ddff" stroke-opacity="0.3" stroke-width="0.5"/>
+        <text x="130" y="146" font-size="9" fill="#00ddff" font-family="JetBrains Mono, monospace" text-anchor="middle">Tensor Info (~45 KB)</text>
+        <rect x="38" y="160" width="184" height="156" rx="3" fill="#00ff88" fill-opacity="0.06" stroke="#00ff88" stroke-opacity="0.3" stroke-width="0.5"/>
+        <text x="130" y="240" font-size="10" fill="#00ff88" font-opacity="0.7" font-family="JetBrains Mono, monospace" text-anchor="middle">Tensor Data</text>
+        <text x="130" y="256" font-size="9" fill="#6a6a7e" font-family="JetBrains Mono, monospace" text-anchor="middle">~5.1 GB (99.94%)</text>
+        <text x="130" y="272" font-size="8" fill="#6a6a7e" font-family="JetBrains Mono, monospace" text-anchor="middle">mmap-ready, 32B aligned</text>
 
-      <p>So what is actually in that file? Let&rsquo;s find out.</p>
+        <!-- ── AWQ: Directory ── -->
+        <text x="410" y="20" font-size="13" fill="#ff8800" font-family="JetBrains Mono, monospace" font-weight="600" text-anchor="middle">AWQ</text>
+        <text x="410" y="36" font-size="9" fill="#6a6a7e" font-family="JetBrains Mono, monospace" text-anchor="middle">directory (7 files)</text>
+        <rect x="300" y="48" width="220" height="280" rx="4" fill="#18181b" stroke="#ff8800" stroke-opacity="0.4" stroke-width="1"/>
+        <rect x="310" y="60" width="200" height="20" rx="2" fill="#ffdd00" fill-opacity="0.08" stroke="#ffdd00" stroke-opacity="0.25" stroke-width="0.5"/>
+        <text x="316" y="74" font-size="8" fill="#ffdd00" font-family="JetBrains Mono, monospace">config.json</text>
+        <text x="504" y="74" font-size="7" fill="#6a6a7e" font-family="JetBrains Mono, monospace" text-anchor="end">arch</text>
+        <rect x="310" y="84" width="200" height="20" rx="2" fill="#ff8800" fill-opacity="0.1" stroke="#ff8800" stroke-opacity="0.3" stroke-width="0.5"/>
+        <text x="316" y="98" font-size="8" fill="#ff8800" font-family="JetBrains Mono, monospace">quantize_config.json</text>
+        <text x="504" y="98" font-size="7" fill="#6a6a7e" font-family="JetBrains Mono, monospace" text-anchor="end">bits, group</text>
+        <rect x="310" y="108" width="200" height="20" rx="2" fill="#aa44ff" fill-opacity="0.08" stroke="#aa44ff" stroke-opacity="0.25" stroke-width="0.5"/>
+        <text x="316" y="122" font-size="8" fill="#aa44ff" font-family="JetBrains Mono, monospace">tokenizer.json + config</text>
+        <text x="504" y="122" font-size="7" fill="#6a6a7e" font-family="JetBrains Mono, monospace" text-anchor="end">vocab</text>
+        <rect x="310" y="132" width="200" height="20" rx="2" fill="#3f3f46" fill-opacity="0.5" stroke="#3f3f46" stroke-opacity="0.5" stroke-width="0.5"/>
+        <text x="316" y="146" font-size="8" fill="#6a6a7e" font-family="JetBrains Mono, monospace">generation_config.json</text>
+        <rect x="310" y="160" width="200" height="156" rx="3" fill="#ff8800" fill-opacity="0.06" stroke="#ff8800" stroke-opacity="0.3" stroke-width="0.5"/>
+        <text x="410" y="220" font-size="10" fill="#ff8800" font-opacity="0.7" font-family="JetBrains Mono, monospace" text-anchor="middle">model.safetensors</text>
+        <text x="410" y="236" font-size="8" fill="#6a6a7e" font-family="JetBrains Mono, monospace" text-anchor="middle">qweight + qzeros + scales</text>
+        <text x="410" y="250" font-size="8" fill="#6a6a7e" font-family="JetBrains Mono, monospace" text-anchor="middle">per layer triplet</text>
+        <text x="410" y="268" font-size="9" fill="#6a6a7e" font-family="JetBrains Mono, monospace" text-anchor="middle">~4.8 GB</text>
 
-      <!-- ── FILE LAYOUT: SVG (re-engineered from Cowrie FileStructureSVG) ── -->
-      <svg viewBox="0 0 700 170" style="width:100%;height:auto;display:block;margin:1.5rem 0;" fill="none">
-        <!-- Background -->
-        <rect x="30" y="8" width="640" height="148" rx="4" fill="#18181b" stroke="#3f3f46" stroke-width="0.5"/>
-
-        <!-- Header -->
-        <rect x="32" y="14" width="636" height="28" fill="#ff00aa" fill-opacity="0.12" rx="3"/>
-        <rect x="32" y="14" width="636" height="28" fill="none" stroke="#ff00aa" stroke-opacity="0.4" stroke-width="0.5" rx="3"/>
-        <rect x="40" y="18" width="70" height="20" fill="#ff00aa" fill-opacity="0.7" rx="3"/>
-        <text x="75" y="32" font-size="10" fill="#0a0a0f" font-family="JetBrains Mono, monospace" font-weight="600" text-anchor="middle">Header</text>
-        <text x="130" y="32" font-size="9" fill="#ff00aa" fill-opacity="0.7" font-family="JetBrains Mono, monospace">magic, version, role, flags, offsets</text>
-        <text x="490" y="32" font-size="9" fill="#ff00aa" fill-opacity="0.5" font-family="JetBrains Mono, monospace">24 B</text>
-        <text x="545" y="32" font-size="9" fill="#ff00aa" fill-opacity="0.5" font-family="JetBrains Mono, monospace">← fixed, identical in every GGUF</text>
-
-        <!-- Metadata KV -->
-        <rect x="32" y="46" width="636" height="28" fill="#ffdd00" fill-opacity="0.06" rx="3"/>
-        <rect x="32" y="46" width="636" height="28" fill="none" stroke="#ffdd00" stroke-opacity="0.3" stroke-width="0.5" rx="3"/>
-        <rect x="40" y="50" width="92" height="20" fill="#ffdd00" fill-opacity="0.65" rx="3"/>
-        <text x="86" y="64" font-size="10" fill="#0a0a0f" font-family="JetBrains Mono, monospace" font-weight="600" text-anchor="middle">Metadata KV</text>
-        <text x="148" y="64" font-size="9" fill="#ffdd00" fill-opacity="0.6" font-family="JetBrains Mono, monospace">architecture, tokenizer, RoPE, chat template</text>
-        <text x="478" y="64" font-size="9" fill="#ffdd00" fill-opacity="0.5" font-family="JetBrains Mono, monospace">~3.2 MB</text>
-        <text x="545" y="64" font-size="9" fill="#ffdd00" fill-opacity="0.5" font-family="JetBrains Mono, monospace">← the runtime's instructions</text>
-
-        <!-- Tensor Info -->
-        <rect x="32" y="78" width="636" height="28" fill="#00ddff" fill-opacity="0.06" rx="3"/>
-        <rect x="32" y="78" width="636" height="28" fill="none" stroke="#00ddff" stroke-opacity="0.3" stroke-width="0.5" rx="3"/>
-        <rect x="40" y="82" width="82" height="20" fill="#00ddff" fill-opacity="0.6" rx="3"/>
-        <text x="81" y="96" font-size="10" fill="#0a0a0f" font-family="JetBrains Mono, monospace" font-weight="600" text-anchor="middle">Tensor Info</text>
-        <text x="138" y="96" font-size="9" fill="#00ddff" fill-opacity="0.6" font-family="JetBrains Mono, monospace">~370 descriptors: name + shape + quant type + offset</text>
-        <text x="478" y="96" font-size="9" fill="#00ddff" fill-opacity="0.5" font-family="JetBrains Mono, monospace">~45 KB</text>
-        <text x="545" y="96" font-size="9" fill="#00ddff" fill-opacity="0.5" font-family="JetBrains Mono, monospace">← the manifest</text>
-
-        <!-- Tensor Data -->
-        <rect x="32" y="110" width="636" height="28" fill="#00ff88" fill-opacity="0.06" rx="3"/>
-        <rect x="32" y="110" width="636" height="28" fill="none" stroke="#00ff88" stroke-opacity="0.3" stroke-width="0.5" rx="3"/>
-        <rect x="40" y="114" width="86" height="20" fill="#00ff88" fill-opacity="0.55" rx="3"/>
-        <text x="83" y="128" font-size="10" fill="#0a0a0f" font-family="JetBrains Mono, monospace" font-weight="600" text-anchor="middle">Tensor Data</text>
-        <text x="142" y="128" font-size="9" fill="#00ff88" fill-opacity="0.6" font-family="JetBrains Mono, monospace">quantized weights, 32-byte aligned, mmap-ready</text>
-        <text x="478" y="128" font-size="9" fill="#00ff88" fill-opacity="0.5" font-family="JetBrains Mono, monospace">~5.1 GB</text>
-        <text x="545" y="128" font-size="9" fill="#00ff88" fill-opacity="0.5" font-family="JetBrains Mono, monospace">← 99.94% of the file</text>
-
-        <!-- Footer -->
-        <text x="350" y="158" font-size="10" fill="#52525b" font-family="JetBrains Mono, monospace" text-anchor="middle">
-          The runtime reads top-to-bottom. By the time it reaches the weights, it knows the complete architecture.
-        </text>
+        <!-- ── EXL2: Directory with measurement ── -->
+        <text x="660" y="20" font-size="13" fill="#00ddff" font-family="JetBrains Mono, monospace" font-weight="600" text-anchor="middle">EXL2</text>
+        <text x="660" y="36" font-size="9" fill="#6a6a7e" font-family="JetBrains Mono, monospace" text-anchor="middle">directory (6 files)</text>
+        <rect x="550" y="48" width="220" height="280" rx="4" fill="#18181b" stroke="#00ddff" stroke-opacity="0.4" stroke-width="1"/>
+        <rect x="560" y="60" width="200" height="20" rx="2" fill="#ffdd00" fill-opacity="0.08" stroke="#ffdd00" stroke-opacity="0.25" stroke-width="0.5"/>
+        <text x="566" y="74" font-size="8" fill="#ffdd00" font-family="JetBrains Mono, monospace">config.json</text>
+        <text x="754" y="74" font-size="7" fill="#6a6a7e" font-family="JetBrains Mono, monospace" text-anchor="end">arch</text>
+        <rect x="560" y="84" width="200" height="28" rx="2" fill="#00ddff" fill-opacity="0.12" stroke="#00ddff" stroke-opacity="0.4" stroke-width="0.5"/>
+        <text x="566" y="98" font-size="8" fill="#00ddff" font-weight="600" font-family="JetBrains Mono, monospace">measurement.json</text>
+        <text x="754" y="98" font-size="7" fill="#00ddff" font-opacity="0.7" font-family="JetBrains Mono, monospace" text-anchor="end">error map</text>
+        <text x="566" y="108" font-size="7" fill="#6a6a7e" font-family="JetBrains Mono, monospace">per-column error at every bpw</text>
+        <rect x="560" y="116" width="200" height="20" rx="2" fill="#aa44ff" fill-opacity="0.08" stroke="#aa44ff" stroke-opacity="0.25" stroke-width="0.5"/>
+        <text x="566" y="130" font-size="8" fill="#aa44ff" font-family="JetBrains Mono, monospace">tokenizer.json + config</text>
+        <text x="754" y="130" font-size="7" fill="#6a6a7e" font-family="JetBrains Mono, monospace" text-anchor="end">vocab</text>
+        <rect x="560" y="140" width="200" height="20" rx="2" fill="#3f3f46" fill-opacity="0.5" stroke="#3f3f46" stroke-opacity="0.5" stroke-width="0.5"/>
+        <text x="566" y="154" font-size="8" fill="#6a6a7e" font-family="JetBrains Mono, monospace">generation_config.json</text>
+        <rect x="560" y="166" width="200" height="150" rx="3" fill="#00ddff" fill-opacity="0.06" stroke="#00ddff" stroke-opacity="0.3" stroke-width="0.5"/>
+        <text x="660" y="220" font-size="10" fill="#00ddff" font-opacity="0.7" font-family="JetBrains Mono, monospace" text-anchor="middle">model.safetensors</text>
+        <text x="660" y="236" font-size="8" fill="#6a6a7e" font-family="JetBrains Mono, monospace" text-anchor="middle">mixed-precision columns</text>
+        <text x="660" y="250" font-size="8" fill="#6a6a7e" font-family="JetBrains Mono, monospace" text-anchor="middle">2-bit to 8-bit per column</text>
+        <text x="660" y="268" font-size="9" fill="#6a6a7e" font-family="JetBrains Mono, monospace" text-anchor="middle">~4.3 GB @ 4.0 bpw</text>
       </svg>
 
-      <div class="power">
-        <div class="power-label">The design decision</div>
-        <p>The file is the config. The file is the tokenizer. The file is the model. A GGUF file can be <span class="popup-link" data-popup="mmap"><code>mmap</code></span>&rsquo;d directly &mdash; every tensor padded to 32-byte boundaries. The OS virtual memory manager becomes your model loader. No parsing, no buffer allocation, no copying.</p>
-      </div>
+      <p><strong style="color:var(--green)">GGUF</strong> optimises for portability &mdash; one file that runs on anything: a MacBook, a Raspberry Pi, a phone, an NVIDIA GPU, an AMD GPU. No dependencies, no ecosystem, no internet. <strong style="color:var(--orange)">AWQ</strong> optimises for GPU serving throughput &mdash; its weight layout is designed for vLLM&rsquo;s continuous batching and CUDA tensor cores, and it loads with one line of Python in any HuggingFace-native framework. <strong style="color:var(--cyan)">EXL2</strong> optimises for quality per bit &mdash; the measurement pass and per-column allocation squeeze more intelligence from fewer bits than either alternative.</p>
+
+      <p>We start with GGUF because it is the dominant format. It has the widest hardware support (CPU, Apple Silicon, NVIDIA, AMD, mobile, browser via WebAssembly), the largest community of quantizers, the deepest integration with local tools (Ollama, LM Studio, GPT4All), and almost every model on HuggingFace ships a GGUF variant. When someone says &ldquo;I downloaded a model,&rdquo; they usually mean a <code>.gguf</code> file. Once you understand its anatomy, AWQ and EXL2 are variations on themes you already know.</p>
     </section>
 
     <!-- ═══════════════════════════════════════════════════════════════ -->
-    <!-- SECTION 2: THE HEADER                                         -->
+    <!-- SECTION 2: THE METADATA (merged with former header section)   -->
     <!-- ═══════════════════════════════════════════════════════════════ -->
-    <section id="header">
-      <h2>02 // The Header</h2>
+    <section id="metadata">
+      <h2>02 // The Metadata</h2>
       <p style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.05em;margin-bottom:0.3rem;">
         <span style="color:var(--text-dim);">DOWNLOAD</span>
         <span style="color:var(--text-dim);"> &rarr; </span>
-        <span style="color:var(--green);font-weight:600;">HEADER</span>
-        <span style="color:var(--text-dim);"> &rarr; </span>
-        <span style="color:var(--text-dim);">METADATA</span>
+        <span style="color:var(--green);font-weight:600;">HEADER + METADATA</span>
         <span style="color:var(--text-dim);"> &rarr; </span>
         <span style="color:var(--text-dim);">TENSORS</span>
         <span style="color:var(--text-dim);"> &rarr; </span>
         <span style="color:var(--text-dim);">WEIGHTS</span>
       </p>
-      <p style="font-style:italic;color:var(--text-dim);margin-bottom:1.5rem;">24 bytes. Four fields. The handshake between the file and any runtime that opens it.</p>
+      <p style="font-style:italic;color:var(--text-dim);margin-bottom:1.5rem;">Before a single weight is loaded, the runtime knows the entire architecture.</p>
 
-      <p class="drop-cap">Every GGUF file starts the same way. Four ASCII bytes &mdash; <code style="color:var(--magenta)">G</code>, <code style="color:var(--magenta)">G</code>, <code style="color:var(--magenta)">U</code>, <code style="color:var(--magenta)">F</code> &mdash; then a version number, a tensor count, and a metadata count. That is the entire fixed-size header. Twenty-four bytes that tell the runtime: <em>I am a GGUF file, I contain 370 tensors and 300 metadata entries. Start reading.</em></p>
+      <h3>The Header</h3>
 
-      <h4>GGUF Header: 24 bytes, 4 fields</h4>
+      <p class="drop-cap">Every GGUF file starts with 24 bytes. Four magic characters, a version number, a tensor count, and a metadata count. The shortest possible handshake: <em>I am GGUF v3, I contain 370 tensors and 300 metadata entries.</em></p>
+
       <div class="mem-row">
         <div class="mc m">G</div><div class="mc m">G</div><div class="mc m">U</div><div class="mc m">F</div>
         <div class="mc c wide">v3</div><div class="mc c">&middot;</div><div class="mc c">&middot;</div><div class="mc c">&middot;</div>
@@ -831,32 +860,11 @@
         <span style="color:var(--yellow)">metadata KV count (8B)</span>
       </p>
 
-      <p>After these 24 bytes, everything is variable-length. There is no index, no seek table, no random access. The file is meant to be read front-to-back. To skip a metadata entry, you must decode its type and read its length &mdash; GGUF trades random access for zero-overhead sequential reads. The same tradeoff Unix pipes make.</p>
+      <p>That tells the runtime <em>how much</em> is coming. Immediately after: <em>what</em> it all means.</p>
 
-      <p>The next thing the runtime reads is the metadata. This is where the file describes what kind of model it is &mdash; and what the runtime needs to do with it.</p>
-    </section>
+      <h3>The Metadata</h3>
 
-    <!-- ═══════════════════════════════════════════════════════════════ -->
-    <!-- SECTION 3: THE METADATA                                       -->
-    <!-- ═══════════════════════════════════════════════════════════════ -->
-    <section id="metadata">
-      <h2>03 // The Metadata</h2>
-      <p style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.05em;margin-bottom:0.3rem;">
-        <span style="color:var(--text-dim);">DOWNLOAD</span>
-        <span style="color:var(--text-dim);"> &rarr; </span>
-        <span style="color:var(--text-dim);">HEADER</span>
-        <span style="color:var(--text-dim);"> &rarr; </span>
-        <span style="color:var(--green);font-weight:600;">METADATA</span>
-        <span style="color:var(--text-dim);"> &rarr; </span>
-        <span style="color:var(--text-dim);">TENSORS</span>
-        <span style="color:var(--text-dim);"> &rarr; </span>
-        <span style="color:var(--text-dim);">WEIGHTS</span>
-      </p>
-      <p style="font-style:italic;color:var(--text-dim);margin-bottom:1.5rem;">300 typed key-value pairs. The runtime reads them and knows: 36 layers, 32 attention heads, a 4:1 sharing ratio for key-value heads, SwiGLU activation, 152K vocabulary. It hasn&rsquo;t touched a single weight yet.</p>
-
-      <p class="drop-cap">The runtime needs to build a computation graph before it can run inference. How many layers? How many attention heads? How many of those heads share key-value pairs? What tokenizer? What RoPE frequency? All of this lives in the metadata section &mdash; typed, namespaced key-value pairs that the runtime reads sequentially. By the time it finishes the metadata, it knows exactly which kernels to load, how many buffers to allocate, and how to wire them together.</p>
-
-      <p>The first key it reads is <code>general.architecture</code>. This single string &mdash; <code style="color:var(--green)">&quot;qwen3&quot;</code> &mdash; determines the namespace for every other architecture-specific key. It is load-bearing: get it wrong and the runtime cannot locate <code>qwen3.block_count</code>, <code>qwen3.attention.head_count</code>, or any of the structural parameters it needs.</p>
+      <p>Three hundred typed key-value pairs, and the very first one is the most important. <code>general.architecture</code> &mdash; a single string, <code style="color:var(--green)">&quot;qwen3&quot;</code> &mdash; sets the namespace for everything else. It is the key that unlocks all the other keys: <code>qwen3.block_count</code>, <code>qwen3.attention.head_count</code>, <code>qwen3.feed_forward_length</code>. Get this one wrong and the runtime cannot find anything.</p>
 
       <p>Click any key below to see what the runtime does with it:</p>
 
@@ -870,8 +878,8 @@
       <p>Three namespaces organize the metadata. <code>general.*</code> identifies the model. <code>{arch}.*</code> (here <code>qwen3.*</code>) prescribes the architecture. <code>tokenizer.*</code> embeds the full vocabulary, merge rules, and special tokens. Together they form a complete instruction set for the runtime &mdash; no external files needed.</p>
 
       <div class="power">
-        <div class="power-label">What the runtime builds</div>
-        <p>The metadata doesn&rsquo;t just describe the model &mdash; it <em>prescribes</em> the computation. <code>block_count=36</code> means allocate 36 layer blocks. <code>head_count_kv=8</code> with <code>head_count=32</code> means select the GQA attention kernel, not MHA. <code>feed_forward_length=12288</code> means wire a <span class="popup-link" data-popup="swiglu">SwiGLU</span> FFN with 3 projections. Every kernel selection, every buffer size, every matrix dimension is determined here.</p>
+        <div class="power-label">Metadata as executable spec</div>
+        <p>No runtime reads these keys for documentation. <code>head_count_kv=8</code> with <code>head_count=32</code> tells it: use the GQA kernel, not MHA. Allocate a KV cache 4&times; smaller. <code>feed_forward_length=12288</code> tells it: wire three FFN projections, not two. The metadata is the computation graph &mdash; described before a single weight is loaded.</p>
       </div>
     </section>
 
@@ -879,7 +887,7 @@
     <!-- SECTION 4: THE TENSORS                                        -->
     <!-- ═══════════════════════════════════════════════════════════════ -->
     <section id="tensors">
-      <h2>04 // The Tensors</h2>
+      <h2>03 // The Tensors</h2>
       <p style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.05em;margin-bottom:0.3rem;">
         <span style="color:var(--text-dim);">DOWNLOAD</span>
         <span style="color:var(--text-dim);"> &rarr; </span>
@@ -891,344 +899,286 @@
         <span style="color:var(--text-dim);"> &rarr; </span>
         <span style="color:var(--text-dim);">WEIGHTS</span>
       </p>
-      <p style="font-style:italic;color:var(--text-dim);margin-bottom:1.5rem;">The runtime knows the architecture. Now it reads the actual matrices &mdash; every weight in the model, listed by name.</p>
+      <p style="font-style:italic;color:var(--text-dim);margin-bottom:1.5rem;">After the metadata: 370 tensor entries. Every matrix in the model, listed by name, shape, and quantization type.</p>
 
-      <p class="drop-cap">Let&rsquo;s start simple. A transformer layer does two things. First, it looks at context &mdash; that&rsquo;s <strong>attention</strong>, the mechanism that lets each token consider every other token in the sequence. Then it thinks about what it saw &mdash; that&rsquo;s the <strong>feed-forward network</strong>, a wider space where the model processes and transforms the information. Both are just matrix multiplications. And every matrix is listed in the GGUF file by name, shape, and type. (You&rsquo;ll notice tensors have types like <code>Q4_K</code> alongside their shapes &mdash; those are quantization formats. We&rsquo;ll explain why different tensors get different precision in the next section.)</p>
+      <p class="drop-cap">The tensor manifest is the bill of materials. Here is what it looks like for the first layer of Qwen3-8B &mdash; exactly what you would see if you opened the file:</p>
 
-      <p>Both subsystems modify a shared representation called the <strong>residual stream</strong> &mdash; a vector that flows through all 36 layers, accumulating understanding. Each layer reads the stream, adds its contribution, and passes it on. Attention and FFN don&rsquo;t replace the representation; they refine it. This additive pattern &mdash; called a <strong>residual connection</strong> &mdash; is why transformers can be deep without losing information.</p>
+<pre><span class="label">Qwen3-8B &mdash; Tensor Manifest (blk.0)</span><code><span class="st">token_embd.weight</span>          [151936, 4096]   <span class="cm">Q6_K    &larr; vocabulary embedding</span>
+<span class="st">blk.0.attn_norm.weight</span>     [4096]           <span class="cm">F32     &larr; layer norm (full precision)</span>
+<span class="fn">blk.0.attn_q.weight</span>        [4096, 4096]     <span class="cm">Q4_K    &larr; 32 query heads &times; 128 dims</span>
+<span class="fn">blk.0.attn_k.weight</span>        [1024, 4096]     <span class="cm">Q4_K    &larr; 8 KV heads (GQA 4:1)</span>
+<span class="fn">blk.0.attn_v.weight</span>        [1024, 4096]     <span class="cm">Q4_K    &larr; values, same GQA shape</span>
+<span class="fn">blk.0.attn_output.weight</span>   [4096, 4096]     <span class="cm">Q4_K    &larr; merge heads</span>
+<span class="st">blk.0.ffn_norm.weight</span>      [4096]           <span class="cm">F32     &larr; layer norm</span>
+<span class="pp">blk.0.ffn_gate.weight</span>      [12288, 4096]    <span class="cm">Q4_K    &larr; SwiGLU gate</span>
+<span class="pp">blk.0.ffn_up.weight</span>        [12288, 4096]    <span class="cm">Q4_K    &larr; expand 3&times;</span>
+<span class="pp">blk.0.ffn_down.weight</span>      [4096, 12288]    <span class="cm">Q6_K    &larr; compress (promoted!)</span>
+<span class="cm">... blk.1 through blk.35 — same 9 tensors, same names ...</span>
+<span class="st">output.weight</span>              [151936, 4096]   <span class="cm">Q6_K    &larr; output head</span></code></pre>
 
-      <p>But here is what makes this interesting: not every model does attention the same way. Not every model has the same feed-forward structure. And some models have replaced attention entirely. The tensor names in the file tell you exactly which variant you are looking at. Let&rsquo;s see.</p>
+      <p>370 entries like this. Three things to notice:</p>
 
-      <h3>One Layer, Five Architectures</h3>
+      <ul style="margin:0.8rem 0 0.8rem 1.5rem;line-height:1.8;">
+        <li><strong>Names tell you the architecture.</strong> <code>attn_q</code>, <code>attn_k</code>, <code>attn_v</code> as separate tensors = split attention. K smaller than Q = GQA. <code>ffn_gate</code> present = SwiGLU. The names are the blueprint.</li>
+        <li><strong>Shapes tell you the design.</strong> <code>[1024, 4096]</code> for K and V means 8 KV heads shared across 32 query heads. The GQA ratio is in the shape.</li>
+        <li><strong>Quant types tell you the compression.</strong> Most tensors are <code>Q4_K</code>. But the embedding, output head, and some FFN projections are <code>Q6_K</code> &mdash; promoted to higher precision. Layer norms are <code>F32</code>. This is the mixed-precision policy at work.</li>
+      </ul>
 
-      <p>To see how expressive the GGUF naming convention is, here are five real architectures in a single diagram. Don&rsquo;t worry if some are unfamiliar &mdash; the point is that the file format handles all of them with no special cases. Toggle between them and watch the circuit reshape: tensors appear and disappear, parallel lanes merge or split, entire subsystems get replaced. Every difference corresponds to a real tensor name in the GGUF file.</p>
-
-      <div class="viz-container" style="padding:1rem;">
-        <div class="viz-controls" style="margin-top:0;margin-bottom:0.8rem;">
-          <button id="blk-gpt2" class="secondary">GPT-2</button>
-          <button id="blk-qwen3" class="secondary active">Qwen3</button>
-          <button id="blk-mixtral" class="secondary">Mixtral (MoE)</button>
-          <button id="blk-qwen35" class="secondary">Qwen3.5 (hybrid)</button>
-          <button id="blk-mamba" class="secondary">Mamba-2 (SSM)</button>
-        </div>
-        <svg id="viz-block-circuit" viewBox="0 0 720 580" style="width:100%;height:auto;"></svg>
-      </div>
-
-      <p>Five things to notice as you toggle:</p>
-
-      <p><strong>Q, K, V &mdash; together or apart.</strong> GPT-2 fuses all three into a single <code>attn_qkv</code> tensor &mdash; one big matrix multiply. Qwen3 separates them, and the K and V matrices are <em>smaller</em> than Q. That shape difference is <span class="popup-link" data-popup="gqa">Grouped Query Attention</span>: 8 key-value heads shared across 32 query heads. The KV cache is 4&times; smaller. You can read the GQA ratio from one tensor shape.</p>
-
-      <p><strong>Gate or no gate.</strong> Look at the FFN section. GPT-2 has two projections: expand and compress. Qwen3 has three &mdash; the extra one is <code>ffn_gate</code>, a <span class="popup-link" data-popup="swiglu">SwiGLU</span> gate that decides which neurons activate. If you see <code>ffn_gate</code> in the manifest, you know the activation function. If it&rsquo;s missing, it&rsquo;s GELU.</p>
-
-      <p><strong>Eight experts.</strong> Mixtral&rsquo;s attention looks like Qwen3&rsquo;s. But below the FFN norm, a <code>ffn_gate_inp</code> tensor routes each token to 2 of 8 expert FFNs. The file contains 8 complete sets of gate+up+down matrices &mdash; only 2 fire per token. 47 billion parameters total, 13 billion active.</p>
-
-      <p><strong>No attention at all.</strong> Some models replace attention entirely with <strong>state-space models</strong> &mdash; a different mechanism that processes tokens sequentially in O(n) time, like an RNN but with better training properties. Switch to Mamba-2. The attention section is gone entirely. In its place: <code>ssm_in</code>, <code>ssm_conv1d</code>, <code>ssm_dt</code>, <code>ssm_a</code> &mdash; a recurrent state-space model that processes tokens in O(n) time instead of O(n&sup2;). No Q, K, or V tensors. No KV cache. Different tensor names, different computation, same GGUF format.</p>
-
-      <p><strong>Hybrid layers.</strong> Qwen3.5 mixes both worlds. Some layers use full attention (<code>attn_q/k/v</code>), others use <span class="popup-link" data-popup="deltanet">Gated Delta Networks</span> (<code>ssm_alpha</code>, <code>ssm_beta</code>). The GGUF manifest tells the runtime which kernel to use for each layer &mdash; the tensor names <em>are</em> the dispatch table.</p>
-
-      <h3>Qwen3-8B: What Each Tensor Does</h3>
-
-      <p>Here are the nine tensors inside every Qwen3-8B layer. Click any one to see the matrix operation and why it exists.</p>
-
-      <p style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#52525b;margin-bottom:6px;">Click to expand &darr;</p>
-
-      <div id="tensor-cards">
-      </div>
-
-      <h3>The Residual Stream</h3>
-
-      <p>One thing the diagram doesn&rsquo;t show as a tensor &mdash; because it isn&rsquo;t one &mdash; is the <strong>residual stream</strong>. That green dashed line on the left side of the circuit. Attention and FFN outputs are <em>added</em> to the input, not piped through sequentially. Each layer refines the representation; it does not replace it. The residual stream accumulates understanding across all 36 layers &mdash; it&rsquo;s the bus that carries information from the first token embedding to the final output projection.</p>
-
-      <p>Two global tensors bookend the entire network. At the bottom: <code>token_embd.weight&thinsp;[151936, 4096]</code> maps each vocabulary token into a 4,096-dimensional vector. At the top: <code>output.weight&thinsp;[151936, 4096]</code> projects the final representation back into vocabulary space to produce the next-token probabilities.</p>
-
-      <h3>The Full Stack: 36 Layers</h3>
-
-      <p class="drop-cap">You now know what one block does. But the model has 36 of them. Is that arbitrary? Open the metadata: <code>qwen3.block_count&thinsp;=&thinsp;36</code>. That number is the most consequential architectural decision in the file. It determines how many sequential refinement passes the model can make on a shared representation. GPT-2 had 12. Qwen3-8B has 36. The newest Qwen3.5-27B has 64.</p>
-
-      <p>These are not 36 copies of the same thing. They are 36 stages of <strong>progressive abstraction</strong>. Early layers learn syntax, token boundaries, and local relationships &mdash; the grammar of language. Middle layers build entity tracking and factual recall &mdash; &ldquo;who is the subject of this sentence?&rdquo; and &ldquo;what do I know about them?&rdquo; Late layers handle task completion, output formatting, and the final decision: which token comes next. Depth is how a model builds abstractions incrementally, each layer reading and refining the same residual stream.</p>
-
-      <table>
-        <thead>
-          <tr>
-            <th>Model</th>
-            <th>Year</th>
-            <th>Layers</th>
-            <th>Heads &times; Dim</th>
-            <th>FFN Width</th>
-            <th>GQA</th>
-            <th>Vocab</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>GPT-2</td>
-            <td>2019</td>
-            <td>12</td>
-            <td>12 &times; 64</td>
-            <td>3,072</td>
-            <td>No (MHA)</td>
-            <td>50K</td>
-          </tr>
-          <tr>
-            <td>Qwen3-8B</td>
-            <td>2025</td>
-            <td>36</td>
-            <td>32 &times; 128</td>
-            <td>12,288</td>
-            <td>4:1</td>
-            <td>152K</td>
-          </tr>
-          <tr>
-            <td>Qwen3.5-9B</td>
-            <td>2026</td>
-            <td>32</td>
-            <td>16 &times; 256</td>
-            <td>12,288</td>
-            <td>4:1</td>
-            <td>248K</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <!-- ── VISUALIZATION: Layer Stack Tower ── -->
-      <div class="viz-container">
-        <span class="diagram-label">Interactive: The Layer Stack</span>
-        <svg id="viz-layer-stack" viewBox="0 0 780 600"></svg>
-        <div class="viz-controls">
-          <button id="stack-qwen3" class="secondary active">Qwen3-8B (36 uniform)</button>
-          <button id="stack-qwen35" class="secondary">Qwen3.5-9B (32 hybrid)</button>
-        </div>
-      </div>
-
-      <h3>When Layers Stop Being Identical</h3>
-
-      <p>Toggle the visualization above to Qwen3.5-9B and something unexpected happens. The uniform tower breaks apart. <strong>Not all layers are the same circuit anymore.</strong></p>
-
-      <p>Qwen3.5 introduces <code>full_attention_interval&thinsp;=&thinsp;4</code>. Only every fourth layer uses full quadratic attention. The other 24 layers use <strong>Gated Delta Networks</strong> &mdash; a linear attention variant. Different layers have different tensor sets. Here is what a real Qwen3.5 GGUF looks like, name for name:</p>
-
-<pre><span class="label">Qwen3.5 — blk.0 (Linear Attention Layer)</span><code><span class="cm">// Gated Delta Net replaces standard attention</span>
-<span class="st">blk.0.attn_norm.weight</span>           [4096]         <span class="cm">RMSNorm</span>
-<span class="ty">blk.0.ssm_in.weight</span>              [16384, 4096]  <span class="cm">fused Q+K+V+Z projection</span>
-<span class="ty">blk.0.ssm_conv1d.weight</span>          [4096, 1, 4]   <span class="cm">1D conv (kernel=4)</span>
-<span class="ty">blk.0.ssm_conv1d.bias</span>            [4096]         <span class="cm">conv bias</span>
-<span class="ty">blk.0.ssm_dt.weight</span>              [16, 4096]     <span class="cm">delta time projection</span>
-<span class="ty">blk.0.ssm_dt.bias</span>                [16]           <span class="cm">dt bias</span>
-<span class="ty">blk.0.ssm_a.weight</span>               [16]           <span class="cm">A_log — decay rate</span>
-<span class="ty">blk.0.ssm_alpha.weight</span>           [4096, 4096]   <span class="cm">gated delta alpha</span>
-<span class="ty">blk.0.ssm_beta.weight</span>            [4096, 4096]   <span class="cm">gated delta beta</span>
-<span class="ty">blk.0.ssm_norm.weight</span>            [4096]         <span class="cm">output norm</span>
-<span class="ty">blk.0.ssm_out.weight</span>             [4096, 8192]   <span class="cm">output projection</span>
-<span class="st">blk.0.ffn_norm.weight</span>            [4096]         <span class="cm">RMSNorm</span>
-<span class="pp">blk.0.ffn_gate.weight</span>            [12288, 4096]  <span class="cm">SwiGLU gate</span>
-<span class="pp">blk.0.ffn_up.weight</span>              [12288, 4096]  <span class="cm">expand</span>
-<span class="pp">blk.0.ffn_down.weight</span>            [4096, 12288]  <span class="cm">compress</span></code></pre>
-
-<pre><span class="label">Qwen3.5 — blk.3 (Full Attention Layer)</span><code><span class="cm">// Standard transformer attention — every 4th layer</span>
-<span class="st">blk.3.attn_norm.weight</span>           [4096]         <span class="cm">RMSNorm</span>
-<span class="fn">blk.3.attn_q.weight</span>              [4096, 4096]   <span class="cm">query (16 heads × 256 dim)</span>
-<span class="fn">blk.3.attn_k.weight</span>              [1024, 4096]   <span class="cm">key (4 KV heads × 256 dim) — GQA 4:1</span>
-<span class="fn">blk.3.attn_v.weight</span>              [1024, 4096]   <span class="cm">value — same GQA</span>
-<span class="fn">blk.3.attn_output.weight</span>         [4096, 4096]   <span class="cm">merge heads</span>
-<span class="st">blk.3.ffn_norm.weight</span>            [4096]         <span class="cm">RMSNorm</span>
-<span class="pp">blk.3.ffn_gate.weight</span>            [12288, 4096]  <span class="cm">SwiGLU gate</span>
-<span class="pp">blk.3.ffn_up.weight</span>              [12288, 4096]  <span class="cm">expand</span>
-<span class="pp">blk.3.ffn_down.weight</span>            [4096, 12288]  <span class="cm">compress</span></code></pre>
-
-      <p>Look at the difference. <code>blk.0</code> has <code style="color:var(--cyan)">ssm_*</code> tensors &mdash; a conv1d kernel, delta time projections, decay rates, alpha/beta gating. <code>blk.3</code> has <code style="color:var(--blue)">attn_q/k/v/output</code> &mdash; the standard transformer attention you saw in Qwen3. The runtime reads these names and knows: layer 0 gets the Gated Delta Net kernel. Layer 3 gets the full attention kernel. The tensor names <em>are</em> the dispatch table.</p>
-
-      <p>The numbers tell the design story. Qwen3.5 uses <strong>fewer, bigger heads</strong>: 16 heads of 256 dimensions versus Qwen3&rsquo;s 32 heads of 128. Same total attention dimension (4,096), completely different tradeoff &mdash; richer per-head representations at the cost of less head diversity. And <code>partial_rotary_factor&thinsp;=&thinsp;0.25</code> means only 25% of the head dimensions receive positional encoding. The model treats position as a partial signal, not a total one.</p>
-
-      <p>The vocabulary tells a generation story too. GPT-2: 50,257 tokens, English-centric. Qwen3: 151,936, multilingual. Qwen3.5: 248,320 &mdash; with vision tokens baked in, natively multimodal. The embedding matrix <code>token_embd.weight</code> grew from <code>[50257, 768]</code> to <code>[248320, 4096]</code>. That is not just a bigger dictionary; it is a fundamentally different conception of what a token <em>is</em>.</p>
-
-      <div class="power">
-        <div class="power-label">Three keys</div>
-        <p><code>block_count</code> tells you depth. <code>feed_forward_length</code> tells you width. <code>full_attention_interval</code> tells you the attention budget. Three metadata keys, and you know the architect&rsquo;s priorities.</p>
-      </div>
-
-      <p>Now you know the architecture &mdash; how many layers, which tensors, what shapes, which kernels. One question remains: how do you fit 8 billion 16-bit parameters into a 5.1 GB file?</p>
+      <p>That is the entire GGUF anatomy: a single file that describes itself completely. But GGUF is not the only way to package a quantized model. Before we look at how the weights are compressed, let&rsquo;s see what the alternatives put on disk.</p>
     </section>
 
     <!-- ═══════════════════════════════════════════════════════════════ -->
-    <!-- SECTION 5: NOT ALL BITS ARE EQUAL                             -->
+    <!-- SECTION 5: THE ALTERNATIVES — AWQ & EXL2 ANATOMY              -->
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+    <section id="alternatives">
+      <h2>04 // The Alternatives</h2>
+      <p style="font-style:italic;color:var(--text-dim);margin-bottom:1.5rem;">AWQ and EXL2 store weights in standard safetensors and let the HuggingFace ecosystem handle the rest. Here is what is actually on disk.</p>
+
+      <!-- ── AWQ ANATOMY ── -->
+      <h3>AWQ: The Activation-Aware Directory</h3>
+
+      <p>A typical AWQ model on HuggingFace looks like this:</p>
+
+<pre><span class="label">AWQ Directory</span><code><span class="cm">Qwen3-8B-AWQ/</span>
+├── config.json                <span class="cm"># architecture: layers, heads, dims, vocab</span>
+├── generation_config.json     <span class="cm"># sampling defaults (temperature, top_p)</span>
+├── model.safetensors          <span class="cm"># quantized weights (~4.8 GB)</span>
+├── quantize_config.json       <span class="cm"># AWQ-specific: bits, group_size, method</span>
+├── tokenizer.json             <span class="cm"># BPE vocabulary and merge rules</span>
+├── tokenizer_config.json      <span class="cm"># special tokens, chat template</span>
+└── special_tokens_map.json    <span class="cm"># BOS, EOS, PAD token mappings</span></code></pre>
+
+      <p>Seven files. The weight file &mdash; <code>model.safetensors</code> &mdash; is the bulk, but it carries no metadata about what model it belongs to. Without <code>config.json</code>, the runtime doesn&rsquo;t know how many layers to build. Without <code>quantize_config.json</code>, it doesn&rsquo;t know the weights are 4-bit. The architecture knowledge that GGUF bakes into its header lives here in loose JSON files.</p>
+
+      <p>The weight encoding itself is distinctive. GGUF stores each tensor as a single quantized blob &mdash; you look up <code>blk.0.attn_q</code> and get the compressed weights directly. AWQ splits each quantized linear layer into <strong>three safetensors entries</strong>:</p>
+
+      <table>
+        <thead><tr><th>Key</th><th>Contents</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>model.layers.0.self_attn.q_proj.qweight</code></td><td>INT32 packed</td><td>Eight 4-bit weights per int32</td></tr>
+          <tr><td><code>model.layers.0.self_attn.q_proj.qzeros</code></td><td>INT32 packed</td><td>Zero-points for each group of 128 weights</td></tr>
+          <tr><td><code>model.layers.0.self_attn.q_proj.scales</code></td><td>FP16</td><td>Per-group scale factors</td></tr>
+        </tbody>
+      </table>
+
+      <p>Every linear layer becomes a triplet: packed weights, zero-points, and scales. The dequantization formula is <code>weight = scale &times; (qweight &minus; qzero)</code>, applied per group of 128 weights. This is <strong>asymmetric uniform quantization</strong> &mdash; each group gets its own scale and zero-point, but every value within a group maps to one of 16 evenly-spaced levels. No double quantization, no super-blocks. Simple, GPU-friendly, and fast to dequant in a CUDA kernel.</p>
+
+      <p>The file that makes AWQ <em>AWQ</em> is <code>quantize_config.json</code>:</p>
+
+<pre><span class="label">quantize_config.json</span><code>{
+  <span class="st">"quant_method"</span>: <span class="st">"awq"</span>,
+  <span class="st">"bits"</span>: <span class="nm">4</span>,
+  <span class="st">"group_size"</span>: <span class="nm">128</span>,
+  <span class="st">"zero_point"</span>: <span class="kw">true</span>,
+  <span class="st">"version"</span>: <span class="st">"gemm"</span>
+}</code></pre>
+
+      <p>Five fields. Compare this to GGUF&rsquo;s 300 metadata key-value pairs. AWQ&rsquo;s quantization config is minimal because the architecture is already in <code>config.json</code> &mdash; the standard HuggingFace config that every model ships with, quantized or not. AWQ just adds the quant-specific overlay.</p>
+
+      <div class="power">
+        <div class="power-label">The AWQ tradeoff</div>
+        <p>No <code>mmap</code>. No single-file portability. No embedded tokenizer. But: native to the GPU serving stack. vLLM, TGI, and HuggingFace Transformers load AWQ models with a single line of Python. The format that serves billions of tokens per day in production is not the self-describing one &mdash; it is the one that plugs directly into the existing infrastructure.</p>
+      </div>
+
+      <!-- ── EXL2 ANATOMY ── -->
+      <h3>EXL2: The Measured Directory</h3>
+
+      <p>An EXL2 model directory looks almost identical to AWQ&rsquo;s &mdash; safetensors, config, tokenizer. But one file changes everything:</p>
+
+<pre><span class="label">EXL2 Directory</span><code><span class="cm">Qwen3-8B-EXL2-4.0bpw/</span>
+├── config.json                <span class="cm"># architecture (same as AWQ)</span>
+├── generation_config.json     <span class="cm"># sampling defaults</span>
+├── model.safetensors          <span class="cm"># quantized weights (~4.3 GB)</span>
+├── tokenizer.json             <span class="cm"># BPE vocabulary</span>
+├── tokenizer_config.json      <span class="cm"># special tokens, chat template</span>
+└── <span style="color:var(--green);font-weight:600;">measurement.json</span>            <span class="cm"># per-layer, per-column error map</span></code></pre>
+
+      <p><code>measurement.json</code> is EXL2&rsquo;s unique artifact. Before quantizing a single weight, EXL2 runs the full-precision model on calibration data and measures <strong>reconstruction error at every bit-width (2, 3, 4, 5, 6, 8) for every column of every layer</strong>. The result is a complete sensitivity map of the model &mdash; which columns can tolerate 2-bit precision, which ones fall apart below 6-bit, and everything in between.</p>
+
+      <p>This measurement is expensive &mdash; it requires the full FP16 model and takes hours on a fast GPU. But it only happens once. The <code>measurement.json</code> file is reusable: given any target bits-per-weight, EXL2 solves a knapsack problem to allocate precision where the error map says it matters most. Want 3.5 bpw? 4.25 bpw? 6.0 bpw? Re-run the quantizer with the same measurement file and a different target. No re-measuring needed.</p>
+
+      <p>The precision allocation is <strong>per-column, not per-tensor</strong>. Inside a single weight matrix, column 47 might be 2-bit while column 48 is 6-bit. The bit allocation is so fine-grained that the effective bpw is a continuous number. This is why EXL2 models are named by their target: <code>4.0bpw</code>, <code>3.5bpw</code>, <code>6.5bpw</code> &mdash; the number is a budget that the knapsack solver distributes optimally. (The next section compares all three approaches side-by-side.)</p>
+
+      <div class="power cyan">
+        <div class="power-label">The EXL2 tradeoff</div>
+        <p>Best quality-per-bit of the three formats &mdash; at 4 bpw, EXL2 typically matches or beats GGUF&rsquo;s Q4_K_M and AWQ&rsquo;s 4-bit on perplexity benchmarks. But: GPU-only, ExLlamaV2-only, and the measurement pass requires the full FP16 model. One runtime, one hardware target, maximum precision.</p>
+      </div>
+
+      <p>Now you have seen all three anatomies. The next question is the same for all of them: how do you compress 8 billion parameters without destroying the model?</p>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+    <!-- SECTION 6: NOT ALL BITS ARE EQUAL                             -->
     <!-- ═══════════════════════════════════════════════════════════════ -->
     <section id="bits">
-      <h2>05 // Not All Bits Are Equal</h2>
-      <p style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.05em;margin-bottom:0.3rem;">
-        <span style="color:var(--text-dim);">DOWNLOAD</span>
-        <span style="color:var(--text-dim);"> &rarr; </span>
-        <span style="color:var(--text-dim);">HEADER</span>
-        <span style="color:var(--text-dim);"> &rarr; </span>
-        <span style="color:var(--text-dim);">METADATA</span>
-        <span style="color:var(--text-dim);"> &rarr; </span>
-        <span style="color:var(--text-dim);">TENSORS</span>
-        <span style="color:var(--text-dim);"> &rarr; </span>
-        <span style="color:var(--green);font-weight:600;">WEIGHTS</span>
-      </p>
-      <p style="font-style:italic;color:var(--text-dim);margin-bottom:1.5rem;">5.1 gigabytes of quantized numbers. Not all compressed equally. The edges of the network get more precision because errors there propagate through every layer.</p>
+      <h2>05 // The Weights &amp; The Variants</h2>
+      <p style="font-style:italic;color:var(--text-dim);margin-bottom:1.5rem;">How 8 billion parameters fit in 5 GB, and what Q4_K_M, IQ4_XS, and Q5_K_S actually mean.</p>
 
-      <p class="drop-cap">The runtime has read the header, parsed the metadata, and loaded the tensor manifest. It knows the architecture. Now it needs the actual numbers &mdash; 8 billion parameters, compressed from 16 GB of FP16 down to 5.1 GB of mixed-precision 4-bit blocks. But not uniformly compressed. Most tensors are <code>Q4_K</code>. But <code>token_embd.weight</code> is <code>Q6_K</code>. The attention output projections in certain layers are <code>Q6_K</code>. The layer norms are <code>F32</code>. Why are some tensors getting 50% more precision than others?</p>
+      <p class="drop-cap">You saw the quant types in the manifest: most tensors <code>Q4_K</code>, some <code>Q6_K</code>, norms at <code>F32</code>. That is not random. Quantization is <strong>triage</strong> &mdash; the edges of the network (embedding, output head) get more precision because errors there propagate through every layer. The middle layers are resilient. The <code>_S</code>, <code>_M</code>, <code>_L</code> suffixes you see on HuggingFace are <strong>precision policies</strong>: how aggressively the quantizer promotes sensitive tensors to higher bit-widths.</p>
 
-      <p>Because quantization is <strong>triage</strong>, not uniform compression. The edges of the network &mdash; the embedding matrix and the output head &mdash; are the most sensitive to error. A rounding mistake in the embedding propagates through all 36 layers. A rounding mistake in the output head directly corrupts the next-token probabilities. The middle layers are more resilient: each one is just a small refinement on the residual stream, and small errors in any single layer get diluted by the 35 others.</p>
-
-      <p>This is what the <code>_S</code>, <code>_M</code>, and <code>_L</code> suffixes mean. They are not bit widths &mdash; they are <strong>precision policies</strong>. <code>Q4_K_S</code> (small) promotes the fewest tensors to higher precision. <code>Q4_K_M</code> (medium) promotes roughly 20% of tensors &mdash; the embeddings, the output head, and the most sensitive FFN down-projections &mdash; to <code>Q6_K</code>. <code>Q4_K_L</code> promotes more. The per-bit-per-weight cost difference between <code>_S</code> and <code>_M</code> is about 0.3&ndash;0.5 bits, but the perplexity improvement is measurable: 0.05&ndash;0.15 points on standard benchmarks.</p>
-
-      <!-- ── VISUALIZATION: Precision Heatmap ── -->
-      <div class="viz-container">
-        <span class="diagram-label">Interactive: Mixed-Precision Heatmap &mdash; Qwen3-8B</span>
-        <svg id="viz-precision" viewBox="0 0 780 520"></svg>
-        <div class="viz-controls">
-          <button id="prec-q4ks" class="secondary">Q4_K_S</button>
-          <button id="prec-q4km" class="secondary active">Q4_K_M</button>
-          <button id="prec-q5km" class="secondary">Q5_K_M</button>
-        </div>
-      </div>
-
-      <h3>Compression All the Way Down</h3>
-
-      <p>The K-quant block structure is where the craft gets subtle. To see why, compare the simplest quantization block with the one everyone actually uses.</p>
-
-      <h4>Q4_0: The Simplest Block &mdash; 18 bytes, 32 weights</h4>
-      <div class="mem-row">
-        <div class="mc m wide">scale (FP16)</div><div class="mc m">&middot;</div>
-        <div class="mc g">w0</div><div class="mc g">w1</div><div class="mc g">w2</div><div class="mc g">w3</div><div class="mc g">w4</div><div class="mc g">w5</div><div class="mc g">w6</div><div class="mc g">w7</div><div class="mc g">w8</div><div class="mc g">w9</div><div class="mc g">w10</div><div class="mc g">w11</div><div class="mc g">w12</div><div class="mc g">w13</div><div class="mc g">w14</div><div class="mc g">w15</div>
-      </div>
-      <p class="mem-label">
-        <span style="color:var(--magenta)">2 bytes: one scale for all 32 weights</span> &nbsp;
-        <span style="color:var(--green)">16 bytes: 32 weights &times; 4 bits, two per byte</span> &nbsp;
-        Dequant: <code>weight = scale &times; (nibble &minus; 8)</code>
-      </p>
-
-      <p>One FP16 scale shared across 32 weights. Simple, fast &mdash; and mediocre. If half the weights in a block cluster near zero and the other half are spread wide, one scale can&rsquo;t fit both groups well. The scale is a one-size-fits-none compromise.</p>
-
-      <h4>Q4_K: The Real Block &mdash; 144 bytes, 256 weights</h4>
-      <div class="mem-row">
-        <div class="mc m wide">super-scale d (FP16)</div><div class="mc m">&middot;</div>
-        <div class="mc r wide">super-min dmin (FP16)</div><div class="mc r">&middot;</div>
-        <div class="mc o">s0</div><div class="mc o">s1</div><div class="mc o">s2</div><div class="mc o">s3</div><div class="mc o">s4</div><div class="mc o">s5</div><div class="mc o">s6</div><div class="mc o">s7</div><div class="mc o">s8</div><div class="mc o">s9</div><div class="mc o">s10</div><div class="mc o">s11</div>
-      </div>
-      <div class="mem-row">
-        <div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div>
-      </div>
-      <div class="mem-row">
-        <div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div>
-      </div>
-      <div class="mem-row">
-        <div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div>
-      </div>
-      <div class="mem-row">
-        <div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div>
-      </div>
-      <p class="mem-label">
-        <span style="color:var(--magenta)">2B: super-scale</span> &nbsp;
-        <span style="color:var(--red)">2B: super-minimum</span> &nbsp;
-        <span style="color:var(--orange)">12B: 8 sub-block scales+mins (quantized!)</span> &nbsp;
-        <span style="color:var(--green)">128B: 256 weights &times; 4 bits</span>
-      </p>
-
-      <p>This is the trick. The 256 weights are divided into <strong>8 sub-blocks of 32</strong>. Each sub-block gets its own scale and minimum &mdash; so weights in different ranges get different rulers. But storing 8 separate FP16 scale+minimum pairs would cost 32 bytes of overhead. K-quants compress those 8 scales into just 12 bytes by <strong>quantizing them</strong> against the super-block&rsquo;s FP16 scale. The metadata that describes the compression is itself compressed.</p>
-
-      <!-- ── VISUALIZATION: Block Exploder ── -->
-      <div class="viz-container">
-        <span class="diagram-label">Q4_K Super-Block: Two Levels of Quantization</span>
-        <svg id="viz-block-exploder" viewBox="0 0 780 340"></svg>
-      </div>
-
-      <p>Why does this matter? At 4-bit precision, per-sub-block FP16 scales would cost 1 bit per weight in overhead. By quantizing the scales, K-quants cut that to 0.19 bits per weight. That 0.8-bit saving is the gap between <code>Q4_0</code>&rsquo;s mediocre quality and <code>Q4_K</code>&rsquo;s near-FP16 perplexity. Double quantization is not a micro-optimization. It is what makes 4-bit viable.</p>
-
-      <p>AWQ takes a different path to the same insight. Instead of choosing precision by <em>network position</em> (edges versus middle), AWQ uses <em>activation magnitude</em>: run calibration data through the model, measure which weight groups produce the largest activations, and protect those groups with higher precision. Different signal, same principle &mdash; not all weights are equal.</p>
-
-      <div class="power wild">
-        <div class="power-label">The double quantization trick</div>
-        <p>256 weights, 8 sub-blocks, each sub-block with its own scale. But the scales are quantized against a single FP16 super-scale. Compression of the compression. At 4-bit, this saves 0.8 bits per weight of overhead &mdash; the difference between &ldquo;noticeably degraded&rdquo; and &ldquo;barely distinguishable from FP16.&rdquo;</p>
-      </div>
-
-      <p>The quantization type of each tensor &mdash; visible in the manifest alongside the name and shape &mdash; is the last piece. Architecture from metadata. Structure from tensor names. Precision from quant types. Now you have everything you need to read any model.</p>
-    </section>
-
-    <!-- ═══════════════════════════════════════════════════════════════ -->
-    <!-- SECTION 6: READING ANY MODEL                                  -->
-    <!-- ═══════════════════════════════════════════════════════════════ -->
-    <section id="blueprint">
-      <h2>06 // Reading Any Model</h2>
-      <p style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.05em;margin-bottom:0.3rem;">
-        <span style="color:var(--green);font-weight:600;">DOWNLOAD</span>
-        <span style="color:var(--green);"> &rarr; </span>
-        <span style="color:var(--green);font-weight:600;">HEADER</span>
-        <span style="color:var(--green);"> &rarr; </span>
-        <span style="color:var(--green);font-weight:600;">METADATA</span>
-        <span style="color:var(--green);"> &rarr; </span>
-        <span style="color:var(--green);font-weight:600;">TENSORS</span>
-        <span style="color:var(--green);"> &rarr; </span>
-        <span style="color:var(--green);font-weight:600;">WEIGHTS</span>
-        <span style="color:var(--green);font-size:10px;margin-left:0.5rem;">&larr; the complete picture</span>
-      </p>
-      <p style="font-style:italic;color:var(--text-dim);margin-bottom:1.5rem;">You can now open any GGUF file and understand its architecture, design decisions, and quality tradeoffs &mdash; without running inference.</p>
-
-      <p class="drop-cap">Theory is over. Every concept from the previous five sections shows up when you read a real model. Open Qwen3-8B and GPT-2 side by side. The six-year gap between 2019 and 2025 is legible in the file format: MHA&nbsp;&rarr;&nbsp;GQA, GELU&nbsp;&rarr;&nbsp;SwiGLU, learned positions&nbsp;&rarr;&nbsp;RoPE, LayerNorm&nbsp;&rarr;&nbsp;RMSNorm, bias everywhere&nbsp;&rarr;&nbsp;bias nowhere.</p>
-
-      <!-- ── VISUALIZATION: Model Fingerprints ── -->
-      <div class="viz-container">
-        <span class="diagram-label">Comparison: Model Fingerprints &mdash; 2019 vs 2025</span>
-        <svg id="viz-fingerprints" viewBox="0 0 780 520"></svg>
-      </div>
-
-      <h3>Qwen3-8B (2025)</h3>
-
-      <p><strong>GQA 4:1</strong> &mdash; visible in the K and V shapes: <code>[1024, 4096]</code> instead of <code>[4096, 4096]</code>. Eight KV heads serving 32 query heads. KV cache is 4&times; smaller than full MHA. <strong>SwiGLU</strong> &mdash; three FFN tensors per layer. The <code>ffn_gate</code> is present. <strong>RoPE</strong> at a base frequency of 1,000,000 &mdash; no learned positional embeddings, no <code>position_embd.weight</code> tensor. <strong>No bias</strong> anywhere &mdash; not on attention projections, not on FFN projections, not even on layer norms. A clean, modern architecture. 151,936-token vocabulary &mdash; multilingual, covering Chinese, English, and dozens of other languages in a single embedding matrix.</p>
-
-      <h3>GPT-2 124M (2019)</h3>
-
-      <p><strong>Multi-Head Attention</strong> &mdash; Q, K, and V all the same width, fused into a single <code>attn_qkv.weight&thinsp;[2304, 768]</code>. No GQA. Every head has its own keys and values. <strong>GELU</strong> &mdash; two FFN tensors. No gate. <strong>Learned positional embeddings</strong> &mdash; <code>position_embd.weight&thinsp;[1024, 768]</code> is an explicit tensor in the file, hard-capped at 1,024 positions. No RoPE. <strong>Bias on everything</strong> &mdash; every projection, every norm, every layer. 50,257-token vocabulary &mdash; English-centric BPE.</p>
-
-      <h3>The Fossil Record</h3>
-
-      <p>The evolution from GPT-2 to Qwen3 is the evolution of the transformer itself, and every step is legible in the file format:</p>
+      <p>Each format handles this differently. GGUF uses <strong>network position</strong> (no calibration needed). AWQ uses <strong>activation magnitude</strong> (small calibration set &mdash; see <em>Fewer Bits, Same Brain</em> for the full algorithm). EXL2 uses <strong>per-column reconstruction error</strong> (expensive measurement pass). Three signals, same principle: not all weights are equal.</p>
 
       <table>
-        <thead>
-          <tr>
-            <th>Then (GPT-2)</th>
-            <th></th>
-            <th>Now (Qwen3)</th>
-          </tr>
-        </thead>
+        <thead><tr><th>Format</th><th>Signal</th><th>Granularity</th><th>Calibration?</th></tr></thead>
         <tbody>
-          <tr><td>Multi-Head Attention</td><td>&rarr;</td><td>Grouped Query Attention</td></tr>
-          <tr><td>GELU (2 projections)</td><td>&rarr;</td><td>SwiGLU (3 projections)</td></tr>
-          <tr><td>Learned positions [1024, 768]</td><td>&rarr;</td><td>RoPE (no position tensor)</td></tr>
-          <tr><td>LayerNorm (weight + bias)</td><td>&rarr;</td><td>RMSNorm (weight only, simpler, faster)</td></tr>
-          <tr><td>Bias on everything</td><td>&rarr;</td><td>Bias on nothing</td></tr>
-          <tr><td>50K vocab, English</td><td>&rarr;</td><td>152K vocab, multilingual</td></tr>
-          <tr><td>12 layers, 768 hidden</td><td>&rarr;</td><td>36 layers, 4096 hidden</td></tr>
+          <tr><td>GGUF (K-quant)</td><td>Network position</td><td>Per-tensor (370 decisions)</td><td>No</td></tr>
+          <tr><td>AWQ</td><td>Activation magnitude</td><td>Per-group (128 weights)</td><td>Yes (small)</td></tr>
+          <tr><td>EXL2</td><td>Reconstruction error</td><td>Per-column (thousands)</td><td>Yes (expensive)</td></tr>
         </tbody>
       </table>
 
-      <h3>Reading It Yourself</h3>
+      <p>Within GGUF, the naming encodes three things: <strong>family</strong> (Legacy, K-quant, or I-quant), <strong>bit-width</strong> (the number), and <strong>precision policy</strong> (the suffix). Here is every type you will encounter:</p>
 
-      <p>Fifteen lines of Python and you can read any GGUF file:</p>
+      <!-- ── GGUF CHEAT SHEET TABLE ── -->
 
-<pre><span class="label">Python</span><code><span class="kw">from</span> <span class="ty">gguf</span> <span class="kw">import</span> <span class="fn">GGUFReader</span>
+      <p style="font-size:0.85rem;color:var(--text-dim);margin-bottom:0.5rem;">Sizes shown for <strong>Qwen3-27B</strong> &mdash; where the quant choice is the difference between a laptop and a server. Click any type to inspect.</p>
 
-<span class="nm">reader</span> = <span class="fn">GGUFReader</span>(<span class="st">"model.gguf"</span>)
+      <div class="meta-tree" id="quant-tree">
+        <div class="meta-tree-list" id="quant-list"></div>
+        <div class="meta-tree-detail" id="quant-detail">
+          <div class="detail-path">Click a quant type to inspect</div>
+        </div>
+      </div>
 
-<span class="cm"># Architecture and key parameters</span>
-<span class="nm">arch</span> = <span class="nm">reader</span>.fields[<span class="st">'general.architecture'</span>].parts[-1].tobytes().decode()
-<span class="fn">print</span>(<span class="st">f"Architecture: </span>{<span class="nm">arch</span>}<span class="st">"</span>)
-<span class="fn">print</span>(<span class="st">f"Layers: </span>{<span class="nm">reader</span>.fields[<span class="st">f'</span>{<span class="nm">arch</span>}<span class="st">.block_count'</span>].parts[-1][0]}<span class="st">"</span>)
+      <h3>AWQ Variants</h3>
 
-<span class="cm"># Every tensor: name, shape, quant type</span>
-<span class="kw">for</span> <span class="nm">t</span> <span class="kw">in</span> <span class="nm">reader</span>.tensors:
-    <span class="fn">print</span>(<span class="st">f"</span>{<span class="nm">t</span>.name}: {<span class="nm">t</span>.shape} {<span class="nm">t</span>.tensor_type.name}<span class="st">"</span>)</code></pre>
+      <p>AWQ&rsquo;s naming is simpler because there is less to vary. Almost every AWQ model is <strong>4-bit with group size 128</strong>. The main axes of variation:</p>
 
-      <p>After reading the previous four sections, you understand every line of that script. <code>general.architecture</code> tells you the namespace prefix. <code>block_count</code> tells you how many layers. The tensor loop shows you the names, shapes, and quant types you now know how to interpret &mdash; the GQA ratio in the K/V shapes, the activation function in the FFN tensor count, the precision policy in the quant types.</p>
+      <ul style="margin:0.8rem 0 0.8rem 1.5rem;line-height:1.8;">
+        <li><strong>Group size</strong> (64 or 128): Smaller groups = better quality, more overhead. 128 is the default; 64 appears on some careful quantizations.</li>
+        <li><strong>Kernel compatibility</strong>: Some uploads specify &ldquo;Marlin&rdquo; or &ldquo;GEMM&rdquo; in the name. Marlin is a fast GPU kernel for 4-bit inference &mdash; it does not change the quantization, only the runtime speed. GEMM is the default, slower kernel.</li>
+        <li><strong>Quantizer</strong>: AutoAWQ (community standard) vs. vLLM&rsquo;s built-in quantizer vs. HuggingFace&rsquo;s integration. All produce compatible files; quality differences are marginal.</li>
+      </ul>
+
+      <p>When you see <code>Qwen3-8B-AWQ</code> on HuggingFace with no further qualifiers, it is almost certainly 4-bit, group 128, GEMM kernel. The lack of variety is a feature: AWQ optimises for one sweet spot rather than offering a menu.</p>
+
+      <div id="awq-tree" style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;overflow:hidden;">
+        <div id="awq-list"></div>
+        <div id="awq-detail" style="display:none;padding:0.8rem;border-top:1px solid var(--border);"></div>
+      </div>
+
+      <h3>EXL2 Variants</h3>
+
+      <p>EXL2 names its variants by <strong>target bits-per-weight</strong>: <code>3.0bpw</code>, <code>4.0bpw</code>, <code>5.0bpw</code>, <code>6.5bpw</code>. The number is not a quantization type &mdash; it is the budget that the knapsack solver distributes across columns. A <code>4.0bpw</code> model has columns ranging from 2-bit to 6-bit internally; 4.0 is the average.</p>
+
+      <p>The precision is continuous. A quantizer can target 3.75bpw or 4.25bpw with equal ease &mdash; useful for fitting a model into a specific VRAM budget. And because the <code>measurement.json</code> is reusable, re-quantizing at a different bpw target takes minutes, not hours. The expensive measurement pass happens once; every target after that is a fast knapsack solve.</p>
+
+      <div id="exl2-tree" style="background:var(--bg-card);border:1px solid var(--border);border-radius:6px;overflow:hidden;">
+        <div id="exl2-list"></div>
+        <div id="exl2-detail" style="display:none;padding:0.8rem;border-top:1px solid var(--border);"></div>
+      </div>
+
+      <h3>The Decision</h3>
+
+      <p>There is no single best format. Each wins on a different axis.</p>
+
+      <div style="display:grid;gap:0.8rem;margin:1.2rem 0;">
+
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--green);border-radius:6px;padding:0.8rem 1rem;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
+            <strong style="font-family:JetBrains Mono,monospace;font-size:0.85rem;color:var(--white);">CPU or Apple Silicon</strong>
+            <span style="font-family:JetBrains Mono,monospace;font-size:0.75rem;color:var(--green);">GGUF only</span>
+          </div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0;line-height:1.5;">No choice &mdash; AWQ and EXL2 require NVIDIA. <code>Q4_K_M</code> is the default. <code>IQ4_XS</code> if you need it smaller.</p>
+        </div>
+
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--cyan);border-radius:6px;padding:0.8rem 1rem;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
+            <strong style="font-family:JetBrains Mono,monospace;font-size:0.85rem;color:var(--white);">NVIDIA GPU, local use</strong>
+            <span style="font-family:JetBrains Mono,monospace;font-size:0.75rem;"><span style="color:var(--green);">GGUF</span> <span style="color:var(--text-dim);">or</span> <span style="color:var(--cyan);">EXL2</span></span>
+          </div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0;line-height:1.5;">Ollama = zero setup, one command. EXL2 = 2&ndash;3&times; faster generation but needs ExLlamaV2. Convenience vs speed.</p>
+        </div>
+
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--orange);border-radius:6px;padding:0.8rem 1rem;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
+            <strong style="font-family:JetBrains Mono,monospace;font-size:0.85rem;color:var(--white);">NVIDIA GPU, serving at scale</strong>
+            <span style="font-family:JetBrains Mono,monospace;font-size:0.75rem;color:var(--orange);">AWQ</span>
+          </div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0;line-height:1.5;">Native to vLLM and TGI. Continuous batching, tensor-core layout. The production choice.</p>
+        </div>
+
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--cyan);border-radius:6px;padding:0.8rem 1rem;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
+            <strong style="font-family:JetBrains Mono,monospace;font-size:0.85rem;color:var(--white);">Maximum quality per bit</strong>
+            <span style="font-family:JetBrains Mono,monospace;font-size:0.75rem;color:var(--cyan);">EXL2</span>
+          </div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0;line-height:1.5;">Per-column allocation beats per-tensor and per-group at the same bpw. Expensive measurement pass, but you pay it once.</p>
+        </div>
+
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--purple);border-radius:6px;padding:0.8rem 1rem;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
+            <strong style="font-family:JetBrains Mono,monospace;font-size:0.85rem;color:var(--white);">Tight VRAM, large model</strong>
+            <span style="font-family:JetBrains Mono,monospace;font-size:0.75rem;"><span style="color:var(--green);">GGUF</span> <span style="color:var(--text-dim);">or</span> <span style="color:var(--cyan);">EXL2</span></span>
+          </div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0;line-height:1.5;">GGUF can offload layers to CPU &mdash; the others cannot. If it fits in VRAM, EXL2 at 3.0&ndash;3.5 bpw gets better quality per byte.</p>
+        </div>
+
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--yellow);border-radius:6px;padding:0.8rem 1rem;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
+            <strong style="font-family:JetBrains Mono,monospace;font-size:0.85rem;color:var(--white);">Near-lossless quality</strong>
+            <span style="font-family:JetBrains Mono,monospace;font-size:0.75rem;"><span style="color:var(--green);">Q6_K</span> <span style="color:var(--text-dim);">or</span> <span style="color:var(--white);">FP16</span></span>
+          </div>
+          <p style="font-size:0.85rem;color:var(--text-dim);margin:0;line-height:1.5;">Q6_K saves ~60% space for +0.03 PPL. If you have the VRAM, just use FP16 &mdash; no quantization to worry about.</p>
+        </div>
+
+      </div>
 
       <div class="power">
-        <div class="power-label">The universal language</div>
-        <p>Every architecture &mdash; GPT-2, LLaMA, Qwen, Mistral, Gemma, Phi, Falcon &mdash; gets normalized into <code>blk.N.tensor_name</code>. Meta calls their query projection <code>layers.N.attention.wq</code>. HuggingFace calls it <code>model.layers.N.self_attn.q_proj</code>. GGUF calls it <code>blk.N.attn_q</code>. One namespace, every model. Once you learn to read it, you can open any GGUF file and understand the architecture in seconds. The file is the blueprint. Now you know how to read it.</p>
+        <div class="power-label">The honest answer</div>
+        <p>At 4-bit, the three formats produce nearly identical perplexity. On LLaMA-2 13B: AWQ 4.33, GGUF Q4_K_M 4.33, GPTQ 4.34. The real differentiators are not quality &mdash; they are <strong>hardware compatibility</strong> (GGUF runs everywhere), <strong>ecosystem fit</strong> (AWQ plugs into vLLM), and <strong>precision granularity</strong> (EXL2 lets you dial in the exact bpw). Pick the format that matches your runtime, not the one with the lowest perplexity on a benchmark.</p>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+    <!-- SECTION 8: READING ANY MODEL                                  -->
+    <!-- ═══════════════════════════════════════════════════════════════ -->
+    <section id="blueprint">
+      <h2>06 // Running It</h2>
+      <p style="font-style:italic;color:var(--text-dim);margin-bottom:1.5rem;">You understand the anatomy. Now download one and talk to it.</p>
+
+      <p class="drop-cap">Each format has its own path from HuggingFace to running inference.</p>
+
+      <h3>GGUF &mdash; Ollama</h3>
+
+      <p>The fastest path. One command, no Python, no GPU drivers.</p>
+
+<pre><span class="label">Terminal</span><code><span class="cm"># Download + run in one command</span>
+<span class="fn">ollama</span> run qwen3:8b
+
+<span class="cm"># Or pull a specific quant from HuggingFace</span>
+<span class="fn">ollama</span> run hf.co/bartowski/Qwen3-8B-GGUF:Q4_K_M</code></pre>
+
+      <p>Ollama reads the header, builds the graph from metadata, loads tensors via <code>mmap</code>, and starts generating. CPU, Apple Silicon, or NVIDIA GPU &mdash; same command.</p>
+
+      <h3>AWQ &mdash; vLLM</h3>
+
+      <p>The GPU serving path. vLLM loads the safetensors directory, reads <code>config.json</code> for architecture and <code>quantize_config.json</code> for the quant parameters, and starts serving.</p>
+
+<pre><span class="label">Terminal</span><code><span class="cm"># Serve an AWQ model with vLLM</span>
+<span class="fn">vllm</span> serve Qwen/Qwen3-8B-AWQ \
+  --quantization awq \
+  --max-model-len 8192</code></pre>
+
+      <p>The model downloads from HuggingFace automatically. vLLM&rsquo;s continuous batching serves hundreds of concurrent requests on a single GPU. No <code>mmap</code>, no single-file portability &mdash; but the weight layout is optimised for CUDA tensor cores and the serving stack is battle-tested at scale.</p>
+
+      <h3>EXL2 &mdash; ExLlamaV2</h3>
+
+      <p>The quality-per-bit path. ExLlamaV2 loads the safetensors, reads the per-column bit allocation, and dequantizes on the fly during inference.</p>
+
+<pre><span class="label">Terminal</span><code><span class="cm"># Serve via TabbyAPI (ExLlamaV2 backend)</span>
+<span class="fn">python</span> -m tabbyapi \
+  --model-dir ./Qwen3-8B-EXL2-4.0bpw</code></pre>
+
+      <p>Same model, three paths. The format you chose on HuggingFace determines which runtime loads it, which hardware runs it, and how it gets there.</p>
+
+      <div class="power">
+        <div class="power-label">The file is the blueprint</div>
+        <p>Every runtime &mdash; Ollama, vLLM, ExLlamaV2 &mdash; does the same thing: read the architecture, load the weights, wire the computation graph, start generating. The format determines <em>how</em> it reads, not <em>what</em> it reads. GGUF embeds everything in one file. AWQ and EXL2 scatter it across a directory. The model inside is the same 8 billion parameters, the same 36 layers, the same attention patterns. Now you know what is inside all of them.</p>
       </div>
 
       <p style="margin-top:2.5rem;color:var(--text-dim);font-size:0.95rem;line-height:1.7;">
-        <strong style="color:var(--text);">Where this fits.</strong> This is Part II-B of the Efficiency Papers. Part II-A (<em>Fewer Bits, Same Brain</em>) covers quantization theory &mdash; why 4-bit works and when it doesn&rsquo;t. This article shows what those quantized weights look like inside the file. For the inference pipeline that executes these tensors, see <em>The Inference Engine</em>. For the serving infrastructure that loads them at scale, Part III is next.
+        <strong style="color:var(--text);">Where this fits.</strong> This is the Prologue to the Efficiency Papers &mdash; the foundation layer. Before you optimise attention (Part I), quantize weights (Part II: <em>Fewer Bits, Same Brain</em>), or serve at scale (Part III), you need to understand what is inside the file. For the inference pipeline that executes these tensors, see <a href="https://femiadeniran.com/blog/inference-engine-deep-dive-blog.html" style="color:var(--green);"><em>The Inference Engine Deep Dive</em></a>.
       </p>
     </section>
   </div>
@@ -1320,596 +1270,6 @@
   })();
   </script>
 
-  <!-- ── VIZ 1b: Tensor Cards ── -->
-  <script>
-  (function() {
-    const C = { attn: '#ff00aa', ffn: '#ff8800', norm: '#ffdd00' };
-
-    const tensors = [
-      { name: 'attn_norm', shape: '[4096]', color: C.norm, role: 'RMSNorm',
-        op: '<span class="op-in">x [4096]</span> <span class="op-sym">→ normalize → ×</span> <span class="op-mat">γ [4096]</span> <span class="op-sym">=</span> <span class="op-out">stable [4096]</span>',
-        desc: 'A learned per-dimension scale factor. The input gets normalized to unit magnitude, then each of its 4,096 dimensions is scaled independently. Think of it as a volume knob per feature — it ensures the attention math receives consistent magnitudes regardless of what earlier layers produced. Without it, activation magnitudes drift across layers and the model destabilizes.',
-        eureka: 'RMSNorm has no bias, no mean subtraction. Just x ÷ √(mean(x²)), then scale by γ. That simplicity — fewer parameters, fewer ops — is why every model since LLaMA dropped LayerNorm.' },
-
-      { name: 'attn_q', shape: '[4096, 4096]', color: C.attn, role: '"What am I looking for?"',
-        op: '<span class="op-in">token [4096]</span> <span class="op-sym">×</span> <span class="op-mat">W_q [4096, 4096]</span> <span class="op-sym">=</span> <span class="op-out">32 queries [32 × 128]</span>',
-        desc: 'Every token\'s 4,096-dim representation gets projected into 32 independent query vectors of 128 dimensions each. Each query head learns to attend to different kinds of relationships — one might specialize in syntax, another in coreference ("who does <em>they</em> refer to?"), another in factual associations. The 32 heads see the same input but ask different questions of it.',
-        eureka: '32 heads × 128 dims = 4,096. The matrix is square because every input dimension contributes to every query head. Square Q matrix = no information loss in the projection.' },
-
-      { name: 'attn_k', shape: '[1024, 4096]', color: C.attn, role: '"What do I contain?"',
-        op: '<span class="op-in">token [4096]</span> <span class="op-sym">×</span> <span class="op-mat">W_k [1024, 4096]</span> <span class="op-sym">=</span> <span class="op-out">8 keys [8 × 128]</span>',
-        desc: 'Same input, but this matrix outputs only 8 key vectors — <strong>not 32</strong>. That\'s <span class="popup-link" data-popup="gqa">Grouped Query Attention</span>. Each of the 8 key heads is shared by 4 query heads. The query heads ask different questions, but they search against the same set of keys. This means the KV cache (which stores keys and values for every token in the context) is 4× smaller than full MHA. For a 40K-token context, that\'s the difference between fitting in VRAM or not.',
-        eureka: 'The shape tells you everything. [1024, 4096] not [4096, 4096] — that\'s 8 heads, not 32. The ratio (32 ÷ 8 = 4:1) IS the GQA ratio. You can read GQA from one tensor shape.' },
-
-      { name: 'attn_v', shape: '[1024, 4096]', color: C.attn, role: '"Here is my content"',
-        op: '<span class="op-in">token [4096]</span> <span class="op-sym">×</span> <span class="op-mat">W_v [1024, 4096]</span> <span class="op-sym">=</span> <span class="op-out">8 values [8 × 128]</span>',
-        desc: 'Attention scores (from Q·K) decide <em>which</em> tokens matter. The value projection provides <em>what</em> to retrieve from the tokens that matter. Same GQA compression: 8 value heads, each shared by 4 query heads. K and V together form the "memory" that gets cached and reused as the model generates each new token.',
-        eureka: 'K and V are always the same shape — they\'re a pair. Together they\'re the KV cache. Smaller K+V = faster generation, because each new token only computes Q (not K and V) for past positions.' },
-
-      { name: 'attn_output', shape: '[4096, 4096]', color: C.attn, role: 'Merge heads',
-        op: '<span class="op-in">concat(32 heads) [4096]</span> <span class="op-sym">×</span> <span class="op-mat">W_o [4096, 4096]</span> <span class="op-sym">=</span> <span class="op-out">merged [4096]</span>',
-        desc: 'The 32 attention heads each produce a 128-dim output. Concatenated, that\'s [4096]. This matrix blends them — it\'s the "merge" after the "scatter." The model learns how to combine what each head found into a single coherent update to the residual stream.',
-        eureka: 'This is the only attention tensor that touches all 32 heads at once. Q, K, V all operate per-head. The output projection is where the heads talk to each other.' },
-
-      { name: 'ffn_norm', shape: '[4096]', color: C.norm, role: 'RMSNorm',
-        op: '<span class="op-in">x [4096]</span> <span class="op-sym">→ normalize → ×</span> <span class="op-mat">γ [4096]</span> <span class="op-sym">=</span> <span class="op-out">stable [4096]</span>',
-        desc: 'Same mechanism as attn_norm, but positioned between attention and the FFN. Stabilizes the residual stream before the next transformation.',
-        eureka: 'Every block has exactly 2 norms: one before attention, one before FFN. That\'s 72 norm vectors in a 36-layer model — 72 × 4,096 = 295K parameters just for normalization.' },
-
-      { name: 'ffn_gate', shape: '[12288, 4096]', color: C.ffn, role: 'SwiGLU gate',
-        op: '<span class="op-in">x [4096]</span> <span class="op-sym">×</span> <span class="op-mat">W_gate [12288, 4096]</span> <span class="op-sym">=</span> <span class="op-out">gate [12288]</span> <span class="op-sym">then gate ⊙ up</span>',
-        desc: 'This tensor exists in SwiGLU models (LLaMA, Qwen, Mistral) but <strong>not</strong> in GELU models (GPT-2). It produces a gating signal — 12,288 values between 0 and 1 — that element-wise multiplies the <code>ffn_up</code> output. Each intermediate neuron is either activated or suppressed. The model learns which knowledge pathways to open for each input.',
-        eureka: 'If you see ffn_gate in the manifest → SwiGLU (3 FFN projections). Missing → GELU (2 projections). The tensor count tells you the activation function. No other signal needed.' },
-
-      { name: 'ffn_up', shape: '[12288, 4096]', color: C.ffn, role: 'Expand',
-        op: '<span class="op-in">x [4096]</span> <span class="op-sym">×</span> <span class="op-mat">W_up [12288, 4096]</span> <span class="op-sym">=</span> <span class="op-out">expanded [12288]</span>',
-        desc: 'Projects from 4,096 into 12,288 dimensions — 3× wider. This is the model\'s "thinking space." The wider representation gives it room to compute: pattern matching, factual recall, reasoning all happen in this expanded space before compressing back.',
-        eureka: 'FFN width ÷ hidden dim = the compute ratio. Here it\'s 12,288 ÷ 4,096 = 3×. More width = more compute per layer, more parameters, more knowledge capacity.' },
-
-      { name: 'ffn_down', shape: '[4096, 12288]', color: C.ffn, role: 'Compress',
-        op: '<span class="op-in">gate ⊙ up [12288]</span> <span class="op-sym">×</span> <span class="op-mat">W_down [4096, 12288]</span> <span class="op-sym">=</span> <span class="op-out">output [4096]</span> <span class="op-sym">→ + residual</span>',
-        desc: 'Compresses the gated intermediate back to 4,096 dims. The result is added to the residual stream — not replacing it, but contributing to it. One layer\'s entire processing, complete. The next layer reads this updated stream and refines it further.',
-        eureka: 'Shape is [4096, 12288] — the mirror of ffn_up\'s [12288, 4096]. Expand → gate → compress. An autoencoder bottleneck within each layer, with the gate deciding what passes through.' },
-    ];
-
-    const container = document.getElementById('tensor-cards');
-
-    tensors.forEach(t => {
-      const card = document.createElement('div');
-      card.className = 'tensor-card';
-      card.innerHTML = `
-        <div class="tensor-card-header" onclick="this.parentElement.classList.toggle('open')">
-          <svg class="tc-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
-          <div class="tc-color" style="background:${t.color}"></div>
-          <span class="tc-name">${t.name}</span>
-          <span class="tc-shape">${t.shape}</span>
-          <span class="tc-role">${t.role}</span>
-        </div>
-        <div class="tensor-card-body">
-          <div class="tc-op">${t.op}</div>
-          <div class="tc-desc">${t.desc}</div>
-          <div class="tc-eureka">* ${t.eureka}</div>
-        </div>
-      `;
-      container.appendChild(card);
-    });
-
-    // Don't open any by default — reader explores after seeing the circuit diagram
-  })();
-  </script>
-
-  <!-- ── VIZ 2: Block Circuit (3 models, parallel lanes) ── -->
-  <script>
-  (function() {
-    const svg = d3.select('#viz-block-circuit');
-    const W = 720, H = 580;
-    let mode = 'qwen3';
-
-    const P = {
-      norm:  { fill: '#a78bfa', stroke: '#7c3aed' },
-      attn:  { fill: '#818cf8', stroke: '#6366f1' },
-      ffn:   { fill: '#fb923c', stroke: '#ea580c' },
-      flow:  { fill: '#4ade80', stroke: '#22c55e' },
-      ssm:   { fill: '#22d3ee', stroke: '#06b6d4' },
-      dim: '#3f3f46', text: '#a1a1aa', white: '#e4e4e7',
-    };
-
-    const cx = 360; // center x
-
-    function node(svg, x, y, w, h, label, pal, opts) {
-      opts = opts || {};
-      const rx = opts.flow ? 10 : 3;
-      const fillOp = opts.op ? 0.04 : (opts.flow ? 0.06 : 0.1);
-      const strokeOp = opts.accent ? 0.6 : 0.2;
-
-      svg.append('rect').attr('x', x - w/2).attr('y', y).attr('width', w).attr('height', h)
-        .attr('fill', pal.fill).attr('fill-opacity', fillOp)
-        .attr('stroke', pal.stroke).attr('stroke-opacity', strokeOp)
-        .attr('stroke-width', opts.accent ? 1 : 0.5).attr('rx', rx);
-      svg.append('text').attr('x', x).attr('y', y + h/2 + 4).attr('text-anchor', 'middle')
-        .attr('fill', opts.flow ? pal.fill : P.white)
-        .attr('fill-opacity', opts.op ? 0.5 : (opts.flow ? 0.5 : 0.85))
-        .attr('font-family', 'JetBrains Mono, monospace')
-        .attr('font-size', opts.op ? 9 : 10).text(label);
-      if (opts.note) {
-        svg.append('text').attr('x', x + w/2 + 8).attr('y', y + h/2 + 3)
-          .attr('fill', opts.accent ? pal.fill : P.text).attr('fill-opacity', opts.accent ? 0.7 : 0.35)
-          .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 8).text(opts.note);
-      }
-    }
-
-    function line(svg, x1, y1, x2, y2, color, op) {
-      svg.append('line').attr('x1',x1).attr('y1',y1).attr('x2',x2).attr('y2',y2)
-        .attr('stroke', color || P.dim).attr('stroke-width', 0.8).attr('opacity', op || 0.35);
-    }
-
-    function drawResidual(svg, y1, y2) {
-      svg.append('line').attr('x1', 70).attr('y1', y1).attr('x2', 70).attr('y2', y2)
-        .attr('stroke', P.flow.fill).attr('stroke-width', 2).attr('opacity', 0.12);
-      svg.append('line').attr('x1', 70).attr('y1', y1).attr('x2', 70).attr('y2', y2)
-        .attr('stroke', P.flow.fill).attr('stroke-width', 0.8).attr('opacity', 0.3)
-        .attr('stroke-dasharray', '6,4');
-    }
-
-    function resConn(svg, y) {
-      line(svg, 70, y, cx - 80, y, P.flow.fill, 0.2);
-    }
-
-    function sectionBg(svg, y, h, pal, label) {
-      svg.append('rect').attr('x', 95).attr('y', y).attr('width', W - 120).attr('height', h)
-        .attr('fill', pal.fill).attr('fill-opacity', 0.02).attr('rx', 6);
-      svg.append('text').attr('x', W - 30).attr('y', y + 14).attr('text-anchor', 'end')
-        .attr('fill', pal.fill).attr('fill-opacity', 0.25)
-        .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 8).text(label);
-    }
-
-    function drawQwen3() {
-      const g = svg;
-      g.append('text').attr('x', W/2).attr('y', 16).attr('text-anchor', 'middle')
-        .attr('fill', P.white).attr('font-family', 'JetBrains Mono, monospace')
-        .attr('font-size', 11).attr('font-weight', 600).text('Qwen3-8B — blk.0');
-
-      drawResidual(g, 28, 510);
-      sectionBg(g, 52, 220, P.attn, 'ATTENTION');
-      sectionBg(g, 290, 200, P.ffn, 'FFN');
-
-      const Y = { input: 30, norm1: 62, qkv: 110, scores: 170, out: 208, add1: 252,
-                  norm2: 298, gateup: 350, mul: 406, down: 438, add2: 484 };
-
-      // Flow
-      node(g, cx, Y.input, 160, 18, 'residual in', P.flow, {flow:true});
-      line(g, cx, Y.input+18, cx, Y.norm1);
-      // Norm
-      node(g, cx, Y.norm1, 200, 24, 'attn_norm [4096]', P.norm, {note:'RMSNorm'});
-      // Fan-out to Q/K/V
-      const qx = cx - 160, kx = cx, vx = cx + 160;
-      line(g, cx, Y.norm1+24, qx, Y.qkv); line(g, cx, Y.norm1+24, kx, Y.qkv); line(g, cx, Y.norm1+24, vx, Y.qkv);
-      // Q K V parallel
-      node(g, qx, Y.qkv, 155, 36, 'attn_q [4096,4096]', P.attn, {note:'32 heads'});
-      node(g, kx, Y.qkv, 155, 28, 'attn_k [1024,4096]', P.attn, {accent:true, note:'GQA 4:1'});
-      node(g, vx, Y.qkv, 155, 28, 'attn_v [1024,4096]', P.attn);
-      // Fan-in to scores
-      line(g, qx, Y.qkv+36, cx, Y.scores); line(g, kx, Y.qkv+28, cx, Y.scores); line(g, vx, Y.qkv+28, cx, Y.scores);
-      node(g, cx, Y.scores, 220, 20, 'scores → softmax → weighted sum', P.attn, {op:true});
-      line(g, cx, Y.scores+20, cx, Y.out);
-      node(g, cx, Y.out, 210, 28, 'attn_output [4096,4096]', P.attn, {note:'merge heads'});
-      line(g, cx, Y.out+28, cx, Y.add1);
-      node(g, cx, Y.add1, 130, 18, '⊕ residual', P.flow, {flow:true}); resConn(g, Y.add1+9);
-
-      // FFN
-      line(g, cx, Y.add1+18, cx, Y.norm2);
-      node(g, cx, Y.norm2, 200, 24, 'ffn_norm [4096]', P.norm, {note:'RMSNorm'});
-      // Fan-out to gate + up
-      const gx = cx - 120, ux = cx + 120;
-      line(g, cx, Y.norm2+24, gx, Y.gateup); line(g, cx, Y.norm2+24, ux, Y.gateup);
-      node(g, gx, Y.gateup, 195, 32, 'ffn_gate [12288,4096]', P.ffn, {accent:true, note:'SwiGLU'});
-      node(g, ux, Y.gateup, 195, 32, 'ffn_up [12288,4096]', P.ffn, {note:'expand 3×'});
-      // Fan-in to multiply
-      line(g, gx, Y.gateup+32, cx, Y.mul); line(g, ux, Y.gateup+32, cx, Y.mul);
-      node(g, cx, Y.mul, 140, 18, 'gate ⊙ up', P.ffn, {op:true});
-      line(g, cx, Y.mul+18, cx, Y.down);
-      node(g, cx, Y.down, 210, 28, 'ffn_down [4096,12288]', P.ffn, {note:'compress'});
-      line(g, cx, Y.down+28, cx, Y.add2);
-      node(g, cx, Y.add2, 130, 18, '⊕ residual', P.flow, {flow:true}); resConn(g, Y.add2+9);
-
-      g.append('text').attr('x', W/2).attr('y', H - 10).attr('text-anchor', 'middle')
-        .attr('fill', P.dim).attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
-        .text('RMSNorm · Separate Q/K/V · GQA 4:1 · SwiGLU · No bias');
-    }
-
-    function drawGPT2() {
-      const g = svg;
-      g.append('text').attr('x', W/2).attr('y', 16).attr('text-anchor', 'middle')
-        .attr('fill', P.white).attr('font-family', 'JetBrains Mono, monospace')
-        .attr('font-size', 11).attr('font-weight', 600).text('GPT-2 124M — blk.0');
-
-      drawResidual(g, 28, 430);
-      sectionBg(g, 52, 190, P.attn, 'ATTENTION');
-      sectionBg(g, 260, 150, P.ffn, 'FFN');
-
-      const Y = { input: 30, norm1: 62, qkv: 104, scores: 160, out: 196, add1: 232,
-                  norm2: 268, up: 310, down: 356, add2: 394 };
-
-      node(g, cx, Y.input, 160, 18, 'residual in', P.flow, {flow:true});
-      line(g, cx, Y.input+18, cx, Y.norm1);
-      node(g, cx, Y.norm1, 230, 24, 'attn_norm [768] + bias', P.norm, {note:'LayerNorm'});
-      line(g, cx, Y.norm1+24, cx, Y.qkv);
-      // Single fused QKV — wide box, no fan-out
-      node(g, cx, Y.qkv, 280, 36, 'attn_qkv [2304, 768] + bias', P.attn, {accent:true, note:'fused Q+K+V (3×768)'});
-      line(g, cx, Y.qkv+36, cx, Y.scores);
-      node(g, cx, Y.scores, 220, 20, 'scores → softmax → weighted sum', P.attn, {op:true, note:'12 heads × 64, MHA'});
-      line(g, cx, Y.scores+20, cx, Y.out);
-      node(g, cx, Y.out, 240, 24, 'attn_output [768, 768] + bias', P.attn, {note:'merge 12 heads'});
-      line(g, cx, Y.out+24, cx, Y.add1);
-      node(g, cx, Y.add1, 130, 18, '⊕ residual', P.flow, {flow:true}); resConn(g, Y.add1+9);
-
-      line(g, cx, Y.add1+18, cx, Y.norm2);
-      node(g, cx, Y.norm2, 230, 24, 'ffn_norm [768] + bias', P.norm, {note:'LayerNorm'});
-      line(g, cx, Y.norm2+24, cx, Y.up);
-      // No gate — single up, no fan-out
-      node(g, cx, Y.up, 260, 30, 'ffn_up [3072, 768] + bias', P.ffn, {accent:true, note:'GELU — no gate!'});
-      line(g, cx, Y.up+30, cx, Y.down);
-      node(g, cx, Y.down, 260, 28, 'ffn_down [768, 3072] + bias', P.ffn, {note:'compress'});
-      line(g, cx, Y.down+28, cx, Y.add2);
-      node(g, cx, Y.add2, 130, 18, '⊕ residual', P.flow, {flow:true}); resConn(g, Y.add2+9);
-
-      g.append('text').attr('x', W/2).attr('y', H - 10).attr('text-anchor', 'middle')
-        .attr('fill', P.dim).attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
-        .text('LayerNorm · Fused QKV · MHA · GELU (2 proj) · Bias everywhere');
-    }
-
-    function drawQwen35() {
-      const g = svg;
-      g.append('text').attr('x', W/2).attr('y', 16).attr('text-anchor', 'middle')
-        .attr('fill', P.white).attr('font-family', 'JetBrains Mono, monospace')
-        .attr('font-size', 11).attr('font-weight', 600).text('Qwen3.5-9B — blk.0 (linear attention)');
-
-      drawResidual(g, 28, 530);
-      sectionBg(g, 52, 270, P.ssm, 'GATED DELTA NET');
-      sectionBg(g, 340, 180, P.ffn, 'FFN');
-
-      const Y = { input: 30, norm1: 62, ssmIn: 104, conv: 150, dt: 186,
-                  ab: 228, normOut: 274, ssmOut: 306, add1: 348,
-                  norm2: 380, gateup: 418, mul: 468, down: 496, add2: 528 };
-
-      node(g, cx, Y.input, 160, 18, 'residual in', P.flow, {flow:true});
-      line(g, cx, Y.input+18, cx, Y.norm1);
-      node(g, cx, Y.norm1, 200, 24, 'attn_norm [4096]', P.norm, {note:'RMSNorm'});
-      line(g, cx, Y.norm1+24, cx, Y.ssmIn);
-      node(g, cx, Y.ssmIn, 280, 28, 'ssm_in [16384, 4096]', P.ssm, {accent:true, note:'fused Q+K+V+Z'});
-      line(g, cx, Y.ssmIn+28, cx, Y.conv);
-      node(g, cx, Y.conv, 230, 24, 'ssm_conv1d [4096, 1, 4]', P.ssm, {note:'local context'});
-      line(g, cx, Y.conv+24, cx, Y.dt);
-      node(g, cx, Y.dt, 260, 24, 'ssm_dt [16, 4096] + ssm_a [16]', P.ssm, {note:'delta + decay'});
-      // Alpha/beta parallel
-      const ax = cx - 120, bx = cx + 120;
-      line(g, cx, Y.dt+24, ax, Y.ab); line(g, cx, Y.dt+24, bx, Y.ab);
-      node(g, ax, Y.ab, 200, 28, 'ssm_alpha [4096,4096]', P.ssm, {note:'gate α'});
-      node(g, bx, Y.ab, 200, 28, 'ssm_beta [4096,4096]', P.ssm, {note:'gate β'});
-      line(g, ax, Y.ab+28, cx, Y.normOut); line(g, bx, Y.ab+28, cx, Y.normOut);
-      node(g, cx, Y.normOut, 180, 20, 'ssm_norm [4096]', P.ssm, {op:true});
-      line(g, cx, Y.normOut+20, cx, Y.ssmOut);
-      node(g, cx, Y.ssmOut, 220, 24, 'ssm_out [4096, 8192]', P.ssm, {note:'output proj'});
-      line(g, cx, Y.ssmOut+24, cx, Y.add1);
-      node(g, cx, Y.add1, 130, 18, '⊕ residual', P.flow, {flow:true}); resConn(g, Y.add1+9);
-
-      // FFN (same as Qwen3)
-      line(g, cx, Y.add1+18, cx, Y.norm2);
-      node(g, cx, Y.norm2, 200, 24, 'ffn_norm [4096]', P.norm, {note:'RMSNorm'});
-      const gx = cx - 120, ux = cx + 120;
-      line(g, cx, Y.norm2+24, gx, Y.gateup); line(g, cx, Y.norm2+24, ux, Y.gateup);
-      node(g, gx, Y.gateup, 195, 30, 'ffn_gate [12288,4096]', P.ffn, {note:'SwiGLU'});
-      node(g, ux, Y.gateup, 195, 30, 'ffn_up [12288,4096]', P.ffn, {note:'expand'});
-      line(g, gx, Y.gateup+30, cx, Y.mul); line(g, ux, Y.gateup+30, cx, Y.mul);
-      node(g, cx, Y.mul, 130, 16, 'gate ⊙ up', P.ffn, {op:true});
-      line(g, cx, Y.mul+16, cx, Y.down);
-      node(g, cx, Y.down, 210, 24, 'ffn_down [4096,12288]', P.ffn, {note:'compress'});
-      line(g, cx, Y.down+24, cx, Y.add2);
-      node(g, cx, Y.add2, 130, 18, '⊕ residual', P.flow, {flow:true}); resConn(g, Y.add2+9);
-
-      g.append('text').attr('x', W/2).attr('y', H - 10).attr('text-anchor', 'middle')
-        .attr('fill', P.dim).attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
-        .text('Gated Delta Net · Conv1D · α/β parallel · SwiGLU · No bias');
-    }
-
-    function drawMixtral() {
-      const g = svg;
-      g.append('text').attr('x', W/2).attr('y', 16).attr('text-anchor', 'middle')
-        .attr('fill', P.white).attr('font-family', 'JetBrains Mono, monospace')
-        .attr('font-size', 11).attr('font-weight', 600).text('Mixtral 8×7B — blk.0');
-
-      drawResidual(g, 28, 540);
-      sectionBg(g, 52, 220, P.attn, 'ATTENTION');
-      sectionBg(g, 290, 230, P.ffn, 'MIXTURE OF EXPERTS');
-
-      const Y = { input: 30, norm1: 62, qkv: 110, scores: 170, out: 208, add1: 252,
-                  norm2: 298, router: 336, experts: 388, merge: 448, down_label: 472, add2: 502 };
-
-      // Attention — same as Qwen3 (GQA)
-      node(g, cx, Y.input, 160, 18, 'residual in', P.flow, {flow:true});
-      line(g, cx, Y.input+18, cx, Y.norm1);
-      node(g, cx, Y.norm1, 200, 24, 'attn_norm [4096]', P.norm, {note:'RMSNorm'});
-      const qx = cx - 160, kx = cx, vx = cx + 160;
-      line(g, cx, Y.norm1+24, qx, Y.qkv); line(g, cx, Y.norm1+24, kx, Y.qkv); line(g, cx, Y.norm1+24, vx, Y.qkv);
-      node(g, qx, Y.qkv, 155, 36, 'attn_q [4096,4096]', P.attn, {note:'32 heads'});
-      node(g, kx, Y.qkv, 155, 28, 'attn_k [1024,4096]', P.attn, {note:'GQA 4:1'});
-      node(g, vx, Y.qkv, 155, 28, 'attn_v [1024,4096]', P.attn);
-      line(g, qx, Y.qkv+36, cx, Y.scores); line(g, kx, Y.qkv+28, cx, Y.scores); line(g, vx, Y.qkv+28, cx, Y.scores);
-      node(g, cx, Y.scores, 220, 20, 'scores → softmax', P.attn, {op:true});
-      line(g, cx, Y.scores+20, cx, Y.out);
-      node(g, cx, Y.out, 210, 28, 'attn_output [4096,4096]', P.attn);
-      line(g, cx, Y.out+28, cx, Y.add1);
-      node(g, cx, Y.add1, 130, 18, '⊕ residual', P.flow, {flow:true}); resConn(g, Y.add1+9);
-
-      // FFN — MoE!
-      line(g, cx, Y.add1+18, cx, Y.norm2);
-      node(g, cx, Y.norm2, 200, 24, 'ffn_norm [4096]', P.norm, {note:'RMSNorm'});
-      line(g, cx, Y.norm2+24, cx, Y.router);
-      // Router
-      node(g, cx, Y.router, 240, 28, 'ffn_gate_inp [8, 4096]', P.ffn, {accent:true, note:'ROUTER → top-2 experts'});
-
-      // 8 expert lanes (show all 8 as thin colored bars)
-      const expertW = 60, expertGap = 8;
-      const totalExpertW = 8 * expertW + 7 * expertGap;
-      const expertStartX = cx - totalExpertW/2 + expertW/2;
-      // Fan-out lines from router to all 8
-      for (let e = 0; e < 8; e++) {
-        const ex = expertStartX + e * (expertW + expertGap);
-        line(g, cx, Y.router+28, ex, Y.experts);
-        // Expert box — show as a small colored bar
-        const active = e < 2; // top-2 active
-        g.append('rect').attr('x', ex - expertW/2).attr('y', Y.experts)
-          .attr('width', expertW).attr('height', 40)
-          .attr('fill', P.ffn.fill).attr('fill-opacity', active ? 0.15 : 0.04)
-          .attr('stroke', P.ffn.stroke).attr('stroke-opacity', active ? 0.5 : 0.12)
-          .attr('stroke-width', active ? 1 : 0.5).attr('rx', 2);
-        // Expert label
-        g.append('text').attr('x', ex).attr('y', Y.experts + 14).attr('text-anchor', 'middle')
-          .attr('fill', P.ffn.fill).attr('fill-opacity', active ? 0.8 : 0.25)
-          .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 8)
-          .text('E' + e);
-        g.append('text').attr('x', ex).attr('y', Y.experts + 26).attr('text-anchor', 'middle')
-          .attr('fill', P.text).attr('fill-opacity', active ? 0.5 : 0.15)
-          .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 6)
-          .text(active ? 'gate+up' : '');
-        g.append('text').attr('x', ex).attr('y', Y.experts + 35).attr('text-anchor', 'middle')
-          .attr('fill', P.text).attr('fill-opacity', active ? 0.5 : 0.15)
-          .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 6)
-          .text(active ? '+down' : 'idle');
-        // Fan-in
-        line(g, ex, Y.experts+40, cx, Y.merge, null, active ? 0.35 : 0.08);
-      }
-      // Active expert annotation
-      g.append('text').attr('x', expertStartX + totalExpertW + 12).attr('y', Y.experts + 20)
-        .attr('fill', P.ffn.fill).attr('fill-opacity', 0.6)
-        .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 8)
-        .text('2 of 8 active');
-
-      node(g, cx, Y.merge, 180, 18, 'weighted sum of experts', P.ffn, {op:true});
-      line(g, cx, Y.merge+18, cx, Y.add2);
-      node(g, cx, Y.add2, 130, 18, '⊕ residual', P.flow, {flow:true}); resConn(g, Y.add2+9);
-
-      g.append('text').attr('x', W/2).attr('y', H - 10).attr('text-anchor', 'middle')
-        .attr('fill', P.dim).attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
-        .text('RMSNorm · GQA · 8 expert FFNs (top-2 routing) · 47B total, 13B active');
-    }
-
-    function drawMamba() {
-      const g = svg;
-      g.append('text').attr('x', W/2).attr('y', 16).attr('text-anchor', 'middle')
-        .attr('fill', P.white).attr('font-family', 'JetBrains Mono, monospace')
-        .attr('font-size', 11).attr('font-weight', 600).text('Mamba-2 — blk.0 (pure SSM)');
-
-      drawResidual(g, 28, 400);
-      sectionBg(g, 52, 310, P.ssm, 'SELECTIVE STATE SPACE');
-
-      const Y = { input: 30, norm: 62, ssmIn: 104, conv: 150, dt: 190,
-                  a: 230, d: 268, norm2: 306, out: 342, add: 378 };
-
-      node(g, cx, Y.input, 160, 18, 'residual in', P.flow, {flow:true});
-      line(g, cx, Y.input+18, cx, Y.norm);
-      node(g, cx, Y.norm, 200, 24, 'attn_norm [2560]', P.norm, {note:'RMSNorm'});
-      line(g, cx, Y.norm+24, cx, Y.ssmIn);
-      node(g, cx, Y.ssmIn, 260, 30, 'ssm_in [5120, 2560]', P.ssm, {accent:true, note:'expand 2× (no Q/K/V)'});
-      line(g, cx, Y.ssmIn+30, cx, Y.conv);
-      node(g, cx, Y.conv, 240, 26, 'ssm_conv1d [5120, 1, 4]', P.ssm, {note:'local context window'});
-      // dt and A side by side
-      const dtx = cx - 100, ax = cx + 100;
-      line(g, cx, Y.conv+26, dtx, Y.dt); line(g, cx, Y.conv+26, ax, Y.dt);
-      node(g, dtx, Y.dt, 180, 26, 'ssm_dt [128, 5120]', P.ssm, {note:'time delta'});
-      node(g, ax, Y.dt, 160, 26, 'ssm_a [128]', P.ssm, {note:'decay rate'});
-      // Merge → D
-      line(g, dtx, Y.dt+26, cx, Y.a); line(g, ax, Y.dt+26, cx, Y.a);
-      node(g, cx, Y.a, 200, 22, 'selective scan (recurrence)', P.ssm, {op:true, note:'O(n) per token'});
-      line(g, cx, Y.a+22, cx, Y.d);
-      node(g, cx, Y.d, 200, 24, 'ssm_d [5120]', P.ssm, {note:'skip connection'});
-      line(g, cx, Y.d+24, cx, Y.norm2);
-      node(g, cx, Y.norm2, 180, 22, 'ssm_norm [5120]', P.ssm, {note:'output norm'});
-      line(g, cx, Y.norm2+22, cx, Y.out);
-      node(g, cx, Y.out, 220, 26, 'ssm_out [2560, 5120]', P.ssm, {note:'compress back'});
-      line(g, cx, Y.out+26, cx, Y.add);
-      node(g, cx, Y.add, 130, 18, '⊕ residual', P.flow, {flow:true}); resConn(g, Y.add+9);
-
-      // No FFN section at all!
-      g.append('text').attr('x', cx).attr('y', Y.add + 44).attr('text-anchor', 'middle')
-        .attr('fill', P.ssm.fill).attr('fill-opacity', 0.4)
-        .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
-        .text('No FFN. No attention. No KV cache. Pure recurrence.');
-
-      g.append('text').attr('x', W/2).attr('y', H - 10).attr('text-anchor', 'middle')
-        .attr('fill', P.dim).attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
-        .text('Selective State Space · Conv1D · O(n) recurrence · No Q/K/V · No FFN');
-    }
-
-    function draw() {
-      svg.selectAll('*').remove();
-      if (mode === 'gpt2') drawGPT2();
-      else if (mode === 'mixtral') drawMixtral();
-      else if (mode === 'qwen35') drawQwen35();
-      else if (mode === 'mamba') drawMamba();
-      else drawQwen3();
-    }
-
-    draw();
-
-    const btns = ['blk-gpt2', 'blk-qwen3', 'blk-mixtral', 'blk-qwen35', 'blk-mamba'];
-    const modes = ['gpt2', 'qwen3', 'mixtral', 'qwen35', 'mamba'];
-    btns.forEach((id, i) => {
-      document.getElementById(id).addEventListener('click', function() {
-        mode = modes[i];
-        btns.forEach(b => document.getElementById(b).classList.remove('active'));
-        this.classList.add('active');
-        draw();
-      });
-    });
-  })();
-  </script>
-
-  <!-- ── VIZ 3: Layer Stack Tower ── -->
-  <script>
-  (function() {
-    const svg = d3.select('#viz-layer-stack');
-    const W = 780, H = 600;
-    let mode = 'qwen3';
-
-    function draw() {
-      svg.selectAll('*').remove();
-      const isQwen35 = mode === 'qwen35';
-      const layers = isQwen35 ? 32 : 36;
-      const fullAttnInterval = isQwen35 ? 4 : 1; // 1 means all are full attention
-
-      const mL = 100, mR = 120, mT = 50, mB = 60;
-      const stackH = H - mT - mB;
-      const layerH = Math.min(stackH / (layers + 2) - 1, 14); // +2 for embed/output
-      const gap = 1;
-      const colW = W - mL - mR;
-
-      // Title
-      svg.append('text').attr('x', W/2).attr('y', 22).attr('text-anchor', 'middle')
-        .attr('fill', '#e8e8f0').attr('font-family', 'JetBrains Mono, monospace')
-        .attr('font-size', 12).attr('font-weight', 600)
-        .text(isQwen35 ? 'Qwen3.5-9B — 32 Hybrid Layers' : 'Qwen3-8B — 36 Uniform Layers');
-
-      svg.append('text').attr('x', W/2).attr('y', 40).attr('text-anchor', 'middle')
-        .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
-        .attr('font-size', 10)
-        .text(isQwen35 ? '8 full attention + 24 linear attention' : 'All layers: full attention + SwiGLU FFN');
-
-      // Draw token_embd at bottom
-      const embdY = mT + stackH - layerH;
-      svg.append('rect').attr('x', mL).attr('y', embdY).attr('width', colW).attr('height', layerH)
-        .attr('fill', '#00ff88').attr('opacity', 0.25).attr('rx', 2)
-        .attr('stroke', '#00ff88').attr('stroke-width', 0.5);
-      svg.append('text').attr('x', mL + 6).attr('y', embdY + layerH/2 + 4)
-        .attr('fill', '#00ff88').attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
-        .text(isQwen35 ? 'token_embd [248320, 4096]' : 'token_embd [151936, 4096]');
-
-      // Draw output at top
-      const outY = mT;
-      svg.append('rect').attr('x', mL).attr('y', outY).attr('width', colW).attr('height', layerH)
-        .attr('fill', '#00ff88').attr('opacity', 0.25).attr('rx', 2)
-        .attr('stroke', '#00ff88').attr('stroke-width', 0.5);
-      svg.append('text').attr('x', mL + 6).attr('y', outY + layerH/2 + 4)
-        .attr('fill', '#00ff88').attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
-        .text(isQwen35 ? 'output [248320, 4096]' : 'output [151936, 4096]');
-
-      // Draw layers (bottom to top, layer 0 at bottom)
-      const layerStartY = embdY - gap - layerH;
-      for (let i = 0; i < layers; i++) {
-        const y = layerStartY - i * (layerH + gap);
-        const isFullAttn = fullAttnInterval === 1 || (i % fullAttnInterval === (fullAttnInterval - 1));
-        const attnFrac = 0.4; // attention takes ~40% of params
-        const attnW = colW * attnFrac;
-        const ffnW = colW * (1 - attnFrac);
-
-        // Attention portion
-        const attnColor = '#ff00aa';
-        const attnOpacity = isFullAttn ? 0.3 : 0.12;
-        svg.append('rect').attr('x', mL).attr('y', y).attr('width', attnW).attr('height', layerH)
-          .attr('fill', attnColor).attr('opacity', attnOpacity).attr('rx', 2)
-          .attr('stroke', attnColor).attr('stroke-width', isFullAttn ? 0.8 : 0.3);
-
-        // FFN portion
-        svg.append('rect').attr('x', mL + attnW).attr('y', y).attr('width', ffnW).attr('height', layerH)
-          .attr('fill', '#ff8800').attr('opacity', 0.2).attr('rx', 2)
-          .attr('stroke', '#ff8800').attr('stroke-width', 0.3);
-
-        // Layer number (every 4th or special ones)
-        if (i === 0 || i === layers - 1 || (i + 1) % 4 === 0) {
-          svg.append('text').attr('x', mL - 8).attr('y', y + layerH/2 + 3).attr('text-anchor', 'end')
-            .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 8)
-            .text('blk.' + i);
-        }
-
-        // Annotations for specific layers
-        if (i === 0) {
-          svg.append('text').attr('x', mL + colW + 8).attr('y', y + layerH/2 + 3)
-            .attr('fill', '#6a6a7e').attr('font-family', 'Source Serif 4, serif').attr('font-size', 10)
-            .attr('font-style', 'italic').text('syntax, position');
-        }
-        if (i === Math.floor(layers/2)) {
-          svg.append('text').attr('x', mL + colW + 8).attr('y', y + layerH/2 + 3)
-            .attr('fill', '#6a6a7e').attr('font-family', 'Source Serif 4, serif').attr('font-size', 10)
-            .attr('font-style', 'italic').text('facts, entities');
-        }
-        if (i === layers - 1) {
-          svg.append('text').attr('x', mL + colW + 8).attr('y', y + layerH/2 + 3)
-            .attr('fill', '#6a6a7e').attr('font-family', 'Source Serif 4, serif').attr('font-size', 10)
-            .attr('font-style', 'italic').text('task completion');
-        }
-
-        // Hybrid attention label for Qwen3.5
-        if (isQwen35 && !isFullAttn && i % 4 === 0) {
-          svg.append('text').attr('x', mL + attnW/2).attr('y', y + layerH/2 + 3).attr('text-anchor', 'middle')
-            .attr('fill', '#ff00aa').attr('opacity', 0.4)
-            .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 7)
-            .text('LINEAR');
-        }
-        if (isQwen35 && isFullAttn) {
-          svg.append('text').attr('x', mL + attnW/2).attr('y', y + layerH/2 + 3).attr('text-anchor', 'middle')
-            .attr('fill', '#ff00aa').attr('opacity', 0.7)
-            .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 7)
-            .text('FULL');
-        }
-      }
-
-      // Residual stream arrow
-      const arrowX = mL - 40;
-      svg.append('line').attr('x1', arrowX).attr('y1', embdY + layerH/2).attr('x2', arrowX).attr('y2', outY + layerH/2)
-        .attr('stroke', '#00ff88').attr('stroke-width', 1.5).attr('opacity', 0.3)
-        .attr('marker-end', 'none');
-      svg.append('text').attr('x', arrowX).attr('y', (embdY + outY)/2 + layerH/2)
-        .attr('text-anchor', 'middle').attr('fill', '#00ff88').attr('opacity', 0.4)
-        .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 8)
-        .attr('transform', `rotate(-90, ${arrowX}, ${(embdY + outY)/2 + layerH/2})`)
-        .text('RESIDUAL STREAM →');
-
-      // Legend
-      const legY = H - 20;
-      svg.append('rect').attr('x', mL).attr('y', legY - 8).attr('width', 12).attr('height', 8).attr('fill', '#ff00aa').attr('opacity', 0.3);
-      svg.append('text').attr('x', mL + 16).attr('y', legY).attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9).text('Attention');
-      svg.append('rect').attr('x', mL + 100).attr('y', legY - 8).attr('width', 12).attr('height', 8).attr('fill', '#ff8800').attr('opacity', 0.2);
-      svg.append('text').attr('x', mL + 116).attr('y', legY).attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9).text('FFN');
-      svg.append('rect').attr('x', mL + 180).attr('y', legY - 8).attr('width', 12).attr('height', 8).attr('fill', '#00ff88').attr('opacity', 0.25);
-      svg.append('text').attr('x', mL + 196).attr('y', legY).attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9).text('Embed / Output');
-    }
-
-    draw();
-
-    document.getElementById('stack-qwen3').addEventListener('click', function() {
-      mode = 'qwen3';
-      this.classList.add('active');
-      document.getElementById('stack-qwen35').classList.remove('active');
-      draw();
-    });
-    document.getElementById('stack-qwen35').addEventListener('click', function() {
-      mode = 'qwen35';
-      this.classList.add('active');
-      document.getElementById('stack-qwen3').classList.remove('active');
-      draw();
-    });
-  })();
-  </script>
 
   <!-- ── VIZ 4: Precision Heatmap ── -->
   <script>
@@ -2218,104 +1578,228 @@
   })();
   </script>
 
-  <!-- ── VIZ 5: Model Fingerprints ── -->
+  <!-- ── Quant Explorer (metadata-tree style) ── -->
   <script>
   (function() {
-    const svg = d3.select('#viz-fingerprints');
-    const W = 780, H = 520;
+    var Q = [
+      { name:'IQ2_XXS', family:'I-quant', bpw:2.38, color:'#ff3344', size27b:'~8.0 GB', fits:'12GB GPU / 16GB Mac', quality:'Poor',
+        desc:'The smallest possible GGUF. Non-linear codebook quantization at extreme compression. Requires a high-quality importance matrix — without one, the model babbles.',
+        when:'Research, testing, or proving a 27B model can technically run on a MacBook Air. Not for real use.',
+        eureka:'At 2.38 bpw, more than 85% of the original information is discarded. The fact that it works at all is a testament to how redundant neural network weights are.' },
+      { name:'Q2_K', family:'K-quant', bpw:3.16, color:'#ff3344', size27b:'~10.7 GB', fits:'16GB Mac / 12GB GPU', quality:'Poor',
+        desc:'Emergency 2-bit K-quant. Super-block structure with double quantization, but at 2-bit the quality floor is low. Noticeable degradation in reasoning and coherence.',
+        when:'You absolutely must fit a large model in limited VRAM and accept the quality hit.',
+        eureka:'Q2_K is the floor of usable quantization. Below this, models lose the ability to follow instructions reliably.' },
+      { name:'IQ3_XXS', family:'I-quant', bpw:3.25, color:'#ff8800', size27b:'~11.0 GB', fits:'16GB Mac', quality:'Fair',
+        desc:'Aggressive 3-bit codebook quantization. The importance matrix concentrates representable values where weight density is highest.',
+        when:'Extreme compression where I-quant quality advantage over K-quant matters most — at low bit-widths, codebooks shine.',
+        eureka:'Below 4 bits, I-quants pull ahead of K-quants significantly. The codebook approach handles sparse weight distributions better than uniform grids.' },
+      { name:'IQ3_XS', family:'I-quant', bpw:3.50, color:'#ff8800', size27b:'~11.8 GB', fits:'16GB Mac', quality:'Fair+',
+        desc:'Less aggressive than IQ3_XXS. Better quality at slightly larger size. Still codebook-based with importance matrix.',
+        when:'Best quality you can get at ~3.5 bpw. If you need extreme compression, this is the sweet spot for I-quants.',
+        eureka:'IQ3_XS at 3.50 bpw beats Q3_K_S at 3.64 bpw on quality — fewer bits, better result. That is the I-quant advantage.' },
+      { name:'Q3_K_S', family:'K-quant', bpw:3.64, color:'#ff8800', size27b:'~12.3 GB', fits:'16GB Mac (tight)', quality:'Fair',
+        desc:'3-bit K-quant with no tensor promotion. Every tensor quantized uniformly at the base bit-width. The _S suffix means no edges get extra precision.',
+        when:'You want K-quant simplicity (no imatrix needed) at 3-bit. Acceptable for casual chat, noticeable on reasoning tasks.',
+        eureka:'_S means "small precision budget" — literally no tensors promoted. Compare Q3_K_M where critical tensors get bumped to Q4_K.' },
+      { name:'Q3_K_M', family:'K-quant', bpw:3.99, color:'#ff8800', size27b:'~13.5 GB', fits:'16GB Mac', quality:'Fair',
+        desc:'3-bit base with medium promotion: attn_v, attn_output, and ffn_down tensors promoted to Q4_K. The edges of the network get 33% more precision.',
+        when:'Best 3-bit K-quant for general use. The promotion policy noticeably improves coherence over Q3_K_S.',
+        eureka:'The _M promotion adds only 0.35 bpw of overhead but measurably improves output quality. That is the entire point of mixed precision.' },
+      { name:'Q4_0', family:'Legacy', bpw:4.50, color:'#ffdd00', size27b:'~15.2 GB', fits:'16GB GPU / 24GB Mac', quality:'Decent',
+        desc:'The original 4-bit quantization. Simple blocks of 32 weights with one FP16 scale each. No double quantization, no sub-blocks.',
+        when:'Never. Use Q4_K_S or Q4_K_M instead. Q4_0 exists for backwards compatibility and benchmarks.',
+        eureka:'Q4_0 and Q4_K_S use similar storage but Q4_K\'s double quantization produces measurably better quality. There is no reason to choose Q4_0 in 2025.', star:true },
+      { name:'IQ4_XS', family:'I-quant', bpw:4.46, color:'#00ff88', size27b:'~15.1 GB', fits:'16GB GPU / 24GB Mac', quality:'Good+',
+        desc:'4-bit codebook quantization with importance matrix. Non-linear value mapping tuned to each layer\'s weight distribution. 8% smaller than Q4_K_M with comparable quality.',
+        when:'You want Q4_K_M quality in a smaller file — or you are bandwidth-constrained (downloading over slow connections, deploying to edge).',
+        eureka:'IQ4_XS is the stealth pick. Same quality tier as Q4_K_M, 8% smaller, but requires an importance matrix to quantize. Most HuggingFace uploads include one.' },
+      { name:'Q4_K_S', family:'K-quant', bpw:4.67, color:'#ffdd00', size27b:'~15.8 GB', fits:'24GB Mac / 16GB GPU (tight)', quality:'Good',
+        desc:'4-bit K-quant, minimal promotion. Only embedding and output head get higher precision. The tightest 4-bit K-quant.',
+        when:'You need 4-bit quality and every megabyte counts — e.g. fitting Qwen3-27B into exactly 16GB VRAM.',
+        eureka:'The gap between Q4_K_S and Q4_K_M is only 0.22 bpw (~700 MB for 27B) but the quality difference is noticeable on long-form generation. The _M promotion is worth it if you can afford it.' },
+      { name:'Q4_K_M', family:'K-quant', bpw:4.89, color:'#00ff88', size27b:'~16.5 GB', fits:'24GB Mac / 24GB GPU (4090)', quality:'Good+', star:true,
+        desc:'The community default. 4-bit base with medium promotion — attn_v, attn_output, and ffn_down promoted to Q6_K. 70% smaller than FP16 with barely perceptible quality loss.',
+        when:'<strong>Start here.</strong> Unless you have a specific reason to choose something else, Q4_K_M is the right answer. It is the most downloaded quant type on HuggingFace for a reason.',
+        eureka:'At Q4_K_M, a 27B model fits on a single 4090. At FP16, the same model needs two 4090s or an A100. The quant type is a $1,500 hardware decision.' },
+      { name:'Q5_K_S', family:'K-quant', bpw:5.57, color:'#00ff88', size27b:'~18.8 GB', fits:'24GB GPU', quality:'Very good',
+        desc:'5-bit K-quant, minimal promotion. Higher base precision means less dependence on the promotion policy.',
+        when:'You have 24GB VRAM and want better quality than Q4_K_M without going all the way to Q5_K_M.',
+        eureka:'At 5-bit, the quality gap between _S and _M narrows significantly. The extra precision at the base level does most of the work.' },
+      { name:'Q5_K_M', family:'K-quant', bpw:5.70, color:'#00ff88', size27b:'~19.2 GB', fits:'24GB GPU', quality:'Very good', star:true,
+        desc:'5-bit with medium promotion. Hard to distinguish from FP16 on most tasks. The sweet spot for users who have VRAM to spare.',
+        when:'<strong>If you have the VRAM, always pick this over Q4_K_M.</strong> Only 16% larger but noticeably better on reasoning, coding, and long-context tasks.',
+        eureka:'The jump from Q4_K_M to Q5_K_M is the single most impactful upgrade in the quant lineup. More than any other step, this is where "good enough" becomes "hard to tell from the original."' },
+      { name:'Q6_K', family:'K-quant', bpw:6.56, color:'#00ff88', size27b:'~22.1 GB', fits:'24GB GPU (tight)', quality:'Excellent',
+        desc:'6-bit K-quant. Near-lossless — only +0.03 perplexity from FP16. No suffix needed because the quality is uniformly high.',
+        when:'Quality-critical applications: medical, legal, long-document analysis. Or when you want to eliminate quantization as a variable during evaluation.',
+        eureka:'Q6_K exists in the strange zone where you are paying 33% more storage than Q5_K_M for a quality gain most humans cannot detect. It is insurance, not optimization.' },
+      { name:'Q8_0', family:'Legacy', bpw:8.50, color:'#00ff88', size27b:'~28.7 GB', fits:'48GB GPU (A6000)', quality:'Excellent',
+        desc:'8-bit legacy quantization. Effectively lossless — the perplexity impact rounds to zero. Simple dequant makes it the fastest format on CPU.',
+        when:'Baseline for quality comparisons, or CPU inference where the simple dequant kernel matters more than file size.',
+        eureka:'Q8_0 is a legacy format but it is the fastest to dequantize on CPU — the operation is just a multiply. K-quants need more math per weight. For pure CPU throughput, Q8_0 wins.' },
+    ];
 
-    const models = {
-      qwen3: {
-        name: 'Qwen3-8B', year: '2025',
-        props: [
-          ['Architecture', 'qwen3', '#00ff88'],
-          ['Parameters', '8.2B', '#e8e8f0'],
-          ['Layers', '36', '#00ddff'],
-          ['Heads (Q)', '32 × 128', '#ff00aa'],
-          ['Heads (KV)', '8 × 128', '#ff00aa'],
-          ['GQA Ratio', '4:1', '#ff00aa'],
-          ['FFN Width', '12,288', '#ff8800'],
-          ['FFN Type', 'SwiGLU (3 proj)', '#ff8800'],
-          ['Norm', 'RMSNorm', '#ffdd00'],
-          ['Position', 'RoPE (θ=1M)', '#aa44ff'],
-          ['Bias', 'None', '#00ff88'],
-          ['Vocab', '151,936', '#e8e8f0'],
-          ['Context', '40,960', '#e8e8f0'],
-        ]
-      },
-      gpt2: {
-        name: 'GPT-2 124M', year: '2019',
-        props: [
-          ['Architecture', 'gpt2', '#00ff88'],
-          ['Parameters', '124M', '#e8e8f0'],
-          ['Layers', '12', '#00ddff'],
-          ['Heads (Q)', '12 × 64', '#ff00aa'],
-          ['Heads (KV)', '12 × 64', '#ff00aa'],
-          ['GQA Ratio', 'None (MHA)', '#6a6a7e'],
-          ['FFN Width', '3,072', '#ff8800'],
-          ['FFN Type', 'GELU (2 proj)', '#ff8800'],
-          ['Norm', 'LayerNorm', '#ffdd00'],
-          ['Position', 'Learned [1024]', '#aa44ff'],
-          ['Bias', 'Everywhere', '#ff3344'],
-          ['Vocab', '50,257', '#e8e8f0'],
-          ['Context', '1,024', '#e8e8f0'],
-        ]
-      }
-    };
+    var list = document.getElementById('quant-list');
+    var detail = document.getElementById('quant-detail');
+    if (!list || !detail) return;
 
-    const colW = 340;
-    const mL = 50, gap = 40;
-    const rowH = 28;
-    const headerY = 60;
-
-    // Title
-    svg.append('text').attr('x', W/2).attr('y', 26).attr('text-anchor', 'middle')
-      .attr('fill', '#e8e8f0').attr('font-family', 'JetBrains Mono, monospace')
-      .attr('font-size', 13).attr('font-weight', 600)
-      .text('Model Fingerprints — 2019 vs 2025');
-
-    // Column headers
-    [models.qwen3, models.gpt2].forEach((m, mi) => {
-      const x = mL + mi * (colW + gap);
-      svg.append('text').attr('x', x + colW/2).attr('y', headerY - 10).attr('text-anchor', 'middle')
-        .attr('fill', '#00ff88').attr('font-family', 'JetBrains Mono, monospace')
-        .attr('font-size', 14).attr('font-weight', 600)
-        .text(m.name);
-      svg.append('text').attr('x', x + colW/2).attr('y', headerY + 6).attr('text-anchor', 'middle')
-        .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
-        .attr('font-size', 10).text(m.year);
-
-      svg.append('line').attr('x1', x).attr('y1', headerY + 14).attr('x2', x + colW).attr('y2', headerY + 14)
-        .attr('stroke', '#1e1e2e').attr('stroke-width', 1);
-
-      m.props.forEach((prop, pi) => {
-        const y = headerY + 30 + pi * rowH;
-        // Label
-        svg.append('text').attr('x', x + 6).attr('y', y + 4)
-          .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
-          .attr('font-size', 10).text(prop[0]);
-        // Value
-        svg.append('text').attr('x', x + colW - 6).attr('y', y + 4).attr('text-anchor', 'end')
-          .attr('fill', prop[2]).attr('font-family', 'JetBrains Mono, monospace')
-          .attr('font-size', 11).attr('font-weight', 500)
-          .text(prop[1]);
-
-        // Separator line
-        svg.append('line').attr('x1', x).attr('y1', y + 12).attr('x2', x + colW).attr('y2', y + 12)
-          .attr('stroke', '#1e1e2e').attr('stroke-width', 0.5);
-      });
+    Q.forEach(function(q) {
+      var div = document.createElement('div');
+      div.className = 'meta-entry';
+      div.onclick = function() {
+        list.querySelectorAll('.meta-entry').forEach(function(e) { e.classList.remove('active'); });
+        div.classList.add('active');
+        detail.innerHTML =
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">' +
+            '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + q.color + ';box-shadow:0 0 6px ' + q.color + '40;"></span>' +
+            '<span style="font-family:JetBrains Mono,monospace;font-size:14px;font-weight:700;color:' + q.color + ';">' + q.name + '</span>' +
+            '<span class="tbadge" style="font-size:8px;padding:1px 6px;background:rgba(255,255,255,0.06);border:1px solid var(--border);border-radius:3px;color:var(--text-dim);">' + q.family + '</span>' +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;margin:8px 0 12px;font-family:JetBrains Mono,monospace;font-size:11px;">' +
+            '<div><span style="color:var(--text-dim);">bpw</span> <strong style="color:var(--white);">' + q.bpw + '</strong></div>' +
+            '<div><span style="color:var(--text-dim);">quality</span> <strong style="color:' + q.color + ';">' + q.quality + '</strong></div>' +
+            '<div><span style="color:var(--text-dim);">27B size</span> <strong style="color:var(--white);">' + q.size27b + '</strong></div>' +
+            '<div><span style="color:var(--text-dim);">fits on</span> <strong style="color:var(--white);">' + q.fits + '</strong></div>' +
+          '</div>' +
+          '<div style="border-left:2px solid rgba(245,158,11,0.4);padding:6px 10px;font-size:12px;color:#c8c8d4;line-height:1.6;margin-bottom:6px;">' + q.desc + '</div>' +
+          '<div style="border-left:2px solid rgba(0,136,255,0.4);padding:6px 10px;font-size:11px;color:#a1a1aa;line-height:1.55;margin-bottom:6px;"><strong style="color:var(--cyan);font-size:10px;text-transform:uppercase;letter-spacing:0.05em;">When to use</strong><br>' + q.when + '</div>' +
+          '<div style="border-left:2px solid rgba(0,255,136,0.4);padding:6px 10px;font-size:11px;color:#a1a1aa;line-height:1.55;"><span style="color:rgba(0,255,136,0.7);font-weight:700;margin-right:4px;">\u2605</span>' + q.eureka + '</div>';
+      };
+      div.innerHTML =
+        '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + q.color + ';margin-right:8px;flex-shrink:0;"></span>' +
+        '<span class="meta-key">' + q.name + '</span>' +
+        '<span style="color:#52525b;font-size:9px;font-family:JetBrains Mono,monospace;margin-left:auto;white-space:nowrap;">' + q.size27b + '</span>' +
+        '<span class="meta-val" style="color:#6a6a7e;font-size:10px;margin-left:8px;white-space:nowrap;">' + q.bpw + ' bpw</span>';
+      list.appendChild(div);
     });
+    // Auto-select Q4_K_M
+    var defaultEntry = list.querySelector('.meta-entry:nth-child(10)');
+    if (defaultEntry) defaultEntry.click();
+  })();
+  </script>
 
-    // Divider line between columns
-    const divX = mL + colW + gap/2;
-    svg.append('line').attr('x1', divX).attr('y1', headerY - 20).attr('x2', divX).attr('y2', H - 30)
-      .attr('stroke', '#2a2a4a').attr('stroke-width', 1).attr('stroke-dasharray', '4,4');
+  <!-- ── AWQ Variant Explorer ── -->
+  <script>
+  (function() {
+    var A = [
+      { name:'AWQ 4-bit g128', bpw:4.0, color:'#ff8800', size27b:'~13.5 GB', fits:'24GB GPU (4090)', quality:'Good+',
+        desc:'The standard AWQ configuration. 4-bit weights with group size 128. Asymmetric uniform quantization — each group of 128 weights gets its own scale and zero-point. Activation-aware: salient weight channels are scaled up before quantizing to preserve the weights that matter most.',
+        when:'<strong>GPU serving with vLLM or TGI.</strong> AWQ is the native format for production inference at scale. Continuous batching, tensor-core-optimised weight layout, one-line HuggingFace loading.',
+        eureka:'AWQ\'s quality matches GGUF Q4_K_M at the same bpw — but it runs 2-3x faster on GPU because the weight layout is designed for CUDA tensor cores, not CPU dequant.' },
+      { name:'AWQ 4-bit g64', bpw:4.0, color:'#ff8800', size27b:'~14.2 GB', fits:'24GB GPU', quality:'Good++',
+        desc:'Smaller group size — 64 weights per group instead of 128. More scale/zero-point parameters = better accuracy but ~5% more overhead. Rare on HuggingFace.',
+        when:'Quality-sensitive GPU serving where the extra overhead is acceptable. Some careful quantizers use g64 for models where g128 shows degradation.',
+        eureka:'Halving the group size doubles the number of scale parameters. The quality gain is small but measurable — typically 0.05-0.1 PPL improvement.' },
+      { name:'AWQ + Marlin', bpw:4.0, color:'#ff8800', size27b:'~13.5 GB', fits:'24GB GPU', quality:'Good+',
+        desc:'Same AWQ quantization, different inference kernel. Marlin is a fast 4-bit GPU kernel that achieves near-FP16 throughput. The weights are identical — Marlin just dequantizes them faster.',
+        when:'Maximum GPU throughput. Marlin can be 30-50% faster than the default GEMM kernel. Requires NVIDIA GPU with compute capability 8.0+.',
+        eureka:'Marlin doesn\'t change what\'s in the file — it changes how fast the GPU reads it. Same weights, same quality, dramatically different speed. The kernel is the bottleneck, not the format.' },
+    ];
+    var list = document.getElementById('awq-list');
+    var detail = document.getElementById('awq-detail');
+    if (!list || !detail) return;
+    A.forEach(function(q) {
+      var div = document.createElement('div');
+      div.className = 'meta-entry';
+      div.onclick = function() {
+        var wasActive = div.classList.contains('active');
+        list.querySelectorAll('.meta-entry').forEach(function(e) { e.classList.remove('active'); });
+        if (wasActive) { detail.style.display = 'none'; return; }
+        div.classList.add('active');
+        detail.style.display = 'block';
+        detail.innerHTML =
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">' +
+            '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + q.color + ';box-shadow:0 0 6px ' + q.color + '40;"></span>' +
+            '<span style="font-family:JetBrains Mono,monospace;font-size:14px;font-weight:700;color:' + q.color + ';">' + q.name + '</span>' +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:4px 12px;margin:8px 0 12px;font-family:JetBrains Mono,monospace;font-size:11px;">' +
+            '<div><span style="color:var(--text-dim);">bpw</span> <strong style="color:var(--white);">' + q.bpw + '</strong></div>' +
+            '<div><span style="color:var(--text-dim);">quality</span> <strong style="color:' + q.color + ';">' + q.quality + '</strong></div>' +
+            '<div><span style="color:var(--text-dim);">27B</span> <strong style="color:var(--white);">' + q.size27b + '</strong></div>' +
+            '<div><span style="color:var(--text-dim);">fits</span> <strong style="color:var(--white);">' + q.fits + '</strong></div>' +
+          '</div>' +
+          '<div style="border-left:2px solid rgba(245,158,11,0.4);padding:6px 10px;font-size:12px;color:#c8c8d4;line-height:1.6;margin-bottom:6px;">' + q.desc + '</div>' +
+          '<div style="border-left:2px solid rgba(0,136,255,0.4);padding:6px 10px;font-size:11px;color:#a1a1aa;line-height:1.55;margin-bottom:6px;"><strong style="color:var(--cyan);font-size:10px;text-transform:uppercase;letter-spacing:0.05em;">When to use</strong><br>' + q.when + '</div>' +
+          '<div style="border-left:2px solid rgba(0,255,136,0.4);padding:6px 10px;font-size:11px;color:#a1a1aa;line-height:1.55;"><span style="color:rgba(0,255,136,0.7);font-weight:700;margin-right:4px;">\u2605</span>' + q.eureka + '</div>';
+      };
+      div.innerHTML =
+        '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + q.color + ';margin-right:8px;flex-shrink:0;"></span>' +
+        '<span class="meta-key">' + q.name + '</span>' +
+        '<span style="color:#52525b;font-size:9px;font-family:JetBrains Mono,monospace;margin-left:auto;white-space:nowrap;">' + q.size27b + '</span>' +
+        '<span class="meta-val" style="color:#6a6a7e;font-size:10px;margin-left:8px;white-space:nowrap;">' + q.bpw + ' bpw</span>';
+      list.appendChild(div);
+    });
+    var defaultEntry = list.querySelector('.meta-entry:nth-child(1)');
+    if (defaultEntry) defaultEntry.click();
+  })();
+  </script>
 
-    // Bottom note
-    svg.append('text').attr('x', W/2).attr('y', H - 12).attr('text-anchor', 'middle')
-      .attr('fill', '#6a6a7e').attr('font-family', 'Source Serif 4, serif')
-      .attr('font-size', 11).attr('font-style', 'italic')
-      .text('Every advancement from 2019 to 2025 is legible in the tensor manifest');
+  <!-- ── EXL2 Variant Explorer ── -->
+  <script>
+  (function() {
+    var E = [
+      { name:'EXL2 3.0 bpw', bpw:3.0, color:'#ff8800', size27b:'~10.1 GB', fits:'12GB GPU / 16GB Mac', quality:'Fair',
+        desc:'Aggressive compression. Per-column allocation means some columns are 2-bit while others are 5-bit — the average is 3.0. Quality is better than GGUF Q3_K_M at the same bpw thanks to measurement-driven allocation.',
+        when:'Large models on constrained VRAM. EXL2 3.0 can fit a 27B model where GGUF Q3_K_M cannot. GPU-only.',
+        eureka:'At 3 bpw, EXL2\'s per-column allocation shines hardest. Uniform quantization wastes bits on insensitive columns. EXL2 gives them 2 bits and spends the savings where it matters.' },
+      { name:'EXL2 3.5 bpw', bpw:3.5, color:'#ff8800', size27b:'~11.8 GB', fits:'16GB GPU', quality:'Fair+',
+        desc:'The sweet spot for extreme compression on GPU. Half a bit more than 3.0 makes a noticeable quality difference because the knapsack solver can promote more sensitive columns.',
+        when:'You need a 27B model on a 16GB GPU and GGUF won\'t fit. EXL2 3.5 is the best quality you can get in that VRAM envelope.',
+        eureka:'0.5 bpw sounds tiny but it is 1.7 GB more budget for a 27B model. The knapsack solver distributes that across thousands of columns — each one gets a bit better.' },
+      { name:'EXL2 4.0 bpw', bpw:4.0, color:'#00ddff', size27b:'~13.5 GB', fits:'16-24GB GPU', quality:'Good+',
+        desc:'The standard EXL2 target. Matches or beats GGUF Q4_K_M and AWQ 4-bit on quality benchmarks. Columns range from 2-bit to 6-bit internally; 4.0 is the average.',
+        when:'<strong>Maximum quality per bit on NVIDIA GPU.</strong> If you have ExLlamaV2 and the VRAM, this is the best 4-bit experience available.',
+        eureka:'At 4 bpw, EXL2 typically beats both GGUF and AWQ on perplexity. The per-column measurement catches weight sensitivities that per-tensor (GGUF) and per-group (AWQ) policies miss.' },
+      { name:'EXL2 5.0 bpw', bpw:5.0, color:'#00ddff', size27b:'~16.9 GB', fits:'24GB GPU', quality:'Very good',
+        desc:'High quality with fine-grained allocation. The extra bit budget lets the solver promote most sensitive columns to 6-8 bit while keeping insensitive ones at 3-4.',
+        when:'Quality-critical GPU inference where you have VRAM to spare. Comparable to GGUF Q5_K_M but with finer precision control.',
+        eureka:'At 5 bpw the quality advantage over GGUF narrows — there are enough bits that even uniform allocation works well. EXL2\'s advantage is strongest at lower bpw.' },
+      { name:'EXL2 6.5 bpw', bpw:6.5, color:'#00ddff', size27b:'~21.9 GB', fits:'24GB GPU (tight)', quality:'Excellent',
+        desc:'Near-lossless with measurement-driven allocation. At this budget, most columns get 6-8 bits. The few that are truly insensitive get 4-5.',
+        when:'When you want near-FP16 quality on GPU with ExLlamaV2. Comparable to GGUF Q6_K.',
+        eureka:'At 6.5 bpw you are in "insurance" territory. The quality gain over 5.0 bpw is marginal for most tasks. But for long-context reasoning or code generation, it can matter.' },
+      { name:'EXL2 8.0 bpw', bpw:8.0, color:'#00ddff', size27b:'~27.0 GB', fits:'48GB GPU', quality:'Excellent',
+        desc:'Effectively lossless. Most columns at 8 bits, some at 6. Exists mainly for quality baselines and evaluation.',
+        when:'Benchmarking and evaluation where you need to isolate quantization effects. Not practical for daily use — FP16 is simpler at this size.',
+        eureka:'If your EXL2 is 8 bpw you should probably just use FP16. The per-column allocation adds complexity with negligible quality gain at this budget.' },
+    ];
+    var list = document.getElementById('exl2-list');
+    var detail = document.getElementById('exl2-detail');
+    if (!list || !detail) return;
+    E.forEach(function(q) {
+      var div = document.createElement('div');
+      div.className = 'meta-entry';
+      div.onclick = function() {
+        var wasActive = div.classList.contains('active');
+        list.querySelectorAll('.meta-entry').forEach(function(e) { e.classList.remove('active'); });
+        if (wasActive) { detail.style.display = 'none'; return; }
+        div.classList.add('active');
+        detail.style.display = 'block';
+        detail.innerHTML =
+          '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">' +
+            '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + q.color + ';box-shadow:0 0 6px ' + q.color + '40;"></span>' +
+            '<span style="font-family:JetBrains Mono,monospace;font-size:14px;font-weight:700;color:' + q.color + ';">' + q.name + '</span>' +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:4px 12px;margin:8px 0 12px;font-family:JetBrains Mono,monospace;font-size:11px;">' +
+            '<div><span style="color:var(--text-dim);">bpw</span> <strong style="color:var(--white);">' + q.bpw + '</strong></div>' +
+            '<div><span style="color:var(--text-dim);">quality</span> <strong style="color:' + q.color + ';">' + q.quality + '</strong></div>' +
+            '<div><span style="color:var(--text-dim);">27B</span> <strong style="color:var(--white);">' + q.size27b + '</strong></div>' +
+            '<div><span style="color:var(--text-dim);">fits</span> <strong style="color:var(--white);">' + q.fits + '</strong></div>' +
+          '</div>' +
+          '<div style="border-left:2px solid rgba(245,158,11,0.4);padding:6px 10px;font-size:12px;color:#c8c8d4;line-height:1.6;margin-bottom:6px;">' + q.desc + '</div>' +
+          '<div style="border-left:2px solid rgba(0,136,255,0.4);padding:6px 10px;font-size:11px;color:#a1a1aa;line-height:1.55;margin-bottom:6px;"><strong style="color:var(--cyan);font-size:10px;text-transform:uppercase;letter-spacing:0.05em;">When to use</strong><br>' + q.when + '</div>' +
+          '<div style="border-left:2px solid rgba(0,255,136,0.4);padding:6px 10px;font-size:11px;color:#a1a1aa;line-height:1.55;"><span style="color:rgba(0,255,136,0.7);font-weight:700;margin-right:4px;">\u2605</span>' + q.eureka + '</div>';
+      };
+      div.innerHTML =
+        '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + q.color + ';margin-right:8px;flex-shrink:0;"></span>' +
+        '<span class="meta-key">' + q.name + '</span>' +
+        '<span style="color:#52525b;font-size:9px;font-family:JetBrains Mono,monospace;margin-left:auto;white-space:nowrap;">' + q.size27b + '</span>' +
+        '<span class="meta-val" style="color:#6a6a7e;font-size:10px;margin-left:8px;white-space:nowrap;">' + q.bpw + ' bpw</span>';
+      list.appendChild(div);
+    });
+    var defaultEntry = list.querySelector('.meta-entry:nth-child(3)');
+    if (defaultEntry) defaultEntry.click();
   })();
   </script>
 

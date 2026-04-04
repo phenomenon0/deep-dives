@@ -1,0 +1,892 @@
+  <!-- ── VIZ 1b, 2, 3: Tensor Explorer + Block Circuit + Layer Stack (removed — to be moved to Building It Right) ── -->
+  <!-- <script>
+  (function() {
+    const C = { attn: '#ff00aa', ffn: '#ff8800', norm: '#ffdd00', ssm: '#00ddff', moe: '#aa44ff' };
+
+    const TENSORS = { qwen3: [
+      { name: 'attn_norm', shape: '[4096]', color: C.norm, role: 'RMSNorm',
+        op: '<span class="op-in">x [4096]</span> <span class="op-sym">→ normalize → ×</span> <span class="op-mat">γ [4096]</span> <span class="op-sym">=</span> <span class="op-out">stable [4096]</span>',
+        desc: 'A learned per-dimension scale factor. The input gets normalized to unit magnitude, then each of its 4,096 dimensions is scaled independently. Think of it as a volume knob per feature — it ensures the attention math receives consistent magnitudes regardless of what earlier layers produced. Without it, activation magnitudes drift across layers and the model destabilizes.',
+        eureka: 'RMSNorm has no bias, no mean subtraction. Just x ÷ √(mean(x²)), then scale by γ. That simplicity — fewer parameters, fewer ops — is why every model since LLaMA dropped LayerNorm.' },
+
+      { name: 'attn_q', shape: '[4096, 4096]', color: C.attn, role: '"What am I looking for?"',
+        op: '<span class="op-in">token [4096]</span> <span class="op-sym">×</span> <span class="op-mat">W_q [4096, 4096]</span> <span class="op-sym">=</span> <span class="op-out">32 queries [32 × 128]</span>',
+        desc: 'Every token\'s 4,096-dim representation gets projected into 32 independent query vectors of 128 dimensions each. Each query head learns to attend to different kinds of relationships — one might specialize in syntax, another in coreference ("who does <em>they</em> refer to?"), another in factual associations. The 32 heads see the same input but ask different questions of it.',
+        eureka: '32 heads × 128 dims = 4,096. The matrix is square because every input dimension contributes to every query head. Square Q matrix = no information loss in the projection.' },
+
+      { name: 'attn_k', shape: '[1024, 4096]', color: C.attn, role: '"What do I contain?"',
+        op: '<span class="op-in">token [4096]</span> <span class="op-sym">×</span> <span class="op-mat">W_k [1024, 4096]</span> <span class="op-sym">=</span> <span class="op-out">8 keys [8 × 128]</span>',
+        desc: 'Same input, but this matrix outputs only 8 key vectors — <strong>not 32</strong>. That\'s <span class="popup-link" data-popup="gqa">Grouped Query Attention</span>. Each of the 8 key heads is shared by 4 query heads. The query heads ask different questions, but they search against the same set of keys. This means the KV cache (which stores keys and values for every token in the context) is 4× smaller than full MHA. For a 40K-token context, that\'s the difference between fitting in VRAM or not.',
+        eureka: 'The shape tells you everything. [1024, 4096] not [4096, 4096] — that\'s 8 heads, not 32. The ratio (32 ÷ 8 = 4:1) IS the GQA ratio. You can read GQA from one tensor shape.' },
+
+      { name: 'attn_v', shape: '[1024, 4096]', color: C.attn, role: '"Here is my content"',
+        op: '<span class="op-in">token [4096]</span> <span class="op-sym">×</span> <span class="op-mat">W_v [1024, 4096]</span> <span class="op-sym">=</span> <span class="op-out">8 values [8 × 128]</span>',
+        desc: 'Attention scores (from Q·K) decide <em>which</em> tokens matter. The value projection provides <em>what</em> to retrieve from the tokens that matter. Same GQA compression: 8 value heads, each shared by 4 query heads. K and V together form the "memory" that gets cached and reused as the model generates each new token.',
+        eureka: 'K and V are always the same shape — they\'re a pair. Together they\'re the KV cache. Smaller K+V = faster generation, because each new token only computes Q (not K and V) for past positions.' },
+
+      { name: 'attn_output', shape: '[4096, 4096]', color: C.attn, role: 'Merge heads',
+        op: '<span class="op-in">concat(32 heads) [4096]</span> <span class="op-sym">×</span> <span class="op-mat">W_o [4096, 4096]</span> <span class="op-sym">=</span> <span class="op-out">merged [4096]</span>',
+        desc: 'The 32 attention heads each produce a 128-dim output. Concatenated, that\'s [4096]. This matrix blends them — it\'s the "merge" after the "scatter." The model learns how to combine what each head found into a single coherent update to the residual stream.',
+        eureka: 'This is the only attention tensor that touches all 32 heads at once. Q, K, V all operate per-head. The output projection is where the heads talk to each other.' },
+
+      { name: 'ffn_norm', shape: '[4096]', color: C.norm, role: 'RMSNorm',
+        op: '<span class="op-in">x [4096]</span> <span class="op-sym">→ normalize → ×</span> <span class="op-mat">γ [4096]</span> <span class="op-sym">=</span> <span class="op-out">stable [4096]</span>',
+        desc: 'Same mechanism as attn_norm, but positioned between attention and the FFN. Stabilizes the residual stream before the next transformation.',
+        eureka: 'Every block has exactly 2 norms: one before attention, one before FFN. That\'s 72 norm vectors in a 36-layer model — 72 × 4,096 = 295K parameters just for normalization.' },
+
+      { name: 'ffn_gate', shape: '[12288, 4096]', color: C.ffn, role: 'SwiGLU gate',
+        op: '<span class="op-in">x [4096]</span> <span class="op-sym">×</span> <span class="op-mat">W_gate [12288, 4096]</span> <span class="op-sym">=</span> <span class="op-out">gate [12288]</span> <span class="op-sym">then gate ⊙ up</span>',
+        desc: 'This tensor exists in SwiGLU models (LLaMA, Qwen, Mistral) but <strong>not</strong> in GELU models (GPT-2). It produces a gating signal — 12,288 values between 0 and 1 — that element-wise multiplies the <code>ffn_up</code> output. Each intermediate neuron is either activated or suppressed. The model learns which knowledge pathways to open for each input.',
+        eureka: 'If you see ffn_gate in the manifest → SwiGLU (3 FFN projections). Missing → GELU (2 projections). The tensor count tells you the activation function. No other signal needed.' },
+
+      { name: 'ffn_up', shape: '[12288, 4096]', color: C.ffn, role: 'Expand',
+        op: '<span class="op-in">x [4096]</span> <span class="op-sym">×</span> <span class="op-mat">W_up [12288, 4096]</span> <span class="op-sym">=</span> <span class="op-out">expanded [12288]</span>',
+        desc: 'Projects from 4,096 into 12,288 dimensions — 3× wider. This is the model\'s "thinking space." The wider representation gives it room to compute: pattern matching, factual recall, reasoning all happen in this expanded space before compressing back.',
+        eureka: 'FFN width ÷ hidden dim = the compute ratio. Here it\'s 12,288 ÷ 4,096 = 3×. More width = more compute per layer, more parameters, more knowledge capacity.' },
+
+      { name: 'ffn_down', shape: '[4096, 12288]', color: C.ffn, role: 'Compress',
+        op: '<span class="op-in">gate ⊙ up [12288]</span> <span class="op-sym">×</span> <span class="op-mat">W_down [4096, 12288]</span> <span class="op-sym">=</span> <span class="op-out">output [4096]</span> <span class="op-sym">→ + residual</span>',
+        desc: 'Compresses the gated intermediate back to 4,096 dims. The result is added to the residual stream — not replacing it, but contributing to it. One layer\'s entire processing, complete. The next layer reads this updated stream and refines it further.',
+        eureka: 'Shape is [4096, 12288] — the mirror of ffn_up\'s [12288, 4096]. Expand → gate → compress. An autoencoder bottleneck within each layer, with the gate deciding what passes through.' },
+    ]};
+
+    // ── Other architectures ──
+    TENSORS.gpt2 = [
+      { name: 'attn_norm', shape: '[768]', color: C.norm, role: 'LayerNorm', desc: 'LayerNorm with weight AND bias — the older normalization. GPT-2 has bias on everything.', eureka: 'See attn_norm.bias? LayerNorm. Modern models dropped the bias for RMSNorm.' },
+      { name: 'attn_qkv', shape: '[2304, 768]', color: C.attn, role: 'Fused Q+K+V', star: true, desc: 'Q, K, V packed into one matrix. 2,304 = 3 × 768. The runtime splits the output into Q, K, V after the multiply.', eureka: 'One tensor instead of three — the oldest pattern. Modern models split them for GQA flexibility.' },
+      { name: 'attn_output', shape: '[768, 768]', color: C.attn, role: 'Merge heads', desc: '12 heads × 64 dims = 768. Full MHA — every head has its own K and V. No sharing.', eureka: 'Square matrix = same in/out dims = full MHA. If K were smaller, it would be GQA.' },
+      { name: 'ffn_norm', shape: '[768]', color: C.norm, role: 'LayerNorm', desc: 'LayerNorm between attention and FFN, with bias.', eureka: 'GPT-2: LayerNorm everywhere. Qwen3: RMSNorm everywhere. The norm tells you the era.' },
+      { name: 'ffn_up', shape: '[3072, 768]', color: C.ffn, role: 'Expand (GELU)', desc: 'Projects to 3,072 dims (4× hidden). GELU activation — no separate gate tensor.', eureka: 'No ffn_gate = GELU. Only 2 FFN projections instead of 3.' },
+      { name: 'ffn_down', shape: '[768, 3072]', color: C.ffn, role: 'Compress', desc: 'Compresses back to 768 dims. Added to residual stream.', eureka: '4× expansion ratio. Modern models use 3× with SwiGLU — different tradeoff.' },
+    ];
+    TENSORS.mixtral = [
+      { name: 'attn_norm', shape: '[4096]', color: C.norm, role: 'RMSNorm', desc: 'Same as Qwen3 — RMSNorm before attention.', eureka: 'Mixtral\'s attention is standard modern transformer.' },
+      { name: 'attn_q', shape: '[4096, 4096]', color: C.attn, role: 'Query', desc: '32 query heads × 128 dims. Standard GQA, identical to Qwen3.', eureka: 'Mixtral\'s innovation is in the FFN, not attention.' },
+      { name: 'attn_k', shape: '[1024, 4096]', color: C.attn, role: 'Key (GQA)', desc: '8 KV heads. Same 4:1 ratio as Qwen3.', eureka: 'Attention is shared vocabulary across modern models.' },
+      { name: 'attn_v', shape: '[1024, 4096]', color: C.attn, role: 'Value (GQA)', desc: 'Values paired with keys. Same shape.', eureka: 'Nothing unusual — the surprise is below.' },
+      { name: 'attn_output', shape: '[4096, 4096]', color: C.attn, role: 'Merge heads', desc: 'Standard head merge.', eureka: 'Standard.' },
+      { name: 'ffn_norm', shape: '[4096]', color: C.norm, role: 'RMSNorm', desc: 'Normalizes before the MoE FFN block.', eureka: 'Same norm, but what follows is completely different.' },
+      { name: 'ffn_gate_inp', shape: '[8, 4096]', color: C.moe, role: 'Expert router', star: true, desc: 'Routes each token to 2 of 8 experts. Tiny matrix — just a classifier picking which experts fire.', eureka: 'This one tensor is the MoE signal. See ffn_gate_inp → Mixture of Experts. 47B params, 13B active.' },
+      { name: 'ffn_gate/up/down ×8', shape: '[14336, 4096]', color: C.ffn, role: '8 expert FFNs', star: true, desc: '8 complete sets of gate+up+down matrices. Only 2 fire per token. 24 tensors total for the FFN.', eureka: '8 experts × 3 projections = 24 FFN tensors per layer. Most parameters live here.' },
+    ];
+    TENSORS.mamba = [
+      { name: 'attn_norm', shape: '[2560]', color: C.norm, role: 'RMSNorm', desc: 'Normalizes before the SSM block. Name still says "attn" — inherited convention.', eureka: 'The name is inherited. The computation that follows is entirely different.' },
+      { name: 'ssm_in', shape: '[5120, 2560]', color: C.ssm, role: 'SSM input', star: true, desc: 'Projects into the state-space model. No Q, K, V — fundamentally different computation.', eureka: 'No attn_q, no attn_k, no attn_v. The entire attention mechanism is replaced.' },
+      { name: 'ssm_conv1d', shape: '[5120, 1, 4]', color: C.ssm, role: '1D convolution', desc: 'Kernel-4 convolution over the sequence. Local sliding window.', eureka: 'O(n) processing — linear in sequence length, not quadratic like attention.' },
+      { name: 'ssm_dt', shape: '[128, 2560]', color: C.ssm, role: 'Delta time', desc: 'Controls how much the hidden state changes per token. Learns to "forget fast" or "remember long."', eureka: 'Selective memory without KV cache.' },
+      { name: 'ssm_a', shape: '[128]', color: C.ssm, role: 'Decay rate', desc: 'A_log — learned decay rate. Controls how quickly past information fades.', eureka: 'Tiny tensor, huge impact. Controls the effective memory horizon.' },
+      { name: 'ssm_out', shape: '[2560, 5120]', color: C.ssm, role: 'SSM output', desc: 'Projects SSM output back to hidden dimension.', eureka: 'Mirror of ssm_in. Complete attention replacement.' },
+      { name: 'ffn_norm', shape: '[2560]', color: C.norm, role: 'RMSNorm', desc: 'Standard norm before FFN. The FFN part is still a normal transformer FFN.', eureka: 'SSM replaces attention but keeps the FFN.' },
+      { name: 'ffn_gate', shape: '[6912, 2560]', color: C.ffn, role: 'SwiGLU gate', desc: 'Standard SwiGLU gating — same as Qwen3.', eureka: 'The FFN is unchanged. Only attention was replaced.' },
+      { name: 'ffn_up', shape: '[6912, 2560]', color: C.ffn, role: 'Expand', desc: 'Standard FFN expansion.', eureka: '6,912 ÷ 2,560 ≈ 2.7× expansion.' },
+      { name: 'ffn_down', shape: '[2560, 6912]', color: C.ffn, role: 'Compress', desc: 'Standard FFN compression.', eureka: 'Normal FFN. The SSM innovation is all in the attention replacement.' },
+    ];
+    TENSORS.qwen35 = [
+      { name: 'attn_norm', shape: '[4096]', color: C.norm, role: 'RMSNorm', desc: 'Normalizes before either attention (every 4th layer) or Gated Delta Net (other layers).', eureka: 'Same tensor name, different computation follows depending on the layer.' },
+      { name: 'ssm_in', shape: '[16384, 4096]', color: C.ssm, role: 'Fused Q+K+V+Z', star: true, desc: 'In non-attention layers: replaces attn_q/k/v with a single fused projection.', eureka: 'See ssm_in instead of attn_q → linear attention layer. The name IS the dispatch.' },
+      { name: 'ssm_conv1d', shape: '[4096, 1, 4]', color: C.ssm, role: '1D conv (k=4)', desc: 'Local convolution in the Gated Delta Net path.', eureka: 'Kernel 4 — looks at 4 adjacent tokens.' },
+      { name: 'ssm_alpha', shape: '[4096, 4096]', color: C.ssm, role: 'Delta gate α', desc: 'Alpha gating in the Gated Delta Network. Controls update magnitude.', eureka: 'α and β together define the gated delta rule.' },
+      { name: 'ssm_beta', shape: '[4096, 4096]', color: C.ssm, role: 'Delta gate β', desc: 'Beta gating — paired with alpha for the delta update.', eureka: 'Unique to Gated Delta Networks. Won\'t see these in Mamba.' },
+      { name: 'ssm_out', shape: '[4096, 8192]', color: C.ssm, role: 'SSM output', desc: 'Projects Gated Delta Net output back to hidden dim.', eureka: 'Every 4th layer swaps all ssm_* for attn_q/k/v/output instead.' },
+      { name: 'ffn_norm', shape: '[4096]', color: C.norm, role: 'RMSNorm', desc: 'Standard norm before FFN. Same in both layer types.', eureka: 'FFN is identical whether the layer uses attention or SSM.' },
+      { name: 'ffn_gate', shape: '[12288, 4096]', color: C.ffn, role: 'SwiGLU gate', desc: 'Standard SwiGLU, same as Qwen3.', eureka: 'FFN is shared vocabulary. Innovation is in the attention replacement.' },
+      { name: 'ffn_up', shape: '[12288, 4096]', color: C.ffn, role: 'Expand', desc: 'Standard expansion.', eureka: 'Same 3× ratio as Qwen3.' },
+      { name: 'ffn_down', shape: '[4096, 12288]', color: C.ffn, role: 'Compress', desc: 'Standard compression.', eureka: 'Identical to Qwen3. Only the attention half changes.' },
+    ];
+
+    // Expose tensor data globally so the circuit diagram click handlers can access it
+    window._TENSORS = TENSORS;
+  })();
+  </script>
+
+  <!-- ── VIZ 2: Block Circuit (3 models, parallel lanes) ── -->
+  <script>
+  (function() {
+    const svg = d3.select('#viz-block-circuit');
+    const W = 720, H = 580;
+    let mode = 'qwen3';
+
+    const P = {
+      norm:  { fill: '#a78bfa', stroke: '#7c3aed' },
+      attn:  { fill: '#818cf8', stroke: '#6366f1' },
+      ffn:   { fill: '#fb923c', stroke: '#ea580c' },
+      flow:  { fill: '#4ade80', stroke: '#22c55e' },
+      ssm:   { fill: '#22d3ee', stroke: '#06b6d4' },
+      dim: '#3f3f46', text: '#a1a1aa', white: '#e4e4e7',
+    };
+
+    const cx = 360; // center x
+
+    function node(svg, x, y, w, h, label, pal, opts) {
+      opts = opts || {};
+      const rx = opts.flow ? 10 : 3;
+      const fillOp = opts.op ? 0.04 : (opts.flow ? 0.06 : 0.1);
+      const strokeOp = opts.accent ? 0.6 : 0.2;
+      const isClickable = opts.tensorKey && !opts.flow && !opts.op;
+
+      const g = svg.append('g').attr('class', isClickable ? 'tensor-node' : '').style('cursor', isClickable ? 'pointer' : 'default');
+      g.append('rect').attr('x', x - w/2).attr('y', y).attr('width', w).attr('height', h)
+        .attr('fill', pal.fill).attr('fill-opacity', fillOp)
+        .attr('stroke', pal.stroke).attr('stroke-opacity', strokeOp)
+        .attr('stroke-width', opts.accent ? 1 : 0.5).attr('rx', rx);
+      g.append('text').attr('x', x).attr('y', y + h/2 + 4).attr('text-anchor', 'middle')
+        .attr('fill', opts.flow ? pal.fill : P.white)
+        .attr('fill-opacity', opts.op ? 0.5 : (opts.flow ? 0.5 : 0.85))
+        .attr('font-family', 'JetBrains Mono, monospace')
+        .attr('font-size', opts.op ? 9 : 10).text(label);
+      if (opts.note) {
+        g.append('text').attr('x', x + w/2 + 8).attr('y', y + h/2 + 3)
+          .attr('fill', opts.accent ? pal.fill : P.text).attr('fill-opacity', opts.accent ? 0.7 : 0.35)
+          .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 8).text(opts.note);
+      }
+      if (isClickable) {
+        g.on('click', function(event) {
+          // Find tensor data from TENSORS global
+          var tensors = window._TENSORS && window._TENSORS[mode];
+          if (!tensors) return;
+          var t = tensors.find(function(d) { return d.name === opts.tensorKey; });
+          if (!t) return;
+          var det = document.getElementById('tensor-detail');
+          if (!det) return;
+
+          // Position near cursor, relative to viz-container
+          var container = det.parentElement;
+          var rect = container.getBoundingClientRect();
+          var clickX = event.clientX - rect.left;
+          var clickY = event.clientY - rect.top;
+          // Keep panel within container bounds
+          var panelW = 290;
+          var leftPos = Math.min(clickX + 16, rect.width - panelW - 12);
+          leftPos = Math.max(12, leftPos);
+          var topPos = Math.max(12, clickY - 40);
+          det.style.left = leftPos + 'px';
+          det.style.top = topPos + 'px';
+
+          det.style.display = 'block';
+          // Build content with op field if available
+          var opHtml = t.op ? '<div style="font-family:JetBrains Mono,monospace;font-size:10px;color:var(--text-dim);margin-bottom:6px;padding:4px 6px;background:rgba(10,10,15,0.6);border-radius:3px;line-height:1.5;">' + t.op + '</div>' : '';
+          det.innerHTML =
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
+              '<div style="display:flex;align-items:center;gap:6px;">' +
+                '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + t.color + ';box-shadow:0 0 6px ' + t.color + '40;"></span>' +
+                '<span style="font-family:JetBrains Mono,monospace;font-size:14px;font-weight:700;color:' + t.color + ';letter-spacing:0.02em;">' + t.name + '</span>' +
+              '</div>' +
+              '<span id="tensor-detail-close" style="cursor:pointer;color:var(--text-dim);font-size:18px;line-height:1;padding:2px 6px;border-radius:3px;" onmouseover="this.style.color=\'var(--white)\'" onmouseout="this.style.color=\'var(--text-dim)\'">&times;</span>' +
+            '</div>' +
+            '<div style="font-family:JetBrains Mono,monospace;font-size:16px;color:var(--white);font-weight:700;margin-bottom:2px;">' + t.shape + '</div>' +
+            '<div style="color:var(--green-dim);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;border-bottom:1px solid var(--border);padding-bottom:8px;">' + t.role + '</div>' +
+            opHtml +
+            '<div style="border-left:2px solid rgba(245,158,11,0.4);padding:6px 10px;font-size:12px;color:#c8c8d4;line-height:1.6;margin-bottom:6px;">' + t.desc + '</div>' +
+            '<div style="border-left:2px solid rgba(0,255,136,0.4);padding:6px 10px;font-size:11px;color:#a1a1aa;line-height:1.55;"><span style="color:rgba(0,255,136,0.7);margin-right:4px;font-weight:700;">\u2605</span>' + t.eureka + '</div>';
+          document.getElementById('tensor-detail-close').onclick = function() { det.style.display = 'none'; };
+          // Highlight clicked node
+          svg.selectAll('.tensor-node rect').attr('stroke-width', 0.5);
+          d3.select(this).select('rect').attr('stroke-width', 2);
+        });
+      }
+    }
+
+    function line(svg, x1, y1, x2, y2, color, op) {
+      svg.append('line').attr('x1',x1).attr('y1',y1).attr('x2',x2).attr('y2',y2)
+        .attr('stroke', color || P.dim).attr('stroke-width', 0.8).attr('opacity', op || 0.35);
+    }
+
+    function drawResidual(svg, y1, y2) {
+      svg.append('line').attr('x1', 70).attr('y1', y1).attr('x2', 70).attr('y2', y2)
+        .attr('stroke', P.flow.fill).attr('stroke-width', 2).attr('opacity', 0.12);
+      svg.append('line').attr('x1', 70).attr('y1', y1).attr('x2', 70).attr('y2', y2)
+        .attr('stroke', P.flow.fill).attr('stroke-width', 0.8).attr('opacity', 0.3)
+        .attr('stroke-dasharray', '6,4');
+    }
+
+    function resConn(svg, y) {
+      line(svg, 70, y, cx - 80, y, P.flow.fill, 0.2);
+    }
+
+    function sectionBg(svg, y, h, pal, label) {
+      svg.append('rect').attr('x', 95).attr('y', y).attr('width', W - 120).attr('height', h)
+        .attr('fill', pal.fill).attr('fill-opacity', 0.02).attr('rx', 6);
+      svg.append('text').attr('x', W - 30).attr('y', y + 14).attr('text-anchor', 'end')
+        .attr('fill', pal.fill).attr('fill-opacity', 0.25)
+        .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 8).text(label);
+    }
+
+    function drawQwen3() {
+      const g = svg;
+      g.append('text').attr('x', W/2).attr('y', 16).attr('text-anchor', 'middle')
+        .attr('fill', P.white).attr('font-family', 'JetBrains Mono, monospace')
+        .attr('font-size', 11).attr('font-weight', 600).text('Qwen3-8B — blk.0');
+
+      drawResidual(g, 28, 510);
+      sectionBg(g, 52, 220, P.attn, 'ATTENTION');
+      sectionBg(g, 290, 200, P.ffn, 'FFN');
+
+      const Y = { input: 30, norm1: 62, qkv: 110, scores: 170, out: 208, add1: 252,
+                  norm2: 298, gateup: 350, mul: 406, down: 438, add2: 484 };
+
+      // Flow
+      node(g, cx, Y.input, 160, 18, 'residual in', P.flow, {flow:true});
+      line(g, cx, Y.input+18, cx, Y.norm1);
+      // Norm
+      node(g, cx, Y.norm1, 200, 24, 'attn_norm [4096]', P.norm, {note:'RMSNorm', tensorKey:'attn_norm'});
+      // Fan-out to Q/K/V
+      const qx = cx - 160, kx = cx, vx = cx + 160;
+      line(g, cx, Y.norm1+24, qx, Y.qkv); line(g, cx, Y.norm1+24, kx, Y.qkv); line(g, cx, Y.norm1+24, vx, Y.qkv);
+      // Q K V parallel
+      node(g, qx, Y.qkv, 155, 36, 'attn_q [4096,4096]', P.attn, {note:'32 heads', tensorKey:'attn_q'});
+      node(g, kx, Y.qkv, 155, 28, 'attn_k [1024,4096]', P.attn, {accent:true, note:'GQA 4:1', tensorKey:'attn_k'});
+      node(g, vx, Y.qkv, 155, 28, 'attn_v [1024,4096]', P.attn, {tensorKey:'attn_v'});
+      // Fan-in to scores
+      line(g, qx, Y.qkv+36, cx, Y.scores); line(g, kx, Y.qkv+28, cx, Y.scores); line(g, vx, Y.qkv+28, cx, Y.scores);
+      node(g, cx, Y.scores, 220, 20, 'scores → softmax → weighted sum', P.attn, {op:true});
+      line(g, cx, Y.scores+20, cx, Y.out);
+      node(g, cx, Y.out, 210, 28, 'attn_output [4096,4096]', P.attn, {note:'merge heads', tensorKey:'attn_output'});
+      line(g, cx, Y.out+28, cx, Y.add1);
+      node(g, cx, Y.add1, 130, 18, '⊕ residual', P.flow, {flow:true}); resConn(g, Y.add1+9);
+
+      // FFN
+      line(g, cx, Y.add1+18, cx, Y.norm2);
+      node(g, cx, Y.norm2, 200, 24, 'ffn_norm [4096]', P.norm, {note:'RMSNorm', tensorKey:'ffn_norm'});
+      // Fan-out to gate + up
+      const gx = cx - 120, ux = cx + 120;
+      line(g, cx, Y.norm2+24, gx, Y.gateup); line(g, cx, Y.norm2+24, ux, Y.gateup);
+      node(g, gx, Y.gateup, 195, 32, 'ffn_gate [12288,4096]', P.ffn, {accent:true, note:'SwiGLU', tensorKey:'ffn_gate'});
+      node(g, ux, Y.gateup, 195, 32, 'ffn_up [12288,4096]', P.ffn, {note:'expand 3×', tensorKey:'ffn_up'});
+      // Fan-in to multiply
+      line(g, gx, Y.gateup+32, cx, Y.mul); line(g, ux, Y.gateup+32, cx, Y.mul);
+      node(g, cx, Y.mul, 140, 18, 'gate ⊙ up', P.ffn, {op:true});
+      line(g, cx, Y.mul+18, cx, Y.down);
+      node(g, cx, Y.down, 210, 28, 'ffn_down [4096,12288]', P.ffn, {note:'compress', tensorKey:'ffn_down'});
+      line(g, cx, Y.down+28, cx, Y.add2);
+      node(g, cx, Y.add2, 130, 18, '⊕ residual', P.flow, {flow:true}); resConn(g, Y.add2+9);
+
+      g.append('text').attr('x', W/2).attr('y', H - 10).attr('text-anchor', 'middle')
+        .attr('fill', P.dim).attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
+        .text('RMSNorm · Separate Q/K/V · GQA 4:1 · SwiGLU · No bias');
+    }
+
+    function drawGPT2() {
+      const g = svg;
+      g.append('text').attr('x', W/2).attr('y', 16).attr('text-anchor', 'middle')
+        .attr('fill', P.white).attr('font-family', 'JetBrains Mono, monospace')
+        .attr('font-size', 11).attr('font-weight', 600).text('GPT-2 124M — blk.0');
+
+      drawResidual(g, 28, 430);
+      sectionBg(g, 52, 190, P.attn, 'ATTENTION');
+      sectionBg(g, 260, 150, P.ffn, 'FFN');
+
+      const Y = { input: 30, norm1: 62, qkv: 104, scores: 160, out: 196, add1: 232,
+                  norm2: 268, up: 310, down: 356, add2: 394 };
+
+      node(g, cx, Y.input, 160, 18, 'residual in', P.flow, {flow:true});
+      line(g, cx, Y.input+18, cx, Y.norm1);
+      node(g, cx, Y.norm1, 230, 24, 'attn_norm [768] + bias', P.norm, {note:'LayerNorm', tensorKey:'attn_norm'});
+      line(g, cx, Y.norm1+24, cx, Y.qkv);
+      // Single fused QKV — wide box, no fan-out
+      node(g, cx, Y.qkv, 280, 36, 'attn_qkv [2304, 768] + bias', P.attn, {accent:true, note:'fused Q+K+V (3×768)', tensorKey:'attn_qkv'});
+      line(g, cx, Y.qkv+36, cx, Y.scores);
+      node(g, cx, Y.scores, 220, 20, 'scores → softmax → weighted sum', P.attn, {op:true, note:'12 heads × 64, MHA'});
+      line(g, cx, Y.scores+20, cx, Y.out);
+      node(g, cx, Y.out, 240, 24, 'attn_output [768, 768] + bias', P.attn, {note:'merge 12 heads', tensorKey:'attn_output'});
+      line(g, cx, Y.out+24, cx, Y.add1);
+      node(g, cx, Y.add1, 130, 18, '⊕ residual', P.flow, {flow:true}); resConn(g, Y.add1+9);
+
+      line(g, cx, Y.add1+18, cx, Y.norm2);
+      node(g, cx, Y.norm2, 230, 24, 'ffn_norm [768] + bias', P.norm, {note:'LayerNorm', tensorKey:'ffn_norm'});
+      line(g, cx, Y.norm2+24, cx, Y.up);
+      // No gate — single up, no fan-out
+      node(g, cx, Y.up, 260, 30, 'ffn_up [3072, 768] + bias', P.ffn, {accent:true, note:'GELU — no gate!', tensorKey:'ffn_up'});
+      line(g, cx, Y.up+30, cx, Y.down);
+      node(g, cx, Y.down, 260, 28, 'ffn_down [768, 3072] + bias', P.ffn, {note:'compress', tensorKey:'ffn_down'});
+      line(g, cx, Y.down+28, cx, Y.add2);
+      node(g, cx, Y.add2, 130, 18, '⊕ residual', P.flow, {flow:true}); resConn(g, Y.add2+9);
+
+      g.append('text').attr('x', W/2).attr('y', H - 10).attr('text-anchor', 'middle')
+        .attr('fill', P.dim).attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
+        .text('LayerNorm · Fused QKV · MHA · GELU (2 proj) · Bias everywhere');
+    }
+
+    function drawQwen35() {
+      const g = svg;
+      g.append('text').attr('x', W/2).attr('y', 16).attr('text-anchor', 'middle')
+        .attr('fill', P.white).attr('font-family', 'JetBrains Mono, monospace')
+        .attr('font-size', 11).attr('font-weight', 600).text('Qwen3.5-9B — blk.0 (linear attention)');
+
+      drawResidual(g, 28, 530);
+      sectionBg(g, 52, 270, P.ssm, 'GATED DELTA NET');
+      sectionBg(g, 340, 180, P.ffn, 'FFN');
+
+      const Y = { input: 30, norm1: 62, ssmIn: 104, conv: 150, dt: 186,
+                  ab: 228, normOut: 274, ssmOut: 306, add1: 348,
+                  norm2: 380, gateup: 418, mul: 468, down: 496, add2: 528 };
+
+      node(g, cx, Y.input, 160, 18, 'residual in', P.flow, {flow:true});
+      line(g, cx, Y.input+18, cx, Y.norm1);
+      node(g, cx, Y.norm1, 200, 24, 'attn_norm [4096]', P.norm, {note:'RMSNorm', tensorKey:'attn_norm'});
+      line(g, cx, Y.norm1+24, cx, Y.ssmIn);
+      node(g, cx, Y.ssmIn, 280, 28, 'ssm_in [16384, 4096]', P.ssm, {accent:true, note:'fused Q+K+V+Z', tensorKey:'ssm_in'});
+      line(g, cx, Y.ssmIn+28, cx, Y.conv);
+      node(g, cx, Y.conv, 230, 24, 'ssm_conv1d [4096, 1, 4]', P.ssm, {note:'local context', tensorKey:'ssm_conv1d'});
+      line(g, cx, Y.conv+24, cx, Y.dt);
+      node(g, cx, Y.dt, 260, 24, 'ssm_dt [16, 4096] + ssm_a [16]', P.ssm, {note:'delta + decay'});
+      // Alpha/beta parallel
+      const ax = cx - 120, bx = cx + 120;
+      line(g, cx, Y.dt+24, ax, Y.ab); line(g, cx, Y.dt+24, bx, Y.ab);
+      node(g, ax, Y.ab, 200, 28, 'ssm_alpha [4096,4096]', P.ssm, {note:'gate α', tensorKey:'ssm_alpha'});
+      node(g, bx, Y.ab, 200, 28, 'ssm_beta [4096,4096]', P.ssm, {note:'gate β', tensorKey:'ssm_beta'});
+      line(g, ax, Y.ab+28, cx, Y.normOut); line(g, bx, Y.ab+28, cx, Y.normOut);
+      node(g, cx, Y.normOut, 180, 20, 'ssm_norm [4096]', P.ssm, {op:true});
+      line(g, cx, Y.normOut+20, cx, Y.ssmOut);
+      node(g, cx, Y.ssmOut, 220, 24, 'ssm_out [4096, 8192]', P.ssm, {note:'output proj', tensorKey:'ssm_out'});
+      line(g, cx, Y.ssmOut+24, cx, Y.add1);
+      node(g, cx, Y.add1, 130, 18, '⊕ residual', P.flow, {flow:true}); resConn(g, Y.add1+9);
+
+      // FFN (same as Qwen3)
+      line(g, cx, Y.add1+18, cx, Y.norm2);
+      node(g, cx, Y.norm2, 200, 24, 'ffn_norm [4096]', P.norm, {note:'RMSNorm', tensorKey:'ffn_norm'});
+      const gx = cx - 120, ux = cx + 120;
+      line(g, cx, Y.norm2+24, gx, Y.gateup); line(g, cx, Y.norm2+24, ux, Y.gateup);
+      node(g, gx, Y.gateup, 195, 30, 'ffn_gate [12288,4096]', P.ffn, {note:'SwiGLU', tensorKey:'ffn_gate'});
+      node(g, ux, Y.gateup, 195, 30, 'ffn_up [12288,4096]', P.ffn, {note:'expand', tensorKey:'ffn_up'});
+      line(g, gx, Y.gateup+30, cx, Y.mul); line(g, ux, Y.gateup+30, cx, Y.mul);
+      node(g, cx, Y.mul, 130, 16, 'gate ⊙ up', P.ffn, {op:true});
+      line(g, cx, Y.mul+16, cx, Y.down);
+      node(g, cx, Y.down, 210, 24, 'ffn_down [4096,12288]', P.ffn, {note:'compress', tensorKey:'ffn_down'});
+      line(g, cx, Y.down+24, cx, Y.add2);
+      node(g, cx, Y.add2, 130, 18, '⊕ residual', P.flow, {flow:true}); resConn(g, Y.add2+9);
+
+      g.append('text').attr('x', W/2).attr('y', H - 10).attr('text-anchor', 'middle')
+        .attr('fill', P.dim).attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
+        .text('Gated Delta Net · Conv1D · α/β parallel · SwiGLU · No bias');
+    }
+
+    function drawMixtral() {
+      const g = svg;
+      g.append('text').attr('x', W/2).attr('y', 16).attr('text-anchor', 'middle')
+        .attr('fill', P.white).attr('font-family', 'JetBrains Mono, monospace')
+        .attr('font-size', 11).attr('font-weight', 600).text('Mixtral 8×7B — blk.0');
+
+      drawResidual(g, 28, 540);
+      sectionBg(g, 52, 220, P.attn, 'ATTENTION');
+      sectionBg(g, 290, 230, P.ffn, 'MIXTURE OF EXPERTS');
+
+      const Y = { input: 30, norm1: 62, qkv: 110, scores: 170, out: 208, add1: 252,
+                  norm2: 298, router: 336, experts: 388, merge: 448, down_label: 472, add2: 502 };
+
+      // Attention — same as Qwen3 (GQA)
+      node(g, cx, Y.input, 160, 18, 'residual in', P.flow, {flow:true});
+      line(g, cx, Y.input+18, cx, Y.norm1);
+      node(g, cx, Y.norm1, 200, 24, 'attn_norm [4096]', P.norm, {note:'RMSNorm', tensorKey:'attn_norm'});
+      const qx = cx - 160, kx = cx, vx = cx + 160;
+      line(g, cx, Y.norm1+24, qx, Y.qkv); line(g, cx, Y.norm1+24, kx, Y.qkv); line(g, cx, Y.norm1+24, vx, Y.qkv);
+      node(g, qx, Y.qkv, 155, 36, 'attn_q [4096,4096]', P.attn, {note:'32 heads', tensorKey:'attn_q'});
+      node(g, kx, Y.qkv, 155, 28, 'attn_k [1024,4096]', P.attn, {note:'GQA 4:1', tensorKey:'attn_k'});
+      node(g, vx, Y.qkv, 155, 28, 'attn_v [1024,4096]', P.attn, {tensorKey:'attn_v'});
+      line(g, qx, Y.qkv+36, cx, Y.scores); line(g, kx, Y.qkv+28, cx, Y.scores); line(g, vx, Y.qkv+28, cx, Y.scores);
+      node(g, cx, Y.scores, 220, 20, 'scores → softmax', P.attn, {op:true});
+      line(g, cx, Y.scores+20, cx, Y.out);
+      node(g, cx, Y.out, 210, 28, 'attn_output [4096,4096]', P.attn, {tensorKey:'attn_output'});
+      line(g, cx, Y.out+28, cx, Y.add1);
+      node(g, cx, Y.add1, 130, 18, '⊕ residual', P.flow, {flow:true}); resConn(g, Y.add1+9);
+
+      // FFN — MoE!
+      line(g, cx, Y.add1+18, cx, Y.norm2);
+      node(g, cx, Y.norm2, 200, 24, 'ffn_norm [4096]', P.norm, {note:'RMSNorm', tensorKey:'ffn_norm'});
+      line(g, cx, Y.norm2+24, cx, Y.router);
+      // Router
+      node(g, cx, Y.router, 240, 28, 'ffn_gate_inp [8, 4096]', P.ffn, {accent:true, note:'ROUTER → top-2 experts', tensorKey:'ffn_gate_inp'});
+
+      // 8 expert lanes (show all 8 as thin colored bars)
+      const expertW = 60, expertGap = 8;
+      const totalExpertW = 8 * expertW + 7 * expertGap;
+      const expertStartX = cx - totalExpertW/2 + expertW/2;
+      // Fan-out lines from router to all 8
+      for (let e = 0; e < 8; e++) {
+        const ex = expertStartX + e * (expertW + expertGap);
+        line(g, cx, Y.router+28, ex, Y.experts);
+        // Expert box — show as a small colored bar
+        const active = e < 2; // top-2 active
+        g.append('rect').attr('x', ex - expertW/2).attr('y', Y.experts)
+          .attr('width', expertW).attr('height', 40)
+          .attr('fill', P.ffn.fill).attr('fill-opacity', active ? 0.15 : 0.04)
+          .attr('stroke', P.ffn.stroke).attr('stroke-opacity', active ? 0.5 : 0.12)
+          .attr('stroke-width', active ? 1 : 0.5).attr('rx', 2);
+        // Expert label
+        g.append('text').attr('x', ex).attr('y', Y.experts + 14).attr('text-anchor', 'middle')
+          .attr('fill', P.ffn.fill).attr('fill-opacity', active ? 0.8 : 0.25)
+          .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 8)
+          .text('E' + e);
+        g.append('text').attr('x', ex).attr('y', Y.experts + 26).attr('text-anchor', 'middle')
+          .attr('fill', P.text).attr('fill-opacity', active ? 0.5 : 0.15)
+          .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 6)
+          .text(active ? 'gate+up' : '');
+        g.append('text').attr('x', ex).attr('y', Y.experts + 35).attr('text-anchor', 'middle')
+          .attr('fill', P.text).attr('fill-opacity', active ? 0.5 : 0.15)
+          .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 6)
+          .text(active ? '+down' : 'idle');
+        // Fan-in
+        line(g, ex, Y.experts+40, cx, Y.merge, null, active ? 0.35 : 0.08);
+      }
+      // Active expert annotation
+      g.append('text').attr('x', expertStartX + totalExpertW + 12).attr('y', Y.experts + 20)
+        .attr('fill', P.ffn.fill).attr('fill-opacity', 0.6)
+        .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 8)
+        .text('2 of 8 active');
+
+      node(g, cx, Y.merge, 180, 18, 'weighted sum of experts', P.ffn, {op:true});
+      line(g, cx, Y.merge+18, cx, Y.add2);
+      node(g, cx, Y.add2, 130, 18, '⊕ residual', P.flow, {flow:true}); resConn(g, Y.add2+9);
+
+      g.append('text').attr('x', W/2).attr('y', H - 10).attr('text-anchor', 'middle')
+        .attr('fill', P.dim).attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
+        .text('RMSNorm · GQA · 8 expert FFNs (top-2 routing) · 47B total, 13B active');
+    }
+
+    function drawMamba() {
+      const g = svg;
+      g.append('text').attr('x', W/2).attr('y', 16).attr('text-anchor', 'middle')
+        .attr('fill', P.white).attr('font-family', 'JetBrains Mono, monospace')
+        .attr('font-size', 11).attr('font-weight', 600).text('Mamba-2 — blk.0 (pure SSM)');
+
+      drawResidual(g, 28, 400);
+      sectionBg(g, 52, 310, P.ssm, 'SELECTIVE STATE SPACE');
+
+      const Y = { input: 30, norm: 62, ssmIn: 104, conv: 150, dt: 190,
+                  a: 230, d: 268, norm2: 306, out: 342, add: 378 };
+
+      node(g, cx, Y.input, 160, 18, 'residual in', P.flow, {flow:true});
+      line(g, cx, Y.input+18, cx, Y.norm);
+      node(g, cx, Y.norm, 200, 24, 'attn_norm [2560]', P.norm, {note:'RMSNorm', tensorKey:'attn_norm'});
+      line(g, cx, Y.norm+24, cx, Y.ssmIn);
+      node(g, cx, Y.ssmIn, 260, 30, 'ssm_in [5120, 2560]', P.ssm, {accent:true, note:'expand 2× (no Q/K/V)', tensorKey:'ssm_in'});
+      line(g, cx, Y.ssmIn+30, cx, Y.conv);
+      node(g, cx, Y.conv, 240, 26, 'ssm_conv1d [5120, 1, 4]', P.ssm, {note:'local context window', tensorKey:'ssm_conv1d'});
+      // dt and A side by side
+      const dtx = cx - 100, ax = cx + 100;
+      line(g, cx, Y.conv+26, dtx, Y.dt); line(g, cx, Y.conv+26, ax, Y.dt);
+      node(g, dtx, Y.dt, 180, 26, 'ssm_dt [128, 5120]', P.ssm, {note:'time delta', tensorKey:'ssm_dt'});
+      node(g, ax, Y.dt, 160, 26, 'ssm_a [128]', P.ssm, {note:'decay rate', tensorKey:'ssm_a'});
+      // Merge → D
+      line(g, dtx, Y.dt+26, cx, Y.a); line(g, ax, Y.dt+26, cx, Y.a);
+      node(g, cx, Y.a, 200, 22, 'selective scan (recurrence)', P.ssm, {op:true, note:'O(n) per token'});
+      line(g, cx, Y.a+22, cx, Y.d);
+      node(g, cx, Y.d, 200, 24, 'ssm_d [5120]', P.ssm, {note:'skip connection'});
+      line(g, cx, Y.d+24, cx, Y.norm2);
+      node(g, cx, Y.norm2, 180, 22, 'ssm_norm [5120]', P.ssm, {note:'output norm'});
+      line(g, cx, Y.norm2+22, cx, Y.out);
+      node(g, cx, Y.out, 220, 26, 'ssm_out [2560, 5120]', P.ssm, {note:'compress back', tensorKey:'ssm_out'});
+      line(g, cx, Y.out+26, cx, Y.add);
+      node(g, cx, Y.add, 130, 18, '⊕ residual', P.flow, {flow:true}); resConn(g, Y.add+9);
+
+      // No FFN section at all!
+      g.append('text').attr('x', cx).attr('y', Y.add + 44).attr('text-anchor', 'middle')
+        .attr('fill', P.ssm.fill).attr('fill-opacity', 0.4)
+        .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
+        .text('No FFN. No attention. No KV cache. Pure recurrence.');
+
+      g.append('text').attr('x', W/2).attr('y', H - 10).attr('text-anchor', 'middle')
+        .attr('fill', P.dim).attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
+        .text('Selective State Space · Conv1D · O(n) recurrence · No Q/K/V · No FFN');
+    }
+
+    function draw() {
+      svg.selectAll('*').remove();
+      if (mode === 'gpt2') drawGPT2();
+      else if (mode === 'mixtral') drawMixtral();
+      else if (mode === 'qwen35') drawQwen35();
+      else if (mode === 'mamba') drawMamba();
+      else drawQwen3();
+    }
+
+    draw();
+
+    const btns = ['blk-gpt2', 'blk-qwen3', 'blk-mixtral', 'blk-qwen35', 'blk-mamba'];
+    const modes = ['gpt2', 'qwen3', 'mixtral', 'qwen35', 'mamba'];
+    const archDescs = {
+      gpt2: '<strong style="color:#00ff88">GPT-2:</strong> Fused attention &mdash; Q, K, V packed into one <code>attn_qkv</code> tensor. Two FFN projections, no gate. GELU. The oldest pattern.',
+      qwen3: '<strong style="color:#00ff88">Qwen3:</strong> Separate Q/K/V with GQA 4:1 &mdash; K and V are 4&times; smaller. Three FFN projections with SwiGLU gate. The modern default.',
+      mixtral: '<strong style="color:#00ff88">Mixtral:</strong> Attention like Qwen3, but 8 expert FFNs below. A <code>ffn_gate_inp</code> tensor routes each token to 2 of 8 experts. 47B params, 13B active.',
+      qwen35: '<strong style="color:#00ff88">Qwen3.5:</strong> Hybrid layers. Every 4th layer uses full attention (<code>attn_q/k/v</code>). The rest use Gated Delta Networks (<code>ssm_alpha</code>, <code>ssm_beta</code>).',
+      mamba: '<strong style="color:#00ff88">Mamba-2:</strong> No attention at all. State-space model: <code>ssm_in</code>, <code>ssm_conv1d</code>, <code>ssm_dt</code>, <code>ssm_a</code>. O(n) processing, no KV cache. Same GGUF format.'
+    };
+    const readout = document.getElementById('arch-readout');
+    if (readout) readout.innerHTML = archDescs[mode];
+
+    btns.forEach((id, i) => {
+      document.getElementById(id).addEventListener('click', function() {
+        mode = modes[i];
+        btns.forEach(b => document.getElementById(b).classList.remove('active'));
+        this.classList.add('active');
+        if (readout) readout.innerHTML = archDescs[mode];
+        var det = document.getElementById('tensor-detail');
+        if (det) { det.style.display = 'none'; det.innerHTML = ''; }
+        draw();
+      });
+    });
+  })();
+  </script>
+
+  <!-- ── VIZ 3: Layer Stack Tower ── -->
+  <script>
+  (function() {
+    const svg = d3.select('#viz-layer-stack');
+    const W = 780, H = 600;
+    let mode = 'qwen3';
+
+    function draw() {
+      svg.selectAll('*').remove();
+      const isQwen35 = mode === 'qwen35';
+      const layers = isQwen35 ? 32 : 36;
+      const fullAttnInterval = isQwen35 ? 4 : 1; // 1 means all are full attention
+
+      const mL = 100, mR = 120, mT = 50, mB = 60;
+      const stackH = H - mT - mB;
+      const layerH = Math.min(stackH / (layers + 2) - 1, 14); // +2 for embed/output
+      const gap = 1;
+      const colW = W - mL - mR;
+
+      // Title
+      svg.append('text').attr('x', W/2).attr('y', 22).attr('text-anchor', 'middle')
+        .attr('fill', '#e8e8f0').attr('font-family', 'JetBrains Mono, monospace')
+        .attr('font-size', 12).attr('font-weight', 600)
+        .text(isQwen35 ? 'Qwen3.5-9B — 32 Hybrid Layers' : 'Qwen3-8B — 36 Uniform Layers');
+
+      svg.append('text').attr('x', W/2).attr('y', 40).attr('text-anchor', 'middle')
+        .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
+        .attr('font-size', 10)
+        .text(isQwen35 ? '8 full attention + 24 linear attention' : 'All layers: full attention + SwiGLU FFN');
+
+      // Draw token_embd at bottom
+      const embdY = mT + stackH - layerH;
+      svg.append('rect').attr('x', mL).attr('y', embdY).attr('width', colW).attr('height', layerH)
+        .attr('fill', '#00ff88').attr('opacity', 0.25).attr('rx', 2)
+        .attr('stroke', '#00ff88').attr('stroke-width', 0.5);
+      svg.append('text').attr('x', mL + 6).attr('y', embdY + layerH/2 + 4)
+        .attr('fill', '#00ff88').attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
+        .text(isQwen35 ? 'token_embd [248320, 4096]' : 'token_embd [151936, 4096]');
+
+      // Draw output at top
+      const outY = mT;
+      svg.append('rect').attr('x', mL).attr('y', outY).attr('width', colW).attr('height', layerH)
+        .attr('fill', '#00ff88').attr('opacity', 0.25).attr('rx', 2)
+        .attr('stroke', '#00ff88').attr('stroke-width', 0.5);
+      svg.append('text').attr('x', mL + 6).attr('y', outY + layerH/2 + 4)
+        .attr('fill', '#00ff88').attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
+        .text(isQwen35 ? 'output [248320, 4096]' : 'output [151936, 4096]');
+
+      // Draw layers (bottom to top, layer 0 at bottom)
+      const layerStartY = embdY - gap - layerH;
+      for (let i = 0; i < layers; i++) {
+        const y = layerStartY - i * (layerH + gap);
+        const isFullAttn = fullAttnInterval === 1 || (i % fullAttnInterval === (fullAttnInterval - 1));
+        const attnFrac = 0.4; // attention takes ~40% of params
+        const attnW = colW * attnFrac;
+        const ffnW = colW * (1 - attnFrac);
+
+        // Attention portion
+        const attnColor = '#ff00aa';
+        const attnOpacity = isFullAttn ? 0.3 : 0.12;
+        svg.append('rect').attr('x', mL).attr('y', y).attr('width', attnW).attr('height', layerH)
+          .attr('fill', attnColor).attr('opacity', attnOpacity).attr('rx', 2)
+          .attr('stroke', attnColor).attr('stroke-width', isFullAttn ? 0.8 : 0.3);
+
+        // FFN portion
+        svg.append('rect').attr('x', mL + attnW).attr('y', y).attr('width', ffnW).attr('height', layerH)
+          .attr('fill', '#ff8800').attr('opacity', 0.2).attr('rx', 2)
+          .attr('stroke', '#ff8800').attr('stroke-width', 0.3);
+
+        // Layer number (every 4th or special ones)
+        if (i === 0 || i === layers - 1 || (i + 1) % 4 === 0) {
+          svg.append('text').attr('x', mL - 8).attr('y', y + layerH/2 + 3).attr('text-anchor', 'end')
+            .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 8)
+            .text('blk.' + i);
+        }
+
+        // Annotations for specific layers
+        if (i === 0) {
+          svg.append('text').attr('x', mL + colW + 8).attr('y', y + layerH/2 + 3)
+            .attr('fill', '#6a6a7e').attr('font-family', 'Source Serif 4, serif').attr('font-size', 10)
+            .attr('font-style', 'italic').text('syntax, position');
+        }
+        if (i === Math.floor(layers/2)) {
+          svg.append('text').attr('x', mL + colW + 8).attr('y', y + layerH/2 + 3)
+            .attr('fill', '#6a6a7e').attr('font-family', 'Source Serif 4, serif').attr('font-size', 10)
+            .attr('font-style', 'italic').text('facts, entities');
+        }
+        if (i === layers - 1) {
+          svg.append('text').attr('x', mL + colW + 8).attr('y', y + layerH/2 + 3)
+            .attr('fill', '#6a6a7e').attr('font-family', 'Source Serif 4, serif').attr('font-size', 10)
+            .attr('font-style', 'italic').text('task completion');
+        }
+
+        // Hybrid attention label for Qwen3.5
+        if (isQwen35 && !isFullAttn && i % 4 === 0) {
+          svg.append('text').attr('x', mL + attnW/2).attr('y', y + layerH/2 + 3).attr('text-anchor', 'middle')
+            .attr('fill', '#ff00aa').attr('opacity', 0.4)
+            .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 7)
+            .text('LINEAR');
+        }
+        if (isQwen35 && isFullAttn) {
+          svg.append('text').attr('x', mL + attnW/2).attr('y', y + layerH/2 + 3).attr('text-anchor', 'middle')
+            .attr('fill', '#ff00aa').attr('opacity', 0.7)
+            .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 7)
+            .text('FULL');
+        }
+      }
+
+      // Residual stream arrow
+      const arrowX = mL - 40;
+      svg.append('line').attr('x1', arrowX).attr('y1', embdY + layerH/2).attr('x2', arrowX).attr('y2', outY + layerH/2)
+        .attr('stroke', '#00ff88').attr('stroke-width', 1.5).attr('opacity', 0.3)
+        .attr('marker-end', 'none');
+      svg.append('text').attr('x', arrowX).attr('y', (embdY + outY)/2 + layerH/2)
+        .attr('text-anchor', 'middle').attr('fill', '#00ff88').attr('opacity', 0.4)
+        .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 8)
+        .attr('transform', `rotate(-90, ${arrowX}, ${(embdY + outY)/2 + layerH/2})`)
+        .text('RESIDUAL STREAM →');
+
+      // Legend
+      const legY = H - 20;
+      svg.append('rect').attr('x', mL).attr('y', legY - 8).attr('width', 12).attr('height', 8).attr('fill', '#ff00aa').attr('opacity', 0.3);
+      svg.append('text').attr('x', mL + 16).attr('y', legY).attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9).text('Attention');
+      svg.append('rect').attr('x', mL + 100).attr('y', legY - 8).attr('width', 12).attr('height', 8).attr('fill', '#ff8800').attr('opacity', 0.2);
+      svg.append('text').attr('x', mL + 116).attr('y', legY).attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9).text('FFN');
+      svg.append('rect').attr('x', mL + 180).attr('y', legY - 8).attr('width', 12).attr('height', 8).attr('fill', '#00ff88').attr('opacity', 0.25);
+      svg.append('text').attr('x', mL + 196).attr('y', legY).attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9).text('Embed / Output');
+    }
+
+    draw();
+
+    document.getElementById('stack-qwen3').addEventListener('click', function() {
+      mode = 'qwen3';
+      this.classList.add('active');
+      document.getElementById('stack-qwen35').classList.remove('active');
+      draw();
+    });
+    document.getElementById('stack-qwen35').addEventListener('click', function() {
+      mode = 'qwen35';
+      this.classList.add('active');
+      document.getElementById('stack-qwen3').classList.remove('active');
+      draw();
+    });
+  })();
+  </script> -->
+  <!-- ── VIZ 5: Model Fingerprints (removed — content moved to Building It Right) ── -->
+  <!-- <script>
+  (function() {
+    const svg = d3.select('#viz-fingerprints');
+    const W = 780, H = 520;
+
+    const models = {
+      qwen3: {
+        name: 'Qwen3-8B', year: '2025',
+        props: [
+          ['Architecture', 'qwen3', '#00ff88'],
+          ['Parameters', '8.2B', '#e8e8f0'],
+          ['Layers', '36', '#00ddff'],
+          ['Heads (Q)', '32 × 128', '#ff00aa'],
+          ['Heads (KV)', '8 × 128', '#ff00aa'],
+          ['GQA Ratio', '4:1', '#ff00aa'],
+          ['FFN Width', '12,288', '#ff8800'],
+          ['FFN Type', 'SwiGLU (3 proj)', '#ff8800'],
+          ['Norm', 'RMSNorm', '#ffdd00'],
+          ['Position', 'RoPE (θ=1M)', '#aa44ff'],
+          ['Bias', 'None', '#00ff88'],
+          ['Vocab', '151,936', '#e8e8f0'],
+          ['Context', '40,960', '#e8e8f0'],
+        ]
+      },
+      gpt2: {
+        name: 'GPT-2 124M', year: '2019',
+        props: [
+          ['Architecture', 'gpt2', '#00ff88'],
+          ['Parameters', '124M', '#e8e8f0'],
+          ['Layers', '12', '#00ddff'],
+          ['Heads (Q)', '12 × 64', '#ff00aa'],
+          ['Heads (KV)', '12 × 64', '#ff00aa'],
+          ['GQA Ratio', 'None (MHA)', '#6a6a7e'],
+          ['FFN Width', '3,072', '#ff8800'],
+          ['FFN Type', 'GELU (2 proj)', '#ff8800'],
+          ['Norm', 'LayerNorm', '#ffdd00'],
+          ['Position', 'Learned [1024]', '#aa44ff'],
+          ['Bias', 'Everywhere', '#ff3344'],
+          ['Vocab', '50,257', '#e8e8f0'],
+          ['Context', '1,024', '#e8e8f0'],
+        ]
+      }
+    };
+
+    const colW = 340;
+    const mL = 50, gap = 40;
+    const rowH = 28;
+    const headerY = 60;
+
+    // Title
+    svg.append('text').attr('x', W/2).attr('y', 26).attr('text-anchor', 'middle')
+      .attr('fill', '#e8e8f0').attr('font-family', 'JetBrains Mono, monospace')
+      .attr('font-size', 13).attr('font-weight', 600)
+      .text('Model Fingerprints — 2019 vs 2025');
+
+    // Column headers
+    [models.qwen3, models.gpt2].forEach((m, mi) => {
+      const x = mL + mi * (colW + gap);
+      svg.append('text').attr('x', x + colW/2).attr('y', headerY - 10).attr('text-anchor', 'middle')
+        .attr('fill', '#00ff88').attr('font-family', 'JetBrains Mono, monospace')
+        .attr('font-size', 14).attr('font-weight', 600)
+        .text(m.name);
+      svg.append('text').attr('x', x + colW/2).attr('y', headerY + 6).attr('text-anchor', 'middle')
+        .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
+        .attr('font-size', 10).text(m.year);
+
+      svg.append('line').attr('x1', x).attr('y1', headerY + 14).attr('x2', x + colW).attr('y2', headerY + 14)
+        .attr('stroke', '#1e1e2e').attr('stroke-width', 1);
+
+      m.props.forEach((prop, pi) => {
+        const y = headerY + 30 + pi * rowH;
+        // Label
+        svg.append('text').attr('x', x + 6).attr('y', y + 4)
+          .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
+          .attr('font-size', 10).text(prop[0]);
+        // Value
+        svg.append('text').attr('x', x + colW - 6).attr('y', y + 4).attr('text-anchor', 'end')
+          .attr('fill', prop[2]).attr('font-family', 'JetBrains Mono, monospace')
+          .attr('font-size', 11).attr('font-weight', 500)
+          .text(prop[1]);
+
+        // Separator line
+        svg.append('line').attr('x1', x).attr('y1', y + 12).attr('x2', x + colW).attr('y2', y + 12)
+          .attr('stroke', '#1e1e2e').attr('stroke-width', 0.5);
+      });
+    });
+
+    // Divider line between columns
+    const divX = mL + colW + gap/2;
+    svg.append('line').attr('x1', divX).attr('y1', headerY - 20).attr('x2', divX).attr('y2', H - 30)
+      .attr('stroke', '#2a2a4a').attr('stroke-width', 1).attr('stroke-dasharray', '4,4');
+
+    // Bottom note
+    svg.append('text').attr('x', W/2).attr('y', H - 12).attr('text-anchor', 'middle')
+      .attr('fill', '#6a6a7e').attr('font-family', 'Source Serif 4, serif')
+      .attr('font-size', 11).attr('font-style', 'italic')
+      .text('Every advancement from 2019 to 2025 is legible in the tensor manifest');
+  })();
+  </script> -->
+      <h2>05 // Not All Bits Are Equal</h2>
+      <p style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.05em;margin-bottom:0.3rem;">
+        <span style="color:var(--text-dim);">DOWNLOAD</span>
+        <span style="color:var(--text-dim);"> &rarr; </span>
+        <span style="color:var(--text-dim);">HEADER</span>
+        <span style="color:var(--text-dim);"> &rarr; </span>
+        <span style="color:var(--text-dim);">METADATA</span>
+        <span style="color:var(--text-dim);"> &rarr; </span>
+        <span style="color:var(--text-dim);">TENSORS</span>
+        <span style="color:var(--text-dim);"> &rarr; </span>
+        <span style="color:var(--green);font-weight:600;">WEIGHTS</span>
+      </p>
+      <p style="font-style:italic;color:var(--text-dim);margin-bottom:1.5rem;">5.1 gigabytes of quantized numbers. Not all compressed equally. The edges of the network get more precision because errors there propagate through every layer.</p>
+
+      <p class="drop-cap">The runtime has read the header, parsed the metadata, and loaded the tensor manifest. It knows the architecture. Now it needs the actual numbers &mdash; 8 billion parameters, compressed from 16 GB of FP16 down to 5.1 GB of mixed-precision 4-bit blocks. But not uniformly compressed. Most tensors are <code>Q4_K</code>. But <code>token_embd.weight</code> is <code>Q6_K</code>. The attention output projections in certain layers are <code>Q6_K</code>. The layer norms are <code>F32</code>. Why are some tensors getting 50% more precision than others?</p>
+
+      <p>Because quantization is <strong>triage</strong>, not uniform compression. The edges of the network &mdash; the embedding matrix and the output head &mdash; are the most sensitive to error. A rounding mistake in the embedding propagates through all 36 layers. A rounding mistake in the output head directly corrupts the next-token probabilities. The middle layers are more resilient: each one is just a small refinement on the residual stream, and small errors in any single layer get diluted by the 35 others.</p>
+
+      <p>This is what the <code>_S</code>, <code>_M</code>, and <code>_L</code> suffixes mean. They are not bit widths &mdash; they are <strong>precision policies</strong>. <code>Q4_K_S</code> (small) promotes the fewest tensors to higher precision. <code>Q4_K_M</code> (medium) promotes roughly 20% of tensors &mdash; the embeddings, the output head, and the most sensitive FFN down-projections &mdash; to <code>Q6_K</code>. <code>Q4_K_L</code> promotes more. The per-bit-per-weight cost difference between <code>_S</code> and <code>_M</code> is about 0.3&ndash;0.5 bits, but the perplexity improvement is measurable: 0.05&ndash;0.15 points on standard benchmarks.</p>
+
+      <!-- ── VISUALIZATION: Precision Heatmap ── -->
+      <div class="viz-container">
+        <span class="diagram-label">Interactive: Mixed-Precision Heatmap &mdash; Qwen3-8B</span>
+        <svg id="viz-precision" viewBox="0 0 780 520"></svg>
+        <div class="viz-controls">
+          <button id="prec-q4ks" class="secondary">Q4_K_S</button>
+          <button id="prec-q4km" class="secondary active">Q4_K_M</button>
+          <button id="prec-q5km" class="secondary">Q5_K_M</button>
+        </div>
+      </div>
+
+      <h3>Compression All the Way Down</h3>
+
+      <p>The question is how. Two formats dominate GGUF quantization, and the difference between them is the difference between &ldquo;good enough&rdquo; and &ldquo;barely distinguishable from the original&rdquo;:</p>
+
+      <table>
+        <thead><tr><th>Format</th><th>Block Size</th><th>Structure</th><th>Overhead</th></tr></thead>
+        <tbody>
+          <tr><td><code>Q4_0</code></td><td>32 weights</td><td>1 FP16 scale, 32 &times; 4-bit weights</td><td>1.0 bit/weight</td></tr>
+          <tr><td><code>Q4_K</code></td><td>256 weights</td><td>2 FP16 super-scales, 8 sub-block scales (quantized!), 256 &times; 4-bit weights</td><td>0.19 bit/weight</td></tr>
+        </tbody>
+      </table>
+
+      <p>The trick is in that word &ldquo;quantized.&rdquo; Q4_K compresses the compression metadata itself. To see how, compare the two block layouts:</p>
+
+      <h4>Q4_0: The Simplest Block &mdash; 18 bytes, 32 weights</h4>
+      <div class="mem-row">
+        <div class="mc m wide">scale (FP16)</div><div class="mc m">&middot;</div>
+        <div class="mc g">w0</div><div class="mc g">w1</div><div class="mc g">w2</div><div class="mc g">w3</div><div class="mc g">w4</div><div class="mc g">w5</div><div class="mc g">w6</div><div class="mc g">w7</div><div class="mc g">w8</div><div class="mc g">w9</div><div class="mc g">w10</div><div class="mc g">w11</div><div class="mc g">w12</div><div class="mc g">w13</div><div class="mc g">w14</div><div class="mc g">w15</div>
+      </div>
+      <p class="mem-label">
+        <span style="color:var(--magenta)">2 bytes: one scale for all 32 weights</span> &nbsp;
+        <span style="color:var(--green)">16 bytes: 32 weights &times; 4 bits, two per byte</span> &nbsp;
+        Dequant: <code>weight = scale &times; (nibble &minus; 8)</code>
+      </p>
+
+      <p>One FP16 scale shared across 32 weights. Simple, fast &mdash; and mediocre. If half the weights in a block cluster near zero and the other half are spread wide, one scale can&rsquo;t fit both groups well. The scale is a one-size-fits-none compromise.</p>
+
+      <h4>Q4_K: The Real Block &mdash; 144 bytes, 256 weights</h4>
+      <div class="mem-row">
+        <div class="mc m wide">super-scale d (FP16)</div><div class="mc m">&middot;</div>
+        <div class="mc r wide">super-min dmin (FP16)</div><div class="mc r">&middot;</div>
+        <div class="mc o">s0</div><div class="mc o">s1</div><div class="mc o">s2</div><div class="mc o">s3</div><div class="mc o">s4</div><div class="mc o">s5</div><div class="mc o">s6</div><div class="mc o">s7</div><div class="mc o">s8</div><div class="mc o">s9</div><div class="mc o">s10</div><div class="mc o">s11</div>
+      </div>
+      <div class="mem-row">
+        <div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div>
+      </div>
+      <div class="mem-row">
+        <div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div>
+      </div>
+      <div class="mem-row">
+        <div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div>
+      </div>
+      <div class="mem-row">
+        <div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div><div class="mc g">w</div>
+      </div>
+      <p class="mem-label">
+        <span style="color:var(--magenta)">2B: super-scale</span> &nbsp;
+        <span style="color:var(--red)">2B: super-minimum</span> &nbsp;
+        <span style="color:var(--orange)">12B: 8 sub-block scales+mins (quantized!)</span> &nbsp;
+        <span style="color:var(--green)">128B: 256 weights &times; 4 bits</span>
+      </p>
+
+      <p>This is the trick. The 256 weights are divided into <strong>8 sub-blocks of 32</strong>. Each sub-block gets its own scale and minimum &mdash; so weights in different ranges get different rulers. But storing 8 separate FP16 scale+minimum pairs would cost 32 bytes of overhead. K-quants compress those 8 scales into just 12 bytes by <strong>quantizing them</strong> against the super-block&rsquo;s FP16 scale. The metadata that describes the compression is itself compressed.</p>
+
+      <!-- ── VISUALIZATION: Block Exploder ── -->
+      <div class="viz-container">
+        <span class="diagram-label">Q4_K Super-Block: Two Levels of Quantization</span>
+        <svg id="viz-block-exploder" viewBox="0 0 780 340"></svg>
+      </div>
+
+      <p>Why does this matter? At 4-bit precision, per-sub-block FP16 scales would cost 1 bit per weight in overhead. By quantizing the scales, K-quants cut that to 0.19 bits per weight. That 0.8-bit saving is the gap between <code>Q4_0</code>&rsquo;s mediocre quality and <code>Q4_K</code>&rsquo;s near-FP16 perplexity. Double quantization is not a micro-optimization. It is what makes 4-bit viable.</p>
+
+      <div class="power wild">
+        <div class="power-label">The double quantization trick</div>
+        <p>256 weights, 8 sub-blocks, each sub-block with its own scale. But the scales are quantized against a single FP16 super-scale. Compression of the compression. At 4-bit, this saves 0.8 bits per weight of overhead &mdash; the difference between &ldquo;noticeably degraded&rdquo; and &ldquo;barely distinguishable from FP16.&rdquo;</p>
+      </div>
+
+      <h3>Three Signals for the Same Problem</h3>
+
+      <p>GGUF&rsquo;s approach is <strong>position-based triage</strong>: the edges of the network (embedding, output head) get more bits because errors there propagate furthest. The precision policy &mdash; <code>_S</code>, <code>_M</code>, <code>_L</code> &mdash; is a hand-crafted rule about network position. No calibration data. No measurement. Just structural reasoning about error propagation.</p>
+
+      <p>AWQ takes a different path. Instead of choosing precision by network position, it uses <strong>activation magnitude</strong>: run calibration data through the model, measure which weight groups produce the largest activations, and protect those groups with higher scaling precision. The weights that <em>look</em> important (large magnitude) are often not the ones that <em>are</em> important (large activation flow). AWQ&rsquo;s core insight &mdash; that activations, not weights, reveal importance &mdash; won the MLSys 2024 Best Paper Award. (For the full algorithm, see <em>Fewer Bits, Same Brain</em>, Part II-A of this series.)</p>
+
+      <p>EXL2 goes furthest. It runs the full-precision model on calibration data and measures <strong>reconstruction error at every bit-width for every column</strong>. Not per-tensor, not per-group &mdash; per column. Then it solves a knapsack problem: given a bit budget, allocate precision where the error map says it matters most. Column 47 of <code>layers.12.self_attn.q_proj</code> might get 6 bits while column 48 gets 2. The result is the highest quality-per-bit of any format, at the cost of a slow measurement pass and a single-runtime ecosystem.</p>
+
+      <table>
+        <thead><tr><th>Format</th><th>Signal</th><th>Granularity</th><th>Requires calibration?</th></tr></thead>
+        <tbody>
+          <tr><td>GGUF (K-quant)</td><td>Network position</td><td>Per-tensor (370 decisions)</td><td>No</td></tr>
+          <tr><td>AWQ</td><td>Activation magnitude</td><td>Per-group (128 weights)</td><td>Yes (small set)</td></tr>
+          <tr><td>EXL2</td><td>Reconstruction error</td><td>Per-column (thousands)</td><td>Yes (measurement pass)</td></tr>
+        </tbody>
+      </table>
+
+      <p>Three different signals. Three different granularities. Same underlying principle: <strong>not all weights are equal</strong>. The difference is how you decide which ones matter.</p>
+
+      <p>The quantization type of each tensor &mdash; visible in the manifest alongside the name and shape &mdash; completes the picture. Architecture from metadata. Structure from tensor names. Precision from quant types. But one question remains: when you see <code>Q4_K_M</code>, <code>IQ4_XS</code>, and <code>Q5_K_S</code> on the same download page, what is the actual difference?</p>
+    </section>
