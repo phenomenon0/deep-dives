@@ -435,8 +435,9 @@
   .planet-progress canvas {
     display: block;
     margin: 0 auto;
-    border-radius: 50%;
+    border-radius: 6px;
     border: 1px solid var(--border);
+    background: #050508;
   }
   .planet-progress .planet-label {
     display: block;
@@ -455,8 +456,9 @@
     margin: 1rem 0;
   }
   .planet-filmstrip canvas {
-    border-radius: 50%;
+    border-radius: 4px;
     border: 1px solid var(--border);
+    background: #050508;
     transition: border-color 0.2s;
   }
   .planet-filmstrip canvas:last-child {
@@ -6175,368 +6177,338 @@ void main(){
 </script>
 
 <!-- ============================================================ -->
-<!-- TINY PLANET: Progressive narrative spine                        -->
+<!-- TINY PLANET: Three.js progressive narrative spine               -->
 <!-- ============================================================ -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 (function() {
   'use strict';
+  if (typeof THREE === 'undefined') return;
   var T = window.shaderTheme;
 
-  // ── Shared math ──────────────────────────────────────────────
-  function hash2(x, y) {
-    var n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
-    return n - Math.floor(n);
-  }
-  function noise2d(px, py) {
-    var ix = Math.floor(px), iy = Math.floor(py);
-    var fx = px - ix, fy = py - iy;
-    var ux = fx*fx*(3-2*fx), uy = fy*fy*(3-2*fy);
-    var a = hash2(ix,iy), b = hash2(ix+1,iy);
-    var c = hash2(ix,iy+1), d = hash2(ix+1,iy+1);
-    return a + ux*(b-a) + uy*((c + ux*(d-c)) - (a + ux*(b-a)));
-  }
-  function fbm(x, y, octaves) {
-    var v = 0, a = 0.5, freq = 1;
-    for (var i = 0; i < octaves; i++) {
-      v += a * noise2d(x*freq, y*freq);
-      freq *= 2; a *= 0.5;
-    }
-    return v;
-  }
-  function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
-  function mix(a, b, t) { return a + (b - a) * t; }
-  function mixV(a, b, t) { return [mix(a[0],b[0],t), mix(a[1],b[1],t), mix(a[2],b[2],t)]; }
-  function smoothstep(e0, e1, x) {
-    var t = clamp01((x - e0) / (e1 - e0));
-    return t * t * (3 - 2 * t);
-  }
+  // ── GLSL shader source for each planet stage ─────────────────
+  // Each stage's fragment shader builds on the previous concept.
+  // The vertex shader is shared — it passes normal, UV, and position.
 
-  // ── Colors ───────────────────────────────────────────────────
-  var ocean     = [0.04, 0.12, 0.35];
-  var oceanDeep = [0.02, 0.06, 0.20];
-  var land      = [0.18, 0.42, 0.12];
-  var landHigh  = [0.35, 0.30, 0.15];
-  var snow      = [0.85, 0.88, 0.92];
-  var cloud     = [0.95, 0.95, 0.97];
-  var limbCol   = [0.35, 0.55, 1.0];
-  var nightCity = [1.0, 0.8, 0.4];
-  var moonCol   = [0.65, 0.65, 0.70];
+  var PLANET_VS = [
+    'varying vec3 vNormal;',
+    'varying vec2 vUv;',
+    'varying vec3 vPosition;',
+    'void main() {',
+    '  vNormal = normalize(normalMatrix * normal);',
+    '  vUv = uv;',
+    '  vPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;',
+    '  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);',
+    '}'
+  ].join('\n');
 
-  // Light direction (normalized)
-  var lightDir = (function() {
-    var x=0.65, y=-0.3, z=0.7;
-    var l = Math.sqrt(x*x+y*y+z*z);
-    return [x/l, y/l, z/l];
-  })();
-  var viewDir = [0, 0, 1];
+  // Shared GLSL functions prepended to every fragment shader
+  var GLSL_COMMON = [
+    'precision highp float;',
+    'varying vec3 vNormal;',
+    'varying vec2 vUv;',
+    'varying vec3 vPosition;',
+    'uniform float uTime;',
+    '',
+    'float hash2(vec2 p) {',
+    '  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);',
+    '}',
+    'float noise2d(vec2 p) {',
+    '  vec2 i = floor(p), f = fract(p);',
+    '  vec2 u = f*f*(3.0-2.0*f);',
+    '  float a = hash2(i), b = hash2(i+vec2(1,0));',
+    '  float c = hash2(i+vec2(0,1)), d = hash2(i+vec2(1,1));',
+    '  return a + u.x*(b-a) + u.y*((c+u.x*(d-c)) - (a+u.x*(b-a)));',
+    '}',
+    'float fbm(vec2 p, int oct) {',
+    '  float v = 0.0, a = 0.5;',
+    '  for (int i = 0; i < 6; i++) {',
+    '    if (i >= oct) break;',
+    '    v += a * noise2d(p);',
+    '    p *= 2.0; a *= 0.5;',
+    '  }',
+    '  return v;',
+    '}',
+    ''
+  ].join('\n');
 
-  // ── Planet stage functions ───────────────────────────────────
-  // Each returns [r,g,b] (0..1) or null (background)
-  // Arguments: dx, dy = offset from center / radius (-1..1 range), r2 = dx*dx+dy*dy
+  // Stage fragment shaders
+  var stageShaders = [];
 
-  function stage0(dx, dy, r2) {
-    // Ch3: Flat green disc
-    if (r2 > 1) return null;
-    return [0.0, 0.5, 0.33];
-  }
+  // Stage 0 (Ch3): Flat green disc
+  stageShaders[0] = GLSL_COMMON + [
+    'void main() {',
+    '  gl_FragColor = vec4(0.0, 0.5, 0.33, 1.0);',
+    '}'
+  ].join('\n');
 
-  function stage1(dx, dy, r2) {
-    // Ch4: Atmosphere gradient via mix()
-    if (r2 > 1.08) return null;
-    if (r2 > 1) {
-      // Thin atmosphere halo outside disc
-      var glow = Math.exp(-(r2 - 1) * 60);
-      return [limbCol[0]*glow, limbCol[1]*glow, limbCol[2]*glow];
-    }
-    var sf = Math.sqrt(1 - r2); // 1 at center, 0 at limb
-    var core = [0.08, 0.22, 0.45];
-    return mixV(limbCol, core, sf);
-  }
+  // Stage 1 (Ch4): Atmosphere gradient via mix()
+  stageShaders[1] = GLSL_COMMON + [
+    'void main() {',
+    '  vec3 N = normalize(vNormal);',
+    '  float rim = 1.0 - max(0.0, dot(N, vec3(0,0,1)));',
+    '  vec3 core = vec3(0.08, 0.22, 0.45);',
+    '  vec3 limb = vec3(0.35, 0.55, 1.0);',
+    '  vec3 col = mix(core, limb, pow(rim, 1.5));',
+    '  gl_FragColor = vec4(col, 1.0);',
+    '}'
+  ].join('\n');
 
-  function stage2(dx, dy, r2) {
-    // Ch5: Spherical UV + gamma
-    if (r2 > 1.08) return null;
-    if (r2 > 1) {
-      var glow = Math.exp(-(r2 - 1) * 60);
-      return [limbCol[0]*glow, limbCol[1]*glow, limbCol[2]*glow];
-    }
-    var dz = Math.sqrt(1 - r2);
-    var nx = dx, ny = -dy, nz = dz;
-    // Spherical UVs
-    var u = 0.5 + Math.atan2(nx, nz) / (2 * Math.PI);
-    var v = 0.5 + Math.asin(clamp01(Math.min(1,Math.max(-1,ny)))) / Math.PI;
-    var sf = dz;
-    var core = [0.08, 0.22, 0.45];
-    var col = mixV(limbCol, core, sf);
-    // Gamma correct
-    col = [Math.pow(col[0], 1/2.2), Math.pow(col[1], 1/2.2), Math.pow(col[2], 1/2.2)];
-    return col;
-  }
+  // Stage 2 (Ch5): Spherical UV + gamma
+  stageShaders[2] = GLSL_COMMON + [
+    'void main() {',
+    '  vec3 N = normalize(vNormal);',
+    '  float rim = 1.0 - max(0.0, dot(N, vec3(0,0,1)));',
+    '  vec3 core = vec3(0.08, 0.22, 0.45);',
+    '  vec3 limb = vec3(0.35, 0.55, 1.0);',
+    '  vec3 col = mix(core, limb, pow(rim, 1.5));',
+    '  col = pow(col, vec3(1.0/2.2));',
+    '  gl_FragColor = vec4(col, 1.0);',
+    '}'
+  ].join('\n');
 
-  function stage3(dx, dy, r2) {
-    // Ch6: Continents via fract()
-    if (r2 > 1.08) return null;
-    if (r2 > 1) {
-      var glow = Math.exp(-(r2 - 1) * 60);
-      return [limbCol[0]*glow, limbCol[1]*glow, limbCol[2]*glow];
-    }
-    var dz = Math.sqrt(1 - r2);
-    var nx = dx, ny = -dy, nz = dz;
-    var u = 0.5 + Math.atan2(nx, nz) / (2*Math.PI);
-    var v = 0.5 + Math.asin(clamp01(Math.min(1,Math.max(-1,ny)))) / Math.PI;
-    // Continent hash via fract
-    var cu = Math.floor(u * 7), cv = Math.floor(v * 5);
-    var continent = hash2(cu + 3.7, cv + 7.1) > 0.48 ? 1 : 0;
-    var col = continent ? land : ocean;
-    // Latitude lines
-    var latFrac = Math.abs((v * 8) - Math.floor(v * 8) - 0.5);
-    if (latFrac > 0.46) col = mixV(col, [0.3, 0.35, 0.5], 0.3);
-    // Atmosphere at limb
-    col = mixV(col, limbCol, (1 - dz) * 0.5);
-    return col;
-  }
+  // Stage 3 (Ch6): Continents via fract()
+  stageShaders[3] = GLSL_COMMON + [
+    'void main() {',
+    '  vec3 N = normalize(vNormal);',
+    '  vec2 uv = vUv;',
+    '  float rim = 1.0 - max(0.0, dot(N, vec3(0,0,1)));',
+    '  vec3 limb = vec3(0.35, 0.55, 1.0);',
+    '  // Continent from tiled hash',
+    '  float cu = floor(uv.x * 7.0);',
+    '  float cv = floor(uv.y * 5.0);',
+    '  float continent = step(0.48, hash2(vec2(cu+3.7, cv+7.1)));',
+    '  vec3 oceanCol = vec3(0.04, 0.12, 0.35);',
+    '  vec3 landCol = vec3(0.18, 0.42, 0.12);',
+    '  vec3 col = mix(oceanCol, landCol, continent);',
+    '  // Latitude lines',
+    '  float latFrac = abs(fract(uv.y * 8.0) - 0.5);',
+    '  col = mix(col, vec3(0.3, 0.35, 0.5), step(0.46, latFrac) * 0.3);',
+    '  // Atmosphere at limb',
+    '  col = mix(col, limb, pow(rim, 1.5) * 0.5);',
+    '  gl_FragColor = vec4(col, 1.0);',
+    '}'
+  ].join('\n');
 
-  function stage4(dx, dy, r2) {
-    // Ch7: Noise-driven coastlines + clouds
-    if (r2 > 1.08) return null;
-    if (r2 > 1) {
-      var glow = Math.exp(-(r2 - 1) * 60);
-      return [limbCol[0]*glow, limbCol[1]*glow, limbCol[2]*glow];
-    }
-    var dz = Math.sqrt(1 - r2);
-    var nx = dx, ny = -dy, nz = dz;
-    var u = 0.5 + Math.atan2(nx, nz) / (2*Math.PI);
-    var v = 0.5 + Math.asin(clamp01(Math.min(1,Math.max(-1,ny)))) / Math.PI;
-    // Noise continent
-    var n = fbm(u * 8 + 1.3, v * 8 + 0.7, 4);
-    var continent = smoothstep(0.38, 0.44, n);
-    var col = mixV(ocean, land, continent);
-    // Ocean depth variation
-    if (continent < 0.1) {
-      var depthN = noise2d(u*12, v*12) * 0.15;
-      col = mixV(oceanDeep, ocean, depthN + 0.5);
-    }
-    // Clouds
-    var cn = fbm(u * 10 + 0.5, v * 10 + 0.3, 3);
-    var cloudAmt = smoothstep(0.45, 0.65, cn) * 0.6;
-    col = mixV(col, cloud, cloudAmt);
-    // Atmosphere at limb
-    col = mixV(col, limbCol, (1 - dz) * 0.55);
-    return col;
-  }
+  // Stage 4 (Ch7): Noise coastlines + clouds
+  stageShaders[4] = GLSL_COMMON + [
+    'void main() {',
+    '  vec3 N = normalize(vNormal);',
+    '  vec2 uv = vUv;',
+    '  float rim = 1.0 - max(0.0, dot(N, vec3(0,0,1)));',
+    '  vec3 limb = vec3(0.35, 0.55, 1.0);',
+    '  float n = fbm(uv * 8.0 + vec2(1.3, 0.7), 4);',
+    '  float continent = smoothstep(0.38, 0.44, n);',
+    '  vec3 oceanCol = vec3(0.04, 0.12, 0.35);',
+    '  vec3 oceanDeep = vec3(0.02, 0.06, 0.20);',
+    '  vec3 landCol = vec3(0.18, 0.42, 0.12);',
+    '  vec3 col = mix(mix(oceanDeep, oceanCol, noise2d(uv*12.0)*0.5+0.5), landCol, continent);',
+    '  // Clouds',
+    '  float cn = fbm(uv * 10.0 + vec2(0.5, 0.3), 3);',
+    '  float cloudAmt = smoothstep(0.45, 0.65, cn) * 0.6;',
+    '  col = mix(col, vec3(0.95), cloudAmt);',
+    '  col = mix(col, limb, pow(rim, 1.5) * 0.55);',
+    '  gl_FragColor = vec4(col, 1.0);',
+    '}'
+  ].join('\n');
 
-  function stage5(dx, dy, r2) {
-    // Ch8: Mountain elevation + moon
-    if (r2 > 1.08) return null;
-    if (r2 > 1) {
-      var glow = Math.exp(-(r2 - 1) * 60);
-      return [limbCol[0]*glow, limbCol[1]*glow, limbCol[2]*glow];
-    }
-    var dz = Math.sqrt(1 - r2);
-    var nx = dx, ny = -dy, nz = dz;
-    var u = 0.5 + Math.atan2(nx, nz) / (2*Math.PI);
-    var v = 0.5 + Math.asin(clamp01(Math.min(1,Math.max(-1,ny)))) / Math.PI;
-    var n = fbm(u*8+1.3, v*8+0.7, 4);
-    var continent = smoothstep(0.38, 0.44, n);
-    // Elevation coloring on land
-    var elevation = smoothstep(0.44, 0.7, n);
-    var landCol = mixV(land, landHigh, elevation);
-    var snowLine = smoothstep(0.62, 0.68, n);
-    landCol = mixV(landCol, snow, snowLine * 0.7);
-    var col = mixV(ocean, landCol, continent);
-    if (continent < 0.1) {
-      var depthN = noise2d(u*12, v*12) * 0.15;
-      col = mixV(oceanDeep, ocean, depthN + 0.5);
-    }
-    var cn = fbm(u*10+0.5, v*10+0.3, 3);
-    var cloudAmt = smoothstep(0.45, 0.65, cn) * 0.6;
-    col = mixV(col, cloud, cloudAmt);
-    col = mixV(col, limbCol, (1 - dz) * 0.55);
-    return col;
-  }
+  // Stage 5 (Ch8): Mountain elevation + snow
+  stageShaders[5] = GLSL_COMMON + [
+    'void main() {',
+    '  vec3 N = normalize(vNormal);',
+    '  vec2 uv = vUv;',
+    '  float rim = 1.0 - max(0.0, dot(N, vec3(0,0,1)));',
+    '  vec3 limb = vec3(0.35, 0.55, 1.0);',
+    '  float n = fbm(uv * 8.0 + vec2(1.3, 0.7), 4);',
+    '  float continent = smoothstep(0.38, 0.44, n);',
+    '  float elevation = smoothstep(0.44, 0.7, n);',
+    '  vec3 landCol = mix(vec3(0.18,0.42,0.12), vec3(0.35,0.30,0.15), elevation);',
+    '  landCol = mix(landCol, vec3(0.85,0.88,0.92), smoothstep(0.62,0.68,n)*0.7);',
+    '  vec3 oceanCol = mix(vec3(0.02,0.06,0.20), vec3(0.04,0.12,0.35), noise2d(uv*12.0)*0.5+0.5);',
+    '  vec3 col = mix(oceanCol, landCol, continent);',
+    '  float cn = fbm(uv * 10.0 + vec2(0.5, 0.3), 3);',
+    '  col = mix(col, vec3(0.95), smoothstep(0.45,0.65,cn)*0.6);',
+    '  col = mix(col, limb, pow(rim, 1.5) * 0.55);',
+    '  gl_FragColor = vec4(col, 1.0);',
+    '}'
+  ].join('\n');
 
-  // Moon helper (used by stages 5+)
-  function renderMoon(dx, dy, cx, cy, moonR) {
-    var mdx = (dx - cx) / moonR, mdy = (dy - cy) / moonR;
-    var mr2 = mdx*mdx + mdy*mdy;
-    if (mr2 > 1) return null;
-    var mz = Math.sqrt(1 - mr2);
-    var NdotL = Math.max(0, mdx*lightDir[0] + (-mdy)*lightDir[1] + mz*lightDir[2]);
-    var b = 0.03 + NdotL * 0.7;
-    return [moonCol[0]*b, moonCol[1]*b, moonCol[2]*b];
-  }
+  // Stage 6 (Ch9): dot(N,L) lighting — THE payoff
+  stageShaders[6] = GLSL_COMMON + [
+    'void main() {',
+    '  vec3 N = normalize(vNormal);',
+    '  vec2 uv = vUv;',
+    '  vec3 lightDir = normalize(vec3(0.65, -0.3, 0.7));',
+    '  vec3 viewDir = vec3(0.0, 0.0, 1.0);',
+    '  float NdotL = dot(N, lightDir);',
+    '  float diff = max(0.0, NdotL);',
+    '  // Specular (ocean)',
+    '  vec3 H = normalize(lightDir + viewDir);',
+    '  float spec = pow(max(0.0, dot(N, H)), 64.0);',
+    '  float n = fbm(uv * 8.0 + vec2(1.3, 0.7), 4);',
+    '  float continent = smoothstep(0.38, 0.44, n);',
+    '  float elevation = smoothstep(0.44, 0.7, n);',
+    '  vec3 landCol = mix(vec3(0.18,0.42,0.12), vec3(0.35,0.30,0.15), elevation);',
+    '  landCol = mix(landCol, vec3(0.85,0.88,0.92), smoothstep(0.62,0.68,n)*0.7);',
+    '  vec3 oceanCol = mix(vec3(0.02,0.06,0.20), vec3(0.04,0.12,0.35), noise2d(uv*12.0)*0.5+0.5);',
+    '  vec3 surfaceCol = mix(oceanCol, landCol, continent);',
+    '  float ambient = 0.03;',
+    '  vec3 lit = surfaceCol * (ambient + diff * 0.85) + spec * (1.0 - continent) * 0.4;',
+    '  // Clouds (lit)',
+    '  float cn = fbm(uv * 10.0 + vec2(0.5, 0.3), 3);',
+    '  float cloudAmt = smoothstep(0.45, 0.65, cn) * 0.6;',
+    '  float dayAmt = smoothstep(-0.05, 0.12, NdotL);',
+    '  vec3 litCloud = vec3(0.95) * (ambient + diff * 0.9);',
+    '  lit = mix(lit, litCloud, cloudAmt);',
+    '  // Day/night',
+    '  vec3 night = vec3(0.005, 0.005, 0.02);',
+    '  vec3 col = mix(night, lit, dayAmt);',
+    '  // Atmosphere at limb (day side only)',
+    '  float rim = 1.0 - max(0.0, dot(N, vec3(0,0,1)));',
+    '  col += vec3(0.35, 0.55, 1.0) * pow(rim, 2.0) * dayAmt * 0.4;',
+    '  gl_FragColor = vec4(col, 1.0);',
+    '}'
+  ].join('\n');
 
-  function stage6(dx, dy, r2) {
-    // Ch9: dot(N,L) lighting — THE payoff
-    if (r2 > 1.08) return null;
-    if (r2 > 1) {
-      var glow = Math.exp(-(r2 - 1) * 60);
-      return [limbCol[0]*glow*0.5, limbCol[1]*glow*0.5, limbCol[2]*glow*0.5];
-    }
-    var dz = Math.sqrt(1 - r2);
-    var nx = dx, ny = -dy, nz = dz;
-    var u = 0.5 + Math.atan2(nx, nz) / (2*Math.PI);
-    var v = 0.5 + Math.asin(clamp01(Math.min(1,Math.max(-1,ny)))) / Math.PI;
-    var n = fbm(u*8+1.3, v*8+0.7, 4);
-    var continent = smoothstep(0.38, 0.44, n);
-    var elevation = smoothstep(0.44, 0.7, n);
-    var landC = mixV(land, landHigh, elevation);
-    var snowLine = smoothstep(0.62, 0.68, n);
-    landC = mixV(landC, snow, snowLine * 0.7);
-    var surfaceCol = mixV(ocean, landC, continent);
-    if (continent < 0.1) {
-      var depthN = noise2d(u*12, v*12) * 0.15;
-      surfaceCol = mixV(oceanDeep, ocean, depthN + 0.5);
-    }
+  // Stage 7 (Ch10): Post-FX — bloom, city lights, chromatic fringe
+  stageShaders[7] = GLSL_COMMON + [
+    'void main() {',
+    '  vec3 N = normalize(vNormal);',
+    '  vec2 uv = vUv;',
+    '  vec3 lightDir = normalize(vec3(0.65, -0.3, 0.7));',
+    '  vec3 viewDir = vec3(0.0, 0.0, 1.0);',
+    '  float NdotL = dot(N, lightDir);',
+    '  float diff = max(0.0, NdotL);',
+    '  vec3 H = normalize(lightDir + viewDir);',
+    '  float spec = pow(max(0.0, dot(N, H)), 64.0);',
+    '  float n = fbm(uv * 8.0 + vec2(1.3, 0.7), 4);',
+    '  float continent = smoothstep(0.38, 0.44, n);',
+    '  float elevation = smoothstep(0.44, 0.7, n);',
+    '  vec3 landCol = mix(vec3(0.18,0.42,0.12), vec3(0.35,0.30,0.15), elevation);',
+    '  landCol = mix(landCol, vec3(0.85,0.88,0.92), smoothstep(0.62,0.68,n)*0.7);',
+    '  vec3 oceanCol = mix(vec3(0.02,0.06,0.20), vec3(0.04,0.12,0.35), noise2d(uv*12.0)*0.5+0.5);',
+    '  vec3 surfaceCol = mix(oceanCol, landCol, continent);',
+    '  float ambient = 0.03;',
+    '  vec3 lit = surfaceCol * (ambient + diff * 0.85) + spec * (1.0 - continent) * 0.4;',
+    '  float cn = fbm(uv * 10.0 + vec2(0.5, 0.3), 3);',
+    '  float cloudAmt = smoothstep(0.45, 0.65, cn) * 0.6;',
+    '  float dayAmt = smoothstep(-0.05, 0.12, NdotL);',
+    '  vec3 litCloud = vec3(0.95) * (ambient + diff * 0.9);',
+    '  lit = mix(lit, litCloud, cloudAmt);',
+    '  vec3 night = vec3(0.005, 0.005, 0.02);',
+    '  vec3 col = mix(night, lit, dayAmt);',
+    '  // City lights on night side',
+    '  float cityN = noise2d(uv * 30.0);',
+    '  float cityMask = step(0.82, cityN) * continent * smoothstep(0.1, -0.02, NdotL);',
+    '  col += vec3(1.0, 0.8, 0.4) * cityMask * 0.5;',
+    '  // Atmospheric rim',
+    '  float rim = 1.0 - max(0.0, dot(N, vec3(0,0,1)));',
+    '  col += vec3(0.35, 0.55, 1.0) * pow(rim, 2.0) * dayAmt * 0.4;',
+    '  // Atmospheric glow on night side too (subtle blue)',
+    '  col += vec3(0.1, 0.15, 0.35) * pow(rim, 3.0) * (1.0 - dayAmt) * 0.3;',
+    '  gl_FragColor = vec4(col, 1.0);',
+    '}'
+  ].join('\n');
 
-    // LIGHTING — the dot product
-    var NdotL = nx*lightDir[0] + ny*lightDir[1] + nz*lightDir[2];
-    var diff = Math.max(0, NdotL);
-    // Specular (ocean only)
-    var hx = lightDir[0]+viewDir[0], hy = lightDir[1]+viewDir[1], hz = lightDir[2]+viewDir[2];
-    var hl = Math.sqrt(hx*hx+hy*hy+hz*hz);
-    hx/=hl; hy/=hl; hz/=hl;
-    var NdotH = Math.max(0, nx*hx+ny*hy+nz*hz);
-    var spec = Math.pow(NdotH, 64) * (1 - continent) * 0.5;
-
-    // Day/night
-    var dayAmt = smoothstep(-0.05, 0.12, NdotL);
-    var ambient = 0.03;
-    var lit = [
-      surfaceCol[0]*(ambient + diff*0.85) + spec,
-      surfaceCol[1]*(ambient + diff*0.85) + spec,
-      surfaceCol[2]*(ambient + diff*0.85) + spec
-    ];
-    var night = [0.008, 0.008, 0.025];
-    var col = mixV(night, lit, dayAmt);
-
-    // Clouds (lit)
-    var cn = fbm(u*10+0.5, v*10+0.3, 3);
-    var cloudAmt = smoothstep(0.45, 0.65, cn) * 0.6;
-    var litCloud = [cloud[0]*(ambient+diff*0.9), cloud[1]*(ambient+diff*0.9), cloud[2]*(ambient+diff*0.9)];
-    col = mixV(col, litCloud, cloudAmt * dayAmt);
-
-    // Atmosphere at limb
-    var limbGlow = (1 - dz) * 0.4 * dayAmt;
-    col = [col[0]+limbCol[0]*limbGlow, col[1]+limbCol[1]*limbGlow, col[2]+limbCol[2]*limbGlow];
-
-    return [clamp01(col[0]), clamp01(col[1]), clamp01(col[2])];
-  }
-
-  function stage7(dx, dy, r2) {
-    // Ch10: Post-FX — bloom, chromatic aberration, city lights
-    if (r2 > 1.15) return null;
-    if (r2 > 1.08) {
-      // Extended atmospheric bloom
-      var glow = Math.exp(-(r2 - 1) * 20);
-      return [limbCol[0]*glow*0.3, limbCol[1]*glow*0.3, limbCol[2]*glow*0.3];
-    }
-    if (r2 > 1) {
-      var glow2 = Math.exp(-(r2 - 1) * 30);
-      return [limbCol[0]*glow2*0.5, limbCol[1]*glow2*0.5, limbCol[2]*glow2*0.5];
-    }
-    // Get the lit planet
-    var col = stage6(dx, dy, r2);
-    if (!col) return null;
-    var dz = Math.sqrt(1 - r2);
-    var nx = dx, ny = -dy, nz = dz;
-    var u = 0.5 + Math.atan2(nx, nz) / (2*Math.PI);
-    var v = 0.5 + Math.asin(clamp01(Math.min(1,Math.max(-1,ny)))) / Math.PI;
-    var NdotL = nx*lightDir[0] + ny*lightDir[1] + nz*lightDir[2];
-
-    // City lights on night side
-    var n = fbm(u*8+1.3, v*8+0.7, 4);
-    var continent = smoothstep(0.38, 0.44, n);
-    var cityN = noise2d(u*30, v*30);
-    var cityMask = (cityN > 0.82 ? 1 : 0) * continent * smoothstep(0.1, -0.02, NdotL);
-    col[0] += nightCity[0] * cityMask * 0.5;
-    col[1] += nightCity[1] * cityMask * 0.5;
-    col[2] += nightCity[2] * cityMask * 0.5;
-
-    // Chromatic aberration at limb
-    var limbFactor = (1 - dz);
-    if (limbFactor > 0.5) {
-      col[0] *= 1.0 + limbFactor * 0.15;
-      col[2] *= 1.0 - limbFactor * 0.1;
-    }
-
-    return [clamp01(col[0]), clamp01(col[1]), clamp01(col[2])];
-  }
-
-  var stages = [stage0, stage1, stage2, stage3, stage4, stage5, stage6, stage7];
-
-  // ── Render function ──────────────────────────────────────────
-  function renderPlanet(canvasId, stageIdx) {
+  // ── Create a planet scene for a canvas ───────────────────────
+  function createPlanet(canvasId, stageIdx, size) {
     var canvas = document.getElementById(canvasId);
-    if (!canvas) return;
-    var ctx = canvas.getContext('2d');
-    var w = canvas.width, h = canvas.height;
-    var img = ctx.createImageData(w, h);
-    var d = img.data;
-    var cx = w/2, cy = h/2;
-    var R = w * 0.42;
-    var stageFn = stages[Math.min(stageIdx, stages.length - 1)];
+    if (!canvas) return null;
 
-    // Background
-    var bgR, bgG, bgB;
-    if (T.isApple()) { bgR = 18; bgG = 18; bgB = 26; }
-    else { bgR = 8; bgG = 8; bgB = 13; }
+    var renderer = new THREE.WebGLRenderer({
+      canvas: canvas,
+      antialias: true,
+      alpha: true
+    });
+    renderer.setSize(size, size);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setClearColor(0x050508, 1);
 
-    // Moon position (stages 5+)
-    var moonCx = 0.62, moonCy = -0.55, moonR = 0.14;
+    var scene = new THREE.Scene();
+    var camera = new THREE.PerspectiveCamera(35, 1, 0.1, 100);
+    camera.position.z = 3.2;
 
-    for (var y = 0; y < h; y++) {
-      for (var x = 0; x < w; x++) {
-        var dx = (x - cx) / R;
-        var dy = (y - cy) / R;
-        var r2 = dx*dx + dy*dy;
-        var idx = (y * w + x) * 4;
+    // Planet sphere (high-poly for smooth normals)
+    var geo = new THREE.SphereGeometry(1, 64, 48);
+    var mat = new THREE.ShaderMaterial({
+      vertexShader: PLANET_VS,
+      fragmentShader: stageShaders[Math.min(stageIdx, stageShaders.length - 1)],
+      uniforms: { uTime: { value: 0 } }
+    });
+    var mesh = new THREE.Mesh(geo, mat);
+    // Tilt slightly for visual interest
+    mesh.rotation.x = 0.15;
+    mesh.rotation.z = -0.1;
+    scene.add(mesh);
 
-        // Try moon first (stages 5+)
-        var moonPx = null;
-        if (stageIdx >= 5) {
-          moonPx = renderMoon(dx, dy, moonCx, moonCy, moonR);
-        }
-
-        var col = stageFn(dx, dy, r2);
-
-        if (moonPx && !col) {
-          col = moonPx;
-        } else if (!col) {
-          // Stars in background
-          var starN = hash2(Math.floor(x*0.7), Math.floor(y*0.7));
-          if (starN > 0.985) {
-            var sb = starN * 0.4;
-            d[idx] = bgR + sb*200; d[idx+1] = bgG + sb*200; d[idx+2] = bgB + sb*180; d[idx+3] = 255;
-          } else {
-            d[idx] = bgR; d[idx+1] = bgG; d[idx+2] = bgB; d[idx+3] = 255;
-          }
-          continue;
-        }
-
-        d[idx]   = Math.round(clamp01(col[0]) * 255);
-        d[idx+1] = Math.round(clamp01(col[1]) * 255);
-        d[idx+2] = Math.round(clamp01(col[2]) * 255);
-        d[idx+3] = 255;
+    // Stars background (small points)
+    if (stageIdx >= 2) {
+      var starGeo = new THREE.BufferGeometry();
+      var starVerts = [];
+      for (var i = 0; i < 200; i++) {
+        var theta = Math.random() * Math.PI * 2;
+        var phi = Math.acos(2 * Math.random() - 1);
+        var r = 8 + Math.random() * 4;
+        starVerts.push(
+          r * Math.sin(phi) * Math.cos(theta),
+          r * Math.sin(phi) * Math.sin(theta),
+          r * Math.cos(phi)
+        );
       }
+      starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starVerts, 3));
+      var starMat = new THREE.PointsMaterial({ color: 0x888899, size: 0.05, sizeAttenuation: true });
+      scene.add(new THREE.Points(starGeo, starMat));
     }
-    ctx.putImageData(img, 0, 0);
+
+    return { renderer: renderer, scene: scene, camera: camera, mesh: mesh, mat: mat };
   }
 
-  // ── Filmstrip ────────────────────────────────────────────────
-  function renderFilmstrip() {
+  // ── Render all planets + animation loop ──────────────────────
+  var planets = [];
+  var canvasMap = [
+    ['planet-ch3', 0, 200],
+    ['planet-ch4', 1, 200],
+    ['planet-ch5', 2, 200],
+    ['planet-ch6', 3, 200],
+    ['planet-ch7', 4, 200],
+    ['planet-ch8', 5, 200],
+    ['planet-ch9', 6, 200],
+    ['planet-ch10', 7, 200],
+    ['planet-ch11', 7, 200]
+  ];
+
+  function initAll() {
+    // Dispose old planets if re-initializing
+    planets.forEach(function(p) {
+      if (p && p.renderer) p.renderer.dispose();
+    });
+    planets = [];
+    for (var i = 0; i < canvasMap.length; i++) {
+      var p = createPlanet(canvasMap[i][0], canvasMap[i][1], canvasMap[i][2]);
+      planets.push(p);
+    }
+    initFilmstrip();
+  }
+
+  // ── Filmstrip (tiny planets) ─────────────────────────────────
+  var filmstripPlanets = [];
+  function initFilmstrip() {
     var container = document.getElementById('planet-filmstrip');
     if (!container) return;
     container.innerHTML = '';
-    var labels = ['Disc','Atmo','UV','Globe','Noise','SDF','Lit','Post-FX'];
+    filmstripPlanets.forEach(function(p) { if (p && p.renderer) p.renderer.dispose(); });
+    filmstripPlanets = [];
+    var labels = ['Disc','Atmo','UV','Globe','Noise','Elev','Lit','Post-FX'];
     for (var i = 0; i < labels.length; i++) {
       var wrap = document.createElement('div');
       wrap.style.textAlign = 'center';
       var c = document.createElement('canvas');
       c.width = 70; c.height = 70;
       c.style.width = '70px'; c.style.height = '70px';
-      c.style.borderRadius = '50%';
+      c.style.borderRadius = '4px';
       c.style.border = '1px solid ' + (i === labels.length - 1 ? T.green() : T.grid());
+      c.style.background = '#050508';
+      c.id = 'pf-' + i;
       wrap.appendChild(c);
       var lbl = document.createElement('span');
       lbl.className = 'pf-label';
@@ -6544,57 +6516,44 @@ void main(){
       wrap.appendChild(lbl);
       container.appendChild(wrap);
 
-      // Render into this tiny canvas
-      var ctx = c.getContext('2d');
-      var img = ctx.createImageData(70, 70);
-      var d = img.data;
-      var cx = 35, cy = 35, R = 28;
-      var stageFn = stages[Math.min(i, stages.length - 1)];
-      for (var y = 0; y < 70; y++) {
-        for (var x = 0; x < 70; x++) {
-          var dx = (x - cx) / R, dy = (y - cy) / R;
-          var r2 = dx*dx + dy*dy;
-          var idx = (y * 70 + x) * 4;
-          var moonPx = null;
-          if (i >= 5) moonPx = renderMoon(dx, dy, 0.62, -0.55, 0.14);
-          var col = stageFn(dx, dy, r2);
-          if (moonPx && !col) col = moonPx;
-          if (!col) { d[idx]=8; d[idx+1]=8; d[idx+2]=13; d[idx+3]=255; continue; }
-          d[idx]=Math.round(clamp01(col[0])*255);
-          d[idx+1]=Math.round(clamp01(col[1])*255);
-          d[idx+2]=Math.round(clamp01(col[2])*255);
-          d[idx+3]=255;
-        }
+      var fp = createPlanet('pf-' + i, i, 70);
+      filmstripPlanets.push(fp);
+    }
+  }
+
+  // ── Animation loop (slow rotation) ───────────────────────────
+  var startTime = performance.now() / 1000;
+  function animate() {
+    requestAnimationFrame(animate);
+    var t = performance.now() / 1000 - startTime;
+    var allPlanets = planets.concat(filmstripPlanets);
+    for (var i = 0; i < allPlanets.length; i++) {
+      var p = allPlanets[i];
+      if (!p || !p.mesh) continue;
+      p.mesh.rotation.y = t * 0.08 + i * 0.5; // slow spin, offset per planet
+      p.mat.uniforms.uTime.value = t;
+      p.renderer.render(p.scene, p.camera);
+    }
+  }
+
+  initAll();
+  animate();
+
+  window.shaderTheme.onThemeChange(function() {
+    // Update clear colors
+    planets.concat(filmstripPlanets).forEach(function(p) {
+      if (p && p.renderer) {
+        p.renderer.setClearColor(T.isApple() ? 0xf5f5f7 : 0x050508, 1);
       }
-      ctx.putImageData(img, 0, 0);
-    }
-  }
+    });
+  });
 
-  // ── Render all planet canvases ───────────────────────────────
-  var canvasMap = [
-    ['planet-ch3', 0],
-    ['planet-ch4', 1],
-    ['planet-ch5', 2],
-    ['planet-ch6', 3],
-    ['planet-ch7', 4],
-    ['planet-ch8', 5],
-    ['planet-ch9', 6],
-    ['planet-ch10', 7],
-    ['planet-ch11', 7]  // full planet at closing
-  ];
-
-  function renderAll() {
-    for (var i = 0; i < canvasMap.length; i++) {
-      renderPlanet(canvasMap[i][0], canvasMap[i][1]);
-    }
-    renderFilmstrip();
-  }
-
-  // Render on load
-  renderAll();
-
-  // Re-render on theme change
-  window.shaderTheme.onThemeChange(renderAll);
+  // Expose for cleanup
+  window._planetCleanup = function() {
+    planets.concat(filmstripPlanets).forEach(function(p) {
+      if (p && p.renderer) p.renderer.dispose();
+    });
+  };
 })();
 </script>
 </body>
