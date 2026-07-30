@@ -4,6 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Buffer Hacking — Unleash the Raw Power</title>
+  <meta name="description" content="The raw memory between you and the machine. Every pixel you see, every sound you hear, every keystroke you type — it all passes through a buffer first.">
+  <link rel="canonical" href="https://femiadeniran.com/deep-dives/buffer-hacking.html">
+  <meta property="og:title" content="Buffer Hacking — Unleash the Raw Power">
+  <meta property="og:description" content="The raw memory between you and the machine. Every pixel you see, every sound you hear, every keystroke you type — it all passes through a buffer first.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://femiadeniran.com/deep-dives/buffer-hacking.html">
+  <meta property="og:site_name" content="Femi Adeniran">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Buffer Hacking — Unleash the Raw Power">
+  <meta name="twitter:description" content="The raw memory between you and the machine. Every pixel you see, every sound you hear, every keystroke you type — it all passes through a buffer first.">
+  <meta name="author" content="Femi Adeniran">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
@@ -575,18 +586,18 @@
 
 <div class="js-demo" id="demo-speed">
   <div class="js-demo-header">
-    <span class="js-demo-title">Producer / Consumer</span>
+    <span class="js-demo-title">Hose → Bucket → Straw</span>
     <span class="js-demo-badge">Interactive</span>
   </div>
   <div class="js-demo-body">
-    <canvas id="speed-canvas" width="700" height="200"></canvas>
+    <canvas id="speed-canvas" width="700" height="280"></canvas>
     <div class="controls">
-      <label>Producer:</label><input type="range" id="speed-prod" min="1" max="20" value="8">
-      <label>Consumer:</label><input type="range" id="speed-cons" min="1" max="20" value="8">
-      <label>Buffer:</label><input type="range" id="speed-bufsize" min="2" max="5" value="3">
+      <label>Hose flow:</label><input type="range" id="speed-prod" min="0" max="20" value="8">
+      <label>Straw sip:</label><input type="range" id="speed-cons" min="0" max="20" value="8">
+      <label>Bucket size:</label><input type="range" id="speed-bufsize" min="2" max="5" value="3">
       <button onclick="speedReset()">Reset</button>
     </div>
-    <div class="readout" id="speed-readout">produced: 0  consumed: 0  dropped: 0  starved: 0</div>
+    <div class="readout" id="speed-readout">poured: 0  sipped: 0  overflowed: 0  sucked air: 0</div>
   </div>
 </div>
 
@@ -1076,21 +1087,58 @@ recording[rec_pos++] = (KeyEvent){
 
 <div class="js-demo" id="demo-spectrum">
   <div class="js-demo-header">
-    <span class="js-demo-title">Live Spectrum</span>
-    <span class="js-demo-badge">FFT — plays from lofi piano above</span>
+    <span class="js-demo-title">Piano + Spectrum</span>
+    <span class="js-demo-badge">Play &amp; See the FFT</span>
   </div>
   <div class="js-demo-body">
-    <canvas id="spectrum-canvas" width="700" height="140"></canvas>
-    <div class="readout" id="spectrum-readout">Play keys on the lofi piano above. The spectrum updates in real time.</div>
+    <canvas id="spectrum-canvas" width="700" height="260"></canvas>
+    <div class="readout" id="spectrum-readout">Click canvas, play keys. Top = piano. Bottom = live FFT. Try chords &mdash; Q+E+T = C major.</div>
   </div>
 </div>
 
 </section>
 
+<!-- ============================================================ -->
+
+<section id="ch5">
+<h2>// what you just built</h2>
+
+<p class="drop-cap">Step back and look at what happened. You started with the idea that a buffer is a bucket between two things running at different speeds. Then you touched the framebuffer &mdash; raw memory that IS the screen. You intercepted keystrokes flowing through five buffers. You synthesized sound from a sine wave and a phase counter. You added echo (a ring buffer), lowpass (an exponential average), and feedback (a loop). You watched the frequency spectrum of your own playing update in real time.</p>
+
+<p>Every one of those was the same operation: <strong>read data from a buffer, transform it, write it to another buffer</strong>. The framebuffer is a pixel buffer. The keyboard is an event buffer. The audio engine is a sample buffer. The echo is a ring buffer. The FFT is a frequency buffer. Buffers all the way down.</p>
+
+<h3>What you can build from here</h3>
+
+<div class="power">
+<div class="power-label">A synthesizer with visualization</div>
+<p>You already have the pieces: keyboard input (Ch.3) &rarr; audio synthesis (Ch.4) &rarr; ring buffer for thread communication &rarr; FFT for frequency bars &rarr; framebuffer for display. Chain them together and you have Tsoding's <strong>musializer</strong> &mdash; a real-time music visualizer in ~200 lines of C. No frameworks. Just buffers.</p>
+</div>
+
+<div class="power">
+<div class="power-label">A demoscene demo</div>
+<p>Framebuffer (Ch.2) + audio synthesis (Ch.4) + a double buffer (swap front and back every 16ms). Render plasma, tunnels, or ray-marched geometry into the back buffer. Sync visual transitions to audio beats via the sample position in the ring buffer. The entire thing fits in 4KB if you're creative with the math. No GPU. No libraries. Just <code>sin()</code> and a pixel buffer.</p>
+</div>
+
+<div class="power">
+<div class="power-label">The dirty tricks</div>
+<p>The echo effect is a ring buffer with a modulo index &mdash; the same data structure used by network stacks, kernel queues, and trading systems. The pitch shift hack (read samples at 1.5x speed = chipmunk voice, 0.7x = Darth Vader) is 6 lines of code that DAWs charge money for. The gap buffer in text editors (Emacs, Scintilla) is how you get O(1) insertion in the middle of a document. Every one of these tricks is a buffer manipulation that someone turned into a product.</p>
+</div>
+
+<div class="ticker" style="text-align:center;display:block;margin:2rem auto;">
+  buffers are the connective tissue of every system you will ever build_
+</div>
+
 <div class="power zen">
 <div class="power-label">Continue to Part II</div>
-<p>This was the multimedia side of buffer hacking — pixels, keystrokes, and sound. In <a href="buffer-hacking-2.html" style="color:var(--green)">Part II</a>, we go deeper: network buffers and TCP flow control, disk I/O and the page cache, buffer overflow exploits, double buffering and DMA, and the dirty tricks that make it all fast.</p>
+<p>This was the multimedia side &mdash; pixels, keystrokes, and sound. In <a href="buffer-hacking-2.html" style="color:var(--green)">Part II</a>, we go deeper: network buffers and TCP flow control, disk I/O and the page cache, buffer overflow exploits, double buffering and DMA, the mmap double-map trick, and lock-free SPSC queues.</p>
 </div>
+
+<div class="power zen">
+<div class="power-label">Or build something with rawbuf</div>
+<p>If you want to see these buffer patterns composed into a real creative tool, read the <a href="/hardware/rawbuf/blog/rawbuf-deep-dive.html" style="color:var(--green)">RawBuf Deep Dive</a>. It builds a game engine, a piano synthesizer, and an FFT visualizer from three buffers and a terminal &mdash; the exact ideas from this article, in a single-header C library.</p>
+</div>
+
+</section>
 
 </div>
 
@@ -1117,122 +1165,673 @@ sections.forEach(s => observer.observe(s));
 </script>
 
 <script>
-/* VIZ 1: Speed Mismatch */
+/* VIZ 1: Hose → Bucket → Straw — full rewrite */
 (function() {
   var canvas = document.getElementById('speed-canvas');
   if (!canvas) return;
   var ctx = canvas.getContext('2d');
   var W = canvas.width, H = canvas.height;
+  var dpr = window.devicePixelRatio || 1;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.scale(dpr, dpr);
 
-  var bufCap = 8, buf = [], produced = 0, consumed = 0, dropped = 0, starved = 0;
-  var dropFlash = 0, starveFlash = 0, frame = 0;
+  // ── state ──
+  var bufCap = 8, waterLevel = 0, poured = 0, sipped = 0, overflowed = 0, suckedAir = 0;
+  var overflowFlash = 0, airFlash = 0, frame = 0;
+  var smoothWater = 0; // smoothly interpolated water level for rendering
 
-  function getColor(i) {
-    var hue = (i * 37) % 360;
-    return 'hsl(' + hue + ',60%,50%)';
-  }
+  // ── particles ──
+  var drops = [];     // continuous stream droplets
+  var splashes = [];  // overflow splashes
+  var bubbles = [];   // straw air bubbles
+  var cascades = [];  // water running down bucket sides on overflow
+  var ripples = [];   // surface ripples when drops land
+  var sipDrops = [];  // drops traveling up the straw
 
   function reset() {
-    buf = []; produced = 0; consumed = 0; dropped = 0; starved = 0;
-    dropFlash = 0; starveFlash = 0;
+    waterLevel = 0; smoothWater = 0; poured = 0; sipped = 0; overflowed = 0; suckedAir = 0;
+    overflowFlash = 0; airFlash = 0;
+    drops = []; splashes = []; bubbles = []; cascades = []; ripples = []; sipDrops = [];
   }
   window.speedReset = reset;
 
+  // ── geometry ──
+  var bucketCX = 350, bucketTopY = 90, bucketBotY = 230;
+  var bucketTopW = 160, bucketBotW = 110;
+  var bucketH = bucketBotY - bucketTopY;
+  var nozzleX = 310, nozzleY = 58;
+  var strawX = bucketCX + 40; // straw vertical position inside bucket
+  var strawMouthX = 600, strawMouthY = 120;
+
+  function bucketEdge(y) {
+    var t = (y - bucketTopY) / bucketH;
+    t = Math.max(0, Math.min(1, t));
+    var w = bucketTopW + (bucketBotW - bucketTopW) * t;
+    return { l: bucketCX - w/2, r: bucketCX + w/2, w: w };
+  }
+
+  // ── TICK ──
   function tick() {
     frame++;
     bufCap = 1 << parseInt(document.getElementById('speed-bufsize').value);
     var prodRate = parseInt(document.getElementById('speed-prod').value);
     var consRate = parseInt(document.getElementById('speed-cons').value);
+    var isPouring = prodRate > 0;
+    var isSipping = consRate > 0;
 
     // Produce
-    if (prodRate > 0 && frame % (21 - prodRate) === 0) {
-      if (buf.length < bufCap) {
-        buf.push({ color: getColor(produced), id: produced });
-        produced++;
+    if (isPouring && frame % (21 - prodRate) === 0) {
+      if (waterLevel < bufCap) {
+        waterLevel++; poured++;
+        // landing ripple
+        var wy = bucketBotY - bucketH * (waterLevel / bufCap);
+        ripples.push({ y: wy, age: 0, maxAge: 30, x: nozzleX + 40 });
       } else {
-        dropped++;
-        dropFlash = 12;
+        overflowed++; overflowFlash = 20;
+        // big splash burst
+        for (var s = 0; s < 8; s++) {
+          var angle = -Math.PI/2 + (Math.random() - 0.5) * Math.PI * 0.8;
+          var speed = 2 + Math.random() * 4;
+          splashes.push({
+            x: nozzleX + 35 + (Math.random()-0.5)*20,
+            y: bucketTopY - 2,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed * 1.5,
+            r: 1.5 + Math.random()*2,
+            life: 30 + Math.random()*20,
+            maxLife: 50
+          });
+        }
+        // cascade down bucket sides
+        cascades.push({ side: Math.random() > 0.5 ? 1 : -1, y: bucketTopY, vy: 1 + Math.random(), life: 60 });
       }
+    }
+
+    // Continuous stream droplets (visual only — when hose is on)
+    if (isPouring && frame % 2 === 0) {
+      drops.push({
+        x: nozzleX + (Math.random()-0.5)*3,
+        y: nozzleY + 4,
+        vx: 1.5 + Math.random()*0.5,
+        vy: 0.5 + Math.random(),
+        r: 1.2 + Math.random()*1.5,
+        life: 60
+      });
     }
 
     // Consume
-    if (consRate > 0 && frame % (21 - consRate) === 0) {
-      if (buf.length > 0) {
-        buf.shift();
-        consumed++;
+    if (isSipping && frame % (21 - consRate) === 0) {
+      if (waterLevel > 0) {
+        waterLevel--; sipped++;
+        // sip drop traveling up straw
+        sipDrops.push({ t: 0, speed: 0.02 + consRate * 0.002 });
       } else {
-        starved++;
-        starveFlash = 12;
+        suckedAir++; airFlash = 20;
+        // big visible bubbles
+        for (var b = 0; b < 3; b++) {
+          bubbles.push({
+            x: strawX + (Math.random()-0.5)*4,
+            y: bucketBotY - 20,
+            r: 2 + Math.random()*3,
+            vy: -1 - Math.random()*1.5,
+            life: 50 + Math.random()*20,
+            maxLife: 70,
+            wobble: Math.random() * Math.PI * 2
+          });
+        }
       }
     }
 
-    // Render
+    // Smooth water for rendering
+    smoothWater += (waterLevel - smoothWater) * 0.12;
+
+    // ── UPDATE PARTICLES ──
+    for (var i = drops.length - 1; i >= 0; i--) {
+      var d = drops[i];
+      d.x += d.vx; d.y += d.vy; d.vy += 0.25; d.life--;
+      if (d.y > bucketTopY + 5 || d.life <= 0) drops.splice(i, 1);
+    }
+    for (var i = splashes.length - 1; i >= 0; i--) {
+      var sp = splashes[i];
+      sp.x += sp.vx; sp.y += sp.vy; sp.vy += 0.15; sp.life--;
+      if (sp.life <= 0) splashes.splice(i, 1);
+    }
+    for (var i = cascades.length - 1; i >= 0; i--) {
+      var c = cascades[i];
+      c.y += c.vy; c.vy += 0.05; c.life--;
+      if (c.y > bucketBotY + 20 || c.life <= 0) cascades.splice(i, 1);
+    }
+    for (var i = bubbles.length - 1; i >= 0; i--) {
+      var b = bubbles[i];
+      b.y += b.vy; b.wobble += 0.1; b.x += Math.sin(b.wobble) * 0.3; b.life--;
+      if (b.life <= 0) bubbles.splice(i, 1);
+    }
+    for (var i = ripples.length - 1; i >= 0; i--) {
+      ripples[i].age++;
+      if (ripples[i].age > ripples[i].maxAge) ripples.splice(i, 1);
+    }
+    for (var i = sipDrops.length - 1; i >= 0; i--) {
+      sipDrops[i].t += sipDrops[i].speed;
+      if (sipDrops[i].t > 1) sipDrops.splice(i, 1);
+    }
+
+    // ── RENDER ──
+    ctx.clearRect(0, 0, W, H);
     ctx.fillStyle = '#0e0e16';
     ctx.fillRect(0, 0, W, H);
 
-    // Producer label
-    ctx.fillStyle = '#00ff88';
-    ctx.font = '11px "JetBrains Mono", monospace';
+    var mono = '"JetBrains Mono", monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('PRODUCER', 80, 20);
-    ctx.fillStyle = dropFlash > 0 ? '#ff3344' : '#1e1e2e';
-    ctx.fillRect(40, 30, 80, 140);
-    ctx.strokeStyle = '#00ff88';
-    ctx.strokeRect(40, 30, 80, 140);
-    // Producer arrow
-    ctx.fillStyle = '#00ff88';
-    ctx.fillText('→', 140, 100);
 
-    // Buffer
-    var bx = 180, by = 30, bw = 340, bh = 140;
-    ctx.fillStyle = dropFlash > 0 ? 'rgba(255,51,68,0.15)' : '#12121a';
-    ctx.fillRect(bx, by, bw, bh);
-    ctx.strokeStyle = dropFlash > 0 ? '#ff3344' : '#2a2a4a';
-    ctx.strokeRect(bx, by, bw, bh);
+    // ════════════════ TAP / FAUCET (left) ════════════════
+    // Wall pipe
+    ctx.fillStyle = '#3a3a4e';
+    ctx.fillRect(10, 30, 55, 12);
+    // Tap body
+    ctx.fillStyle = '#5a5a6e';
+    ctx.beginPath();
+    ctx.roundRect(58, 22, 28, 28, 4);
+    ctx.fill();
+    // Tap handle
+    var handleAngle = isPouring ? -0.3 : 0.8;
+    ctx.save();
+    ctx.translate(72, 28);
+    ctx.rotate(handleAngle);
+    ctx.fillStyle = isPouring ? '#00ff88' : '#ff3344';
+    ctx.beginPath();
+    ctx.roundRect(-3, -18, 6, 18, 2);
+    ctx.fill();
+    ctx.restore();
+    // Tap spout
+    ctx.fillStyle = '#4a4a5e';
+    ctx.beginPath();
+    ctx.moveTo(86, 36);
+    ctx.lineTo(86, 44);
+    ctx.lineTo(130, 52);
+    ctx.lineTo(130, 46);
+    ctx.closePath();
+    ctx.fill();
 
-    // Buffer label
+    // ════════════════ HOSE ════════════════
+    // Hose body — thick rubber tube with highlight
+    ctx.save();
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    // Shadow
+    ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+    ctx.lineWidth = 18;
+    ctx.beginPath();
+    ctx.moveTo(130, 50);
+    ctx.bezierCurveTo(180, 55, 250, 60, nozzleX, nozzleY);
+    ctx.stroke();
+    // Outer hose
+    ctx.strokeStyle = '#2d6e2d';
+    ctx.lineWidth = 16;
+    ctx.beginPath();
+    ctx.moveTo(130, 49);
+    ctx.bezierCurveTo(180, 54, 250, 58, nozzleX, nozzleY);
+    ctx.stroke();
+    // Hose highlight
+    ctx.strokeStyle = 'rgba(80,180,80,0.25)';
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(132, 45);
+    ctx.bezierCurveTo(182, 50, 252, 54, nozzleX, nozzleY - 4);
+    ctx.stroke();
+    // Inner channel (visible water if pouring)
+    if (isPouring) {
+      ctx.strokeStyle = 'rgba(0,120,220,0.3)';
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(130, 49);
+      ctx.bezierCurveTo(180, 54, 250, 58, nozzleX, nozzleY);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Nozzle
     ctx.fillStyle = '#6a6a7e';
-    ctx.fillText('BUFFER (' + buf.length + '/' + bufCap + ')', bx + bw/2, 20);
+    ctx.beginPath();
+    ctx.moveTo(nozzleX - 2, nozzleY - 6);
+    ctx.lineTo(nozzleX + 14, nozzleY - 3);
+    ctx.lineTo(nozzleX + 14, nozzleY + 5);
+    ctx.lineTo(nozzleX - 2, nozzleY + 6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#8a8a9e';
+    ctx.fillRect(nozzleX + 12, nozzleY - 4, 4, 10);
 
-    // Buffer cells
-    var cellW = (bw - 10) / bufCap;
-    for (var i = 0; i < bufCap; i++) {
-      var cx = bx + 5 + i * cellW;
-      if (i < buf.length) {
-        ctx.fillStyle = buf[i].color;
-        ctx.fillRect(cx, by + 10, cellW - 2, bh - 20);
-      } else {
-        ctx.fillStyle = '#1a1a2a';
-        ctx.fillRect(cx, by + 10, cellW - 2, bh - 20);
-        ctx.strokeStyle = '#2a2a4a';
-        ctx.strokeRect(cx, by + 10, cellW - 2, bh - 20);
+    // ════════════════ WATER STREAM ════════════════
+    if (isPouring) {
+      var intensity = prodRate / 20;
+      var streamW = 3 + intensity * 6;
+      // Stream path: nozzle tip → into bucket
+      var sx = nozzleX + 16, sy = nozzleY + 2;
+      var landX = nozzleX + 40, landY = bucketTopY + 4;
+
+      // Glow
+      ctx.save();
+      ctx.globalAlpha = 0.15 + intensity * 0.15;
+      ctx.strokeStyle = '#0088ff';
+      ctx.lineWidth = streamW + 8;
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      ctx.quadraticCurveTo(sx + 20, sy + (landY-sy)*0.3, landX, landY);
+      ctx.stroke();
+      ctx.restore();
+
+      // Core stream with wobble
+      ctx.strokeStyle = 'rgba(30,140,255,' + (0.5 + intensity*0.4) + ')';
+      ctx.lineWidth = streamW;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(sx, sy);
+      for (var t = 0.1; t <= 1; t += 0.1) {
+        var px = sx + (landX - sx) * t;
+        var py = sy + (landY - sy) * t * t; // parabolic arc
+        px += Math.sin(frame * 0.3 + t * 8) * (1 + intensity * 2) * t;
+        ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+
+      // Highlight on stream
+      ctx.strokeStyle = 'rgba(120,200,255,' + (0.2 + intensity*0.2) + ')';
+      ctx.lineWidth = streamW * 0.3;
+      ctx.beginPath();
+      ctx.moveTo(sx + 1, sy - 1);
+      ctx.quadraticCurveTo(sx + 18, sy + (landY-sy)*0.25, landX - 2, landY - 2);
+      ctx.stroke();
+
+      // Continuous droplets
+      for (var i = 0; i < drops.length; i++) {
+        var d = drops[i];
+        var a = d.life / 60;
+        ctx.fillStyle = 'rgba(40,160,255,' + (a * 0.8) + ')';
+        ctx.beginPath();
+        ctx.ellipse(d.x, d.y, d.r * 0.7, d.r, Math.atan2(d.vy, d.vx), 0, Math.PI*2);
+        ctx.fill();
       }
     }
 
-    // Fill level bar
-    var fill = buf.length / bufCap;
-    ctx.fillStyle = fill > 0.9 ? '#ff3344' : fill > 0.7 ? '#ff8800' : '#00ff88';
-    ctx.fillRect(bx, by + bh + 5, bw * fill, 4);
-    ctx.fillStyle = '#1e1e2e';
-    ctx.fillRect(bx + bw * fill, by + bh + 5, bw * (1 - fill), 4);
+    // Labels — left
+    ctx.font = '12px ' + mono;
+    ctx.fillStyle = '#00ff88';
+    ctx.fillText('HOSE', 72, 72);
+    ctx.font = '9px ' + mono;
+    ctx.fillStyle = '#4a5a4a';
+    ctx.fillText('producer', 72, 83);
 
-    // Consumer arrow
+    // ════════════════ BUCKET ════════════════
+    var fillFrac = Math.max(0, Math.min(1, smoothWater / bufCap));
+    var topE = bucketEdge(bucketTopY), botE = bucketEdge(bucketBotY);
+
+    // Bucket shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.beginPath();
+    ctx.ellipse(bucketCX, bucketBotY + 6, botE.w/2 + 8, 6, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    // Bucket body
+    ctx.beginPath();
+    ctx.moveTo(topE.l, bucketTopY);
+    ctx.lineTo(botE.l, bucketBotY);
+    ctx.lineTo(botE.r, bucketBotY);
+    ctx.lineTo(topE.r, bucketTopY);
+    ctx.closePath();
+
+    // Bucket fill
+    var bucketGrad = ctx.createLinearGradient(topE.l, 0, topE.r, 0);
+    bucketGrad.addColorStop(0, '#1a1a28');
+    bucketGrad.addColorStop(0.3, '#16162a');
+    bucketGrad.addColorStop(1, '#111120');
+    ctx.fillStyle = bucketGrad;
+    ctx.fill();
+
+    // Bucket walls — thick with metallic look
+    ctx.save();
+    ctx.lineWidth = 3;
+    // Left wall
+    var wallGrad = ctx.createLinearGradient(topE.l - 2, 0, topE.l + 4, 0);
+    wallGrad.addColorStop(0, '#5a5a7a');
+    wallGrad.addColorStop(0.5, '#8a8aaa');
+    wallGrad.addColorStop(1, '#4a4a6a');
+    ctx.strokeStyle = overflowFlash > 0 ? '#ff3344' : wallGrad;
+    ctx.beginPath();
+    ctx.moveTo(topE.l, bucketTopY);
+    ctx.lineTo(botE.l, bucketBotY);
+    ctx.stroke();
+    // Right wall
+    ctx.beginPath();
+    ctx.moveTo(topE.r, bucketTopY);
+    ctx.lineTo(botE.r, bucketBotY);
+    ctx.stroke();
+    // Bottom
+    ctx.beginPath();
+    ctx.moveTo(botE.l, bucketBotY);
+    ctx.lineTo(botE.r, bucketBotY);
+    ctx.stroke();
+    // Rim
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = overflowFlash > 0 ? '#ff5566' : '#7a7a9a';
+    ctx.beginPath();
+    ctx.moveTo(topE.l - 4, bucketTopY);
+    ctx.lineTo(topE.r + 4, bucketTopY);
+    ctx.stroke();
+    // Handle
+    ctx.strokeStyle = '#6a6a8a';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(bucketCX, bucketTopY - 16, 30, Math.PI * 0.15, Math.PI * 0.85);
+    ctx.stroke();
+    // Handle attachment dots
+    ctx.fillStyle = '#8a8aaa';
+    ctx.beginPath(); ctx.arc(topE.l + 20, bucketTopY, 3, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(topE.r - 20, bucketTopY, 3, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+
+    // ════════════════ WATER IN BUCKET ════════════════
+    if (fillFrac > 0.005) {
+      var waterTopY = bucketBotY - bucketH * fillFrac;
+      var wEdge = bucketEdge(waterTopY);
+
+      // Clip to bucket interior
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(topE.l + 1, bucketTopY);
+      ctx.lineTo(botE.l + 1, bucketBotY - 1);
+      ctx.lineTo(botE.r - 1, bucketBotY - 1);
+      ctx.lineTo(topE.r - 1, bucketTopY);
+      ctx.closePath();
+      ctx.clip();
+
+      // Water gradient
+      var wGrad = ctx.createLinearGradient(0, waterTopY, 0, bucketBotY);
+      wGrad.addColorStop(0, 'rgba(20,120,230,0.55)');
+      wGrad.addColorStop(0.3, 'rgba(15,90,210,0.7)');
+      wGrad.addColorStop(0.7, 'rgba(10,60,180,0.85)');
+      wGrad.addColorStop(1, 'rgba(5,35,140,0.95)');
+
+      // Water body with wavy top
+      ctx.beginPath();
+      for (var wx = wEdge.l; wx <= wEdge.r; wx += 2) {
+        var wave = Math.sin((wx * 0.06) + frame * 0.06) * 2.5
+                 + Math.sin((wx * 0.12) + frame * 0.09) * 1.2;
+        if (isPouring) wave *= 1.5; // choppier when filling
+        var wy = waterTopY + wave;
+        if (wx <= wEdge.l + 1) ctx.moveTo(wx, wy); else ctx.lineTo(wx, wy);
+      }
+      ctx.lineTo(botE.r, bucketBotY);
+      ctx.lineTo(botE.l, bucketBotY);
+      ctx.closePath();
+      ctx.fillStyle = wGrad;
+      ctx.fill();
+
+      // Surface highlight
+      ctx.strokeStyle = 'rgba(100,200,255,0.25)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      for (var wx = wEdge.l + 5; wx <= wEdge.r - 5; wx += 2) {
+        var wave = Math.sin((wx * 0.06) + frame * 0.06) * 2.5
+                 + Math.sin((wx * 0.12) + frame * 0.09) * 1.2;
+        if (isPouring) wave *= 1.5;
+        var wy = waterTopY + wave;
+        if (wx <= wEdge.l + 6) ctx.moveTo(wx, wy); else ctx.lineTo(wx, wy);
+      }
+      ctx.stroke();
+
+      // Caustic light patterns at bottom
+      ctx.globalAlpha = 0.08;
+      for (var cx = botE.l + 10; cx < botE.r - 10; cx += 15) {
+        var cy = bucketBotY - 15 + Math.sin(cx * 0.1 + frame * 0.04) * 5;
+        ctx.fillStyle = '#40aaff';
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, 8 + Math.sin(frame*0.05+cx)*3, 3, 0, 0, Math.PI*2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+
+      // Ripples on surface
+      for (var i = 0; i < ripples.length; i++) {
+        var rp = ripples[i];
+        var rAlpha = 1 - rp.age / rp.maxAge;
+        var rRadius = 3 + rp.age * 1.5;
+        ctx.strokeStyle = 'rgba(150,220,255,' + (rAlpha * 0.4) + ')';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.ellipse(rp.x, rp.y + Math.sin(rp.x*0.06+frame*0.06)*2, rRadius, rRadius*0.3, 0, 0, Math.PI*2);
+        ctx.stroke();
+      }
+
+      ctx.restore(); // un-clip
+    }
+
+    // Bucket label
+    ctx.font = '12px ' + mono;
+    ctx.fillStyle = fillFrac > 0.9 ? '#ff5566' : fillFrac > 0.7 ? '#ff8800' : '#6a6a8e';
+    ctx.fillText('BUCKET', bucketCX, bucketTopY - 28);
+    ctx.font = '10px ' + mono;
+    ctx.fillStyle = fillFrac > 0.9 ? '#ff3344' : '#4a4a6e';
+    ctx.fillText(waterLevel + ' / ' + bufCap, bucketCX, bucketTopY - 16);
+
+    // Fill bar
+    var barY = bucketBotY + 12, barW = bucketTopW + 20, barX = bucketCX - barW/2;
+    ctx.fillStyle = '#1a1a2a';
+    ctx.fillRect(barX, barY, barW, 4);
+    var barColor = fillFrac > 0.9 ? '#ff3344' : fillFrac > 0.7 ? '#ff8800' : '#0088ff';
+    ctx.fillStyle = barColor;
+    ctx.fillRect(barX, barY, barW * fillFrac, 4);
+    // Bar glow
+    if (fillFrac > 0) {
+      ctx.shadowColor = barColor; ctx.shadowBlur = 6;
+      ctx.fillRect(barX, barY, barW * fillFrac, 4);
+      ctx.shadowBlur = 0;
+    }
+    ctx.font = '8px ' + mono;
+    ctx.fillStyle = '#3a3a4e';
+    ctx.fillText('buffer', bucketCX, barY + 14);
+
+    // ════════════════ OVERFLOW — cascades down sides ════════════════
+    for (var i = 0; i < cascades.length; i++) {
+      var c = cascades[i];
+      var cEdge = bucketEdge(Math.min(c.y, bucketBotY));
+      var cx = c.side > 0 ? cEdge.r + 1 : cEdge.l - 1;
+      var cAlpha = c.life / 60;
+      ctx.strokeStyle = 'rgba(30,130,255,' + (cAlpha * 0.5) + ')';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(c.side > 0 ? topE.r : topE.l, bucketTopY);
+      ctx.lineTo(cx, Math.min(c.y, bucketBotY));
+      ctx.stroke();
+    }
+
+    // Splash particles
+    for (var i = 0; i < splashes.length; i++) {
+      var sp = splashes[i];
+      var sa = sp.life / sp.maxLife;
+      ctx.fillStyle = 'rgba(40,160,255,' + (sa * 0.8) + ')';
+      ctx.beginPath();
+      ctx.arc(sp.x, sp.y, sp.r * sa, 0, Math.PI*2);
+      ctx.fill();
+      // Tiny glow on each splash
+      ctx.fillStyle = 'rgba(100,200,255,' + (sa * 0.3) + ')';
+      ctx.beginPath();
+      ctx.arc(sp.x, sp.y, sp.r * sa * 2, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    // ════════════════ STRAW ════════════════
+    var strawBotY = bucketBotY - 12;
+    // Straw path: bottom of bucket → up through water → out the rim → curve to mouth
+    // Control points for the curve above bucket
+    var strawExitX = strawX, strawExitY = bucketTopY - 8;
+    var strawCP1X = strawX + 50, strawCP1Y = bucketTopY - 50;
+
+    // Draw straw — outer
+    ctx.lineCap = 'round';
+    // In-bucket part
+    ctx.strokeStyle = 'rgba(200,180,160,0.35)';
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.moveTo(strawX, strawExitY);
+    ctx.lineTo(strawX, strawBotY);
+    ctx.stroke();
+    // Above-bucket curve
+    ctx.beginPath();
+    ctx.moveTo(strawX, strawExitY);
+    ctx.quadraticCurveTo(strawCP1X, strawCP1Y, strawMouthX, strawMouthY);
+    ctx.stroke();
+
+    // Inner straw (translucent tube)
+    ctx.strokeStyle = 'rgba(220,200,180,0.15)';
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(strawX, strawExitY);
+    ctx.lineTo(strawX, strawBotY);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(strawX, strawExitY);
+    ctx.quadraticCurveTo(strawCP1X, strawCP1Y, strawMouthX, strawMouthY);
+    ctx.stroke();
+
+    // Straw stripes (classic red-white, but subtle)
+    ctx.save();
+    ctx.globalAlpha = 0.08;
+    for (var sy = strawExitY; sy < strawBotY; sy += 12) {
+      ctx.fillStyle = '#ff4466';
+      ctx.fillRect(strawX - 4, sy, 8, 6);
+    }
+    ctx.restore();
+
+    // Liquid traveling up straw (sip drops)
+    for (var i = 0; i < sipDrops.length; i++) {
+      var sd = sipDrops[i];
+      var t = sd.t;
+      var sdx, sdy;
+      if (t < 0.4) {
+        // vertical part in bucket
+        var lt = t / 0.4;
+        sdx = strawX;
+        sdy = strawBotY + (strawExitY - strawBotY) * lt;
+      } else {
+        // curve part
+        var ct = (t - 0.4) / 0.6;
+        var mt = 1 - ct;
+        sdx = mt*mt*strawX + 2*mt*ct*strawCP1X + ct*ct*strawMouthX;
+        sdy = mt*mt*strawExitY + 2*mt*ct*strawCP1Y + ct*ct*strawMouthY;
+      }
+      ctx.fillStyle = 'rgba(30,120,220,0.7)';
+      ctx.beginPath();
+      ctx.arc(sdx, sdy, 3, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(80,180,255,0.3)';
+      ctx.beginPath();
+      ctx.arc(sdx, sdy, 5, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    // Bubbles (sucking air — wobble up through straw)
+    for (var i = 0; i < bubbles.length; i++) {
+      var b = bubbles[i];
+      var ba = b.life / b.maxLife;
+      // Bubble outline
+      ctx.strokeStyle = 'rgba(180,220,255,' + (ba * 0.6) + ')';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r, 0, Math.PI*2);
+      ctx.stroke();
+      // Bubble highlight
+      ctx.fillStyle = 'rgba(200,240,255,' + (ba * 0.15) + ')';
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r, 0, Math.PI*2);
+      ctx.fill();
+      // Specular dot
+      ctx.fillStyle = 'rgba(255,255,255,' + (ba * 0.4) + ')';
+      ctx.beginPath();
+      ctx.arc(b.x - b.r*0.3, b.y - b.r*0.3, b.r*0.3, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    // ════════════════ MOUTH (right side) ════════════════
+    // Face circle
+    var mouthCX = strawMouthX + 16, mouthCY = strawMouthY;
+    ctx.fillStyle = airFlash > 0 ? '#2a1a10' : '#1e1e2e';
+    ctx.beginPath();
+    ctx.arc(mouthCX, mouthCY, 20, 0, Math.PI*2);
+    ctx.fill();
+    ctx.strokeStyle = airFlash > 0 ? '#ff8800' : '#00ddff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Mouth shape — changes based on state
+    if (airFlash > 0) {
+      // Surprised/frustrated — O shape
+      ctx.fillStyle = '#ff8800';
+      ctx.beginPath();
+      ctx.arc(mouthCX, mouthCY + 5, 5, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = '#1e1e2e';
+      ctx.beginPath();
+      ctx.arc(mouthCX, mouthCY + 5, 3, 0, Math.PI*2);
+      ctx.fill();
+    } else if (isSipping && waterLevel > 0) {
+      // Sipping — pursed lips
+      ctx.fillStyle = '#00ddff';
+      ctx.beginPath();
+      ctx.ellipse(mouthCX, mouthCY + 4, 3, 2, 0, 0, Math.PI*2);
+      ctx.fill();
+    } else {
+      // Neutral — flat line
+      ctx.strokeStyle = '#4a4a6e';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(mouthCX - 5, mouthCY + 5);
+      ctx.lineTo(mouthCX + 5, mouthCY + 5);
+      ctx.stroke();
+    }
+
+    // Eyes
+    ctx.fillStyle = airFlash > 0 ? '#ff8800' : '#00ddff';
+    ctx.beginPath();
+    ctx.arc(mouthCX - 6, mouthCY - 5, 2, 0, Math.PI*2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(mouthCX + 6, mouthCY - 5, 2, 0, Math.PI*2);
+    ctx.fill();
+
+    // Labels — right
+    ctx.font = '12px ' + mono;
     ctx.fillStyle = '#00ddff';
-    ctx.fillText('→', 540, 100);
+    ctx.fillText('STRAW', mouthCX, mouthCY + 32);
+    ctx.font = '9px ' + mono;
+    ctx.fillStyle = '#3a4a5a';
+    ctx.fillText('consumer', mouthCX, mouthCY + 43);
 
-    // Consumer label
-    ctx.fillText('CONSUMER', 620, 20);
-    ctx.fillStyle = starveFlash > 0 ? 'rgba(0,221,255,0.2)' : '#1e1e2e';
-    ctx.fillRect(580, 30, 80, 140);
-    ctx.strokeStyle = '#00ddff';
-    ctx.strokeRect(580, 30, 80, 140);
+    // ════════════════ STATUS ANNOTATIONS ════════════════
+    // Overflow warning text
+    if (overflowFlash > 0) {
+      ctx.save();
+      ctx.globalAlpha = overflowFlash / 20;
+      ctx.font = 'bold 14px ' + mono;
+      ctx.fillStyle = '#ff3344';
+      ctx.fillText('OVERFLOW!', bucketCX, bucketBotY + 40);
+      ctx.restore();
+    }
+    if (airFlash > 0) {
+      ctx.save();
+      ctx.globalAlpha = airFlash / 20;
+      ctx.font = 'bold 11px ' + mono;
+      ctx.fillStyle = '#ff8800';
+      ctx.fillText('*slurp*', mouthCX, mouthCY + 55);
+      ctx.restore();
+    }
 
     // Flash decay
-    if (dropFlash > 0) dropFlash--;
-    if (starveFlash > 0) starveFlash--;
+    if (overflowFlash > 0) overflowFlash--;
+    if (airFlash > 0) airFlash--;
 
+    // Readout
     document.getElementById('speed-readout').innerHTML =
-      'produced: <span style="color:#00ff88">' + produced + '</span>  consumed: <span style="color:#00ddff">' + consumed + '</span>  dropped: <span style="color:' + (dropped > 0 ? '#ff3344' : '#6a6a7e') + '">' + dropped + '</span>  starved: <span style="color:' + (starved > 0 ? '#ff8800' : '#6a6a7e') + '">' + starved + '</span>';
+      'poured: <span style="color:#00ff88">' + poured + '</span>  sipped: <span style="color:#00ddff">' + sipped + '</span>  overflowed: <span style="color:' + (overflowed > 0 ? '#ff3344' : '#6a6a7e') + '">' + overflowed + '</span>  sucked air: <span style="color:' + (suckedAir > 0 ? '#ff8800' : '#6a6a7e') + '">' + suckedAir + '</span>';
 
     requestAnimationFrame(tick);
   }
@@ -2325,41 +2924,147 @@ sections.forEach(s => observer.observe(s));
 </script>
 
 <script>
-/* VIZ 8: Live Spectrum (reads from lofi piano's analyser) */
+/* VIZ 8: Piano + Spectrum (self-contained) */
 (function() {
   var canvas = document.getElementById('spectrum-canvas');
   if (!canvas) return;
   var ctx = canvas.getContext('2d');
   var W = canvas.width, H = canvas.height;
+  canvas.setAttribute('tabindex', '0');
+
+  var keymap = [
+    { key:'q',note:60,name:'C4' },{ key:'w',note:62,name:'D4' },
+    { key:'e',note:64,name:'E4' },{ key:'r',note:65,name:'F4' },
+    { key:'t',note:67,name:'G4' },{ key:'y',note:69,name:'A4' },
+    { key:'u',note:71,name:'B4' },
+    { key:'a',note:72,name:'C5' },{ key:'s',note:74,name:'D5' },
+    { key:'d',note:76,name:'E5' },{ key:'f',note:77,name:'F5' },
+    { key:'g',note:79,name:'G5' },{ key:'h',note:81,name:'A5' },
+    { key:'j',note:83,name:'B5' },{ key:'k',note:84,name:'C6' }
+  ];
+
+  var audioCtx = null, analyser = null, fftData = null;
+  var activeNotes = {}, pressed = {};
+  function noteFreq(m) { return 440 * Math.pow(2, (m-69)/12); }
+
+  function ensureAudio() {
+    if (audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    fftData = new Uint8Array(analyser.frequencyBinCount);
+    analyser.connect(audioCtx.destination);
+  }
+
+  function noteOn(km) {
+    ensureAudio();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    if (activeNotes[km.key]) return;
+    var osc = audioCtx.createOscillator();
+    var gain = audioCtx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.value = noteFreq(km.note);
+    gain.gain.value = 0;
+    gain.gain.linearRampToValueAtTime(0.18, audioCtx.currentTime + 0.02);
+    osc.connect(gain);
+    gain.connect(analyser);
+    osc.start();
+    activeNotes[km.key] = { osc: osc, gain: gain };
+    pressed[km.key] = true;
+  }
+
+  function noteOff(km) {
+    var n = activeNotes[km.key];
+    if (!n) return;
+    n.gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1);
+    var o = n.osc;
+    setTimeout(function() { try{o.stop();}catch(e){} }, 150);
+    delete activeNotes[km.key];
+    pressed[km.key] = false;
+  }
+
+  function findKey(k) {
+    for (var i = 0; i < keymap.length; i++)
+      if (keymap[i].key === k.toLowerCase()) return keymap[i];
+    return null;
+  }
+
+  canvas.addEventListener('keydown', function(e) {
+    var km = findKey(e.key);
+    if (km) { e.preventDefault(); noteOn(km); }
+  });
+  canvas.addEventListener('keyup', function(e) {
+    var km = findKey(e.key);
+    if (km) noteOff(km);
+  });
+  canvas.addEventListener('click', function() { canvas.focus(); });
+
+  var pianoH = 140, fftY = 150;
 
   function render() {
     ctx.fillStyle = '#0a0a12';
     ctx.fillRect(0, 0, W, H);
 
-    // Try to find the lofi piano's analyser (it's in the outer scope as a closure variable)
-    // We access it via the window — the lofi piano script needs to expose it
-    var a = window._lofiAnalyser;
-    var d = window._lofiFftData;
+    // Piano keys
+    var kw = 42, kh = 54, pad = 3, sx = 20;
+    ctx.textAlign = 'center';
 
-    if (a && d) {
-      a.getByteFrequencyData(d);
-      var barCount = d.length;
-      var barW = (W - 20) / barCount;
-      var maxH = H - 20;
+    for (var i = 0; i < keymap.length; i++) {
+      var km = keymap[i];
+      var row = i < 7 ? 0 : 1;
+      var col = i < 7 ? i : i - 7;
+      var x = sx + col * (kw + pad) + (row === 1 ? 0 : 10);
+      var y = row === 0 ? 10 : 10 + kh + 5;
+      var isP = pressed[km.key];
 
-      for (var i = 0; i < barCount; i++) {
-        var val = d[i] / 255;
+      ctx.fillStyle = isP ? 'rgba(0,255,136,0.3)' : '#1a1a2a';
+      ctx.fillRect(x, y, kw, kh);
+      ctx.strokeStyle = isP ? '#00ff88' : '#2a2a4a';
+      ctx.lineWidth = isP ? 2 : 1;
+      ctx.strokeRect(x, y, kw, kh);
+      ctx.lineWidth = 1;
+
+      ctx.fillStyle = isP ? '#00ff88' : '#8888a0';
+      ctx.font = '13px "JetBrains Mono", monospace';
+      ctx.fillText(km.key.toUpperCase(), x + kw/2, y + 24);
+      ctx.fillStyle = isP ? '#00ff88' : '#4a4a5e';
+      ctx.font = '8px "JetBrains Mono", monospace';
+      ctx.fillText(km.name, x + kw/2, y + kh - 6);
+    }
+
+    // Divider
+    ctx.strokeStyle = '#1e1e2e';
+    ctx.beginPath();
+    ctx.moveTo(10, fftY - 4);
+    ctx.lineTo(W - 10, fftY - 4);
+    ctx.stroke();
+
+    // FFT label
+    ctx.fillStyle = '#3a3a4e';
+    ctx.font = '8px "JetBrains Mono", monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('SPECTRUM', 14, fftY + 8);
+
+    // FFT bars
+    if (analyser && fftData) {
+      analyser.getByteFrequencyData(fftData);
+      var barCount = fftData.length;
+      var barW = (W - 30) / barCount;
+      var maxH = H - fftY - 10;
+
+      for (var b = 0; b < barCount; b++) {
+        var val = fftData[b] / 255;
         var barH = val * maxH;
         if (barH < 1) continue;
-        var hue = (i / barCount) * 280;
+        var hue = (b / barCount) * 280;
         ctx.fillStyle = 'hsl(' + hue + ',65%,' + (25 + val * 35) + '%)';
-        ctx.fillRect(10 + i * barW, H - barH, Math.max(barW - 1, 1), barH);
+        ctx.fillRect(15 + b * barW, H - barH, Math.max(barW - 1, 1), barH);
       }
     } else {
       ctx.fillStyle = '#2a2a3e';
-      ctx.font = '11px "JetBrains Mono", monospace';
+      ctx.font = '10px "JetBrains Mono", monospace';
       ctx.textAlign = 'center';
-      ctx.fillText('play the lofi piano above to see the spectrum', W/2, H/2 + 4);
+      ctx.fillText('click canvas, play keys to see spectrum', W/2, fftY + 50);
     }
 
     requestAnimationFrame(render);

@@ -1,0 +1,1949 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Breaking the Chain &mdash; The Efficiency Papers, Part IV</title>
+  <link rel="canonical" href="https://femiadeniran.com/deep-dives/efficiency-papers-4-breaking-the-chain.html">
+  <meta property="og:title" content="Breaking the Chain — The Efficiency Papers, Part IV">
+  <meta property="og:description" content="An H100 can multiply two trillion numbers per second. Generating one token takes 30 milliseconds. Speculative decoding fills the silence — how guessing ahead became the fastest way to be exact.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://femiadeniran.com/deep-dives/efficiency-papers-4-breaking-the-chain.html">
+  <meta property="og:site_name" content="Femi Adeniran">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Breaking the Chain — The Efficiency Papers, Part IV">
+  <meta name="twitter:description" content="An H100 can multiply two trillion numbers per second. Generating one token takes 30 milliseconds. Speculative decoding fills the silence — how guessing ahead became the fastest way to be exact.">
+  <meta name="author" content="Femi Adeniran">
+<meta name="description" content="An H100 can multiply two trillion numbers per second. Generating one token takes 30 milliseconds. Speculative decoding fills the silence — how guessing ahead became the fastest way to be exact.">
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<link
+  href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+  rel="stylesheet"
+>
+<style>
+:root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --white: #e8e8f0;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+}
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 3rem; }
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+}
+
+body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.03) 2px,
+        rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+}
+
+nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 1000;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 1.5rem;
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+}
+nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    transition: color 0.2s, text-shadow 0.2s;
+    padding: 0.3rem 0;
+}
+nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+nav a.active { color: var(--green); text-shadow: 0 0 12px rgba(0,255,136,0.4); }
+.nav-title {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 0.5rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.25);
+    flex-shrink: 0;
+}
+
+.content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+}
+
+.hero {
+    text-align: center;
+    padding: 4rem 0 5rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4rem;
+}
+.hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3rem;
+    font-weight: 600;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+}
+.subtitle {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 640px;
+    margin: 0 auto;
+}
+.series-kicker {
+    margin-top: 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.glitch { position: relative; display: inline-block; }
+.glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    inset: 0;
+    width: 100%; height: 100%;
+}
+.glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 3s infinite linear alternate-reverse;
+    clip-path: inset(0 0 80% 0);
+}
+.glitch::after {
+    color: var(--magenta);
+    animation: glitch-2 2.5s infinite linear alternate-reverse;
+    clip-path: inset(80% 0 0 0);
+}
+.blink { display: inline-block; animation: blink 1s step-end infinite; color: var(--green); }
+@keyframes blink { 50% { opacity: 0; } }
+@keyframes glitch-1 {
+    0%, 90% { transform: translate(0); }
+    92% { transform: translate(-3px, 1px); }
+    94% { transform: translate(3px, -1px); }
+    96% { transform: translate(-2px, 2px); }
+    100% { transform: translate(0); }
+}
+@keyframes glitch-2 {
+    0%, 88% { transform: translate(0); }
+    90% { transform: translate(2px, -1px); }
+    93% { transform: translate(-3px, 2px); }
+    96% { transform: translate(1px, -2px); }
+    100% { transform: translate(0); }
+}
+
+section { margin-bottom: 5rem; padding-top: 1rem; }
+
+h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: var(--green);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: 0.02em;
+}
+h3 {
+    font-size: 1.25rem;
+    color: var(--cyan);
+    margin: 2.5rem 0 1rem;
+    font-weight: 600;
+}
+h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 2rem 0 0.8rem;
+}
+
+p { margin-bottom: 1rem; }
+strong { color: var(--white); }
+a { color: var(--cyan); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4rem;
+    line-height: 0.8;
+    padding: 0.1em 0.15em 0 0;
+    color: var(--green);
+    font-weight: 700;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+}
+
+code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.15em 0.4em;
+}
+pre {
+    position: relative;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    margin: 1.2rem 0;
+}
+pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+}
+.label {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.8rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+}
+
+.diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+}
+.diagram-label {
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    margin-bottom: 0.8rem;
+}
+
+.power {
+    border-left: 3px solid var(--green-dim);
+    background: rgba(0,255,136,0.04);
+    padding: 1rem 1.2rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+}
+.power.danger { border-left-color: var(--red); background: rgba(255,51,68,0.04); }
+.power.hack { border-left-color: var(--magenta); background: rgba(255,0,170,0.04); }
+.power.wild { border-left-color: var(--orange); background: rgba(255,136,0,0.04); }
+.power.zen { border-left-color: var(--cyan); background: rgba(0,221,255,0.04); }
+.power-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--green);
+    margin-bottom: 0.5rem;
+}
+.power.danger .power-label { color: var(--red); }
+.power.hack .power-label { color: var(--magenta); }
+.power.wild .power-label { color: var(--orange); }
+.power.zen .power-label { color: var(--cyan); }
+
+.vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+}
+.vs-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem 1.1rem;
+}
+.vs-card h4 { margin-top: 0; }
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.92rem;
+}
+th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--green);
+    text-align: left;
+    padding: 0.6rem 0.8rem;
+    border-bottom: 2px solid var(--border);
+}
+td {
+    padding: 0.5rem 0.8rem;
+    border-bottom: 1px solid var(--border);
+}
+tr:hover td { background: rgba(0,255,136,0.03); }
+
+details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1.2rem 0;
+}
+summary {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--green);
+    padding: 0.8rem 1.2rem;
+    cursor: pointer;
+}
+details[open] summary { border-bottom: 1px solid var(--border); }
+details > div { padding: 1rem 1.2rem; }
+
+/* D3 viz containers */
+.viz-container {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow: hidden;
+}
+.viz-container .viz-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    margin-bottom: 1rem;
+}
+.viz-controls {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+.viz-controls label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.viz-controls input[type="range"] {
+    accent-color: var(--green);
+    width: 140px;
+}
+.viz-controls .val {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--green);
+    min-width: 3em;
+}
+.viz-btn {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: transparent;
+    border: 1px solid var(--green-dim);
+    color: var(--green);
+    padding: 0.4rem 0.8rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+.viz-btn:hover { background: rgba(0,255,136,0.1); }
+.viz-btn.active { background: rgba(0,255,136,0.15); border-color: var(--green); }
+
+.viz-readout {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 0.8rem;
+    line-height: 1.8;
+}
+.viz-readout .num {
+    color: var(--green);
+    font-weight: 600;
+}
+.viz-readout .num-red {
+    color: var(--red);
+    font-weight: 600;
+}
+.viz-readout .num-cyan {
+    color: var(--cyan);
+    font-weight: 600;
+}
+
+@media (max-width: 700px) {
+    body { font-size: 16px; }
+    nav { font-size: 9px; gap: 0.7rem; }
+    .content { padding: 3rem 0.8rem 4rem; }
+    .hero h1 { font-size: 2rem; }
+    .vs { grid-template-columns: 1fr; }
+    pre { font-size: 10.5px; padding: 0.7rem; }
+    .diagram { padding: 1rem; }
+    .power { padding: 0.6rem 0.8rem; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+    <span class="nav-title">&gt;_ SPECULATION</span>
+    <a href="#idle-line">The Idle Line</a>
+    <a href="#gamble">The Gamble</a>
+    <a href="#killing-draft">Killing the Draft</a>
+    <a href="#coevolution">The Co-Evolution</a>
+    <a href="#jacobi">Jacobi's Ghost</a>
+    <a href="#silence">Filling the Silence</a>
+</nav>
+
+<div class="content">
+
+<div class="hero">
+    <h1><span class="glitch" data-text="BREAKING THE CHAIN">BREAKING THE CHAIN</span></h1>
+    <div class="subtitle">
+        An H100 can multiply two trillion numbers per second. Generating one token takes 30 milliseconds. Speculative decoding fills the silence.<span class="blink">_</span>
+    </div>
+    <div class="series-kicker">The Efficiency Papers &mdash; Part IV</div>
+</div>
+
+<!-- =========================================================
+     CHAPTER 1: THE IDLE ASSEMBLY LINE
+     ========================================================= -->
+<section id="idle-line">
+<h2>01 // The Idle Assembly Line</h2>
+
+<p class="drop-cap">Picture a factory floor with ten thousand workstations. Each one has robotic arms, welding torches, precision drills &mdash; everything needed to shape metal in microseconds. But there is a rule: only one piece can be on the line at a time. Station 1 installs a bolt. Stations 2 through 10,000 wait. Station 2 installs a nut. 9,999 stations idle again. You are paying for a factory and using it as a workbench.</p>
+
+<p>That is autoregressive decoding. A GPU has thousands of CUDA cores &mdash; our workstations &mdash; but generating one token requires a full sequential pass through every layer of the model. Token N+1 cannot begin until token N exists, because N changes the attention context for everything that follows. The forward pass reads <strong>every parameter in the model</strong> to produce <strong>one token</strong>. For a 70B-parameter model in FP16, that is roughly 140 GB of data transferred from high-bandwidth memory to compute cores. For a single token.</p>
+
+<h3>The numbers that damn us</h3>
+
+<p>An H100 GPU can deliver <strong>1,979 TFLOPS</strong> of FP8 compute &mdash; nearly two quadrillion operations per second. In FP16, it manages 990 TFLOPS. Its high-bandwidth memory pushes 3.35 TB/s. The ratio between compute and bandwidth &mdash; the "balance point" &mdash; tells you the arithmetic intensity needed to keep both the compute units and the memory bus fully occupied: roughly <strong>295 ops/byte</strong> for FP16.</p>
+
+<p>Single-token decoding does not come close. Its arithmetic intensity is around <strong>60&ndash;80 ops/byte</strong>. The GPU could perform 3&ndash;4x more math per byte transferred, but there is nothing to compute. The compute units finish their work and sit dark, waiting for the next batch of weights to arrive from HBM. Studies of XFormers attention kernels during decode measured roughly <strong>23% compute utilization</strong> and less than half the available memory bandwidth. Over 50% of attention kernel cycles were stalled waiting for data access.</p>
+
+<p>Here is the part that stings. The A100 &mdash; the previous generation &mdash; had a balance point of ~156 ops/byte. The H100 tripled the compute but only doubled the bandwidth. The gap between what the silicon <em>can</em> do and what autoregressive decoding <em>asks</em> it to do is widening with every generation. GPUs are getting faster at math. Decoding is still bottlenecked on reading weights.</p>
+
+<table>
+    <thead><tr><th>GPU</th><th>HBM Bandwidth</th><th>Peak FP16 Compute</th><th>Balance Point</th><th>Decode Utilization</th></tr></thead>
+    <tbody>
+        <tr><td>A100 (80 GB)</td><td>2.0 TB/s</td><td>312 TFLOPS</td><td>~156 ops/byte</td><td>~5%</td></tr>
+        <tr><td>H100 (80 GB)</td><td>3.35 TB/s</td><td>990 TFLOPS</td><td>~295 ops/byte</td><td>~3%</td></tr>
+        <tr><td>H100 (FP8)</td><td>3.35 TB/s</td><td>1,979 TFLOPS</td><td>~590 ops/byte</td><td>~1.5%</td></tr>
+    </tbody>
+</table>
+
+<p>That last row: the H100 at FP8 precision uses roughly <strong>1.5%</strong> of its compute during single-token decode. You bought a $30,000 GPU and 98.5% of it is idle.</p>
+
+<p>The physical intuition: imagine the GPU as a highway. The memory bus is the on-ramp &mdash; the bottleneck that determines how fast cars (data) enter the highway. The compute cores are the lanes. At FP8 on an H100, you have 590 lanes but only enough on-ramp capacity to fill about 9 of them. The other 581 lanes are empty. Every generation of GPU adds more lanes while the on-ramp barely widens. The highway keeps growing; the bottleneck stays the same.</p>
+
+<p>Single-token decode latency for a 7B model tells the story from a different angle: <strong>~46 ms</strong> on a T4, <strong>~23 ms</strong> on an A10, <strong>~6 ms</strong> on an A100. The speedup from T4 to A100 is roughly 8x. But the A100 has 25x more compute than the T4. The missing 17x is compute that has nothing to do &mdash; silicon that exists, draws power, generates heat, and produces zero tokens.</p>
+
+<div class="power danger">
+    <div class="power-label">The Decode-Phase Scandal</div>
+    <p>During autoregressive decoding, you are paying for a supercomputer and using it as a filing cabinet. The GPU reads ~140 GB to produce one token. On an H100 at FP8, compute utilization hovers around 1.5%. The other 98.5% of the silicon sits dark, waiting for data to arrive from memory.</p>
+</div>
+
+<h3>The assembly line, redesigned</h3>
+
+<p>Extend the factory metaphor. The master craftsman &mdash; your target model &mdash; must personally forge every bolt in a bridge. He has 10,000 apprentices standing around watching. He forges one bolt, inspects it, moves to the next. The apprentices are idle.</p>
+
+<p>Now imagine this: the apprentices rough out the next five bolts while the master finishes the current one. When he is done, he inspects all five at once. Most are good enough &mdash; he stamps them approved. The ones that are not, he reforges himself. The apprentices were going to be idle anyway. Their labor was free.</p>
+
+<p>There is an asymmetry hiding inside this waste, and it changes everything: <strong>verification is parallel, generation is sequential.</strong> Generating token N+1 requires knowing token N &mdash; an inescapable sequential dependency. But <em>checking</em> whether tokens N+1 through N+5 are correct can be done in a single forward pass. The weights are already being read. Whether you verify 1 token or 5, you load the same 140 GB. The extra tokens add negligible compute &mdash; they are just extra rows in what was already a memory-bound operation.</p>
+
+<p>What if a smaller, faster model guessed the next five tokens, and the big model checked them all at once? The big model's idle compute cores would finally have work to do. The memory transfer &mdash; the bottleneck &mdash; would be amortized across five tokens instead of one. And if the guesses were good enough, you would generate five tokens in the time it previously took to generate one.</p>
+
+<p>That is speculative decoding. And in late 2022, two teams at Google discovered it independently &mdash; along with a mathematical proof that the output is not an approximation, but <em>exact</em>.</p>
+
+<details>
+<summary>Why verification of K tokens costs almost the same as generating 1</summary>
+<div>
+<p>This is the physical fact that makes everything work, and it is worth understanding precisely. During a forward pass, the GPU must read every weight in the model from HBM. For a 70B model in FP16, that is ~140 GB. This read dominates the wall-clock time &mdash; it takes about 42 ms at 3.35 TB/s (H100 bandwidth).</p>
+<p>The compute for processing one token through those weights is tiny: a handful of matrix-vector multiplications. Processing 5 tokens instead of 1 means matrix-<em>matrix</em> multiplications &mdash; more FLOPs, but the GPU has 98% idle compute to absorb them. The memory read is identical: same 140 GB of weights, whether you process 1 token or 5.</p>
+<p>So the cost of verification (reading 140 GB + processing 5 tokens) is barely more than the cost of generation (reading 140 GB + processing 1 token). The extra 4 tokens ride for free on the memory transfer that was happening anyway. This is why the "cost ratio" c = t_draft / t_target can be as low as 0.05 &mdash; the draft model runs during time the target model would spend stalling.</p>
+</div>
+</details>
+
+<!-- D3 VIZ: GPU Utilization -->
+<div class="viz-container">
+    <div class="viz-title">Interactive &mdash; GPU Utilization During Decode</div>
+    <div class="viz-controls">
+        <button class="viz-btn active" id="btn-standard">Standard Decode</button>
+        <button class="viz-btn" id="btn-speculative">Speculation ON (K=5)</button>
+        <span style="margin-left:auto; font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--text-dim);">
+            Tokens/step: <span id="tps-val" style="color:var(--green);">1</span>
+            &nbsp;|&nbsp; Utilization: <span id="util-val" style="color:var(--orange);">5%</span>
+        </span>
+    </div>
+    <div id="gpu-viz"></div>
+    <div class="viz-readout">
+        Each rectangle is a compute unit on the GPU. <span style="color:var(--orange);">Orange</span> = active during standard decode. <span style="color:var(--green);">Green</span> = active during speculative decode. Dark = idle. Toggle to see how speculation fills the silicon.
+    </div>
+</div>
+
+</section>
+
+<!-- =========================================================
+     CHAPTER 2: THE GAMBLE
+     ========================================================= -->
+<section id="gamble">
+<h2>02 // The Gamble</h2>
+
+<p class="drop-cap">Two papers landed within weeks of each other, written independently at two different Google divisions. Neither team knew about the other's work. Both arrived at the same mechanism and the same proof. This is not a coincidence &mdash; it is the kind of thing that happens when the pressure becomes obvious enough that multiple teams feel it at once.</p>
+
+<p><a href="https://arxiv.org/abs/2211.17192">Yaniv Leviathan, Matan Kalman, and Yossi Matias</a> at Google Research submitted their paper on November 30, 2022. They used T5-XXL (11B parameters) as the target model and T5-small (60M) as the draft &mdash; a 183x size ratio. Result: <strong>2&ndash;3x speedup, identical outputs</strong>. It became an oral presentation at ICML 2023, one of the most cited inference papers of the year.</p>
+
+<p><a href="https://arxiv.org/abs/2302.01318">Charlie Chen, Sebastian Borgeaud, Geoffrey Irving, Jean-Baptiste Lespiau, Laurent Sifre, and John Jumper</a> at DeepMind published on February 2, 2023. They called it "speculative sampling" instead of "speculative decoding" &mdash; same mechanism, different name. They used Chinchilla (70B) in a distributed setup. Result: <strong>2&ndash;2.5x speedup, no quality loss.</strong></p>
+
+<p>The idea was not entirely new. In 2018, Mitchell Stern, Noam Shazeer, and Jakob Uszkoreit had published "Blockwise Parallel Decoding," which added extra prediction heads to verify multiple positions at once. But it required architecture changes, did not have the rejection sampling proof, and predated the era of massive models where decode latency became the dominant bottleneck. In March 2022, Xia et al. even used the phrase "speculative decoding" in a seq2seq context, explicitly citing CPU speculative execution. But the crucial three ingredients did not come together until late 2022.</p>
+
+<p>The breakthrough was combining three ingredients that had never been united: (1) the CPU speculative execution metaphor &mdash; guess then verify; (2) a mathematically rigorous rejection sampling scheme that makes the output <em>provably lossless</em>; and (3) the realization that <em>any</em> cheap model can serve as the drafter &mdash; no retraining, no architectural coupling, no distribution matching required. You grab a small model off the shelf, pair it with your big model, and you get free speedup.</p>
+
+<h3>The CPU analogy: branch prediction</h3>
+
+<p>The name "speculative decoding" is a direct reference to <strong>speculative execution</strong> in CPUs, one of the most important performance tricks in computer architecture &mdash; and one with a fascinating recent history (Spectre and Meltdown proved that CPU speculation could be exploited for security attacks, but nobody has found a way to exploit LLM speculation maliciously yet). A modern CPU encounters a branch instruction &mdash; an if/else &mdash; and faces a choice. It does not know which way the branch will go until the condition is evaluated. The naive approach: stall the pipeline, wait for the answer, then proceed. This wastes 10&ndash;20 clock cycles every time.</p>
+
+<p>The speculative approach: <strong>predict</strong> which branch will be taken (using a branch predictor trained on past behavior), and start executing instructions down the predicted path <em>before the answer is known</em>. If the prediction was right &mdash; and modern branch predictors are right over 95% of the time &mdash; those instructions commit with zero wasted time. If wrong, the speculative work is discarded (a pipeline flush), and execution restarts from the correct branch. The misprediction penalty is 10&ndash;20 cycles, but the expected benefit vastly exceeds the cost.</p>
+
+<p>The LLM version follows the same logic. A small "draft" model speculates K tokens ahead (the branch prediction). The large "target" model verifies all K tokens in a single parallel forward pass (the branch resolution). Accepted tokens are committed. Rejected tokens trigger a resample from the correct distribution. <strong>The key difference from CPUs:</strong> even on a total "misprediction," you always get at least 1 correct token (the resampled one). You never waste an entire verification step. This guarantee is what makes speculative decoding a strict improvement &mdash; it is never slower than standard decoding.</p>
+
+<h3>The rejection sampling trick</h3>
+
+<p>The part that makes this <em>lossless</em> &mdash; not an approximation, but mathematically exact &mdash; is a modified rejection sampling scheme. This is the mathematical heart of speculative decoding, and it is more subtle than it first appears. The standard rejection sampling from statistics accepts or rejects samples from a proposal distribution to match a target distribution. Leviathan and Chen independently adapted this for autoregressive sequences, adding a crucial twist: on rejection, instead of simply discarding the sample, they <em>resample from the residual distribution</em>. This guarantees that every step produces at least one token.</p>
+
+<p>Let us walk through it step by step with concrete tokens.</p>
+
+<p>Imagine the target model is generating from the prompt <em>"The capital of France is"</em>. The draft model (a small, fast model) generates five candidate tokens: <code>Paris</code>, <code>,</code>, <code>a</code>, <code>beautiful</code>, <code>city</code>.</p>
+
+<p>The target model now runs a single forward pass on all five tokens simultaneously, producing its own probability distribution at each position. At each step, a coin is flipped:</p>
+
+<pre><code><span class="label">Rejection Sampling</span>
+Position 1: draft says "Paris" with p_draft = 0.85
+             target says "Paris" with p_target = 0.92
+
+  Accept probability = min(1, 0.92 / 0.85) = min(1, 1.08) = 1.0
+  --> ACCEPTED (target agrees MORE than draft)
+
+Position 2: draft says "," with p_draft = 0.70
+             target says "," with p_target = 0.65
+
+  Accept probability = min(1, 0.65 / 0.70) = min(1, 0.93) = 0.93
+  --> Flip coin with 93% heads... ACCEPTED
+
+Position 3: draft says "a" with p_draft = 0.40
+             target says "a" with p_target = 0.15
+
+  Accept probability = min(1, 0.15 / 0.40) = min(1, 0.375) = 0.375
+  --> Flip coin with 37.5% heads... REJECTED
+
+  On rejection: resample from residual distribution
+  norm(max(0, p_target - p_draft)) at position 3
+  This distribution captures what the target "wanted" that the
+  draft didn't — perhaps "the" gets boosted.
+  Resample --> "the" (from residual distribution)
+
+Positions 4-5: discarded (downstream of rejection)
+
+Result: "Paris , the" — 3 tokens from one verification pass
+</code></pre>
+
+<p>The critical insight in that pseudocode: when the target model assigns <em>more</em> probability to a token than the draft did, the token is always accepted. When the target assigns less, the token is accepted proportionally. On rejection, the residual distribution norm(max(0, p<sub>target</sub> &minus; p<sub>draft</sub>)) captures exactly the probability mass the draft model missed &mdash; the tokens the target wanted but the draft underweighted.</p>
+
+<p>Both papers prove the same theorem: <strong>the resulting token distribution is exactly p<sub>target</sub></strong>, within hardware floating-point precision. Not approximately. Exactly. Speculative decoding is not a quality&ndash;latency tradeoff &mdash; it is a scheduling trick that exploits the asymmetry between sequential generation and parallel verification.</p>
+
+<p>It is worth sitting with this for a moment. Most inference optimizations &mdash; quantization, pruning, distillation &mdash; trade quality for speed. You lose something. Speculative decoding trades <em>nothing</em>. The output distribution is mathematically identical to what the target model would have produced on its own. The only cost is the compute and memory for the draft model, and that compute was sitting idle anyway. This is why speculative decoding has been adopted so rapidly: it is free lunch, paid for by silicon that was going to waste.</p>
+
+<div class="power zen">
+    <div class="power-label">The Core Asymmetry</div>
+    <p>Generating K tokens costs K forward passes. Verifying K tokens costs approximately 1 forward pass. This gap &mdash; between the cost of asking and the cost of checking &mdash; is the entire source of speedup. Rejection sampling closes the gap with mathematical exactness.</p>
+</div>
+
+<h3>The acceptance rate cliff</h3>
+
+<p>Here is where intuition betrays you. Say the draft model matches the target 90% of the time on each individual token. Sounds great. But tokens form a chain, and every link must hold:</p>
+
+<table>
+    <thead><tr><th>Draft Length (K)</th><th>P(all accepted)</th><th>Calculation</th></tr></thead>
+    <tbody>
+        <tr><td>1</td><td>90%</td><td>0.9<sup>1</sup></td></tr>
+        <tr><td>3</td><td>73%</td><td>0.9<sup>3</sup></td></tr>
+        <tr><td>5</td><td>59%</td><td>0.9<sup>5</sup></td></tr>
+        <tr><td>7</td><td>48%</td><td>0.9<sup>7</sup></td></tr>
+        <tr><td>10</td><td>35%</td><td>0.9<sup>10</sup></td></tr>
+    </tbody>
+</table>
+
+<p>At K=5, you only get all five tokens through 59% of the time. At K=10, it is a coin flip. The chain is fragile &mdash; one weak link collapses everything after it.</p>
+
+<p>But here is the save: you do not need ALL tokens to win. The expected number of accepted tokens per round follows a geometric series:</p>
+
+<pre><code><span class="label">Expected Tokens</span>
+E[tokens] = 1 + alpha + alpha^2 + ... + alpha^K
+          = (1 - alpha^(K+1)) / (1 - alpha)
+
+where alpha = per-token acceptance rate
+
+At alpha=0.9, K=5:  E = (1 - 0.9^6) / (1 - 0.9) = 4.69 tokens/round
+At alpha=0.7, K=5:  E = (1 - 0.7^6) / (1 - 0.7) = 3.08 tokens/round
+At alpha=0.5, K=5:  E = (1 - 0.5^6) / (1 - 0.5) = 1.97 tokens/round
+</code></pre>
+
+<p>The intuition: with probability 1, at least 1 token is produced (even on total rejection, you resample one). With probability &alpha;, a second token is accepted. With probability &alpha;<sup>2</sup>, a third. And so on, up to K+1 tokens total if all K drafts plus a bonus token are accepted.</p>
+
+<p>The theoretical ceiling, no matter how large K gets, is <strong>1/(1&minus;&alpha;)</strong>. At &alpha;=0.9, that is 10x. At &alpha;=0.7, only 3.3x. The acceptance rate is everything.</p>
+
+<h3>But drafting is not free</h3>
+
+<p>Draft models cost time too. Let c = t<sub>draft</sub> / t<sub>target</sub> &mdash; the cost of one draft forward pass relative to one target forward pass. Typical values: c &asymp; 0.05&ndash;0.1 (the draft model is 10&ndash;20x smaller). The wall-clock speedup for generating many tokens:</p>
+
+<pre><code><span class="label">Speedup Formula</span>
+Speedup = E[tokens per round] / cost per round
+        = ((1 - alpha^(K+1)) / (1 - alpha)) / (K * c + 1)
+
+Numerator: expected tokens (the geometric series)
+Denominator: cost of one round — K draft evaluations
+             (each costing c) plus 1 target evaluation
+
+Example: alpha=0.9, K=5, c=0.05
+  E[tokens] = 4.69
+  Cost = 5 * 0.05 + 1 = 1.25
+  Speedup = 4.69 / 1.25 = 3.75x
+
+Example: alpha=0.7, K=5, c=0.1
+  E[tokens] = 3.08
+  Cost = 5 * 0.1 + 1 = 1.50
+  Speedup = 3.08 / 1.50 = 2.05x
+</code></pre>
+
+<p>The optimal K balances "more draft tokens = more potential accepted tokens" against "more draft tokens = higher cost per round." For typical setups (c &asymp; 0.05&ndash;0.1, &alpha; &asymp; 0.7&ndash;0.9), the sweet spot is <strong>K = 3&ndash;7</strong>. Going beyond K=10 almost never helps: the geometric series has already converged to within a few percent of its ceiling, so the extra draft tokens add cost without adding expected output.</p>
+
+<p>An important subtlety: &alpha; is not a constant. It varies with the content. Code completion and extraction tasks (filling in predictable structures) have higher &alpha; than creative writing or open-ended dialogue. This is why speculative decoding benchmarks always report task-specific numbers &mdash; a 3x speedup on HumanEval might be only 2x on MT-bench. The draft model's alignment with the target model is content-dependent, and the "easy" tokens (function boilerplate, closing brackets, common phrases) are where speculation earns its keep.</p>
+
+<!-- D3 VIZ: Draft-Verify Dance Simulation -->
+<div class="viz-container">
+    <div class="viz-title">Interactive &mdash; The Draft-Verify Dance</div>
+    <div class="viz-controls">
+        <label>Acceptance Rate (&alpha;): </label>
+        <input type="range" id="dance-alpha" min="0.5" max="0.99" step="0.01" value="0.85">
+        <span class="val" id="dance-alpha-val">0.85</span>
+        <label style="margin-left:1rem;">Draft Length (K): </label>
+        <input type="range" id="dance-k" min="1" max="10" step="1" value="5">
+        <span class="val" id="dance-k-val">5</span>
+        <button class="viz-btn" id="dance-run" style="margin-left:auto;">Run Round</button>
+    </div>
+    <div id="dance-viz"></div>
+    <div class="viz-readout" id="dance-readout">
+        Click <strong>Run Round</strong> to simulate a draft-verify cycle. The small model drafts <span class="num">5</span> tokens, the target model verifies them in one pass. <span style="color:var(--green);">Green</span> = accepted, <span style="color:var(--red);">Red</span> = rejected, <span style="color:var(--cyan);">Cyan</span> = bonus resampled token.
+    </div>
+</div>
+
+<h3>Trees beat chains</h3>
+
+<p>The chain problem is structural: token 5 can only be accepted if tokens 1&ndash;4 were all accepted. One rejection kills everything downstream. This is the fragility of sequential speculation &mdash; a single weak prediction annihilates all the work that came after it.</p>
+
+<p><strong>Tree-based approaches</strong> fix this. Instead of a single linear chain of K tokens, generate a <em>tree</em> of candidates. At position 1, predict the top-2 continuations. At position 2, predict top-3 for each parent. That is 2&times;3 = 6 candidate paths in just 2 steps. Verify the entire tree in one forward pass using a tree attention mask &mdash; each token attends only to its ancestors, no cross-branch contamination. At least one path is likely to survive deeper than any single chain would.</p>
+
+<p>The mathematics are stark. A chain of 5 tokens at &alpha;=0.9 survives (all accepted) with probability 0.59. But a tree with branching factor 2 at each level has 2<sup>5</sup> = 32 leaf paths. The probability that <em>at least one</em> path survives all 5 levels is 1 &minus; (1 &minus; 0.59)<sup>32</sup> &mdash; essentially 100%. Even modest branching dramatically increases the chance of deep acceptance.</p>
+
+<p>The trade-off is verification cost. Each node in the tree requires attention computation during the verification pass. A dense 256-node tree verifies more candidates but costs proportionally more. In practice, a <strong>sparse 64-node tree typically outperforms a dense 256-node tree</strong> because the marginal benefit of additional nodes declines faster than the cost increases. The art is in choosing <em>which</em> 64 nodes to include &mdash; a question that Medusa answers with calibration-set accuracy statistics and EAGLE-2 answers with real-time confidence scores.</p>
+
+<!-- D3 VIZ: Tree vs Chain Survival -->
+<div class="viz-container">
+    <div class="viz-title">Interactive &mdash; Chain vs Tree Survival</div>
+    <div class="viz-controls">
+        <label>Per-token Accept Rate: </label>
+        <input type="range" id="tree-alpha" min="0.5" max="0.99" step="0.01" value="0.80">
+        <span class="val" id="tree-alpha-val">0.80</span>
+        <button class="viz-btn" id="tree-run" style="margin-left:auto;">Simulate 100 Rounds</button>
+    </div>
+    <div id="tree-viz" style="display:flex; gap:1rem;"></div>
+    <div class="viz-readout" id="tree-readout">
+        Left: a single chain (one path, all-or-nothing). Right: a binary tree (each node has two children). Click <strong>Simulate</strong> to run 100 rounds and compare how many tokens each strategy produces on average.
+    </div>
+</div>
+
+<p>This observation &mdash; that trees are exponentially more robust than chains &mdash; became the foundation for everything that followed: <a href="https://arxiv.org/abs/2401.10774">Medusa</a>, <a href="https://arxiv.org/abs/2401.15077">EAGLE</a>, and <a href="https://arxiv.org/abs/2503.01840">EAGLE-3</a>. But before we get to the trees, there is a more fundamental question the field had to answer: why use two models at all?</p>
+
+<!-- D3 VIZ: Acceptance Rate Cliff -->
+<div class="viz-container">
+    <div class="viz-title">Interactive &mdash; The Acceptance Rate Cliff</div>
+    <div class="viz-controls">
+        <label>Acceptance Rate (&alpha;): </label>
+        <input type="range" id="alpha-slider" min="0.5" max="0.99" step="0.01" value="0.9">
+        <span class="val" id="alpha-val">0.90</span>
+    </div>
+    <div id="acceptance-viz"></div>
+</div>
+
+</section>
+
+<!-- =========================================================
+     CHAPTER 3: KILLING THE DRAFT MODEL
+     ========================================================= -->
+<section id="killing-draft">
+<h2>03 // Killing the Draft Model</h2>
+
+<p class="drop-cap">Traditional speculative decoding requires a separate, smaller draft model. This creates real pain: you need to find or train a compatible draft model &mdash; one that shares the target's vocabulary, understands the same distribution, and is small enough to run cheaply. You need to deploy two models simultaneously, roughly doubling your GPU memory footprint. You need to manage the alignment between them: if the draft model's distribution drifts too far from the target's, acceptance rates plummet and the speedup evaporates. For many practitioners, the overhead of maintaining a two-model system outweighed the latency benefit.</p>
+
+<p>Leviathan and Chen proved the mechanism works. The engineering question that remained was whether you could eliminate the draft model entirely &mdash; achieve self-speculation, where a single model drafts and verifies within itself. In September 2023, a team at Princeton answered yes.</p>
+
+<h3>Medusa: many heads, one body</h3>
+
+<p><a href="https://arxiv.org/abs/2401.10774">Tianle Cai and colleagues at Princeton and UIUC</a> proposed something startlingly simple. Take your existing model. Add K extra prediction heads &mdash; typically 5 &mdash; on top of the final hidden states. Each head is a single-layer FFN with a residual connection, tiny in parameter count. Head k predicts the token at position t+k+1. The original LM head still predicts the next token normally.</p>
+
+<p>The insight behind Medusa is that a transformer's hidden states at the final layer already encode rich information about the near future. This is not an obvious fact &mdash; in principle, the model was trained only to predict the <em>next</em> token, not the one after that. But in practice, to predict the next token well, the model must build representations that capture the trajectory of the text &mdash; where it is going, not just where it is. The hidden state at position t contains enough information to predict tokens at positions t+2, t+3, even t+5 with reasonable accuracy. The model has already "thought about" what comes next &mdash; it just lacked the machinery to express predictions beyond the immediate next token.</p>
+
+<p>Adding cheap FFN heads is like giving the model five extra mouths that can speak simultaneously from the same thought. Each head is a single linear layer with a residual connection, taking the hidden state and projecting it to vocabulary space. The parameter overhead is tiny: each head adds roughly 2 &times; d &times; V parameters (where d is the hidden dimension and V is the vocabulary size), which is a fraction of a percent of the target model's total.</p>
+
+<p>Now you have a tree-builder. Take the top-s predictions from each head, form their Cartesian product, and you have a candidate tree &mdash; dozens of possible continuations generated from a single forward pass. For example, if head 1 gives top-2 predictions and head 2 gives top-3, you get 6 candidate two-token continuations. Extend to 5 heads and the tree can have hundreds of nodes.</p>
+
+<p>But not all nodes are worth verifying. Medusa's optimized variant uses <strong>sparse tree construction</strong>: greedily select nodes by highest accuracy (measured on a calibration set) to build a tree that maximizes expected acceptance length within a fixed compute budget. A carefully chosen <strong>64-node sparse tree consistently outperforms a brute-force 256-node dense tree</strong>. The sparse tree puts its budget where accuracy is highest, rather than wasting verification slots on low-probability branches.</p>
+
+<p>Verification uses <strong>tree attention</strong>: a modified attention mask where each candidate token attends only to its predecessors in the tree structure. No cross-branch contamination. Consider a tree with three branches from the root: branch A proposes "Paris is beautiful," branch B proposes "Paris has many," and branch C proposes "Lyon is smaller." Each token in branch A attends only to other tokens in branch A and the shared prefix. It never sees branch B or C. The attention mask is a block-diagonal matrix with off-diagonal zeros between branches &mdash; enforcing this isolation is what makes parallel verification correct.</p>
+
+<p>The entire tree is verified in a single forward pass, and the deepest surviving path is accepted. If branch A survives to depth 3 but branches B and C die at depth 1, you get 3 tokens. In a chain, that same rejection pattern would have given you 0 from the failed paths.</p>
+
+<div class="vs">
+    <div class="vs-card">
+        <h4>Medusa-1 (Frozen)</h4>
+        <p>Train only the new heads. Backbone stays frozen. Can train on a single GPU with quantization. Output distribution unchanged &mdash; <strong>lossless</strong>. Speedup: <strong>2.18&ndash;2.33x</strong>. Eliminates the "275 NVIDIA A100 GPU hours" that would be needed to pretrain a separate draft model.</p>
+    </div>
+    <div class="vs-card">
+        <h4>Medusa-2 (Joint)</h4>
+        <p>Train backbone and heads together. Differential learning rates + two-stage warmup to preserve model quality. Better predictions, higher speedup. Peak: <strong>2.35&ndash;3.62x</strong> (best on extraction-type tasks where the next tokens are highly predictable).</p>
+    </div>
+</div>
+
+<p>Medusa proved something important: <strong>a model's own hidden states already contain strong signals for multiple future positions.</strong> You never needed a second model &mdash; you needed a few extra heads. The cost savings are dramatic: Medusa eliminates the "275 NVIDIA A100 GPU hours" that would be needed to pretrain a compatible separate draft model. Instead, you train a few FFN heads for a fraction of that cost.</p>
+
+<p>But those heads have a fundamental limitation. They are single-layer FFNs operating on the final hidden state. They see no intermediate reasoning, no multi-layer computation. They are peering through a pinhole at the model's deepest representations and guessing the future from that narrow view. The prediction for token t+3 has no awareness of what tokens t+1 and t+2 were predicted to be &mdash; each head operates independently, making its prediction from the same fixed hidden state. This means Medusa's heads cannot capture <em>conditional</em> dependencies between predicted tokens. If the model might generate "New York" or "New Zealand," the head for position t+2 does not know whether head t+1 predicted "York" or "Zealand."</p>
+
+<p>This is the gap that EAGLE would exploit.</p>
+
+<h3>EAGLE-1: predict features, not tokens</h3>
+
+<p>In January 2024, <a href="https://arxiv.org/abs/2401.15077">Yuhui Li and colleagues at Peking University and the University of Waterloo</a> published a paper that reframed the entire problem. Medusa predicts future <em>tokens</em> directly from hidden states. But token sequences are discrete, high-entropy, and hard to predict &mdash; one token can diverge into thousands of possible continuations, each with its own cascading effects on meaning. What if you predicted future <em>features</em> instead?</p>
+
+<p>The second-to-top-layer representations &mdash; the features &mdash; are continuous vectors with far more regularity than discrete tokens. Think of it this way: the word "Paris" and the word "France" are completely different in token space (different integers, different embeddings), but in feature space they are neighbors &mdash; continuous vectors pointing in similar directions. Autoregression over features is like predicting the next point on a smooth curve, while autoregression over tokens is like predicting the next jump in a random walk.</p>
+
+<p>EAGLE's evidence: feature-level prediction achieves <strong>1.9x</strong> speedup versus 1.5x for token-level approaches (measured on the same model, same hardware, same evaluation protocol). The gap is not in the model architecture or training &mdash; it is in the <em>predictability of the target</em>. Feature sequences are simply easier to extrapolate than token sequences. Li and his co-authors call this "feature uncertainty" versus "token uncertainty," and the difference is not subtle: features have roughly 0.3x the entropy of tokens in the same context.</p>
+
+<h4>The uncertainty problem</h4>
+
+<p>There is a subtle catch that EAGLE had to solve. Features at position t+1 depend on <em>which token was sampled</em> at position t. If the model might sample "am" or "always," the feature sequences diverge completely &mdash; the representations encode fundamentally different meanings. This creates ambiguity for any feature predictor: which future are you predicting?</p>
+
+<p>EAGLE's fix is elegant: feed the <strong>already-sampled token embedding</strong> (one step ahead) alongside the previous feature. This one-step-ahead token resolves the sampling uncertainty, collapsing the multiverse of possible futures into a single deterministic trajectory. The draft model knows which token was actually chosen, so it can predict the next feature without ambiguity.</p>
+
+<pre><code><span class="label">EAGLE Draft Architecture</span>
+Input at step t:
+  feature_{t-1}  (from target model's second-to-top layer)
+  + embed(token_t) (the sampled token, one step ahead)
+
+  --> FC layer (dimensionality reduction)
+  --> 1 Transformer decoder layer
+  --> LM head (frozen, shared with target) --> predicted token_{t+1}
+
+Trainable parameters: 0.24B - 0.99B (depending on target size)
+Frozen components: embedding layer + LM head (zero extra training)
+</code></pre>
+
+<p>The draft model itself is small &mdash; one FC layer for dimensionality reduction, one Transformer decoder layer, plus the frozen embedding and LM head from the target model. Total trainable parameters: <strong>0.24B&ndash;0.99B</strong> depending on target model size. This is an important design choice: by freezing the embedding layer and LM head (which are shared with the target model), EAGLE ensures that the draft model's vocabulary and output space are perfectly aligned with the target. No distribution mismatch. No compatibility issues. You train only the tiny middle piece.</p>
+
+<p>Speedup: <strong>2.7&ndash;3.5x</strong> on LLaMA2-Chat 70B for greedy decoding, <strong>2.65&ndash;2.92x</strong> for sampling. Code generation (HumanEval) peaks at <strong>3.17&ndash;3.76x</strong> &mdash; code is more predictable than open-ended text, so the draft model achieves higher acceptance rates. Average accepted tokens per forward pass: <strong>3.2&ndash;4.5</strong>. That is roughly 1.5&ndash;1.6x faster than Medusa and 1.7&ndash;2.1x faster than Lookahead Decoding.</p>
+
+<p>Why does EAGLE beat Medusa so consistently? Medusa's FFN heads are shallow &mdash; one layer operating on the final hidden state. They are squinting at a single slice of the model's computation and trying to extrapolate the future from it. EAGLE's draft model is a full (if small) Transformer decoder that operates on <em>features</em> &mdash; continuous representations that carry the accumulated reasoning of all preceding layers. It is the difference between predicting tomorrow's weather from today's temperature alone versus predicting it from a full atmospheric model.</p>
+
+<h3>EAGLE-2: dynamic trees from confidence</h3>
+
+<p>EAGLE-1 uses a fixed, static draft tree &mdash; the same shape regardless of context. This is like having one-size-fits-all shoes: functional, but suboptimal for every actual foot. <a href="https://arxiv.org/abs/2406.16858">EAGLE-2 (Li et al., June 2024)</a> discovered something that changed the game: <strong>the draft model's confidence score is a near-perfect proxy for the target model's acceptance rate.</strong></p>
+
+<p>The evidence is striking. When the draft model's softmax confidence for its top prediction is below 0.05, the target model's acceptance rate hovers around 0.04. When confidence exceeds 0.95, acceptance rate is approximately 0.98. The correlation is near-linear across the entire range. This means you can build the optimal draft tree <em>at inference time</em> with zero extra training &mdash; just follow the confidence.</p>
+
+<h4>The dynamic tree algorithm</h4>
+
+<p>EAGLE-2's tree construction works in three steps:</p>
+
+<p><strong>1. Expansion.</strong> At each depth, select the top-k tokens with the highest <em>global</em> acceptance probabilities for expansion. This prevents exponential growth while prioritizing promising branches.</p>
+
+<p><strong>2. Value computation.</strong> For each candidate token i, compute V<sub>i</sub> = the product of all confidence scores on the path from root to token i. This product estimates the actual acceptance probability, because rejecting <em>any</em> ancestor invalidates the entire branch. A token at depth 4 with all confident ancestors has a higher V than a token at depth 2 with one uncertain ancestor.</p>
+
+<p><strong>3. Reranking.</strong> After expansion, all tokens across all depths are ranked globally by V. Select the top-m tokens to form the final draft tree. Tie-breaking: prefer shallower nodes (more likely to be accepted, and their acceptance enables deeper children).</p>
+
+<p>A worked example makes this concrete. Suppose the draft model is completing the prompt "The Eiffel Tower is located in":</p>
+
+<pre><code><span class="label">EAGLE-2 Dynamic Tree Construction</span>
+Depth 0 (root): "Paris"  confidence = 0.97
+  --> V = 0.97. High confidence — expand aggressively.
+
+Depth 1, Branch A: "Paris ,"   confidence = 0.88
+  --> V = 0.97 * 0.88 = 0.854
+Depth 1, Branch B: "Paris and"  confidence = 0.04
+  --> V = 0.97 * 0.04 = 0.039  (pruned — below threshold)
+
+Depth 2, Branch A1: "Paris , France"  confidence = 0.92
+  --> V = 0.854 * 0.92 = 0.786  (still high — keep going)
+Depth 2, Branch A2: "Paris , the"     confidence = 0.05
+  --> V = 0.854 * 0.05 = 0.043  (pruned)
+
+Depth 3, Branch A1a: "Paris , France ."  confidence = 0.81
+  --> V = 0.786 * 0.81 = 0.637
+
+Final tree: "Paris" -> "," -> "France" -> "." (depth 4, all high-V)
+Total tree nodes: 5 (vs. 64 in a static tree)
+Verification cost: minimal. Expected acceptance: ~4 tokens.
+</code></pre>
+
+<p>Now compare with an uncertain context: "Write me a poem about". The draft model is not sure whether to begin with "the," "a," "love," or "nature." Confidence at depth 0 might be 0.3 for the top prediction. The tree stays shallow and fans wide &mdash; three branches at depth 1, two each at depth 2 &mdash; maximizing the chance that <em>some</em> path matches the target, even if none goes deep.</p>
+
+<p>The result: when the model is confident &mdash; say, completing "United States of" &mdash; the tree grows deep (6&ndash;8 tokens along the main branch). When the model is uncertain &mdash; choosing between "The" and "A" at the start of a creative sentence &mdash; the tree grows wide and shallow. The tree adapts to the difficulty of the current context, automatically.</p>
+
+<p>No additional training beyond EAGLE-1 is required &mdash; the confidence scores are free, already computed as part of the draft model's softmax output. The dynamic tree is pure inference-time optimization, adding zero parameters and negligible overhead. Speedup: <strong>3.05&ndash;4.26x</strong>, a 20&ndash;40% improvement over EAGLE-1's static trees. Roughly <strong>2x faster</strong> than Medusa on MT-bench and <strong>~2.3x faster</strong> than Lookahead Decoding.</p>
+
+<p>EAGLE-2 was published at EMNLP 2024, just five months after EAGLE-1 appeared at ICML. The speed of iteration reflects a broader pattern in speculation research: each insight is small enough to implement quickly, and each unlocks measurable gains. This is a field where the gap between idea and deployed system is measured in weeks, not years.</p>
+
+<div class="power">
+    <div class="power-label">The evolution in four years</div>
+    <p><strong>Classic speculation</strong> (2022): two separate models, 2&ndash;3x. <strong>Medusa</strong> (2023): FFN heads, no draft model, 2.2&ndash;3.6x. <strong>EAGLE-1</strong> (2024): predict features not tokens, 2.7&ndash;3.8x. <strong>EAGLE-2</strong> (2024): dynamic trees from confidence, 3.05&ndash;4.26x. Each generation eliminated a constraint the previous one accepted as fundamental.</p>
+</div>
+
+</section>
+
+<!-- =========================================================
+     CHAPTER 4: THE CO-EVOLUTION
+     ========================================================= -->
+<section id="coevolution">
+<h2>04 // The Co-Evolution</h2>
+
+<p class="drop-cap">In March 2025, the EAGLE-3 paper opened with a sentence that rarely appears in machine learning research: an explicit acknowledgment that two research groups &mdash; at Peking University and DeepSeek, separated by a thousand kilometers and working on different problems &mdash; influenced each other, back and forth, across the boundary between training and inference. The EAGLE-3 paper states that EAGLE "inspired the multi-token prediction technique used in the pre-training of DeepSeek-V3," which in turn "inspired new architectural designs in EAGLE-3."</p>
+
+<p>This kind of documented mutual influence is rare in a field where credit assignment is contentious and labs are often secretive about their inspirations. That both teams published explicit acknowledgments of the other's contributions makes this story worth telling in full. This is the narrative climax of speculative decoding's evolution &mdash; the moment where inference optimization and training architecture became the same conversation.</p>
+
+<h3>The timeline</h3>
+
+<p><strong>January 2024</strong> &mdash; Yuhui Li and the EAGLE team at Peking University publish their paper, demonstrating that feature-level autoregression using the second-to-top layer is the key to fast speculative decoding. The critical design choice: maintaining a causal chain of sequential predictions, where each draft token conditions on the previous one. This paper is read closely by teams across the world &mdash; including at DeepSeek's research lab in Hangzhou.</p>
+
+<p><strong>December 2024</strong> &mdash; <a href="https://arxiv.org/abs/2412.19437">DeepSeek-V3</a> ships with Multi-Token Prediction baked into pre-training. The technical report explicitly acknowledges: <em>"Our principle of maintaining the causal chain of predictions is similar to that of EAGLE, but its primary objective is speculative decoding, whereas we utilize MTP to improve training."</em></p>
+
+<p>DeepSeek's MTP is architecturally precise. D sequential modules &mdash; each containing a shared embedding layer, a projection matrix, a single transformer block, and a shared output head &mdash; form a chain. Module 1 takes the main model's hidden state h<sub>t</sub> and the embedding of ground-truth token t+1, projects them together through the transformer block, and predicts token t+2. Module 2 takes Module 1's output and the embedding of token t+2 to predict token t+3. The chain maintains full causal conditioning at every depth.</p>
+
+<pre><code><span class="label">DeepSeek-V3 MTP Architecture</span>
+[Main Transformer Model]
+         |
+      hidden h_t
+         |
+    [MTP Module 1]  <-- combines h_t with embed(token at t+1)
+         |               projection -> transformer block -> shared output head
+      hidden h_t^(1)     --> predicts token t+2
+         |
+    [MTP Module 2]  <-- combines h_t^(1) with embed(token at t+2)
+         |               projection -> transformer block -> shared output head
+      hidden h_t^(2)     --> predicts token t+3
+
+Training loss: L = main_loss + (lambda/D) * SUM(CE_k)
+  lambda = 0.3 for first 10T tokens
+  lambda = 0.1 for remaining 4.8T tokens
+  D = 1 in DeepSeek-V3 (one extra MTP module)
+</code></pre>
+
+<p>The dual purpose is elegant: the MTP modules improve training quality of the main model by providing denser gradient signal, AND they serve as a built-in draft model at inference time. Because the output head is shared with the main model, memory overhead is minimal. Acceptance rate: <strong>over 80%</strong> for the first draft token, dropping to 72% at k=2 and 61% at k=3 (measured on 8xH200). Speedup: <strong>1.8x</strong> with no separate draft model &mdash; the "drafter" was trained into the model from day one.</p>
+
+<p>The dual purpose is what makes DeepSeek's approach architecturally elegant. Most speculative decoding methods are post-hoc &mdash; you train the main model, then bolt on a draft model afterward. DeepSeek trains the draft model <em>alongside</em> the main model from the first gradient step. The MTP modules improve the main model's training (by providing denser supervision and forcing longer-range planning) while simultaneously becoming perfectly aligned drafters for inference. You pay once during training; you benefit forever during serving.</p>
+
+<p><strong>March 2025</strong> &mdash; <a href="https://arxiv.org/abs/2503.01840">EAGLE-3</a> publishes, incorporating three ideas that trace directly to the DeepSeek-V3 approach. Li and his team have studied the DeepSeek report carefully, and it has changed their thinking.</p>
+
+<h3>What EAGLE-3 learned from DeepSeek</h3>
+
+<p><strong>1. Multi-layer feature fusion.</strong> EAGLE-1 and 2 used only the second-to-top layer. This was a deliberate choice: that layer was assumed to contain the richest predictive signal, because it is the last representation before the final projection to vocabulary space. But DeepSeek's MTP modules take inputs that flow through the entire model, leveraging representations from multiple depths. EAGLE-3 follows this lead.</p>
+
+<p>The implementation is straightforward: select three layers from the target model (one low, one mid, one high), extract the k-dimensional hidden state from each at every position, concatenate them into a <strong>3k-dimensional vector</strong>, and project back to k dimensions via a single FC layer. This fused representation becomes the input to the draft decoder.</p>
+
+<p>Why does this help? Research on transformer internals has shown that different layers encode different types of information:</p>
+
+<ul style="margin: 0.5rem 0 1rem 1.5rem; color: var(--text);">
+<li><strong>Low layers</strong> encode syntax and structure &mdash; word boundaries, grammatical roles, positional relationships, and morphological features.</li>
+<li><strong>Mid layers</strong> encode semantics &mdash; meaning, entity relationships, factual associations, and contextual disambiguation.</li>
+<li><strong>High layers</strong> encode task-specific reasoning &mdash; the model's "thinking" about what to generate next, including planning, style, and discourse structure.</li>
+</ul>
+
+<p>By fusing all three, EAGLE-3's draft model sees the whole picture, not just the final representation. An analogy: Medusa is like predicting tomorrow's weather from the barometric pressure reading alone (one number from the top layer). EAGLE-1 is like predicting from the full atmospheric profile at one altitude (the second-to-top layer). EAGLE-3 is like predicting from profiles at ground level, mid-atmosphere, and the jet stream &mdash; a three-dimensional view that captures the whole system.</p>
+
+<p><strong>2. Direct token prediction.</strong> Previous EAGLEs required a feature prediction loss (l<sub>fea</sub>) alongside token prediction, constraining the draft model's hidden vectors to approximate the target model's features. The loss function was: L = l<sub>token</sub> + &beta; &middot; l<sub>fea</sub>, where l<sub>fea</sub> penalized the distance between the draft model's hidden states and the target model's second-to-top-layer features.</p>
+
+<p>EAGLE-3 drops l<sub>fea</sub> entirely. The draft model generates <strong>unconstrained vectors</strong>, optimized purely for token prediction accuracy. This idea came directly from observing DeepSeek's approach: their MTP modules predict tokens without trying to match intermediate representations. The result: cleaner gradients, less error accumulation, and a draft model that is free to develop its own internal representations &mdash; representations that may differ from the target model's features but are more useful for the draft model's purpose.</p>
+
+<p><strong>3. Training-time test.</strong> Previous EAGLEs trained on ground-truth target features but at inference saw their own imperfect outputs as inputs. This is a classic train-inference distribution shift &mdash; the same problem that plagues all autoregressive models when trained with teacher forcing. During training, the draft model always sees the <em>correct</em> previous features. During inference, it sees its <em>own</em> predictions &mdash; which may be wrong. The errors compound: a wrong feature at step t corrupts the prediction at step t+1, which corrupts t+2, and so on.</p>
+
+<p>EAGLE-3 fixes this with "training-time test" (TT-test): during training, periodically switch from teacher forcing to autoregressive mode. The draft model runs generation on its own outputs for several steps, and those self-generated (potentially imperfect) features are fed back as training inputs. Modified self-attention masks handle the tree-like contextual relationships that arise during multi-step self-generation. The model learns to handle its own errors &mdash; to make reasonable predictions even when the input features are slightly wrong. This closes the distribution gap between training and deployment.</p>
+
+<h3>The scaling law nobody expected</h3>
+
+<p>With these three architectural changes, EAGLE-3 unlocked something EAGLE-1 and 2 never had: <strong>a clean scaling law for draft model training data.</strong></p>
+
+<p>In EAGLE-1 and EAGLE-2, throwing more training data at the draft model hit diminishing returns quickly. The draft model would improve for a while, then plateau. Researchers assumed this was fundamental &mdash; that draft models simply had a ceiling. EAGLE-3 proved them wrong. With multi-layer fusion, training-time test, and direct token prediction, increasing training data by ~8x produced <strong>roughly proportional improvements in speedup</strong>. The scaling law was linear. The draft model had been bottlenecked by <em>architecture</em>, not data.</p>
+
+<p>This discovery reframes the entire field. It means draft models are not "good enough and getting no better." It means they are on a scaling curve, and the curve has room to climb. The practical implication: invest compute in training better draft models &mdash; the return on investment is predictable and substantial. The theoretical implication: the gap between draft and target can be systematically closed.</p>
+
+<p>There is a deeper lesson here about machine learning research. EAGLE-1 and EAGLE-2 were both excellent papers. But they carried architectural decisions from early experiments that, unbeknownst to the authors, were limiting the scaling behavior. The feature prediction loss seemed necessary &mdash; it provided a training signal that kept the draft model's representations aligned with the target. Dropping it felt risky. But DeepSeek's example showed that it was a crutch. The draft model, freed from the constraint of mimicking the target's internal representations, found <em>better</em> representations of its own. Sometimes the lesson is not "add more" but "remove the constraint you thought was load-bearing."</p>
+
+<table>
+    <thead><tr><th>Model</th><th>MT-Bench</th><th>HumanEval</th><th>GSM8K</th><th>Alpaca</th><th>CNN/DM</th></tr></thead>
+    <tbody>
+        <tr><td>Vicuna 13B</td><td>5.58x</td><td><strong>6.47x</strong></td><td>5.32x</td><td>5.16x</td><td>5.01x</td></tr>
+        <tr><td>LLaMA-Inst 3.1 8B</td><td>4.40x</td><td>4.85x</td><td>4.48x</td><td>4.82x</td><td>3.65x</td></tr>
+        <tr><td>LLaMA-Inst 3.3 70B</td><td>4.11x</td><td>4.79x</td><td>4.34x</td><td>4.30x</td><td>3.27x</td></tr>
+    </tbody>
+</table>
+
+<p>Peak speedup: <strong>6.47x</strong> on code generation (HumanEval, Vicuna 13B) &mdash; a 1.4x improvement over EAGLE-2. Practical milestone: roughly <strong>400 tokens/sec</strong> on an 8B model with a single H100 via SGLang integration. That is fast enough to feel instantaneous in a chat interface.</p>
+
+<!-- D3 VIZ: Architecture Comparison -->
+<div class="viz-container">
+    <div class="viz-title">Architecture Comparison &mdash; The Speculation Family Tree</div>
+    <div id="arch-viz"></div>
+    <div class="viz-readout">
+        <span style="color:var(--blue);">Blue</span> = frozen target model. Colored outlines = trainable draft components. Each generation eliminated a component the previous one required.
+    </div>
+</div>
+
+<!-- D3 VIZ: Co-Evolution Timeline -->
+<div class="viz-container">
+    <div class="viz-title">The Co-Evolution &mdash; How Two Labs Leapfrogged Each Other</div>
+    <div id="coevo-viz"></div>
+    <div class="viz-readout">
+        <span style="color:var(--green);">Green</span> = EAGLE lineage (Peking University). <span style="color:var(--cyan);">Cyan</span> = DeepSeek lineage. <span style="color:var(--magenta);">Magenta</span> = Medusa (Princeton). Arrows show documented influence between papers.
+    </div>
+</div>
+
+<table>
+    <thead><tr><th>Method</th><th>Year</th><th>Draft Model?</th><th>Key Move</th><th>Speedup</th></tr></thead>
+    <tbody>
+        <tr><td>Classic Spec. Decoding</td><td>2022</td><td>Separate model</td><td>Guess + verify</td><td>2&ndash;3x</td></tr>
+        <tr><td>Medusa</td><td>2023</td><td>FFN heads</td><td>Self-drafting</td><td>2.2&ndash;3.6x</td></tr>
+        <tr><td>EAGLE-1</td><td>2024</td><td>Feature decoder</td><td>Feature-level AR</td><td>2.7&ndash;3.8x</td></tr>
+        <tr><td>EAGLE-2</td><td>2024</td><td>+ dynamic trees</td><td>Confidence = acceptance</td><td>3.05&ndash;4.26x</td></tr>
+        <tr><td>DeepSeek-V3 MTP</td><td>2024</td><td>Built-in (training)</td><td>Causal chain in pre-train</td><td>1.8x</td></tr>
+        <tr><td>EAGLE-3</td><td>2025</td><td>Multi-layer fusion</td><td>Scaling law + TT-test</td><td>3.3&ndash;6.5x</td></tr>
+    </tbody>
+</table>
+
+<div class="power hack">
+    <div class="power-label">The Feedback Loop</div>
+    <p>Inference optimization inspired a pre-training technique, which in turn unlocked the next generation of inference optimization. EAGLE showed that a model's features contain predictive power for future tokens. DeepSeek baked that insight into training, creating MTP modules that improved the base model <em>and</em> served as a draft at inference time. DeepSeek's approach &mdash; direct token prediction, multi-layer information flow, joint training &mdash; then freed EAGLE-3 from the constraints of its predecessors. The boundary between "how we train" and "how we serve" is dissolving.</p>
+</div>
+
+<h3>The convergence of all paths</h3>
+
+<p>Step back and notice something: every approach in this chapter is converging toward the same endpoint. Classic speculative decoding uses two models. Medusa adds heads to one model. EAGLE trains a tiny decoder on the model's features. DeepSeek trains the draft model alongside the main model. EAGLE-3 fuses multiple layers and uses training-time test to close the gap between draft and target.</p>
+
+<p>The trajectory points toward models that are born knowing how to speculate about their own future &mdash; where multi-token prediction is not a post-hoc optimization but a native capability baked into architecture and training from the first step. The draft model dissolves into the target model. The verification step becomes implicit. Speculation becomes invisible.</p>
+
+<p>We are not there yet. But the distance between "the model generates one token at a time" and "the model generates chunks of coherent tokens in parallel" is shrinking with every paper in this timeline. EAGLE-3 accepts 4&ndash;6 tokens per verification step on average. If the scaling law holds, EAGLE-4 might accept 8&ndash;10. At 10+ tokens per step, the autoregressive generation loop &mdash; the fundamental bottleneck of transformer inference since 2017 &mdash; begins to dissolve. Each "step" becomes more like generating a clause than a syllable.</p>
+
+<p>What started as a scheduling trick &mdash; a way to keep idle silicon busy &mdash; is becoming a fundamental property of how language models think. The chain is breaking. Token by token, the sequential dependency that defined transformer inference is being replaced by something faster: guess, verify, leap forward. The factory floor is learning to speculate.</p>
+
+</section>
+
+<!-- =========================================================
+     CHAPTER 5: JACOBI'S GHOST
+     ========================================================= -->
+<section id="jacobi">
+<h2>05 // Jacobi's Ghost</h2>
+
+<p class="drop-cap">In 1845, Carl Gustav Jacob Jacobi &mdash; a Prussian mathematician who held the chair of mathematics at Konigsberg &mdash; published a paper in <em>Astronomische Nachrichten</em> titled "Uber eine neue Auflosungsart der bei der Methode der kleinsten Quadrate vorkommenden linearen Gleichungen." The subject: solving normal equations for least-squares problems in astronomical calculations. The application: predicting where planets would be.</p>
+
+<p>Jacobi's method decomposes a matrix A into its diagonal (D), lower triangular (L), and upper triangular (U) components, then updates every variable simultaneously using values from the previous iteration: x<sup>(k+1)</sup> = D<sup>&minus;1</sup>(b &minus; (L+U)x<sup>(k)</sup>). The key property: ALL variables are updated at the SAME TIME, using the PREVIOUS iteration's values. This makes the method embarrassingly parallel. But for over a century, it was considered inferior to sequential methods like Gauss-Seidel, which converge faster on a single processor. Jacobi's method was dismissed as a historical curiosity.</p>
+
+<p>Then parallel computing arrived, and suddenly the "inferior" method had the last laugh. Gauss-Seidel cannot parallelize (each variable update depends on the previous one). Jacobi can. The method that was "useless" for sequential machines became the natural choice for parallel ones.</p>
+
+<p>There is a poetic irony here. Jacobi's method computes in parallel by trading convergence speed for independence: each variable can be updated without waiting for the others. Gauss-Seidel converges faster but requires sequential updates &mdash; variable 3 must wait for variable 2, which must wait for variable 1. For a hundred years, sequential was better because all computation was sequential. The method designed for a world that did not yet exist had to wait for its world to arrive.</p>
+
+<p>179 years after Jacobi's paper, <a href="https://arxiv.org/abs/2402.02057">Yichao Fu, Peter Bailis, Ion Stoica, and Hao Zhang at LMSYS/UC San Diego</a> applied the same mathematical structure to a different prediction problem. Not predicting where planets would be &mdash; predicting where <em>tokens</em> would be. The parallel between the two applications is exact: astronomical orbits and language model outputs are both systems of equations where the "obvious" solution strategy is sequential, and the Jacobi insight is that parallel guessing converges to the same answer.</p>
+
+<h3>Autoregressive decoding is equation solving</h3>
+
+<p>The mathematical insight that makes the whole thing work is a reframing. Define the autoregressive constraint at each position: token y<sub>i</sub> must equal the model's top prediction given all preceding tokens. Formally:</p>
+
+<pre><code><span class="label">The Reformulation</span>
+f(y_i, y_{1:i-1}, x) = y_i - argmax P_M(y_i | y_{1:i-1}, x)
+
+The autoregressive generation of m tokens is equivalent to solving:
+
+f(y_1, x) = 0
+f(y_2, y_1, x) = 0
+f(y_3, y_1, y_2, x) = 0
+...
+f(y_m, y_{1:m-1}, x) = 0
+
+This is a system of m nonlinear equations in m unknowns.
+Standard autoregressive decoding solves them sequentially.
+Jacobi iteration solves them ALL simultaneously.
+</code></pre>
+
+<p>Standard decoding solves these equations one at a time, top to bottom &mdash; the Gauss-Seidel approach. But Jacobi iteration starts with a guess for every position, runs the model on all positions at once, updates each position's prediction based on the previous iteration's context, and repeats until the sequence stabilizes (reaches a fixed point).</p>
+
+<p>The convergence guarantee is elegant: at worst, this takes exactly m steps (same as autoregressive), because at minimum, position 1 always gets the correct token on the first pass (it depends only on the prompt). Each step, at least one more position becomes correct, propagating left to right. So you are guaranteed to converge, and you are guaranteed never to be slower than standard decoding.</p>
+
+<p>But in practice, something better happens. Occasionally, multiple tokens "crystallize" simultaneously &mdash; the correct token at position 5 happens to appear in the same iteration as the correct token at position 4, even though position 4 was not yet confirmed when position 5 was computed. These simultaneous convergence events are the "n-gram hits" that Lookahead Decoding exploits, and they happen more frequently than pure chance would predict &mdash; because the model's weights carry statistical regularities that persist even when the context is partially wrong.</p>
+
+<h3>The trajectory is the treasure</h3>
+
+<p>Vanilla Jacobi decoding gives only about <strong>1.05x</strong> speedup. This is barely distinguishable from noise. Why is it so bad?</p>
+
+<p>The answer lies in how language models are trained. Teacher forcing means the model always sees <em>correct</em> preceding tokens during training. It has never learned to produce reasonable outputs when the context is garbage. Position 7 gets a garbage prediction because positions 3&ndash;6 are still wrong &mdash; the model sees a context like "The [random] [random] [random] [random]" and has no idea what to predict. On the next iteration, position 7 might get a <em>different</em> garbage prediction, because position 6 changed to a different wrong token. Convergence is slow because each position depends on all its predecessors, and most predecessors are wrong.</p>
+
+<p>This seemed like a fatal flaw. Jacobi decoding was mathematically elegant and practically useless. But Fu et al. found the escape hatch.</p>
+
+<p>But Fu et al. had a deeper insight: <strong>the failed guesses are not useless.</strong> They are an untapped mine of useful information.</p>
+
+<p>As Jacobi iterates, useful n-grams crystallize along the <em>trajectory</em> &mdash; the sequence of intermediate states across iterations. A token that appears at position k in iteration t often has its natural continuation appear at position k+1 in iteration t+1. These trajectory n-grams are not random &mdash; they are the model's best predictions given the context it had at that moment. They form a pool of candidate continuations.</p>
+
+<p>Lookahead Decoding exploits this with a two-branch system running in every forward pass:</p>
+
+<p><strong>The Lookahead Branch</strong> maintains a 2D window parameterized by W (window size into the future) and N (n-gram length). W positions get Jacobi-updated simultaneously in each step. As iterations proceed, n-grams are collected from the trajectory &mdash; sequences of tokens that appeared at the same position across N consecutive Jacobi steps. These n-grams are cached in a pool.</p>
+
+<p><strong>The Verification Branch</strong> searches the n-gram pool for candidates whose first token matches the last confirmed token. It appends these candidates to the current sequence, verifies them in a single forward pass using a tree attention mask (the same trick as speculative decoding verification), and accepts the longest prefix that matches the model's actual distribution.</p>
+
+<pre><code><span class="label">Lookahead Decoding — N-gram Mining</span>
+Iteration 1:  [the]  [dog]  [ran]  [fast]  [and]  [then]
+Iteration 2:  [the]  [cat]  [sat]  [on]    [the]  [mat]
+Iteration 3:  [the]  [cat]  [ran]  [away]  [from] [the]
+Iteration 4:  [the]  [cat]  [ran]  [away]  [from] [home]
+
+Mined 2-grams from trajectory (same position, consecutive iterations):
+  Position 2: dog->cat, cat->cat ✓ (converged)
+  Position 3: ran->sat, sat->ran, ran->ran ✓
+  Position 4: fast->on, on->away, away->away ✓
+
+These trajectory n-grams become verification candidates.
+The verification branch checks if any cached n-gram continues
+the current confirmed sequence — accepting the longest valid match.
+</code></pre>
+
+<p>The output is exact &mdash; identical to greedy decoding &mdash; with no draft model, no auxiliary parameters, and no architectural modifications. The model verifies itself through the structure of Jacobi iteration.</p>
+
+<p>Performance: <strong>1.8x on MT-Bench</strong>, <strong>2.3x on code completion</strong>, and up to <strong>4x with multi-GPU parallelism</strong>. Smaller models benefit more; speedups decrease with larger models as compute becomes less idle. Respectable, though below the 3&ndash;6x of well-tuned speculative decoding with a good draft model. The mathematical purist's approach pays for its elegance with a lower ceiling.</p>
+
+<p>There is a follow-up worth noting: <strong>CLLMs (Consistency Large Language Models)</strong> take Lookahead's insight one step further. Instead of mining n-grams from Jacobi trajectories, they train the model to converge faster along those trajectories &mdash; teaching it to produce correct tokens even when the context is corrupted with wrong guesses. This "Jacobi forcing" technique achieves <strong>2.4&ndash;3.4x speedup</strong>, narrowing the gap with speculative decoding without requiring a separate draft model. The cost: you need to retrain (or fine-tune) the model with a special loss function. The trade-off is training compute for inference speed &mdash; the same trade-off that appears everywhere in this field.</p>
+
+<table>
+    <thead><tr><th>Method</th><th>Draft Model?</th><th>Exact Output?</th><th>Speedup</th></tr></thead>
+    <tbody>
+        <tr><td>Vanilla Jacobi</td><td>No</td><td>Yes (greedy)</td><td>~1.05x</td></tr>
+        <tr><td>Lookahead Decoding</td><td>No</td><td>Yes (greedy)</td><td>1.5&ndash;2.3x (single GPU)</td></tr>
+        <tr><td>CLLMs (Consistency)</td><td>No (but needs training)</td><td>Approximate</td><td>2.4&ndash;3.4x</td></tr>
+        <tr><td>EAGLE-3 (for reference)</td><td>Yes (small)</td><td>Yes</td><td>3.3&ndash;6.5x</td></tr>
+    </tbody>
+</table>
+
+<div class="power zen">
+    <div class="power-label">179 Years for the Right Problem</div>
+    <p>Jacobi's method was dismissed for over a century because sequential alternatives converged faster. Then parallel hardware made it the natural choice. Language model decoding was serial for seven years because everyone solved the equations one at a time. The insight was always there: start with a guess, iterate in parallel, mine the trajectory for useful fragments. The 1845 method just needed the right problem to find its solver.</p>
+</div>
+
+<h3>Two MTPs, one name</h3>
+
+<p>There is a disambiguation that matters more than it first appears. Both Meta and DeepSeek use the term "Multi-Token Prediction." Both add extra heads to a model. The papers were published within months of each other. Casual readers &mdash; and even some ML practitioners &mdash; treat them as minor variants of the same idea. They are not. The architectures embody opposite philosophies, optimize for different objectives, and produce different benefits. Confusing them is one of the most common mistakes in the current discourse.</p>
+
+<p>The easiest way to see the difference: in Meta's MTP, head 3 does not know what head 2 predicted. In DeepSeek's MTP, module 2 explicitly receives module 1's output as input. This single architectural decision &mdash; parallel versus sequential &mdash; changes everything about what the technique is optimizing for.</p>
+
+<div class="vs">
+    <div class="vs-card">
+        <h4>Meta MTP (Parallel)</h4>
+        <p><a href="https://arxiv.org/abs/2404.19737">Gloeckle et al. at Meta FAIR, ICML 2024.</a> D independent transformer-layer heads sit on top of a shared trunk. Head k predicts token at position t+k. Heads are completely independent &mdash; head 3's prediction does not see head 2's output. They share an unembedding matrix. Primary benefit: <strong>training</strong>. Multi-token loss provides denser gradient signals, reduces myopic next-token focus, and encourages development of induction heads. Optimal D = 4.</p>
+        <p>Training results: +12% on HumanEval, +17% on MBPP for 13B models. Benefits increase with scale &mdash; negligible at 300M, significant at 7B+. MTP hurts retrieval tasks (MMLU, TriviaQA) but improves reasoning and generation.</p>
+        <p>Inference speedup (self-speculative): <strong>3.0x on code, 2.7x on text</strong>, up to 6.4x for 8-byte predictions.</p>
+    </div>
+    <div class="vs-card">
+        <h4>DeepSeek MTP (Sequential)</h4>
+        <p><a href="https://arxiv.org/abs/2412.19437">DeepSeek-AI, December 2024.</a> D sequential modules, each feeding the next. Module k takes the previous module's hidden state plus the next token embedding. Each module's prediction conditions on the previous module's representation &mdash; a complete causal chain. Shared embedding layer + shared output head = minimal memory overhead. D = 1 in V3.</p>
+        <p>Primary benefit: <strong>inference</strong>. The modules double as a built-in draft model with &gt;80% first-token acceptance rate. Acceptance at k=2: 72%. At k=3: 61%. Even 61% at depth 3 is free tokens the model would not have otherwise produced.</p>
+        <p>Speedup: <strong>1.8x</strong> throughput, no separate draft model required.</p>
+    </div>
+</div>
+
+<p>The fundamental philosophical split comes down to this: Meta asks "what if the model learned to predict further ahead <em>during training</em>?" &mdash; improving the model itself. DeepSeek asks "what if we built a draft model <em>into</em> the architecture?" &mdash; improving inference efficiency. Meta's heads are independent because training does not need sequential coherence &mdash; it needs diverse gradient signals that force the model to build deeper representations. DeepSeek's modules are sequential because inference <em>does</em> need sequential coherence &mdash; each draft token should condition on the previous one, mirroring how autoregressive generation actually works.</p>
+
+<table>
+    <thead><tr><th>Dimension</th><th>Meta MTP</th><th>DeepSeek MTP</th></tr></thead>
+    <tbody>
+        <tr><td>Topology</td><td>Parallel (independent heads)</td><td>Sequential (causal chain)</td></tr>
+        <tr><td>Does head k see head k-1?</td><td>No</td><td>Yes</td></tr>
+        <tr><td>Shared components</td><td>Trunk + unembedding</td><td>Embedding + output head</td></tr>
+        <tr><td>Primary benefit</td><td>Training signal density</td><td>Inference (built-in draft)</td></tr>
+        <tr><td>Optimal D</td><td>4</td><td>1 (in V3)</td></tr>
+        <tr><td>Training gain</td><td>+12% HumanEval, +17% MBPP</td><td>Denser supervision + future planning</td></tr>
+        <tr><td>Inference speedup</td><td>3.0x code / 2.7x text (self-spec)</td><td>1.8x (speculative decoding)</td></tr>
+    </tbody>
+</table>
+
+<p>Think of it like training a chess player. Meta's approach: force the player to evaluate 4 moves ahead simultaneously. Each evaluation is independent &mdash; move 4's evaluation does not know what move 3 decided. The player develops better strategic intuition from the denser feedback signal, learning to consider consequences beyond the immediate next move. At game time, each move is still decided independently.</p>
+
+<p>DeepSeek's approach: force the player to evaluate one move ahead, then build on that evaluation for the next move, forming a chain of reasoning. Move 3's evaluation knows what move 2 concluded. The chain of reasoning is preserved. At game time, you get a natural "plan" (a draft sequence) that can be verified quickly by the full-strength player.</p>
+
+<p>Same name. Different souls. The parallel topology serves training; the sequential topology serves inference.</p>
+
+<details>
+<summary>Memory-efficient implementation detail (Meta MTP)</summary>
+<div>
+<p>A subtle engineering problem: with D=4 heads and a vocabulary of 128K tokens, naively materializing logits for all heads simultaneously would require storing D &times; V &times; d gradients &mdash; a massive memory spike. Meta's solution: process heads sequentially during the forward/backward pass. Compute logits for head 1, calculate loss, backpropagate, discard logits, then move to head 2. Same total compute, dramatically less peak memory. This trick makes MTP training practical even on models with large vocabularies.</p>
+</div>
+</details>
+
+<details>
+<summary>Why MTP hurts retrieval but helps reasoning</summary>
+<div>
+<p>An interesting asymmetry in Meta's results: MTP improves code generation (+12% HumanEval) and mathematical reasoning but <em>hurts</em> retrieval tasks like MMLU, TriviaQA, and ARC Challenge. The explanation: predicting multiple future tokens forces the model to build deeper, more compositional representations &mdash; useful for reasoning. But retrieval tasks reward memorizing specific facts, which does not benefit from multi-step lookahead. The model trades some rote memory for better algorithmic thinking. This mirrors a broader theme in the field: next-token prediction may encourage shallow pattern matching, while multi-token prediction pushes toward deeper understanding.</p>
+</div>
+</details>
+
+</section>
+
+<!-- =========================================================
+     CHAPTER 6: FILLING THE SILENCE
+     ========================================================= -->
+<section id="silence">
+<h2>06 // Filling the Silence</h2>
+
+<p class="drop-cap">There is a question that cuts across this entire article, and it is the same question that separates Article III from Article IV in this series: who benefits? This is not a rhetorical question. It determines which techniques a serving platform should deploy, and the answer is different for every user and every request.</p>
+
+<p>Batching &mdash; the throughput revolution covered in <em>The Serving Problem</em> &mdash; benefits the <strong>provider</strong>. Pack 64 requests into one forward pass, amortize the memory bandwidth cost, and tokens-per-second-per-GPU climbs dramatically. Throughput can increase 23x with continuous batching. But for any single user, batching makes things worse. Your request shares the GPU with 63 others. Latency rises. The system is more efficient overall, but <em>you</em> wait longer.</p>
+
+<p>Speculative decoding benefits the <strong>user</strong>. When batch size is 1, it achieves up to 2.7x speedup &mdash; collapsing multiple sequential decode steps into one verification pass. Your 600ms wait becomes 220ms. The text appears faster. The experience transforms &mdash; the boundary between "I asked" and "it answered" blurs. But at high batch sizes (32+), the benefit shrinks to 1.3x or less. When batching has already filled the GPU's idle compute cycles, there is nothing left for speculation to reclaim. The GPU's free compute &mdash; the foundation of all speculative speedup &mdash; is already spoken for.</p>
+
+<div class="power zen">
+    <div class="power-label">The Complementary Pair</div>
+    <p>Batching fills the GPU by stacking requests. Speculation fills the GPU by stacking tokens. A production system uses both: continuous batching + PagedAttention to maximize throughput, and speculative decoding to minimize per-user latency when load permits. They are not competing &mdash; they are addressing different dimensions of the same underutilization problem.</p>
+</div>
+
+<h3>The landscape</h3>
+
+<p>The progression across ten papers and 181 years tells a clear story. Jacobi shows in 1845 that systems of equations can be solved in parallel if you are willing to guess (2024, Fu et al. apply it to tokens). Two Google teams discover independently in late 2022 that guessing and checking is faster than just asking, one token at a time. Cai at Princeton proves you never needed a second model (2023). Li at Peking University discovers that features are easier to predict than tokens (January 2024). His EAGLE-2 makes the trees dynamic (June 2024). Gloeckle at Meta FAIR trains models to predict multiple tokens and gets better models as a bonus (April 2024). DeepSeek bakes a draft model into pre-training, explicitly citing EAGLE's causal chain insight (December 2024). Li publishes EAGLE-3, explicitly citing DeepSeek's architectural innovations, and discovers a scaling law (March 2025).</p>
+
+<p>At each step, the field removed a constraint that the previous generation had accepted as fundamental:</p>
+
+<ul style="margin: 0.5rem 0 1rem 1.5rem; color: var(--text);">
+<li>"You need two models" &mdash; Medusa eliminated the draft model (2023)</li>
+<li>"Trees must be static" &mdash; EAGLE-2 made them dynamic (2024)</li>
+<li>"Predict tokens" &mdash; EAGLE-1 showed features are easier (2024)</li>
+<li>"Features must match the target's" &mdash; EAGLE-3 dropped the constraint (2025)</li>
+<li>"Draft models are trained after the fact" &mdash; DeepSeek baked them into pre-training (2024)</li>
+<li>"More data doesn't help" &mdash; EAGLE-3 discovered the scaling law (2025)</li>
+</ul>
+
+<p>Each constraint seemed fundamental until it was removed.</p>
+
+<h3>The practical state of play</h3>
+
+<p>Where does this leave a practitioner in 2025? Speculative decoding is no longer research &mdash; it is deployed infrastructure. SGLang and vLLM both support EAGLE-style speculation. TensorRT-LLM supports classic speculative decoding. DeepSeek-V3's MTP modules are enabled by default in their production API. The choice is not whether to speculate, but which flavor.</p>
+
+<p>For <strong>single-user latency</strong> (batch size 1&ndash;4), speculation is the single largest win available. EAGLE-3 delivers 3.3&ndash;6.5x speedup with no quality loss. That turns a 2-second generation into a 400ms generation &mdash; below the threshold of perceived delay.</p>
+
+<p>For <strong>high-throughput serving</strong> (batch size 32+), continuous batching from Article III is more important. Speculation's benefit shrinks because the GPU's idle compute is already claimed by other requests in the batch. But it still helps: even at batch size 32, EAGLE-2 delivers 1.3x on top of batching.</p>
+
+<p>For <strong>new model training</strong>, the question is whether to bake MTP into the architecture from the start. DeepSeek-V3 proved that this works: a 1.8x inference speedup for free (the MTP modules also improve training quality). The cost is a small increase in training compute and model complexity. The bet is that inference cost &mdash; which scales with every user query for the life of the model &mdash; dwarfs training cost. A model trained once and served billions of times has every incentive to spend extra during training if it saves even a fraction during inference.</p>
+
+<p>The field is converging on a stack: <strong>continuous batching</strong> for throughput, <strong>speculative decoding</strong> for latency, <strong>PagedAttention</strong> for memory, <strong>quantization</strong> for fitting on fewer GPUs, and <strong>MTP</strong> for making it all work together. These are no longer competing approaches &mdash; they are layers, and production systems deploy all of them simultaneously.</p>
+
+<h3>What remains</h3>
+
+<p>But there is a constraint none of these papers touch: the model activates <em>every parameter</em> for every token. A 70B model reads all 70 billion parameters whether it is predicting "the" or deriving a proof. Whether the token is trivial or profound, the full weight matrix is loaded from memory. The idle-compute problem of Chapter 1 would vanish if the model could route each token through only the parameters it needs &mdash; activating a fraction of the network while leaving the rest dormant.</p>
+
+<p>Speculative decoding fills the silence by giving idle compute something to verify. But what if the silence never existed &mdash; what if the model only read the parameters that mattered?</p>
+
+<p>A 70B dense model reads every one of its 70 billion parameters to produce the word "the." A Mixture-of-Experts model with the same total parameter count might activate only 13 billion of them &mdash; routing the token to 2 out of 16 expert sub-networks, each specialized for different types of computation. The memory bandwidth problem of Chapter 1 does not disappear, but it shrinks by 5x. The arithmetic intensity rises. The GPU's compute units, so wastefully idle during dense decoding, find themselves with work proportional to their capacity.</p>
+
+<p>That is Mixture of Experts &mdash; the subject of Part V. Where this article dealt with time (making each token arrive faster), Part V deals with space (making each token touch fewer parameters). Together, they complete the picture of how inference became affordable.</p>
+
+<h3>Paper timeline</h3>
+
+<table>
+    <thead><tr><th>Date</th><th>Paper</th><th>Contribution</th></tr></thead>
+    <tbody>
+        <tr><td>1845</td><td>Carl Gustav Jacob Jacobi</td><td>Iterative method for parallel equation solving</td></tr>
+        <tr><td>2018</td><td><a href="https://arxiv.org/abs/1811.03115">Stern, Shazeer & Uszkoreit</a></td><td>Blockwise Parallel Decoding &mdash; the precursor</td></tr>
+        <tr><td>Nov 2022</td><td><a href="https://arxiv.org/abs/2211.17192">Leviathan, Kalman & Matias</a></td><td>Speculative decoding with rejection sampling proof (ICML 2023)</td></tr>
+        <tr><td>Feb 2023</td><td><a href="https://arxiv.org/abs/2302.01318">Chen et al. (DeepMind)</a></td><td>Speculative sampling, independent derivation</td></tr>
+        <tr><td>Sep 2023</td><td><a href="https://arxiv.org/abs/2401.10774">Cai et al. &mdash; Medusa</a></td><td>Self-drafting via multiple prediction heads (ICML 2024)</td></tr>
+        <tr><td>Nov 2023</td><td><a href="https://arxiv.org/abs/2402.02057">Fu et al. &mdash; Lookahead</a></td><td>Jacobi iteration for LLM decoding (ICML 2024)</td></tr>
+        <tr><td>Jan 2024</td><td><a href="https://arxiv.org/abs/2401.15077">Li et al. &mdash; EAGLE-1</a></td><td>Feature-level autoregression (ICML 2024)</td></tr>
+        <tr><td>Apr 2024</td><td><a href="https://arxiv.org/abs/2404.19737">Gloeckle et al. &mdash; Meta MTP</a></td><td>Parallel multi-token prediction for training (ICML 2024)</td></tr>
+        <tr><td>Jun 2024</td><td><a href="https://arxiv.org/abs/2406.16858">Li et al. &mdash; EAGLE-2</a></td><td>Dynamic confidence-based draft trees (EMNLP 2024)</td></tr>
+        <tr><td>Dec 2024</td><td><a href="https://arxiv.org/abs/2412.19437">DeepSeek-AI &mdash; V3</a></td><td>Sequential MTP baked into pre-training</td></tr>
+        <tr><td>Mar 2025</td><td><a href="https://arxiv.org/abs/2503.01840">Li et al. &mdash; EAGLE-3</a></td><td>Multi-layer fusion, training-time test, scaling law</td></tr>
+    </tbody>
+</table>
+
+</section>
+
+</div><!-- .content -->
+
+<!-- =========================================================
+     D3 VISUALIZATIONS
+     ========================================================= -->
+<script>
+// ---- VIZ 1: GPU Utilization Gauge ----
+(function() {
+    const W = 760, H = 200, cols = 20, rows = 5;
+    const cellW = (W - 40) / cols, cellH = (H - 40) / rows;
+    const svg = d3.select('#gpu-viz').append('svg')
+        .attr('viewBox', `0 0 ${W} ${H}`)
+        .attr('width', '100%');
+
+    const cells = [];
+    for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+            cells.push({ r, c, idx: r * cols + c });
+        }
+    }
+
+    const g = svg.append('g').attr('transform', 'translate(20,20)');
+    const rects = g.selectAll('rect').data(cells).enter().append('rect')
+        .attr('x', d => d.c * cellW + 1)
+        .attr('y', d => d.r * cellH + 1)
+        .attr('width', cellW - 2)
+        .attr('height', cellH - 2)
+        .attr('rx', 3)
+        .attr('fill', '#1a1a2e')
+        .attr('stroke', '#2a2a4a')
+        .attr('stroke-width', 0.5);
+
+    function setMode(speculative) {
+        const activeCount = speculative ? 45 : 5;
+        rects.transition().duration(600)
+            .attr('fill', d => d.idx < activeCount ? (speculative ? '#00ff88' : '#ff8800') : '#1a1a2e')
+            .attr('opacity', d => d.idx < activeCount ? (0.4 + Math.random() * 0.6) : 0.3);
+        d3.select('#tps-val').text(speculative ? '~5' : '1');
+        d3.select('#util-val').text(speculative ? '~45%' : '~5%')
+            .style('color', speculative ? '#00ff88' : '#ff8800');
+    }
+
+    setMode(false);
+
+    d3.select('#btn-standard').on('click', function() {
+        d3.select('#btn-standard').classed('active', true);
+        d3.select('#btn-speculative').classed('active', false);
+        setMode(false);
+    });
+    d3.select('#btn-speculative').on('click', function() {
+        d3.select('#btn-speculative').classed('active', true);
+        d3.select('#btn-standard').classed('active', false);
+        setMode(true);
+    });
+})();
+
+// ---- VIZ 2: Draft-Verify Dance ----
+(function() {
+    const W = 760, H = 220;
+    const svg = d3.select('#dance-viz').append('svg')
+        .attr('viewBox', `0 0 ${W} ${H}`)
+        .attr('width', '100%');
+
+    const tokenW = 60, tokenH = 40, gap = 8;
+    const startX = 40, draftY = 30, verifyY = 120;
+
+    // Labels
+    svg.append('text').attr('x', 10).attr('y', draftY + 25)
+        .style('fill', '#6a6a7e').style('font-size', '10px')
+        .style('font-family', 'JetBrains Mono, monospace')
+        .attr('text-anchor', 'end')
+        .attr('transform', `rotate(-90, 10, ${draftY + 25})`)
+        .text('DRAFT');
+    svg.append('text').attr('x', 10).attr('y', verifyY + 25)
+        .style('fill', '#6a6a7e').style('font-size', '10px')
+        .style('font-family', 'JetBrains Mono, monospace')
+        .attr('text-anchor', 'end')
+        .attr('transform', `rotate(-90, 10, ${verifyY + 25})`)
+        .text('VERIFY');
+
+    let tokenGroup = svg.append('g');
+    let totalAccepted = 0, totalRounds = 0;
+
+    function runRound() {
+        const alpha = +document.getElementById('dance-alpha').value;
+        const K = +document.getElementById('dance-k').value;
+        tokenGroup.selectAll('*').remove();
+        totalRounds++;
+
+        // Draft tokens
+        const tokens = [];
+        for (let i = 0; i < K; i++) {
+            tokens.push({ idx: i, accepted: false, rejected: false, bonus: false });
+        }
+
+        // Draw draft tokens (all orange initially)
+        const draftRects = tokenGroup.selectAll('.draft-token').data(tokens).enter().append('g')
+            .attr('transform', (d,i) => `translate(${startX + i * (tokenW + gap)}, ${draftY})`);
+
+        draftRects.append('rect')
+            .attr('width', tokenW).attr('height', tokenH).attr('rx', 4)
+            .attr('fill', '#2a1a00').attr('stroke', '#ff8800').attr('stroke-width', 1.5);
+        draftRects.append('text')
+            .attr('x', tokenW/2).attr('y', tokenH/2 + 4)
+            .attr('text-anchor', 'middle')
+            .style('fill', '#ff8800').style('font-size', '10px')
+            .style('font-family', 'JetBrains Mono, monospace')
+            .text((d,i) => `t+${i+1}`);
+
+        // Simulate acceptance
+        let accepted = 0;
+        for (let i = 0; i < K; i++) {
+            if (Math.random() < alpha) {
+                tokens[i].accepted = true;
+                accepted++;
+            } else {
+                tokens[i].rejected = true;
+                break; // chain breaks on first rejection
+            }
+        }
+
+        // Animate verification results
+        setTimeout(() => {
+            const verifyRects = tokenGroup.selectAll('.verify-token').data(tokens).enter().append('g')
+                .attr('transform', (d,i) => `translate(${startX + i * (tokenW + gap)}, ${verifyY})`)
+                .style('opacity', 0);
+
+            verifyRects.append('rect')
+                .attr('width', tokenW).attr('height', tokenH).attr('rx', 4)
+                .attr('fill', d => d.accepted ? '#002a10' : d.rejected ? '#2a0008' : '#1a1a2e')
+                .attr('stroke', d => d.accepted ? '#00ff88' : d.rejected ? '#ff3344' : '#2a2a4a')
+                .attr('stroke-width', 1.5);
+            verifyRects.append('text')
+                .attr('x', tokenW/2).attr('y', tokenH/2 + 4)
+                .attr('text-anchor', 'middle')
+                .style('fill', d => d.accepted ? '#00ff88' : d.rejected ? '#ff3344' : '#6a6a7e')
+                .style('font-size', '10px')
+                .style('font-family', 'JetBrains Mono, monospace')
+                .text(d => d.accepted ? 'ACCEPT' : d.rejected ? 'REJECT' : '---');
+
+            verifyRects.transition().duration(300).delay((d,i) => i * 120).style('opacity', 1);
+
+            // Draw arrows
+            tokens.forEach((t, i) => {
+                if (t.accepted || t.rejected) {
+                    tokenGroup.append('line')
+                        .attr('x1', startX + i * (tokenW + gap) + tokenW/2)
+                        .attr('y1', draftY + tokenH)
+                        .attr('x2', startX + i * (tokenW + gap) + tokenW/2)
+                        .attr('y2', verifyY)
+                        .attr('stroke', t.accepted ? '#00ff88' : '#ff3344')
+                        .attr('stroke-width', 1)
+                        .attr('stroke-dasharray', '3,3')
+                        .style('opacity', 0)
+                        .transition().duration(200).delay(i * 120).style('opacity', 0.6);
+                }
+            });
+
+            // Bonus token (resampled from residual)
+            const bonusIdx = accepted;
+            if (bonusIdx < K || accepted === K) {
+                const bx = startX + (accepted === K ? K : bonusIdx) * (tokenW + gap);
+                setTimeout(() => {
+                    const bonusG = tokenGroup.append('g')
+                        .attr('transform', `translate(${bx}, ${verifyY})`)
+                        .style('opacity', 0);
+                    bonusG.append('rect')
+                        .attr('width', tokenW).attr('height', tokenH).attr('rx', 4)
+                        .attr('fill', '#001a2a').attr('stroke', '#00ddff').attr('stroke-width', 1.5);
+                    bonusG.append('text')
+                        .attr('x', tokenW/2).attr('y', tokenH/2 + 4)
+                        .attr('text-anchor', 'middle')
+                        .style('fill', '#00ddff').style('font-size', '9px')
+                        .style('font-family', 'JetBrains Mono, monospace')
+                        .text('BONUS');
+                    bonusG.transition().duration(400).style('opacity', 1);
+                }, K * 120 + 200);
+            }
+
+            totalAccepted += accepted + 1; // +1 for bonus
+            const readout = document.getElementById('dance-readout');
+            readout.innerHTML = `Round result: <span class="num">${accepted}</span> accepted + <span class="num-cyan">1</span> bonus = <span class="num">${accepted + 1}</span> tokens from one verification pass. Running average: <span class="num">${(totalAccepted / totalRounds).toFixed(2)}</span> tokens/round over ${totalRounds} rounds.`;
+        }, 400);
+    }
+
+    document.getElementById('dance-run').addEventListener('click', runRound);
+    document.getElementById('dance-alpha').addEventListener('input', function() {
+        document.getElementById('dance-alpha-val').textContent = (+this.value).toFixed(2);
+    });
+    document.getElementById('dance-k').addEventListener('input', function() {
+        document.getElementById('dance-k-val').textContent = this.value;
+    });
+})();
+
+// ---- VIZ 3: Chain vs Tree Survival ----
+(function() {
+    const W = 370, H = 280;
+
+    // Chain panel
+    const svgChain = d3.select('#tree-viz').append('div').style('flex','1')
+        .append('svg').attr('viewBox', `0 0 ${W} ${H}`).attr('width', '100%');
+    svgChain.append('text').attr('x', W/2).attr('y', 18).attr('text-anchor','middle')
+        .style('fill','#ff8800').style('font-size','11px')
+        .style('font-family','JetBrains Mono, monospace').text('CHAIN (1 PATH)');
+
+    // Tree panel
+    const svgTree = d3.select('#tree-viz').append('div').style('flex','1')
+        .append('svg').attr('viewBox', `0 0 ${W} ${H}`).attr('width', '100%');
+    svgTree.append('text').attr('x', W/2).attr('y', 18).attr('text-anchor','middle')
+        .style('fill','#00ff88').style('font-size','11px')
+        .style('font-family','JetBrains Mono, monospace').text('BINARY TREE (MULTIPLE PATHS)');
+
+    let chainGroup = svgChain.append('g').attr('transform','translate(0,30)');
+    let treeGroup = svgTree.append('g').attr('transform','translate(0,30)');
+
+    const readout = document.getElementById('tree-readout');
+
+    function simulate() {
+        const alpha = +document.getElementById('tree-alpha').value;
+        const depth = 5;
+        const rounds = 100;
+
+        chainGroup.selectAll('*').remove();
+        treeGroup.selectAll('*').remove();
+
+        let chainTotal = 0, treeTotal = 0;
+
+        // Run simulations
+        for (let r = 0; r < rounds; r++) {
+            // Chain: count accepted until first rejection
+            let chainAccepted = 0;
+            for (let d = 0; d < depth; d++) {
+                if (Math.random() < alpha) chainAccepted++;
+                else break;
+            }
+            chainTotal += chainAccepted + 1; // +1 bonus
+
+            // Binary tree: best path depth
+            function treeDFS(d) {
+                if (d >= depth) return depth;
+                if (Math.random() >= alpha) return d;
+                return Math.max(treeDFS(d + 1), treeDFS(d + 1));
+            }
+            const treeDepth = treeDFS(0);
+            treeTotal += treeDepth + 1;
+        }
+
+        const chainAvg = chainTotal / rounds;
+        const treeAvg = treeTotal / rounds;
+
+        // Draw summary bars
+        const barMaxW = W - 80, barH = 30, barY = 80;
+        const maxVal = Math.max(chainAvg, treeAvg, depth + 1);
+
+        // Chain bars
+        chainGroup.append('rect').attr('x',40).attr('y',barY)
+            .attr('width', 0).attr('height', barH).attr('rx', 4)
+            .attr('fill','#ff8800').attr('opacity',0.6)
+            .transition().duration(800)
+            .attr('width', (chainAvg / maxVal) * barMaxW);
+        chainGroup.append('text').attr('x', 40 + (chainAvg / maxVal) * barMaxW + 8)
+            .attr('y', barY + barH/2 + 5)
+            .style('fill','#ff8800').style('font-size','13px')
+            .style('font-family','JetBrains Mono, monospace')
+            .text(`${chainAvg.toFixed(1)} avg tokens`);
+        chainGroup.append('text').attr('x', W/2).attr('y', barY - 10).attr('text-anchor','middle')
+            .style('fill','#6a6a7e').style('font-size','10px')
+            .style('font-family','JetBrains Mono, monospace')
+            .text(`${rounds} rounds, depth=${depth}, alpha=${alpha.toFixed(2)}`);
+
+        // Chain visual (5 nodes)
+        const nodeR = 12, nodeGap = 50;
+        for (let i = 0; i < depth; i++) {
+            const cx = 60 + i * nodeGap, cy = 180;
+            chainGroup.append('circle').attr('cx',cx).attr('cy',cy).attr('r',nodeR)
+                .attr('fill','#1a1a2e').attr('stroke','#ff8800').attr('stroke-width',1.5);
+            if (i < depth - 1) {
+                chainGroup.append('line')
+                    .attr('x1',cx+nodeR).attr('y1',cy)
+                    .attr('x2',cx+nodeGap-nodeR).attr('y2',cy)
+                    .attr('stroke','#ff8800').attr('stroke-width',1).attr('stroke-dasharray','3,3');
+            }
+        }
+        chainGroup.append('text').attr('x',60 + 2*nodeGap).attr('y',215).attr('text-anchor','middle')
+            .style('fill','#6a6a7e').style('font-size','9px')
+            .style('font-family','JetBrains Mono, monospace')
+            .text('One rejection kills the chain');
+
+        // Tree bars
+        treeGroup.append('rect').attr('x',40).attr('y',barY)
+            .attr('width', 0).attr('height', barH).attr('rx', 4)
+            .attr('fill','#00ff88').attr('opacity',0.6)
+            .transition().duration(800)
+            .attr('width', (treeAvg / maxVal) * barMaxW);
+        treeGroup.append('text').attr('x', 40 + (treeAvg / maxVal) * barMaxW + 8)
+            .attr('y', barY + barH/2 + 5)
+            .style('fill','#00ff88').style('font-size','13px')
+            .style('font-family','JetBrains Mono, monospace')
+            .text(`${treeAvg.toFixed(1)} avg tokens`);
+        treeGroup.append('text').attr('x', W/2).attr('y', barY - 10).attr('text-anchor','middle')
+            .style('fill','#6a6a7e').style('font-size','10px')
+            .style('font-family','JetBrains Mono, monospace')
+            .text(`${rounds} rounds, depth=${depth}, alpha=${alpha.toFixed(2)}`);
+
+        // Tree visual (binary tree, 3 levels)
+        const levels = [[{x:W/2}],[{x:W/2-60},{x:W/2+60}],[{x:W/2-90},{x:W/2-30},{x:W/2+30},{x:W/2+90}]];
+        levels.forEach((level, li) => {
+            level.forEach((node, ni) => {
+                const cy = 160 + li * 35;
+                treeGroup.append('circle').attr('cx',node.x).attr('cy',cy).attr('r',nodeR)
+                    .attr('fill','#1a1a2e').attr('stroke','#00ff88').attr('stroke-width',1.5);
+                if (li > 0) {
+                    const parentIdx = Math.floor(ni / 2);
+                    const px = levels[li-1][parentIdx].x;
+                    const py = 160 + (li-1) * 35;
+                    treeGroup.append('line')
+                        .attr('x1',px).attr('y1',py+nodeR)
+                        .attr('x2',node.x).attr('y2',cy-nodeR)
+                        .attr('stroke','#00ff88').attr('stroke-width',1).attr('stroke-dasharray','3,3');
+                }
+            });
+        });
+        treeGroup.append('text').attr('x',W/2).attr('y',265).attr('text-anchor','middle')
+            .style('fill','#6a6a7e').style('font-size','9px')
+            .style('font-family','JetBrains Mono, monospace')
+            .text('At least one path usually survives');
+
+        readout.innerHTML = `Over ${rounds} rounds: chain averages <span class="num-red">${chainAvg.toFixed(1)}</span> tokens, tree averages <span class="num">${treeAvg.toFixed(1)}</span> tokens. Tree advantage: <span class="num">${(treeAvg/chainAvg).toFixed(2)}x</span> more tokens per round.`;
+    }
+
+    document.getElementById('tree-run').addEventListener('click', simulate);
+    document.getElementById('tree-alpha').addEventListener('input', function() {
+        document.getElementById('tree-alpha-val').textContent = (+this.value).toFixed(2);
+    });
+
+    // Run once on load
+    simulate();
+})();
+
+// ---- VIZ 4: Acceptance Rate Cliff ----
+(function() {
+    const W = 760, H = 340, margin = {top: 30, right: 30, bottom: 50, left: 60};
+    const iW = W - margin.left - margin.right, iH = H - margin.top - margin.bottom;
+
+    const svg = d3.select('#acceptance-viz').append('svg')
+        .attr('viewBox', `0 0 ${W} ${H}`)
+        .attr('width', '100%');
+
+    const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+    const x = d3.scaleLinear().domain([1, 15]).range([0, iW]);
+    const y = d3.scaleLinear().domain([0, 12]).range([iH, 0]);
+
+    g.append('g').attr('transform', `translate(0,${iH})`).call(d3.axisBottom(x).ticks(15))
+        .selectAll('text').style('fill', '#6a6a7e').style('font-size', '10px');
+    g.append('g').call(d3.axisLeft(y).ticks(6))
+        .selectAll('text').style('fill', '#6a6a7e').style('font-size', '10px');
+    g.selectAll('.domain, .tick line').attr('stroke', '#2a2a4a');
+
+    g.append('text').attr('x', iW/2).attr('y', iH + 40)
+        .attr('text-anchor', 'middle')
+        .style('fill', '#6a6a7e').style('font-size', '11px')
+        .style('font-family', 'JetBrains Mono, monospace')
+        .text('DRAFT LENGTH (K)');
+
+    g.append('text').attr('transform', 'rotate(-90)')
+        .attr('x', -iH/2).attr('y', -45)
+        .attr('text-anchor', 'middle')
+        .style('fill', '#6a6a7e').style('font-size', '11px')
+        .style('font-family', 'JetBrains Mono, monospace')
+        .text('E[TOKENS / ROUND]');
+
+    const line = d3.line().x(d => x(d.k)).y(d => y(d.v)).curve(d3.curveMonotoneX);
+
+    const ePath = g.append('path')
+        .attr('fill', 'none').attr('stroke', '#00ff88').attr('stroke-width', 2.5);
+
+    const ceilingLine = g.append('line')
+        .attr('x1', 0).attr('x2', iW)
+        .attr('stroke', '#ff00aa').attr('stroke-width', 1.5)
+        .attr('stroke-dasharray', '6,4');
+
+    const ceilingLabel = g.append('text')
+        .attr('x', iW - 5).attr('text-anchor', 'end')
+        .style('fill', '#ff00aa').style('font-size', '11px')
+        .style('font-family', 'JetBrains Mono, monospace');
+
+    const pAllPath = g.append('path')
+        .attr('fill', 'none').attr('stroke', '#ff8800').attr('stroke-width', 1.5)
+        .attr('stroke-dasharray', '4,3');
+
+    const leg = g.append('g').attr('transform', `translate(10, 5)`);
+    [{c:'#00ff88',t:'E[tokens/round]'},{c:'#ff00aa',t:'Ceiling: 1/(1-a)'},{c:'#ff8800',t:'P(all K accepted) x 10'}]
+        .forEach((d,i) => {
+            leg.append('line').attr('x1',0).attr('x2',16).attr('y1',i*16).attr('y2',i*16)
+                .attr('stroke',d.c).attr('stroke-width',2)
+                .attr('stroke-dasharray', i > 0 ? '4,3' : 'none');
+            leg.append('text').attr('x',22).attr('y',i*16+4)
+                .style('fill','#6a6a7e').style('font-size','10px')
+                .style('font-family','JetBrains Mono, monospace').text(d.t);
+        });
+
+    function update(alpha) {
+        const data = [];
+        const pAllData = [];
+        for (let k = 1; k <= 15; k++) {
+            const e = (1 - Math.pow(alpha, k + 1)) / (1 - alpha);
+            data.push({ k, v: e });
+            pAllData.push({ k, v: Math.pow(alpha, k) * 10 });
+        }
+        const ceiling = 1 / (1 - alpha);
+        y.domain([0, Math.max(ceiling * 1.1, 5)]);
+        g.select('g:nth-child(2)').call(d3.axisLeft(y).ticks(6))
+            .selectAll('text').style('fill', '#6a6a7e').style('font-size', '10px');
+        g.selectAll('.domain, .tick line').attr('stroke', '#2a2a4a');
+
+        ePath.transition().duration(300).attr('d', line(data));
+        pAllPath.transition().duration(300).attr('d', line(pAllData));
+        ceilingLine.transition().duration(300)
+            .attr('y1', y(ceiling)).attr('y2', y(ceiling));
+        ceilingLabel.transition().duration(300)
+            .attr('y', y(ceiling) - 6)
+            .text(`1/(1-${alpha.toFixed(2)}) = ${ceiling.toFixed(1)}`);
+    }
+
+    update(0.9);
+
+    d3.select('#alpha-slider').on('input', function() {
+        const v = +this.value;
+        d3.select('#alpha-val').text(v.toFixed(2));
+        update(v);
+    });
+})();
+
+// ---- VIZ 5: Co-Evolution Timeline ----
+(function() {
+    const W = 760, H = 400;
+    const svg = d3.select('#coevo-viz').append('svg')
+        .attr('viewBox', `0 0 ${W} ${H}`)
+        .attr('width', '100%');
+
+    // Timeline axis
+    const dates = [
+        { x: 60, label: 'SEP 2023', sublabel: 'Medusa', color: '#ff00aa', y: 100, desc: 'Self-drafting\nvia FFN heads' },
+        { x: 200, label: 'JAN 2024', sublabel: 'EAGLE-1', color: '#00ff88', y: 60, desc: 'Feature-level\nautoregression' },
+        { x: 340, label: 'JUN 2024', sublabel: 'EAGLE-2', color: '#00ff88', y: 60, desc: 'Dynamic trees\nfrom confidence' },
+        { x: 480, label: 'DEC 2024', sublabel: 'DeepSeek-V3', color: '#00ddff', y: 180, desc: 'Sequential MTP\nin pre-training' },
+        { x: 620, label: 'MAR 2025', sublabel: 'EAGLE-3', color: '#00ff88', y: 60, desc: 'Multi-layer fusion\nscaling law' }
+    ];
+
+    // Horizontal timeline line
+    svg.append('line')
+        .attr('x1', 40).attr('y1', 140)
+        .attr('x2', 720).attr('y2', 140)
+        .attr('stroke', '#2a2a4a').attr('stroke-width', 1);
+
+    // Date markers and labels
+    dates.forEach(d => {
+        const g = svg.append('g');
+
+        // Vertical connector to timeline
+        g.append('line')
+            .attr('x1', d.x).attr('y1', d.y + 20)
+            .attr('x2', d.x).attr('y2', 140)
+            .attr('stroke', d.color).attr('stroke-width', 1)
+            .attr('stroke-dasharray', '3,3').attr('opacity', 0.5);
+
+        // Dot on timeline
+        g.append('circle')
+            .attr('cx', d.x).attr('cy', 140).attr('r', 5)
+            .attr('fill', d.color).attr('opacity', 0.8);
+
+        // Date label
+        g.append('text')
+            .attr('x', d.x).attr('y', 158)
+            .attr('text-anchor', 'middle')
+            .style('fill', '#6a6a7e').style('font-size', '9px')
+            .style('font-family', 'JetBrains Mono, monospace')
+            .text(d.label);
+
+        // Paper name
+        g.append('text')
+            .attr('x', d.x).attr('y', d.y)
+            .attr('text-anchor', 'middle')
+            .style('fill', d.color).style('font-size', '12px')
+            .style('font-family', 'JetBrains Mono, monospace')
+            .style('font-weight', '600')
+            .text(d.sublabel);
+
+        // Description
+        const descLines = d.desc.split('\n');
+        descLines.forEach((line, i) => {
+            g.append('text')
+                .attr('x', d.x).attr('y', d.y + 14 + i * 13)
+                .attr('text-anchor', 'middle')
+                .style('fill', '#6a6a7e').style('font-size', '9px')
+                .style('font-family', 'JetBrains Mono, monospace')
+                .text(line);
+        });
+    });
+
+    // Influence arrows
+    function drawInfluenceArrow(x1, y1, x2, y2, color, label, curveDir) {
+        const midX = (x1 + x2) / 2;
+        const midY = curveDir === 'down' ? Math.max(y1, y2) + 60 : Math.min(y1, y2) - 40;
+        const path = `M${x1},${y1} Q${midX},${midY} ${x2},${y2}`;
+
+        svg.append('path')
+            .attr('d', path)
+            .attr('fill', 'none')
+            .attr('stroke', color)
+            .attr('stroke-width', 2)
+            .attr('stroke-dasharray', '6,4')
+            .attr('opacity', 0.7)
+            .attr('marker-end', `url(#arrow-${color.replace('#','')})`);
+
+        svg.append('text')
+            .attr('x', midX).attr('y', midY + (curveDir === 'down' ? 14 : -6))
+            .attr('text-anchor', 'middle')
+            .style('fill', color).style('font-size', '9px')
+            .style('font-family', 'JetBrains Mono, monospace')
+            .style('font-style', 'italic')
+            .text(label);
+    }
+
+    // Arrow markers
+    ['ff8800', '00ddff', '00ff88', 'ff00aa'].forEach(c => {
+        svg.append('defs').append('marker')
+            .attr('id', `arrow-${c}`)
+            .attr('viewBox', '0 0 10 10')
+            .attr('refX', 9).attr('refY', 5)
+            .attr('markerWidth', 6).attr('markerHeight', 6)
+            .attr('orient', 'auto')
+            .append('path')
+            .attr('d', 'M 0 0 L 10 5 L 0 10 z')
+            .attr('fill', `#${c}`);
+    });
+
+    // EAGLE-1 -> DeepSeek-V3 (causal chain insight)
+    drawInfluenceArrow(220, 85, 460, 180, '#ff8800', '"causal chain" insight', 'down');
+
+    // DeepSeek-V3 -> EAGLE-3 (drop feature loss, fuse layers)
+    drawInfluenceArrow(500, 180, 600, 85, '#00ddff', 'direct tokens, multi-layer fusion', 'down');
+
+    // Medusa -> EAGLE ecosystem (self-drafting paradigm)
+    drawInfluenceArrow(80, 110, 180, 70, '#ff00aa', 'self-drafting', 'up');
+
+    // Track labels
+    svg.append('text').attr('x', 720).attr('y', 55)
+        .style('fill', '#00ff88').style('font-size', '9px')
+        .style('font-family', 'JetBrains Mono, monospace')
+        .style('opacity', 0.6).text('INFERENCE');
+    svg.append('text').attr('x', 720).attr('y', 195)
+        .style('fill', '#00ddff').style('font-size', '9px')
+        .style('font-family', 'JetBrains Mono, monospace')
+        .style('opacity', 0.6).text('TRAINING');
+})();
+
+// ---- VIZ 6: Architecture Comparison ----
+(function() {
+    const W = 760, H = 420;
+    const svg = d3.select('#arch-viz').append('svg')
+        .attr('viewBox', `0 0 ${W} ${H}`)
+        .attr('width', '100%');
+
+    const cols = [
+        { x: 60, label: 'CLASSIC\nSPEC DECODE', color: '#ff8800',
+          blocks: [
+              { y: 320, h: 80, text: 'Target Model\n(70B)', fill: '#1a2a3a', stroke: '#4488ff' },
+              { y: 200, h: 50, text: 'Draft Model\n(7B)', fill: '#2a1a1a', stroke: '#ff8800' }
+          ]
+        },
+        { x: 265, label: 'MEDUSA', color: '#ff00aa',
+          blocks: [
+              { y: 320, h: 80, text: 'Target Model', fill: '#1a2a3a', stroke: '#4488ff' },
+              { y: 220, h: 35, text: 'FFN Head 1', fill: '#2a1a2a', stroke: '#ff00aa' },
+              { y: 175, h: 35, text: 'FFN Head 2', fill: '#2a1a2a', stroke: '#ff00aa' },
+              { y: 130, h: 35, text: 'FFN Head K', fill: '#2a1a2a', stroke: '#ff00aa' }
+          ]
+        },
+        { x: 470, label: 'EAGLE-1', color: '#00ff88',
+          blocks: [
+              { y: 320, h: 80, text: 'Target Model', fill: '#1a2a3a', stroke: '#4488ff' },
+              { y: 200, h: 55, text: 'Feature Decoder\n(1 TF Layer)', fill: '#1a2a1a', stroke: '#00ff88' }
+          ]
+        },
+        { x: 630, label: 'EAGLE-3', color: '#00ddff',
+          blocks: [
+              { y: 320, h: 80, text: 'Target Model', fill: '#1a2a3a', stroke: '#4488ff' },
+              { y: 200, h: 55, text: 'Multi-Layer\nFusion Decoder', fill: '#1a2a2a', stroke: '#00ddff' }
+          ]
+        }
+    ];
+
+    cols.forEach(col => {
+        const g = svg.append('g');
+        const lines = col.label.split('\n');
+        lines.forEach((ln, i) => {
+            g.append('text')
+                .attr('x', col.x + 55)
+                .attr('y', 30 + i * 16)
+                .attr('text-anchor', 'middle')
+                .style('fill', col.color)
+                .style('font-family', 'JetBrains Mono, monospace')
+                .style('font-size', '10px')
+                .style('letter-spacing', '0.05em')
+                .text(ln);
+        });
+
+        col.blocks.forEach(b => {
+            g.append('rect')
+                .attr('x', col.x).attr('y', b.y)
+                .attr('width', 110).attr('height', b.h)
+                .attr('rx', 6)
+                .attr('fill', b.fill)
+                .attr('stroke', b.stroke)
+                .attr('stroke-width', 1.5);
+            const tLines = b.text.split('\n');
+            tLines.forEach((t, i) => {
+                g.append('text')
+                    .attr('x', col.x + 55)
+                    .attr('y', b.y + b.h / 2 + (i - (tLines.length-1)/2) * 14 + 4)
+                    .attr('text-anchor', 'middle')
+                    .style('fill', '#c8c8d4')
+                    .style('font-family', 'JetBrains Mono, monospace')
+                    .style('font-size', '9px')
+                    .text(t);
+            });
+        });
+
+        // Medusa: connect heads to model
+        if (col.label.includes('MEDUSA')) {
+            [220, 175, 130].forEach(fromY => {
+                g.append('line')
+                    .attr('x1', col.x + 55).attr('y1', fromY + 35)
+                    .attr('x2', col.x + 55).attr('y2', 320)
+                    .attr('stroke', '#ff00aa').attr('stroke-width', 1)
+                    .attr('stroke-dasharray', '3,3').attr('opacity', 0.5);
+            });
+        }
+        // EAGLE-1: features arrow from model to decoder
+        if (col.label.includes('EAGLE-1')) {
+            g.append('line')
+                .attr('x1', col.x + 55).attr('y1', 320)
+                .attr('x2', col.x + 55).attr('y2', 255)
+                .attr('stroke', '#00ff88').attr('stroke-width', 1)
+                .attr('stroke-dasharray', '3,3').attr('opacity', 0.5);
+            g.append('text')
+                .attr('x', col.x + 70).attr('y', 290)
+                .style('fill', '#00ff88').style('font-size', '8px')
+                .style('font-family', 'JetBrains Mono, monospace')
+                .style('opacity', 0.6).text('features');
+        }
+        // EAGLE-3: multi-layer arrows
+        if (col.label.includes('EAGLE-3')) {
+            [{ y: 340, label: 'low' }, { y: 355, label: 'mid' }, { y: 370, label: 'high' }].forEach((a, i) => {
+                g.append('line')
+                    .attr('x1', col.x + 30 + i * 20).attr('y1', a.y)
+                    .attr('x2', col.x + 30 + i * 20).attr('y2', 255)
+                    .attr('stroke', '#00ddff').attr('stroke-width', 1)
+                    .attr('stroke-dasharray', '3,3').attr('opacity', 0.4);
+            });
+        }
+        // Classic: arrow from draft to target
+        if (col.label.includes('CLASSIC')) {
+            g.append('line')
+                .attr('x1', col.x + 55).attr('y1', 250)
+                .attr('x2', col.x + 55).attr('y2', 320)
+                .attr('stroke', '#ff8800').attr('stroke-width', 1.5)
+                .attr('stroke-dasharray', '4,3');
+            g.append('text')
+                .attr('x', col.x + 70).attr('y', 290)
+                .style('fill', '#ff8800').style('font-size', '8px')
+                .style('font-family', 'JetBrains Mono, monospace')
+                .style('opacity', 0.6).text('verify');
+        }
+    });
+
+    // Speedup annotations
+    const speedups = [
+        { x: 115, text: '2-3x', color: '#ff8800' },
+        { x: 320, text: '2.2-3.6x', color: '#ff00aa' },
+        { x: 525, text: '2.7-3.8x', color: '#00ff88' },
+        { x: 685, text: '3.3-6.5x', color: '#00ddff' }
+    ];
+    speedups.forEach(s => {
+        svg.append('text')
+            .attr('x', s.x).attr('y', H - 8)
+            .attr('text-anchor', 'middle')
+            .style('fill', s.color)
+            .style('font-family', 'JetBrains Mono, monospace')
+            .style('font-size', '11px')
+            .style('font-weight', '600')
+            .text(s.text);
+    });
+})();
+
+// ---- Scroll Spy ----
+(function() {
+    const sections = document.querySelectorAll('section[id]');
+    const navLinks = document.querySelectorAll('nav a');
+
+    function onScroll() {
+        let current = '';
+        sections.forEach(s => {
+            if (window.scrollY >= s.offsetTop - 120) current = s.id;
+        });
+        navLinks.forEach(a => {
+            a.classList.toggle('active', a.getAttribute('href') === '#' + current);
+        });
+    }
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+})();
+</script>
+
+</body>
+</html>

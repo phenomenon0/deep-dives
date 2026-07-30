@@ -1,0 +1,1634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Control Deck, Decoded &mdash; Hardware, Onboarding, and a Voice That Restarts Itself</title>
+  <meta name="description" content="Hardware detection, first-boot installer, and a voice supervisor that refuses to stay dead. A deep dive into the orchestration layer of a desktop AI app that has to figure out what machine you&#x27;re on before it can talk to you.">
+  <link rel="canonical" href="https://femiadeniran.com/deep-dives/control-deck-deep-dive.html">
+  <meta property="og:title" content="Control Deck, Decoded — Hardware, Onboarding, and a Voice That Restarts Itself">
+  <meta property="og:description" content="Hardware detection, first-boot installer, and a voice supervisor that refuses to stay dead. A deep dive into the orchestration layer of a desktop AI app that has to figure out what machine you&#x27;re on before it can talk to you.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://femiadeniran.com/deep-dives/control-deck-deep-dive.html">
+  <meta property="og:site_name" content="Femi Adeniran">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Control Deck, Decoded — Hardware, Onboarding, and a Voice That Restarts Itself">
+  <meta name="twitter:description" content="Hardware detection, first-boot installer, and a voice supervisor that refuses to stay dead. A deep dive into the orchestration layer of a desktop AI app that has to figure out what machine you&#x27;re on before it can talk to you.">
+  <meta name="author" content="Femi Adeniran">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+    --white: #e8e8f0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+    pointer-events: none;
+    z-index: 1000;
+  }
+
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 2rem;
+    display: flex;
+    gap: 1.1rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  nav a { color: var(--text-dim); text-decoration: none; white-space: nowrap; transition: color 0.2s, text-shadow 0.2s; padding: 0.3rem 0; }
+  nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+  nav .nav-title { color: var(--green); font-weight: 600; margin-right: 1rem; text-shadow: 0 0 10px rgba(0,255,136,0.3); }
+
+  .content { max-width: 820px; margin: 0 auto; padding: 5rem 2rem 6rem; }
+
+  .hero { text-align: center; padding: 4rem 0 5rem; border-bottom: 1px solid var(--border); margin-bottom: 4rem; }
+  .hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3rem;
+    font-weight: 600;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+  }
+  .hero .subtitle { font-size: 1.1rem; color: var(--text-dim); font-style: italic; max-width: 660px; margin: 0 auto; }
+  .hero .blink { display: inline-block; animation: blink 1s step-end infinite; color: var(--green); }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .glitch { position: relative; display: inline-block; }
+  .glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+  .glitch::before { color: var(--cyan); animation: glitch-1 2s infinite linear alternate-reverse; clip-path: inset(0 0 65% 0); }
+  .glitch::after { color: var(--magenta); animation: glitch-2 3s infinite linear alternate-reverse; clip-path: inset(65% 0 0 0); }
+  @keyframes glitch-1 { 0%, 95% { transform: translateX(0); } 96% { transform: translateX(-2px); } 97% { transform: translateX(2px); } 98% { transform: translateX(-1px); } 100% { transform: translateX(0); } }
+  @keyframes glitch-2 { 0%, 93% { transform: translateX(0); } 94% { transform: translateX(2px); } 96% { transform: translateX(-2px); } 98% { transform: translateX(1px); } 100% { transform: translateX(0); } }
+
+  section { margin-bottom: 5rem; padding-top: 1rem; scroll-margin-top: 4.5rem; }
+  h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: var(--green);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+  }
+  h3 { font-size: 1.2rem; color: var(--cyan); margin: 2.2rem 0 0.9rem; font-weight: 600; }
+  h4 { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: var(--magenta); text-transform: uppercase; letter-spacing: 0.08em; margin: 2rem 0 0.8rem; }
+
+  p { margin-bottom: 1rem; }
+  ul, ol { margin: 1rem 0 1rem 1.2rem; }
+  li { margin-bottom: 0.55rem; }
+  a { color: var(--blue); }
+
+  .drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4rem;
+    line-height: 0.8;
+    padding: 0.1em 0.15em 0 0;
+    color: var(--green);
+    font-weight: 600;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+  }
+
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    padding: 0.12em 0.4em;
+    border-radius: 3px;
+    color: var(--cyan);
+  }
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem 1.4rem;
+    overflow-x: auto;
+    margin: 1.2rem 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.55;
+    position: relative;
+  }
+  pre code { background: none; border: none; padding: 0; font-size: inherit; color: var(--text); }
+  .cm { color: var(--text-dim); font-style: italic; }
+  .kw { color: var(--magenta); }
+  .ty { color: var(--cyan); }
+  .st { color: var(--green); }
+  .nm { color: var(--yellow); }
+  .fn { color: var(--blue); }
+  .pp { color: var(--purple); }
+  .label {
+    position: absolute;
+    top: 0.3rem; right: 0.7rem;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    opacity: 0.6;
+  }
+
+  .diagram { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; margin: 1.5rem 0; overflow-x: auto; }
+  .diagram pre { background: none; border: none; padding: 0; margin: 0; font-size: 13px; line-height: 1.45; color: var(--text); }
+  .diagram pre code { color: var(--text); }
+  .diagram-label { font-family: 'JetBrains Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--green-dim); margin-bottom: 0.8rem; display: block; }
+
+  .insight { background: var(--bg-card); border-left: 3px solid var(--green); padding: 1.2rem 1.4rem; margin: 1.5rem 0; border-radius: 0 6px 6px 0; }
+  .insight-label { font-family: 'JetBrains Mono', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--green); margin-bottom: 0.3rem; }
+  .insight p { margin-bottom: 0; font-size: 0.96rem; }
+  .insight.danger { border-left-color: var(--red); }
+  .insight.danger .insight-label { color: var(--red); }
+  .insight.cool { border-left-color: var(--cyan); }
+  .insight.cool .insight-label { color: var(--cyan); }
+  .insight.wild { border-left-color: var(--orange); }
+  .insight.wild .insight-label { color: var(--orange); }
+  .insight.purple { border-left-color: var(--purple); }
+  .insight.purple .insight-label { color: var(--purple); }
+
+  table { width: 100%; border-collapse: collapse; margin: 1.2rem 0; font-size: 0.88rem; }
+  th { font-family: 'JetBrains Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--green); text-align: left; padding: 0.5rem 0.7rem; border-bottom: 2px solid var(--border); }
+  td { padding: 0.45rem 0.7rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:hover { background: rgba(0,255,136,0.02); }
+  td code { font-size: 0.78em; }
+
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1.5rem 0; }
+  .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 1.1rem; }
+  .card h4 { margin-top: 0; }
+
+  .act-break { text-align: center; padding: 3rem 0 2rem; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); margin: 5rem 0 4rem; }
+  .act-number { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.15em; color: var(--text-dim); text-transform: uppercase; }
+  .act-title { font-family: 'JetBrains Mono', monospace; font-size: 1.8rem; color: var(--green); margin: 0.6rem 0; text-shadow: 0 0 15px rgba(0,255,136,0.2); }
+  .act-subtitle { font-style: italic; color: var(--text-dim); font-size: 1rem; }
+
+  .pipeline-bar { display: flex; flex-wrap: wrap; gap: 0.4rem; font-family: 'JetBrains Mono', monospace; font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; margin: 1rem 0 1.5rem; padding: 0.6rem 0.9rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px; color: var(--text-dim); }
+  .pipeline-bar span { color: var(--text-dim); }
+  .pipeline-bar span.active { color: var(--green); text-shadow: 0 0 6px rgba(0,255,136,0.4); }
+  .pipeline-bar .arrow { color: var(--text-dim); opacity: 0.5; }
+
+  details { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 0.8rem 1rem; margin: 1rem 0; }
+  summary { cursor: pointer; font-family: 'JetBrains Mono', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--cyan); }
+  details[open] summary { margin-bottom: 0.8rem; }
+
+  .svg-wrap { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; margin: 1.5rem 0; }
+  .svg-wrap svg { width: 100%; height: auto; display: block; }
+
+  @media (max-width: 700px) {
+    .two-col { grid-template-columns: 1fr; }
+    .hero h1 { font-size: 2rem; }
+    .content { padding: 4rem 1rem 4rem; }
+    nav { font-size: 10px; gap: 0.7rem; padding: 0.4rem 1rem; }
+  }
+</style>
+</head>
+<body>
+<nav>
+  <span class="nav-title">&gt;_ CONTROL DECK</span>
+  <a href="#ch1">problem</a>
+  <a href="#ch2">detect</a>
+  <a href="#ch3">tiers</a>
+  <a href="#ch4">gate</a>
+  <a href="#ch5">probe</a>
+  <a href="#ch6">recipe</a>
+  <a href="#ch7">install</a>
+  <a href="#ch8">pull</a>
+  <a href="#ch9">supervisor</a>
+  <a href="#ch10">arbiter</a>
+  <a href="#ch11">boot-2</a>
+  <a href="#ch12">breaks</a>
+</nav>
+
+<div class="content">
+  <div class="hero">
+    <h1><span class="glitch" data-text="CONTROL DECK">CONTROL DECK</span></h1>
+    <p class="subtitle">Hardware detection, first-boot installer, and a voice supervisor that refuses to stay dead. A deep dive into the orchestration layer of a desktop AI app that has to figure out what machine you're on before it can talk to you.<span class="blink">_</span></p>
+  </div>
+
+  <section id="ch1">
+    <h2>01 -- THE FIRST FIVE MINUTES</h2>
+    <p class="drop-cap">Most apps install in seconds. Control Deck takes <strong>five minutes</strong> on a good day &mdash; not because the code is slow, but because the code is downloading a 5&nbsp;GB neural network the user did not ask for and probably did not know was coming. That moment, from the first window appearing to the moment the model says <code>READY</code>, is the entire game. Get it wrong and the app is a corpse on disk. Get it right and the user never opens a terminal in their life.</p>
+
+    <p>Every chapter in this dive orbits one question: <em>who owns the decisions during that five minutes?</em> Who picks the model. Who runs the installer. Who decides the smoke test failed. Who notices when the voice sidecar dies an hour later. The answer is not one component &mdash; it is a small, opinionated chain of them, each handing off to the next.</p>
+
+    <div class="diagram">
+      <span class="diagram-label">The chain, end to end</span>
+      <pre><code><span class="cm">// First boot, top to bottom:</span>
+<span class="kw">layout.tsx</span>    &rarr; renders &lt;OnboardingGate /&gt; inside the deck shell
+<span class="kw">OnboardingGate</span> &rarr; GET /api/onboarding/state &rarr; redirect if !done
+<span class="kw">OnboardingFlow</span> &rarr; GET /api/onboarding/probe &rarr; render hardware card
+<span class="kw">orchestrator</span>   &rarr; detectSystem() + recommendTier() + 6 probes
+<span class="kw">recipe</span>         &rarr; load platform yaml (linux/macos/windows)
+<span class="kw">orchestrator</span>   &rarr; spawn install &rarr; pull model &rarr; smoke test
+<span class="kw">supervisor</span>     &rarr; (electron, separate process) spawns voice-core
+<span class="kw">arbiter</span>        &rarr; (in-process) reserves VRAM for every model load
+</code></pre>
+    </div>
+
+    <p>Eight components. Three processes (the Next.js server, the Electron main, the Python voice-core sidecar). Two ports (3333 for the deck, 4245 for voice-core, 11434 for Ollama &mdash; three actually). One config file (<code>inference-bindings.json</code>) that survives reboots. One done flag (<code>onboarding.done</code>) that the gate consults on every load.</p>
+
+    <p>That is the territory. The rest of this article is the map.</p>
+
+    <div class="insight">
+      <div class="insight-label">THE CENTRAL TENSION</div>
+      <p>The user wants to open the app and talk to an AI. The reality is that no part of that stack &mdash; not the LLM, not the speech-to-text, not the speech synth &mdash; ships with the app. Control Deck has to <strong>install everything on first launch</strong>, on three operating systems, without admin rights it cannot demand, while showing live progress and recovering from failure modes the user does not know exist. This is the problem.</p>
+    </div>
+  </section>
+
+  <section id="ch2">
+    <h2>02 -- THE BACKEND DETECTIVE</h2>
+    <div class="pipeline-bar">
+      <span class="active">DETECT</span>
+      <span class="arrow">&rarr;</span>
+      <span>tier</span>
+      <span class="arrow">&rarr;</span>
+      <span>gate</span>
+      <span class="arrow">&rarr;</span>
+      <span>probe</span>
+      <span class="arrow">&rarr;</span>
+      <span>install</span>
+      <span class="arrow">&rarr;</span>
+      <span>pull</span>
+      <span class="arrow">&rarr;</span>
+      <span>supervisor</span>
+      <span class="arrow">&rarr;</span>
+      <span>arbiter</span>
+    </div>
+
+    <p class="drop-cap">Before Control Deck picks a model, it has to figure out where it is. <code>lib/system/detect.ts</code> is the detective &mdash; 352 lines of <code>execSync</code> calls into <code>nvidia-smi</code>, <code>system_profiler</code>, and <code>Get-CimInstance Win32_VideoController</code>, each tuned to one OS and ready to swallow failure silently. The output is a <code>SystemProfile</code>, and every downstream decision feeds off it.</p>
+
+    <p>The shape is small enough to fit on a card:</p>
+
+    <pre><span class="label">lib/system/detect.ts</span><code><span class="kw">export interface</span> <span class="ty">SystemProfile</span> {
+  mode: <span class="ty">DeckMode</span>;            <span class="cm">// "lite" | "power"</span>
+  gpu: <span class="ty">GpuInfo</span> | <span class="kw">null</span>;
+  ram: <span class="ty">number</span>;               <span class="cm">// GB</span>
+  cpuCores: <span class="ty">number</span>;
+  cpuModel: <span class="ty">string</span>;
+  isIntel: <span class="ty">boolean</span>;
+  platform: <span class="ty">NodeJS.Platform</span>;
+  backend: <span class="ty">InferenceBackend</span>;  <span class="cm">// "metal" | "cuda" | "rocm" | "cpu"</span>
+  storage: <span class="ty">StorageInfo</span> | <span class="kw">null</span>; <span class="cm">// freeGb / totalGb on $HOME</span>
+  recommended: { textModel: <span class="ty">string</span>; ... };
+}</code></pre>
+
+    <h3>Three OSes, three shell-outs</h3>
+
+    <p>The detective uses a different witness on every platform. None of them are perfect.</p>
+
+    <table>
+      <thead>
+        <tr><th>Platform</th><th>Tool</th><th>What it returns</th><th>Failure mode</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Linux</td><td><code>nvidia-smi</code></td><td>name, vram (MB)</td><td>missing on non-NVIDIA boxes &rarr; <code>null</code> &rarr; CPU tier</td></tr>
+        <tr><td>macOS</td><td><code>system_profiler SPDisplaysDataType -json</code></td><td>sppci_model, sppci_vram, or unified-memory estimate</td><td>Intel Macs report a discrete Radeon Pro &rarr; <em>used to</em> claim metal</td></tr>
+        <tr><td>Windows</td><td><code>Get-CimInstance Win32_VideoController</code></td><td>Name, AdapterRAM (capped at 4&nbsp;GB by a 32-bit WMI field)</td><td>VRAM ceiling lies on RTX 4090s; we use the name string anyway</td></tr>
+      </tbody>
+    </table>
+
+    <p>The Mac path is the most interesting. Apple Silicon GPUs share memory with the CPU &mdash; there is no separate VRAM field. The detective spots this by the <em>absence</em> of <code>sppci_vram</code> in the JSON, then estimates the inference budget as 60% of system RAM:</p>
+
+    <pre><span class="label">detect.ts &mdash; detectMacGpu</span><code><span class="kw">const</span> mbMatch = /(\d+)\s*MB/i.exec(vramStr);
+<span class="kw">const</span> gbMatch = /(\d+)\s*GB/i.exec(vramStr);
+<span class="kw">if</span> (mbMatch) vram = parseInt(mbMatch[<span class="nm">1</span>], <span class="nm">10</span>);
+<span class="kw">else if</span> (gbMatch) vram = parseInt(gbMatch[<span class="nm">1</span>], <span class="nm">10</span>) * <span class="nm">1024</span>;
+<span class="kw">else</span> {
+  <span class="cm">// Apple Silicon path &mdash; unified memory. ~60% of RAM</span>
+  <span class="cm">// leaves 40% for OS + app + context scratch.</span>
+  vram = Math.round((os.totalmem() / (<span class="nm">1024</span> * <span class="nm">1024</span>)) * <span class="nm">0.6</span>);
+  unifiedMemory = <span class="kw">true</span>;
+}</code></pre>
+
+    <p>That <code>unifiedMemory</code> flag is load-bearing. <code>detectBackend()</code> looks at exactly one thing on darwin: did <code>detectMacGpu()</code> set <code>unifiedMemory: true</code>? If yes, the backend is <code>metal</code>. If no, the backend is <code>cpu</code> &mdash; even when there is a discrete Radeon Pro 5500M sitting in the machine.</p>
+
+    <h3>The Intel-Mac trap</h3>
+
+    <p>This was a real bug. The original code said:</p>
+
+    <pre><span class="label">before</span><code><span class="kw">return</span> gpu?.unifiedMemory ? <span class="st">"metal"</span> : gpu ? <span class="st">"metal"</span> : <span class="st">"cpu"</span>;</code></pre>
+
+    <p>Read that nested ternary again. <em>Any</em> GPU on darwin returned <code>metal</code>, including the AMD discrete card in a 2019 MacBook Pro. The tier picker would then route the user to T1_MAC, which assumes the Apple Neural Engine. The ANE does not exist on Intel Macs. The whisper.cpp+CoreML stack would install a 1.6&nbsp;GB model the user could not accelerate.</p>
+
+    <p>The fix is one character of code and an honest comment:</p>
+
+    <pre><span class="label">after</span><code><span class="kw">return</span> gpu?.unifiedMemory ? <span class="st">"metal"</span> : <span class="st">"cpu"</span>;</code></pre>
+
+    <div class="insight cool">
+      <div class="insight-label">DESIGN RULE</div>
+      <p>The detective's job is not to <em>find</em> a GPU. It is to find a GPU the rest of the stack can <em>use</em>. A Radeon Pro 5500M is real silicon &mdash; but if no engine in the cascade targets it, claiming "metal" is a lie that becomes a 1.6&nbsp;GB download.</p>
+    </div>
+
+    <p>The storage probe is the other quiet one. <code>df -Pk "$HOME"</code> returns POSIX-standard 6 columns on both darwin and linux; <code>-P</code> forces a single line even when the filesystem name is long. Windows gets no storage probe at all (the tier check just sees <code>storage: null</code> and skips the floor check). That is acceptable today, and a TODO tomorrow.</p>
+
+    <p>The detective hands a <code>SystemProfile</code> off to the tier picker. Next chapter: how the picker turns hardware into a model.</p>
+  </section>
+
+  <section id="ch3">
+    <h2>03 -- THREE TIERS, ONE LADDER</h2>
+    <div class="pipeline-bar">
+      <span>detect</span>
+      <span class="arrow">&rarr;</span>
+      <span class="active">TIER</span>
+      <span class="arrow">&rarr;</span>
+      <span>gate</span>
+      <span class="arrow">&rarr;</span>
+      <span>probe</span>
+      <span class="arrow">&rarr;</span>
+      <span>install</span>
+      <span class="arrow">&rarr;</span>
+      <span>pull</span>
+      <span class="arrow">&rarr;</span>
+      <span>supervisor</span>
+      <span class="arrow">&rarr;</span>
+      <span>arbiter</span>
+    </div>
+
+    <p class="drop-cap">The tier file does something the rest of the codebase quietly depends on: it collapses the entire "what model should this person run?" problem into three named bundles. No menu. No dropdown of forty GGUFs. Three cards. Pick one. The user does not see what they did not pick.</p>
+
+    <p>The bundle shape:</p>
+
+    <pre><span class="label">lib/inference/hardware-tiers.ts</span><code><span class="kw">export interface</span> <span class="ty">TierBundle</span> {
+  id: <span class="ty">TierId</span>;          <span class="cm">// "T1_MAC" | "T2_CUDA" | "T3_CPU"</span>
+  label: <span class="ty">string</span>;
+  hardwareMatch: <span class="ty">string</span>; <span class="cm">// "Apple Silicon &middot; &ge;16 GB unified memory"</span>
+  rationale: <span class="ty">string</span>;
+  cascade: { stt; tts; llm };
+  omni?: { engineId; sidecar; modelId; sizeMb };
+  defaultPreset: <span class="st">"quick"</span> | <span class="st">"balanced"</span> | <span class="st">"quality"</span>;
+  fits(input): <span class="ty">number</span>;  <span class="cm">// 0..100 score, highest wins</span>
+}</code></pre>
+
+    <p>Each tier ships a complete <strong>cascade</strong> &mdash; a STT &rarr; LLM &rarr; TTS pipeline chosen to be coherent on that class of hardware. T2_CUDA optionally ships an <strong>omni</strong> lane too (Qwen2.5-Omni 7B running on a separate sidecar) for speech-to-speech at lower latency. T3_CPU has no omni because end-to-end speech models do not run on CPU at conversational latency. The absence is part of the design.</p>
+
+    <table>
+      <thead>
+        <tr><th>Tier</th><th>STT</th><th>LLM</th><th>TTS</th><th>Disk</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>T1_MAC</code></td>
+          <td>Whisper-turbo (CoreML)</td>
+          <td>Qwen3 8B</td>
+          <td>Kokoro 82M</td>
+          <td>~7.1 GB</td>
+        </tr>
+        <tr>
+          <td><code>T2_CUDA</code></td>
+          <td>Parakeet TDT 0.6B</td>
+          <td>Qwen3.5 9B Q4_K_M</td>
+          <td>Kokoro 82M</td>
+          <td>~8.2 GB</td>
+        </tr>
+        <tr>
+          <td><code>T3_CPU</code></td>
+          <td>sherpa Zipformer</td>
+          <td>Llama 3.2 3B</td>
+          <td>Kokoro 82M</td>
+          <td>~2.7 GB</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>Notice Kokoro 82M is on every tier. That is a deliberate floor: even the CPU tier gets a natural-sounding voice. The cost is 330&nbsp;MB and a slightly slower first-chunk time on CPU. The alternative &mdash; gating "good voice" behind a GPU &mdash; would mean every CPU user gets a robot reading their messages. Not happening.</p>
+
+    <h3>How <code>fits()</code> scores</h3>
+
+    <p>Each tier carries its own predicate. <code>recommendTier()</code> runs all three, picks the highest, breaks ties Mac &gt; CUDA &gt; CPU. The predicates are deliberately small:</p>
+
+    <pre><span class="label">hardware-tiers.ts &mdash; T1_MAC.fits</span><code>fits({ backend, ramGb }) {
+  <span class="kw">if</span> (backend === <span class="st">"metal"</span> &amp;&amp; ramGb &gt;= <span class="nm">14</span>) <span class="kw">return</span> <span class="nm">100</span>;
+  <span class="kw">if</span> (backend === <span class="st">"metal"</span>) <span class="kw">return</span> <span class="nm">60</span>;  <span class="cm">// 8 GB Mac &mdash; works but tight</span>
+  <span class="kw">return</span> <span class="nm">0</span>;
+}
+
+<span class="cm">// T2_CUDA.fits scales by VRAM tier:</span>
+fits({ backend, gpu }) {
+  <span class="kw">if</span> (backend !== <span class="st">"cuda"</span> || !gpu) <span class="kw">return</span> <span class="nm">0</span>;
+  <span class="kw">if</span> (gpu.vram &gt;= <span class="nm">12000</span>) <span class="kw">return</span> <span class="nm">100</span>;
+  <span class="kw">if</span> (gpu.vram &gt;= <span class="nm">8000</span>)  <span class="kw">return</span> <span class="nm">70</span>;  <span class="cm">// 8 GB still runs cascade fine</span>
+  <span class="kw">return</span> <span class="nm">30</span>;
+}
+
+<span class="cm">// T3_CPU.fits is the catch-all:</span>
+fits({ backend, gpu, ramGb }) {
+  <span class="kw">if</span> (ramGb &lt; <span class="nm">8</span>) <span class="kw">return</span> <span class="nm">0</span>;
+  <span class="kw">if</span> (backend === <span class="st">"cpu"</span>) <span class="kw">return</span> <span class="nm">100</span>;
+  <span class="kw">if</span> (gpu &amp;&amp; gpu.vram &lt; <span class="nm">4000</span>) <span class="kw">return</span> <span class="nm">80</span>;
+  <span class="kw">return</span> <span class="nm">20</span>;
+}</code></pre>
+
+    <p>The tie-break order matters. A 16&nbsp;GB Apple Silicon machine scores T1_MAC: 100, T3_CPU: 20 &mdash; clear win. A 12&nbsp;GB RTX 4070 scores T2_CUDA: 100. A 16&nbsp;GB Intel-based ThinkPad with no GPU scores T3_CPU: 100. A 32&nbsp;GB Threadripper with a 3&nbsp;GB Quadro K2200 scores T3_CPU: 80 (the GPU is too small to be useful, RAM saves it).</p>
+
+    <div class="insight wild">
+      <div class="insight-label">WHY THIS IS WILD</div>
+      <p>Three numbers. <code>0</code>, <code>60-80</code>, <code>100</code>. That is the entire ranking system. Most "ML model selector" UIs have benchmark tables, latency budgets, quality scores, sliders. Control Deck has a 100. The bet is that hardware is bimodal &mdash; you either have the silicon or you don't &mdash; and the middle ground is small enough to live in tiebreaks.</p>
+    </div>
+
+    <p>One test guards this whole chapter. After the Intel-Mac fix, a unit test pins the expectation that a discrete-GPU Mac scores zero on T1_MAC and falls to T3_CPU. Without it, a future "let's support Metal Performance Shaders on Intel" pull request would silently re-break onboarding.</p>
+
+    <pre><span class="label">hardware-tiers.test.ts</span><code><span class="fn">it</span>(<span class="st">"routes Intel Macs to T3_CPU"</span>, () =&gt; {
+  <span class="kw">const</span> r = <span class="fn">recommendTier</span>({
+    backend: <span class="st">"cpu"</span>,
+    gpu: { name: <span class="st">"AMD Radeon Pro 5500M"</span>, vram: <span class="nm">4096</span>, unifiedMemory: <span class="kw">false</span> },
+    ramGb: <span class="nm">16</span>,
+  });
+  expect(r.best).toBe(<span class="st">"T3_CPU"</span>);
+  expect(r.scores.T1_MAC).toBe(<span class="nm">0</span>);
+});</code></pre>
+
+    <p>The detective decides what the hardware <em>is</em>. The tier picker decides what to <em>do</em> about it. The next component decides whether to bother the user about any of it.</p>
+  </section>
+
+  <section id="ch4">
+    <h2>04 -- THE GATE</h2>
+    <div class="pipeline-bar">
+      <span>detect</span>
+      <span class="arrow">&rarr;</span>
+      <span>tier</span>
+      <span class="arrow">&rarr;</span>
+      <span class="active">GATE</span>
+      <span class="arrow">&rarr;</span>
+      <span>probe</span>
+      <span class="arrow">&rarr;</span>
+      <span>install</span>
+      <span class="arrow">&rarr;</span>
+      <span>pull</span>
+      <span class="arrow">&rarr;</span>
+      <span>supervisor</span>
+      <span class="arrow">&rarr;</span>
+      <span>arbiter</span>
+    </div>
+
+    <p class="drop-cap">The gate is sixty-three lines and it is the only thing standing between a user and a broken app. Every render of the deck shell passes through it. If onboarding has never run, you go to onboarding. If it ran but Ollama is dead, you also go to onboarding. The rest of the time, the gate returns <code>null</code> and disappears.</p>
+
+    <p>The whole control flow:</p>
+
+    <pre><span class="label">components/onboarding/OnboardingGate.tsx</span><code><span class="kw">const</span> FLAG_KEY = <span class="st">"control-deck.onboarding.done"</span>;
+
+<span class="kw">export function</span> <span class="fn">OnboardingGate</span>() {
+  <span class="kw">const</span> router = <span class="fn">useRouter</span>();
+  <span class="kw">const</span> pathname = <span class="fn">usePathname</span>();
+
+  <span class="fn">useEffect</span>(() =&gt; {
+    <span class="kw">if</span> (pathname?.startsWith(<span class="st">"/deck/onboarding"</span>)) <span class="kw">return</span>;
+
+    <span class="kw">const</span> cached = window.localStorage.getItem(FLAG_KEY);
+    <span class="kw">if</span> (cached === <span class="st">"1"</span>) <span class="kw">return</span>;  <span class="cm">// fast path</span>
+
+    <span class="kw">let</span> cancelled = <span class="kw">false</span>;
+    (<span class="kw">async</span> () =&gt; {
+      <span class="kw">const</span> r = <span class="kw">await</span> fetch(<span class="st">"/api/onboarding/state"</span>, { cache: <span class="st">"no-store"</span> });
+      <span class="kw">const</span> data = <span class="kw">await</span> r.json();
+      <span class="kw">if</span> (cancelled) <span class="kw">return</span>;
+
+      <span class="cm">// "done but broken" &mdash; route back to onboarding</span>
+      <span class="kw">if</span> (data.done &amp;&amp; data.ollamaHealthy === <span class="kw">false</span>) {
+        window.localStorage.removeItem(FLAG_KEY);
+        router.replace(<span class="st">"/deck/onboarding"</span>);
+        <span class="kw">return</span>;
+      }
+      <span class="kw">if</span> (data.done) window.localStorage.setItem(FLAG_KEY, <span class="st">"1"</span>);
+      <span class="kw">else</span> { localStorage.removeItem(FLAG_KEY); router.replace(<span class="st">"/deck/onboarding"</span>); }
+    })();
+    <span class="kw">return</span> () =&gt; { cancelled = <span class="kw">true</span>; };
+  }, [pathname, router]);
+  <span class="kw">return</span> <span class="kw">null</span>;
+}</code></pre>
+
+    <h3>Two sources of truth, in tension</h3>
+
+    <p>The gate believes two things. <strong>localStorage</strong> is a cached client hint: a single string <code>"1"</code> at <code>control-deck.onboarding.done</code>. <strong>The server flag</strong> is a JSON file on disk at the platform-correct state dir &mdash; <code>LOCALAPPDATA</code> on Windows, <code>~/Library/Application Support</code> on macOS, <code>$XDG_STATE_HOME</code> on Linux.</p>
+
+    <pre><span class="label">orchestrator.ts &mdash; defaultStateDir</span><code><span class="kw">function</span> <span class="fn">defaultStateDir</span>(): <span class="ty">string</span> {
+  <span class="kw">if</span> (process.platform === <span class="st">"win32"</span>) {
+    <span class="kw">const</span> base = process.env.LOCALAPPDATA ?? join(homedir(), <span class="st">"AppData"</span>, <span class="st">"Local"</span>);
+    <span class="kw">return</span> join(base, <span class="st">"ControlDeck"</span>, <span class="st">"state"</span>);
+  }
+  <span class="kw">if</span> (process.platform === <span class="st">"darwin"</span>) {
+    <span class="kw">return</span> join(homedir(), <span class="st">"Library"</span>, <span class="st">"Application Support"</span>, <span class="st">"ControlDeck"</span>, <span class="st">"state"</span>);
+  }
+  <span class="kw">const</span> xdg = process.env.XDG_STATE_HOME ?? join(homedir(), <span class="st">".local"</span>, <span class="st">"state"</span>);
+  <span class="kw">return</span> join(xdg, <span class="st">"control-deck"</span>);
+}</code></pre>
+
+    <p>The server flag is the source of truth. localStorage is a 0-RTT optimization for the common case &mdash; "user opens app for the 47th time, onboarding done long ago, do not even bother fetching." Hit the cache, return early, never block paint.</p>
+
+    <p>But the cache lies the moment Ollama dies. Hence the third state:</p>
+
+    <h3>"Done but broken"</h3>
+
+    <p>This is the most interesting branch in the file. The gate's server-side check does not just ask <em>"did onboarding finish?"</em> &mdash; it asks <em>"did onboarding finish, AND is the stack still alive right now?"</em>. The state endpoint does a live probe:</p>
+
+    <pre><span class="label">orchestrator.ts &mdash; readDoneState</span><code><span class="kw">export async function</span> <span class="fn">readDoneState</span>() {
+  <span class="kw">if</span> (!existsSync(DONE_FLAG)) <span class="kw">return</span> { done: <span class="kw">false</span> };
+  <span class="kw">let</span> stored: { tier?; completedAt? } = {};
+  <span class="kw">try</span> { stored = JSON.parse(<span class="kw">await</span> readFile(DONE_FLAG, <span class="st">"utf8"</span>)); }
+  <span class="kw">catch</span> { <span class="cm">/* leave empty; we still know it's done */</span> }
+  <span class="kw">const</span> ollamaHealthy = <span class="kw">await</span> <span class="fn">probeOllamaService</span>();
+  <span class="kw">return</span> { done: <span class="kw">true</span>, ...stored, ollamaHealthy };
+}</code></pre>
+
+    <p>If <code>done: true</code> but <code>ollamaHealthy: false</code> &mdash; the user finished onboarding last week but the Ollama service died, the port was hijacked, the systemd unit was removed &mdash; the gate clears the localStorage hint and re-routes to onboarding. The user sees a fresh probe with the missing pieces highlighted. They click "Get me running" again and the orchestrator skips everything that's still installed, fixes only what broke.</p>
+
+    <div class="insight cool">
+      <div class="insight-label">THE IDEMPOTENCY DIVIDEND</div>
+      <p>Because every step in the orchestrator is idempotent &mdash; <code>missing.ollama</code> is false if ollama is on PATH, regardless of how it got there &mdash; the same flow that runs a fresh install also runs a recovery. The gate doesn't need a "repair mode." It just routes back to the same screen and lets the probe figure out what's broken.</p>
+    </div>
+
+    <p>The deck shell helps. When the gate redirects to <code>/deck/onboarding</code>, the DeckShell short-circuits its own chrome:</p>
+
+    <pre><span class="label">components/DeckShell.tsx</span><code><span class="cm">// Onboarding is a first-run takeover &mdash; render the flow naked, no chrome.</span>
+<span class="kw">if</span> (pathname?.startsWith(<span class="st">"/deck/onboarding"</span>)) {
+  <span class="kw">return</span> &lt;&gt;{children}&lt;/&gt;;
+}</code></pre>
+
+    <p>No sidebar. No chat threads. No settings drawer. Just the installer card, centered. The user is on rails until the smoke test passes.</p>
+  </section>
+
+  <section id="ch5">
+    <h2>05 -- THE PROBE</h2>
+    <div class="pipeline-bar">
+      <span>detect</span>
+      <span class="arrow">&rarr;</span>
+      <span>tier</span>
+      <span class="arrow">&rarr;</span>
+      <span>gate</span>
+      <span class="arrow">&rarr;</span>
+      <span class="active">PROBE</span>
+      <span class="arrow">&rarr;</span>
+      <span>install</span>
+      <span class="arrow">&rarr;</span>
+      <span>pull</span>
+      <span class="arrow">&rarr;</span>
+      <span>supervisor</span>
+      <span class="arrow">&rarr;</span>
+      <span>arbiter</span>
+    </div>
+
+    <p class="drop-cap">The probe is read-only by design. It is the orchestrator's audit pass: nothing it does mutates the system, every check has a 1.5&ndash;2&nbsp;second timeout, and the whole thing returns in well under a second on a happy box. <code>GET /api/onboarding/probe</code> can be called repeatedly, and the onboarding page does &mdash; once on mount, again whenever the user clicks "I've installed it &mdash; check again."</p>
+
+    <p>The body of the probe is one <code>Promise.all</code>:</p>
+
+    <pre><span class="label">orchestrator.ts &mdash; probeOnboardingWith</span><code><span class="kw">const</span> [ollamaPresent, ollamaService, llmModel, voiceCoreHealth, ollamaVersion] =
+  <span class="kw">await</span> Promise.all([
+    <span class="fn">binaryOnPath</span>(<span class="st">"ollama"</span>),       <span class="cm">// walks $PATH, checks X_OK</span>
+    <span class="fn">probeOllamaService</span>(),         <span class="cm">// GET 127.0.0.1:11434/api/tags</span>
+    <span class="fn">probeLlmModel</span>(tier.cascade.llm.id), <span class="cm">// scans /api/tags result</span>
+    <span class="fn">probeVoiceCore</span>(),             <span class="cm">// GET 127.0.0.1:4245/health</span>
+    <span class="fn">probeOllamaVersion</span>(),         <span class="cm">// GET 127.0.0.1:11434/api/version</span>
+  ]);</code></pre>
+
+    <p>Five parallel checks. Each one has its own timeout (1.5&ndash;2 seconds via <code>AbortSignal.timeout</code>). Failure is the empty case, not an exception &mdash; every probe function returns a boolean or empty record on any error. <code>fetch</code> rejection? <code>false</code>. JSON parse failure? <code>false</code>. Timeout? <code>false</code>.</p>
+
+    <h3>The portable PATH walker</h3>
+
+    <p>The probe never calls <code>which</code> or <code>where</code>. Both might not be installed (Alpine doesn't ship <code>which</code> in the busybox-default image; Windows containers don't always have <code>where</code>). Instead it walks <code>process.env.PATH</code> by hand:</p>
+
+    <pre><span class="label">orchestrator.ts &mdash; binaryOnPath</span><code><span class="kw">async function</span> <span class="fn">binaryOnPath</span>(bin: <span class="ty">string</span>): <span class="ty">Promise</span>&lt;<span class="ty">boolean</span>&gt; {
+  <span class="kw">const</span> sep = process.platform === <span class="st">"win32"</span> ? <span class="st">";"</span> : <span class="st">":"</span>;
+  <span class="kw">const</span> env = <span class="fn">augmentedEnv</span>();
+  <span class="kw">const</span> dirs = (env.PATH ?? <span class="st">""</span>).split(sep).filter(Boolean);
+  <span class="kw">const</span> exts = process.platform === <span class="st">"win32"</span>
+    ? (process.env.PATHEXT ?? <span class="st">".COM;.EXE;.BAT;.CMD"</span>).split(<span class="st">";"</span>)
+    : [<span class="st">""</span>];
+  <span class="kw">for</span> (<span class="kw">const</span> dir <span class="kw">of</span> dirs) {
+    <span class="kw">for</span> (<span class="kw">const</span> ext <span class="kw">of</span> exts) {
+      <span class="kw">try</span> {
+        <span class="kw">await</span> access(join(dir, bin + ext), fsConstants.X_OK);
+        <span class="kw">return</span> <span class="kw">true</span>;
+      } <span class="kw">catch</span> { <span class="cm">/* keep looking */</span> }
+    }
+  }
+  <span class="kw">return</span> <span class="kw">false</span>;
+}</code></pre>
+
+    <p>The <code>augmentedEnv()</code> call is the secret sauce. Electron on macOS inherits <code>PATH</code> from <code>launchd</code>, which does not include <code>/opt/homebrew/bin</code>. A user can have Homebrew installed and the deck still can't see <code>brew</code>. <code>augmentedEnv()</code> prepends the standard install prefixes for each platform:</p>
+
+    <pre><span class="label">orchestrator.ts &mdash; augmentedEnv</span><code><span class="kw">const</span> extras: <span class="ty">string</span>[] = [];
+<span class="kw">if</span> (process.platform === <span class="st">"darwin"</span>) {
+  extras.push(<span class="st">"/opt/homebrew/bin"</span>, <span class="st">"/usr/local/bin"</span>);
+} <span class="kw">else if</span> (process.platform === <span class="st">"linux"</span>) {
+  extras.push(<span class="st">"/usr/local/bin"</span>);
+}
+<span class="kw">const</span> sep = process.platform === <span class="st">"win32"</span> ? <span class="st">";"</span> : <span class="st">":"</span>;
+<span class="kw">const</span> existing = (process.env.PATH ?? <span class="st">""</span>).split(sep).filter(Boolean);</code></pre>
+
+    <h3>The shape that comes back</h3>
+
+    <p>The probe ships a <code>ProbeResult</code> the UI uses to draw three things: the hardware card, the missing checklist, and the consent panel (if relevant).</p>
+
+    <pre><span class="label">orchestrator.ts &mdash; ProbeResult</span><code><span class="kw">interface</span> <span class="ty">ProbeResult</span> {
+  hardware: { backend, gpu, ramGb };
+  tier: <span class="ty">TierId</span>;
+  tierLabel: <span class="ty">string</span>;
+  diskMb: <span class="ty">number</span>;
+  llm, stt, tts: { id; sizeMb; runner? };
+  missing: {
+    ollama: <span class="ty">boolean</span>;
+    ollamaService: <span class="ty">boolean</span>;
+    llmModel: <span class="ty">boolean</span>;
+    voiceCore: <span class="ty">boolean</span>;
+    sttEngine: <span class="ty">boolean</span>;
+    ttsEngine: <span class="ty">boolean</span>;
+  };
+  installPlan: { platform; consent; autoInstallable? } | <span class="kw">null</span>;
+  ollamaVersion: <span class="ty">string</span> | <span class="kw">null</span>;
+  done: <span class="ty">boolean</span>;
+}</code></pre>
+
+    <p>Six boolean flags. Each flag binds to one row in the "What's needed" checklist. Each row toggles between ○ and ✓ depending on the flag. The user sees the system's mental model.</p>
+
+    <div class="insight">
+      <div class="insight-label">THE READ-ONLY GUARANTEE</div>
+      <p>Nothing in the probe writes a file, spawns a process, or installs anything. It can be called from a stale tab, a background poll, a Playwright test, or a curl from the terminal. Every check is a network round-trip or a filesystem stat. That guarantee is what makes the consent UX possible &mdash; the user clicks "Show what will run" and can read the install command before authorizing anything.</p>
+    </div>
+
+    <p>One more probe is worth pulling out. <code>firstMissingDependency()</code> checks not just whether the install <em>command</em> is on PATH (<code>brew</code>, <code>winget</code>, <code>pkexec</code>) but also any pipeline tools it shells through &mdash; <code>curl</code> on Linux, <code>powershell</code> on Windows. If <em>any</em> of them are missing, the probe sets <code>autoInstallable: false</code>, and the UI flips from a consent checkbox to a "Download Ollama" link card. There is no point showing a checkbox we can't honor.</p>
+  </section>
+
+  <section id="ch6">
+    <h2>06 -- THE RECIPE</h2>
+    <div class="pipeline-bar">
+      <span>detect</span>
+      <span class="arrow">&rarr;</span>
+      <span>tier</span>
+      <span class="arrow">&rarr;</span>
+      <span>gate</span>
+      <span class="arrow">&rarr;</span>
+      <span class="active">RECIPE</span>
+      <span class="arrow">&rarr;</span>
+      <span>install</span>
+      <span class="arrow">&rarr;</span>
+      <span>pull</span>
+      <span class="arrow">&rarr;</span>
+      <span>supervisor</span>
+      <span class="arrow">&rarr;</span>
+      <span>arbiter</span>
+    </div>
+
+    <p class="drop-cap">Three operating systems. Three installers. <code>pkexec</code> + <code>install.sh</code> on Linux. <code>brew install ollama</code> on macOS. <code>winget install --exact --id Ollama.Ollama</code> on Windows. The orchestrator does not branch on platform with a giant <code>if</code>. It loads a YAML file.</p>
+
+    <p>The shape:</p>
+
+    <pre><span class="label">lib/onboarding/recipe.ts</span><code><span class="kw">export interface</span> <span class="ty">Recipe</span> {
+  platform: <span class="ty">PlatformId</span>;     <span class="cm">// "linux" | "macos" | "windows"</span>
+  ollama: {
+    install: {
+      consent: { title; summary; command_preview; manual_fallback };
+      command: { bin; args; timeout_ms?; expect_exit? };
+      verify:  { bin; args; expect_exit? };
+    };
+    service: {
+      start_attempts: <span class="ty">CommandSpec</span>[];
+      enable_attempts?: <span class="ty">CommandSpec</span>[];
+      fallback: <span class="ty">CommandSpec</span>;     <span class="cm">// detached `ollama serve`</span>
+      health_url: <span class="ty">string</span>;
+      timeout_ms: <span class="ty">number</span>;
+    };
+    pull: { throttle_ms; timeout_ms };
+  };
+  smoke: { prompt; num_predict; timeout_ms };
+}</code></pre>
+
+    <p>And the three recipes are siblings in <code>lib/onboarding/recipes/</code>:</p>
+
+    <details>
+      <summary>linux.yaml &mdash; pkexec wrapper around install.sh</summary>
+      <pre><code><span class="ty">platform:</span> linux
+<span class="ty">ollama:</span>
+  <span class="ty">install:</span>
+    <span class="ty">consent:</span>
+      <span class="ty">title:</span> <span class="st">"Install Ollama for me"</span>
+      <span class="ty">summary:</span> <span class="st">"Runs the official Ollama install script.</span>
+        <span class="st">Adds ~250 MB under /usr/local/bin. You'll see a system</span>
+        <span class="st">password prompt &mdash; that's pkexec asking for permission."</span>
+      <span class="ty">command_preview:</span> <span class="st">"pkexec sh -c 'curl -fsSL https://ollama.com/install.sh | sh'"</span>
+      <span class="ty">manual_fallback:</span> <span class="st">"curl -fsSL https://ollama.com/install.sh | sh"</span>
+    <span class="ty">command:</span>
+      <span class="ty">bin:</span> pkexec
+      <span class="ty">args:</span> [<span class="st">"sh"</span>, <span class="st">"-c"</span>, <span class="st">"curl -fsSL https://ollama.com/install.sh | sh"</span>]
+      <span class="ty">timeout_ms:</span> 300000
+    <span class="ty">verify:</span>
+      <span class="ty">bin:</span> which
+      <span class="ty">args:</span> [<span class="st">"ollama"</span>]
+  <span class="ty">service:</span>
+    <span class="ty">start_attempts:</span>
+      - { bin: systemctl, args: [<span class="st">"--user"</span>, <span class="st">"start"</span>, <span class="st">"ollama"</span>] }
+      - { bin: systemctl, args: [<span class="st">"start"</span>, <span class="st">"ollama"</span>] }
+    <span class="ty">enable_attempts:</span>
+      - { bin: systemctl, args: [<span class="st">"--user"</span>, <span class="st">"enable"</span>, <span class="st">"ollama"</span>] }
+      - { bin: systemctl, args: [<span class="st">"enable"</span>, <span class="st">"ollama"</span>] }
+    <span class="ty">fallback:</span> { bin: ollama, args: [<span class="st">"serve"</span>], detach: <span class="kw">true</span> }
+    <span class="ty">health_url:</span> <span class="st">"http://127.0.0.1:11434/api/tags"</span></code></pre>
+    </details>
+
+    <details>
+      <summary>windows.yaml &mdash; winget with explicit disambiguation</summary>
+      <pre><code><span class="ty">platform:</span> windows
+<span class="ty">ollama:</span>
+  <span class="ty">install:</span>
+    <span class="ty">consent:</span>
+      <span class="ty">title:</span> <span class="st">"Install Ollama for me"</span>
+      <span class="ty">summary:</span> <span class="st">"Installs Ollama via the Windows Package Manager (winget)."</span>
+      <span class="ty">command_preview:</span> <span class="st">"winget install --exact --id Ollama.Ollama --silent ..."</span>
+      <span class="ty">manual_fallback:</span> <span class="st">"Download the installer from https://ollama.com/download/windows"</span>
+    <span class="ty">command:</span>
+      <span class="ty">bin:</span> winget
+      <span class="cm"># `--exact` blocks winget's disambiguation prompt on substring matches.</span>
+      <span class="ty">args:</span> [install, <span class="st">"--exact"</span>, <span class="st">"--id"</span>, Ollama.Ollama, <span class="st">"--silent"</span>,
+              <span class="st">"--accept-package-agreements"</span>, <span class="st">"--accept-source-agreements"</span>]
+      <span class="ty">timeout_ms:</span> 600000
+    <span class="ty">verify:</span> { bin: ollama, args: [<span class="st">"--version"</span>] }
+  <span class="ty">service:</span>
+    <span class="cm"># The Ollama installer registers a tray app, not a Windows service &mdash;</span>
+    <span class="cm"># Start-Service usually fails and we fall through to detached `ollama serve`.</span>
+    <span class="ty">start_attempts:</span>
+      - { bin: powershell, args: [<span class="st">"-NoProfile"</span>, <span class="st">"-Command"</span>,
+            <span class="st">"Start-Service -Name Ollama -ErrorAction Stop"</span>] }
+      - { bin: pwsh, args: [...] }
+    <span class="ty">fallback:</span> { bin: ollama, args: [<span class="st">"serve"</span>], detach: <span class="kw">true</span> }</code></pre>
+    </details>
+
+    <h3>Why YAML, why declarative</h3>
+
+    <p>Could this be a TypeScript switch? Yes. Would that be better? No. The YAML lets the consent strings live next to the command they describe, in the same file, in the same language as the install. When a future maintainer wants to change the Windows install to a Chocolatey package, they edit one file. No code change. No test breakage. The orchestrator just reads whatever's in <code>windows.yaml</code> and runs it.</p>
+
+    <p>The loader is strict. Every required field is validated at parse time, with the path to the offending file in the error:</p>
+
+    <pre><span class="label">recipe.ts &mdash; validateCommand</span><code><span class="kw">function</span> <span class="fn">validateCommand</span>(value, where) {
+  <span class="kw">if</span> (!isObject(value)) <span class="kw">throw new</span> Error(<span class="st">`${where}: must be an object`</span>);
+  <span class="kw">const</span> bin = value.bin;
+  <span class="kw">const</span> args = value.args;
+  <span class="kw">if</span> (<span class="kw">typeof</span> bin !== <span class="st">"string"</span>) <span class="kw">throw new</span> Error(<span class="st">`${where}.bin: must be a string`</span>);
+  <span class="kw">if</span> (!Array.isArray(args) || !args.every((a) =&gt; <span class="kw">typeof</span> a === <span class="st">"string"</span>)) {
+    <span class="kw">throw new</span> Error(<span class="st">`${where}.args: must be a string[]`</span>);
+  }
+  <span class="kw">return</span> { bin, args, detach: value.detach === <span class="kw">true</span>, ... };
+}</code></pre>
+
+    <p>The loader fails loud at boot, not midway through a five-minute install. If you ship a malformed <code>windows.yaml</code>, the deck won't start &mdash; you get a clear stack trace pointing at <code>.../windows.yaml: ollama.install.command.args: must be a string[]</code>. That is the right place to fail.</p>
+
+    <h3>Anchoring to the file, not the cwd</h3>
+
+    <p>One subtle gotcha. The recipe directory is resolved relative to the <em>module</em>, not <code>process.cwd()</code>:</p>
+
+    <pre><span class="label">recipe.ts</span><code><span class="kw">const</span> RECIPE_DIR = join(dirname(fileURLToPath(import.meta.url)), <span class="st">"recipes"</span>);</code></pre>
+
+    <p>This matters for packaged Electron. When the app is bundled, <code>process.cwd()</code> is wherever the user launched it from &mdash; could be <code>~/Desktop</code>, could be <code>C:\Users\...\Downloads</code>. <code>import.meta.url</code> always points at the JS file's actual location, which lives inside the app bundle. Recipes ship with the code.</p>
+
+    <p>The bundling guarantee was a real bug, caught the day this article was written. Next.js's standalone tracer doesn't follow dynamic <code>readFileSync</code> paths, so the YAMLs would not have been included in <code>.next/standalone/</code> without explicit help:</p>
+
+    <pre><span class="label">next.config.ts</span><code><span class="ty">outputFileTracingIncludes:</span> {
+  <span class="st">"/api/onboarding/**/*"</span>: [<span class="st">"./lib/onboarding/recipes/*.yaml"</span>],
+},</code></pre>
+
+    <p>Without that one entry, a Windows user installing from a packaged build would have hit "no install recipe for this platform" because <code>windows.yaml</code> wasn't in the bundle.</p>
+
+    <div class="insight danger">
+      <div class="insight-label">THE BUNDLER TAX</div>
+      <p>Any file your code reads at runtime that the bundler can't see through a static import becomes a deployment hazard. <code>readFileSync(import.meta.url + "/foo.yaml")</code> works in dev because dev runs against source. It silently breaks in prod when the tracer skips it. The cure: explicit <code>outputFileTracingIncludes</code> &mdash; or, better, embed the YAML at build time. We chose the former because adding a new recipe is a one-file change.</p>
+    </div>
+  </section>
+
+  <div class="act-break">
+    <div class="act-number">// ACT II</div>
+    <div class="act-title">FIVE MINUTES THAT MUST NOT FAIL</div>
+    <div class="act-subtitle">The install. The pull. The smoke test.</div>
+  </div>
+
+  <section id="ch7">
+    <h2>07 -- THE INSTALL</h2>
+    <div class="pipeline-bar">
+      <span>detect</span>
+      <span class="arrow">&rarr;</span>
+      <span>tier</span>
+      <span class="arrow">&rarr;</span>
+      <span>gate</span>
+      <span class="arrow">&rarr;</span>
+      <span>probe</span>
+      <span class="arrow">&rarr;</span>
+      <span class="active">INSTALL</span>
+      <span class="arrow">&rarr;</span>
+      <span>pull</span>
+      <span class="arrow">&rarr;</span>
+      <span>supervisor</span>
+      <span class="arrow">&rarr;</span>
+      <span>arbiter</span>
+    </div>
+
+    <p class="drop-cap">The install step is the only one that mutates the user's machine. Everything before it is read-only. Everything after it depends on it working. It is one <code>spawn()</code> call surrounded by half a dozen pre-flight checks that exist because every one of them has, at some point, failed silently.</p>
+
+    <p>Before we even spawn:</p>
+
+    <ol>
+      <li><strong>Consent gate.</strong> If <code>consents.installOllama !== true</code>, fail with a clear "tick the consent box or run manually" message.</li>
+      <li><strong>Graphical session check.</strong> On Linux, if the command uses <code>pkexec</code> and there's no <code>DISPLAY</code> or <code>WAYLAND_DISPLAY</code>, fail &mdash; pkexec needs a polkit agent.</li>
+      <li><strong>Unsupported-distro check.</strong> NixOS (immutable FHS) and Alpine (musl libc) both break Ollama's install.sh; we detect and abort with a useful message.</li>
+      <li><strong>Dependency PATH walk.</strong> <code>firstMissingDependency()</code> checks every binary in the pipeline &mdash; <code>pkexec</code>, <code>curl</code>, <code>brew</code>, <code>winget</code>.</li>
+    </ol>
+
+    <p>Then we spawn, and stream lines into the UI:</p>
+
+    <pre><span class="label">orchestrator.ts &mdash; streamChild</span><code><span class="kw">async function</span>* <span class="fn">streamChild</span>(cmd: <span class="ty">CommandSpec</span>) {
+  <span class="kw">const</span> child = spawn(cmd.bin, cmd.args, {
+    stdio: [<span class="st">"ignore"</span>, <span class="st">"pipe"</span>, <span class="st">"pipe"</span>],
+    env: <span class="fn">augmentedEnv</span>(),
+    windowsHide: <span class="kw">true</span>,
+  });
+  <span class="kw">const</span> queue: <span class="ty">ChildLine</span>[] = [];
+  <span class="kw">let</span> resolveNext: (() =&gt; <span class="ty">void</span>) | <span class="kw">null</span> = <span class="kw">null</span>;
+  <span class="cm">// ... line-buffered pipe from stdout + stderr ...</span>
+  <span class="kw">const</span> timer = setTimeout(() =&gt; {
+    child.kill(<span class="st">"SIGTERM"</span>);
+    setTimeout(() =&gt; child.kill(<span class="st">"SIGKILL"</span>), <span class="nm">2000</span>).unref();
+  }, cmd.timeout_ms ?? <span class="nm">300_000</span>);
+  <span class="cm">// ... yield each line; final yield is the exit event ...</span>
+}</code></pre>
+
+    <p>An async generator yielding one line per <code>\n</code>. The route handler upstream takes those lines, wraps each in an SSE event, sends them down to the browser, the UI throttles to 300 ms and updates the step row's <code>detail</code> field. The user sees live <code>curl: (22) The requested URL returned error: 503</code> instead of a spinner.</p>
+
+    <h3>Exit code 126 is a feature</h3>
+
+    <p>One detail in <code>runOnboarding()</code> is worth pulling out:</p>
+
+    <pre><span class="label">orchestrator.ts &mdash; install handler</span><code><span class="kw">if</span> (line.code !== (recipe.ollama.install.command.expect_exit ?? <span class="nm">0</span>)) {
+  <span class="cm">// pkexec returns 126 when the user dismisses the polkit prompt.</span>
+  <span class="cm">// brew/winget don't reuse that code, so it's safe to special-case.</span>
+  <span class="kw">const</span> userCancelled = line.code === <span class="nm">126</span>;
+  <span class="kw">yield</span> stamp({
+    id: <span class="st">"install-ollama"</span>,
+    status: <span class="st">"failed"</span>,
+    detail: userCancelled
+      ? <span class="st">"Installation cancelled &mdash; click Retry when you're ready..."</span>
+      : <span class="st">`${recipe.ollama.install.command.bin} exited ${line.code}...`</span>,
+  });
+}</code></pre>
+
+    <p>A user clicking "cancel" on the system password prompt is not an error. It is a choice. The orchestrator distinguishes pkexec's "user dismissed me" exit (126) from real failure (anything else) and writes a different message. <em>"Installation cancelled &mdash; click Retry when you're ready, or untick the consent box to install manually."</em></p>
+
+    <h3>Windows PATH refresh</h3>
+
+    <p>The most platform-specific moment in the whole orchestrator. When the Ollama Windows installer writes <code>ollama.exe</code> to disk, it adds the install directory to the user's <code>PATH</code> via the registry &mdash; specifically <code>HKCU\Environment\Path</code>. But <em>this</em> process, the running Next.js server, started before the install ran and snapshotted <code>process.env.PATH</code> at startup. To the orchestrator, the new ollama.exe doesn't exist.</p>
+
+    <p>The fix is a quick powershell call:</p>
+
+    <pre><span class="label">orchestrator.ts &mdash; refreshWindowsPath</span><code><span class="kw">async function</span> <span class="fn">refreshWindowsPath</span>() {
+  <span class="kw">if</span> (process.platform !== <span class="st">"win32"</span>) <span class="kw">return</span>;
+  <span class="kw">await new</span> Promise&lt;<span class="ty">void</span>&gt;((resolve) =&gt; {
+    <span class="kw">const</span> child = spawn(<span class="st">"powershell"</span>, [
+      <span class="st">"-NoProfile"</span>,
+      <span class="st">"-Command"</span>,
+      <span class="st">"[Environment]::GetEnvironmentVariable('Path','User') + ';' +</span>
+       <span class="st">[Environment]::GetEnvironmentVariable('Path','Machine')"</span>,
+    ], { stdio: [<span class="st">"ignore"</span>, <span class="st">"pipe"</span>, <span class="st">"ignore"</span>], windowsHide: <span class="kw">true</span> });
+    <span class="cm">// ... capture stdout, set process.env.PATH = merged ...</span>
+  });
+}</code></pre>
+
+    <p>This runs immediately after the install succeeds. The verify step (<code>ollama --version</code>) then finds the freshly-installed binary because we have the new PATH in memory.</p>
+
+    <div class="insight wild">
+      <div class="insight-label">PLATFORM TAX</div>
+      <p>Half the code in the orchestrator is platform tax. Refreshing Windows PATH. Adding <code>/opt/homebrew/bin</code> for macOS. Detecting Wayland vs X11. Distinguishing pkexec exit 126 from real failure. None of this is interesting work. All of it is necessary. The interesting work &mdash; pulling the model, smoke-testing it &mdash; is the part you can write once and have it just work.</p>
+    </div>
+
+    <p>One more thing the install step does: emit a warning when it falls back to <code>ollama serve</code> in detached mode. On Linux without a systemd unit, on Windows where the installer ships a tray app instead of a service, "ollama serve" gets spawned with <code>detached: true</code> and <code>stdio: "ignore"</code>. It runs until the user reboots. The orchestrator surfaces this explicitly: <em>"spawned ollama serve (detached) &mdash; won't survive reboot; install a systemd unit to make it permanent."</em> Honest about its limits.</p>
+  </section>
+
+  <section id="ch8">
+    <h2>08 -- THE PULL AND THE SMOKE</h2>
+    <div class="pipeline-bar">
+      <span>detect</span>
+      <span class="arrow">&rarr;</span>
+      <span>tier</span>
+      <span class="arrow">&rarr;</span>
+      <span>gate</span>
+      <span class="arrow">&rarr;</span>
+      <span>probe</span>
+      <span class="arrow">&rarr;</span>
+      <span>install</span>
+      <span class="arrow">&rarr;</span>
+      <span class="active">PULL</span>
+      <span class="arrow">&rarr;</span>
+      <span>supervisor</span>
+      <span class="arrow">&rarr;</span>
+      <span>arbiter</span>
+    </div>
+
+    <p class="drop-cap">The pull is the slow step. It is also the one most likely to die in the middle. A 5&nbsp;GB LLM, a coffee-shop wifi, a laptop lid that closes &mdash; every one of those breaks the stream. Ollama is forgiving (the partial cache resumes on retry), but the orchestrator still has to detect the failure and tell the user something other than "tab is wedged."</p>
+
+    <p>The pull request is one POST and a streaming response:</p>
+
+    <pre><span class="label">orchestrator.ts &mdash; pullOllamaModel</span><code>resp = <span class="kw">await</span> fetch(<span class="st">`${OLLAMA_URL}/api/pull`</span>, {
+  method: <span class="st">"POST"</span>,
+  headers: { <span class="st">"Content-Type"</span>: <span class="st">"application/json"</span> },
+  body: JSON.stringify({ name: modelId, stream: <span class="kw">true</span> }),
+});</code></pre>
+
+    <p>The response body is newline-delimited JSON. Each line is a status event:</p>
+
+    <pre><span class="label">ollama /api/pull stream</span><code>{<span class="st">"status"</span>:<span class="st">"pulling manifest"</span>}
+{<span class="st">"status"</span>:<span class="st">"downloading"</span>,<span class="st">"digest"</span>:<span class="st">"sha256:..."</span>,<span class="st">"total"</span>:<span class="nm">5247483904</span>,<span class="st">"completed"</span>:<span class="nm">12582912</span>}
+{<span class="st">"status"</span>:<span class="st">"downloading"</span>,<span class="st">"total"</span>:<span class="nm">5247483904</span>,<span class="st">"completed"</span>:<span class="nm">25165824</span>}
+... <span class="cm">// hundreds of these per second</span>
+{<span class="st">"status"</span>:<span class="st">"verifying sha256 digest"</span>}
+{<span class="st">"status"</span>:<span class="st">"writing manifest"</span>}
+{<span class="st">"status"</span>:<span class="st">"success"</span>}</code></pre>
+
+    <h3>Throttling because Ollama is enthusiastic</h3>
+
+    <p>Ollama can emit hundreds of progress lines per second. The orchestrator throttles to one UI emit every 300 ms (configurable via the recipe's <code>pull.throttle_ms</code>):</p>
+
+    <pre><span class="label">orchestrator.ts &mdash; pull loop</span><code><span class="kw">for await</span> (<span class="kw">const</span> evt <span class="kw">of</span> <span class="fn">pullOllamaModel</span>(tier.cascade.llm.id)) {
+  <span class="kw">const</span> now = Date.now();
+  <span class="kw">if</span> (evt.status === <span class="st">"running"</span> &amp;&amp; now - lastEmitted &lt; throttleMs) <span class="kw">continue</span>;
+  lastEmitted = now;
+  <span class="kw">yield</span> stamp({ ... progress, detail });
+}</code></pre>
+
+    <p>The progress field is a 0..1 fraction (completed / total). The UI translates it into a green bar that grows under the step row. Every 300 ms the bar advances. Every 300 ms the user sees the download is alive.</p>
+
+    <h3>The "clean close, no model" trap</h3>
+
+    <p>Streams can close cleanly without delivering <code>{"status":"success"}</code>. A TCP drop mid-stream, a flaky CDN, a laptop sleep that drops the socket &mdash; all of these end the loop without an error and without a success marker. The orchestrator catches this by re-probing after the loop:</p>
+
+    <pre><span class="label">orchestrator.ts</span><code><span class="cm">// The pull stream can close cleanly without emitting `status:success`</span>
+<span class="cm">// (e.g. TCP drop on a flaky connection). Don't trust the stream alone &mdash;</span>
+<span class="cm">// re-probe /api/tags before claiming the model is present.</span>
+<span class="kw">if</span> (!sawSuccess) {
+  <span class="kw">const</span> verified = <span class="kw">await</span> <span class="fn">probeLlmModel</span>(tier.cascade.llm.id);
+  <span class="kw">if</span> (!verified) {
+    <span class="kw">yield</span> stamp({
+      id: <span class="st">"pull-llm"</span>,
+      status: <span class="st">"failed"</span>,
+      detail: <span class="st">"Pull stream ended before the model arrived &mdash; likely a network drop.</span>
+        <span class="st">Click Retry; ollama keeps the partial cache so it'll resume."</span>,
+    });
+    <span class="kw">return</span>;
+  }
+}</code></pre>
+
+    <p>Two sources of truth, again. The stream <em>and</em> the tag list. If they disagree, the tag list wins.</p>
+
+    <h3>Disk-full is a special case</h3>
+
+    <p>Ollama emits a plain error string when the pull fails on <code>ENOSPC</code>. The orchestrator pattern-matches and rewrites the message:</p>
+
+    <pre><span class="label">orchestrator.ts</span><code><span class="kw">if</span> (j.error) {
+  <span class="kw">const</span> friendly = /no space left|enospc/i.test(j.error)
+    ? <span class="st">`Your disk is full &mdash; free up space and retry (ollama keeps the partial</span>
+       <span class="st">cache, so retry resumes). Raw: ${j.error}`</span>
+    : j.error;
+  <span class="kw">yield</span> { status: <span class="st">"failed"</span>, detail: friendly };
+  <span class="kw">return</span>;
+}</code></pre>
+
+    <p>That's all it takes. One regex. The user sees a sentence instead of <code>llm/server.go:421: error pulling: open /home/.../sha256-abc...: no space left on device</code>.</p>
+
+    <h3>The smoke test, and why it gets a bigger timeout on CPU</h3>
+
+    <p>Once the model is on disk, we have to verify it actually works. The smoke test is one <code>/api/generate</code> call:</p>
+
+    <pre><span class="label">orchestrator.ts &mdash; smokeTestLlm</span><code><span class="kw">const</span> r = <span class="kw">await</span> fetch(<span class="st">`${OLLAMA_URL}/api/generate`</span>, {
+  method: <span class="st">"POST"</span>,
+  body: JSON.stringify({
+    model: modelId,
+    prompt: <span class="st">"Say the word READY and nothing else."</span>,
+    stream: <span class="kw">false</span>,
+    think: <span class="kw">false</span>,
+    options: { num_predict: <span class="nm">64</span>, temperature: <span class="nm">0</span> },
+  }),
+  signal: AbortSignal.timeout(cfg.timeout_ms),
+});</code></pre>
+
+    <p>The first inference on a fresh model is the slow one. Ollama has to mmap the GGUF, page in the weights, warm the GPU kernels. On a Mac M2 with the 5&nbsp;GB Qwen3 8B, this takes 6&ndash;8 seconds. On a CPU-only laptop with a 4&nbsp;GB GGUF, it takes 90&ndash;180 seconds.</p>
+
+    <p>The orchestrator knows this. It bumps the timeout on CPU:</p>
+
+    <pre><span class="label">orchestrator.ts</span><code><span class="kw">const</span> smokeCfg = recipe?.smoke ? { ...recipe.smoke } : <span class="kw">undefined</span>;
+<span class="kw">if</span> (smokeCfg &amp;&amp; probe.hardware.backend === <span class="st">"cpu"</span>) {
+  smokeCfg.timeout_ms = Math.max(smokeCfg.timeout_ms, <span class="nm">180_000</span>);
+}</code></pre>
+
+    <p>The recipe says 60 seconds. CPU says <em>at least</em> three minutes. The user on a CPU box sees a "Smoke-test the LLM" row that sits in "running" for two minutes &mdash; and the 45-second-no-progress stall banner kicks in to reassure them. The text on the banner says <em>"The install may still be running on the server &mdash; keep this tab open."</em></p>
+
+    <div class="insight cool">
+      <div class="insight-label">THE 45-SECOND BANNER</div>
+      <p>The SSE stream sends a heartbeat comment (<code>: heartbeat {ts}</code>) every 15 seconds. The browser client resets a 45-second "stall" timer on <em>any</em> incoming data. If 45 seconds pass with nothing &mdash; even a heartbeat &mdash; the UI assumes the socket wedged and shows a banner. The user keeps the tab open. The orchestrator keeps cooking. Everybody wins.</p>
+    </div>
+
+    <p>And then, finally: <code>markDone(tier)</code>. The done flag is written to disk. localStorage is set. The Skip button is no longer offered. The UI shows <em>"Ready in 287.3 s &mdash; open Chat to start talking"</em> and 1.2 seconds later replaces the URL with <code>/deck/chat</code>.</p>
+
+    <p>The user has never seen a terminal.</p>
+  </section>
+
+  <section id="ch9">
+    <h2>09 -- THE SUPERVISOR</h2>
+    <div class="pipeline-bar">
+      <span>detect</span>
+      <span class="arrow">&rarr;</span>
+      <span>tier</span>
+      <span class="arrow">&rarr;</span>
+      <span>gate</span>
+      <span class="arrow">&rarr;</span>
+      <span>probe</span>
+      <span class="arrow">&rarr;</span>
+      <span>install</span>
+      <span class="arrow">&rarr;</span>
+      <span>pull</span>
+      <span class="arrow">&rarr;</span>
+      <span class="active">SUPERVISOR</span>
+      <span class="arrow">&rarr;</span>
+      <span>arbiter</span>
+    </div>
+
+    <p class="drop-cap">The Ollama service runs itself. The voice-core sidecar does not. It is a Python process that hosts whisper.cpp + CoreML + Kokoro + Parakeet + sherpa-onnx, depending on the tier &mdash; and it lives or dies on whether Electron remembers to start it. The voice-core supervisor is 292 lines of "make sure the sidecar is up, and if it dies, restart it three times before giving up."</p>
+
+    <p>The supervisor lives in Electron main, not Next.js. It runs once at <code>app.whenReady()</code>, holds a reference to the child process, and tears it down on <code>app.before-quit</code>. The state is module-scoped:</p>
+
+    <pre><span class="label">electron/services/voice-core-supervisor.ts</span><code><span class="kw">const</span> RESTART_MAX = <span class="nm">3</span>;
+<span class="kw">const</span> RESTART_WINDOW_MS = <span class="nm">5</span> * <span class="nm">60</span> * <span class="nm">1000</span>;
+<span class="kw">const</span> RESTART_DELAY_MS = <span class="nm">2_000</span>;
+
+<span class="kw">let</span> proc: <span class="ty">ChildProcess</span> | <span class="kw">null</span> = <span class="kw">null</span>;
+<span class="kw">let</span> restarts: <span class="ty">number</span>[] = [];   <span class="cm">// timestamps within current window</span>
+<span class="kw">let</span> isShuttingDown = <span class="kw">false</span>;
+<span class="kw">let</span> gaveUp = <span class="kw">false</span>;
+<span class="kw">let</span> lastExit: { code; signal; at } | <span class="kw">null</span> = <span class="kw">null</span>;</code></pre>
+
+    <h3>The startup ladder</h3>
+
+    <p>The supervisor decides how to run voice-core based on what's available, in priority order:</p>
+
+    <ol>
+      <li><strong><code>uv run --directory apps/voice-core voice-core serve</code></strong> &mdash; if <code>uv</code> is on PATH. This is the preferred path because uv handles the Python environment for us.</li>
+      <li><strong>Project-local <code>.venv-voice-core/{bin,Scripts}/python -m voice_core</code></strong> &mdash; if the user (or onboarding) pre-built the venv.</li>
+      <li><strong>System python3 (or python.exe on Windows)</strong> &mdash; only useful if the user pip-installed the package globally. Mostly for debugging.</li>
+    </ol>
+
+    <pre><span class="label">voice-core-supervisor.ts &mdash; planSpawn</span><code><span class="kw">const</span> uvBin = <span class="fn">which</span>(<span class="st">"uv"</span>);
+<span class="kw">if</span> (uvBin) {
+  <span class="kw">return</span> { command: uvBin, args: [<span class="st">"run"</span>, <span class="st">"--directory"</span>, voiceCoreDir, <span class="st">"voice-core"</span>, ...serveArgs] };
+}
+<span class="kw">const</span> venvPython = process.platform === <span class="st">"win32"</span>
+  ? path.join(root, <span class="st">".venv-voice-core"</span>, <span class="st">"Scripts"</span>, <span class="st">"python.exe"</span>)
+  : path.join(root, <span class="st">".venv-voice-core"</span>, <span class="st">"bin"</span>, <span class="st">"python"</span>);
+<span class="kw">if</span> (fs.existsSync(venvPython)) {
+  <span class="kw">return</span> { command: venvPython, args: [<span class="st">"-m"</span>, <span class="st">"voice_core"</span>, ...serveArgs] };
+}</code></pre>
+
+    <p>Each plan is platform-aware. Linux/macOS use <code>bin/python</code>; Windows uses <code>Scripts\python.exe</code>. The supervisor never assumes a specific Python version &mdash; it shells out to whatever ladder rung found a working interpreter.</p>
+
+    <h3>The port-listen probe</h3>
+
+    <p>Before spawning, the supervisor checks if port 4245 is already listening. If the user started voice-core manually in another terminal &mdash; or if a previous Electron run crashed without cleaning up its detached child &mdash; we don't want two sidecars fighting for the same port:</p>
+
+    <pre><span class="label">voice-core-supervisor.ts &mdash; isPortListening</span><code><span class="kw">function</span> <span class="fn">isPortListening</span>(port, host): <span class="ty">Promise</span>&lt;<span class="ty">boolean</span>&gt; {
+  <span class="kw">return new</span> Promise((resolve) =&gt; {
+    <span class="kw">const</span> socket = <span class="kw">new</span> net.Socket();
+    socket.setTimeout(<span class="nm">400</span>);
+    socket.once(<span class="st">"connect"</span>, () =&gt; { socket.destroy(); resolve(<span class="kw">true</span>); });
+    socket.once(<span class="st">"timeout"</span>, () =&gt; { socket.destroy(); resolve(<span class="kw">false</span>); });
+    socket.once(<span class="st">"error"</span>, () =&gt; { socket.destroy(); resolve(<span class="kw">false</span>); });
+    socket.connect(port, host);
+  });
+}</code></pre>
+
+    <p>One TCP connect attempt, 400&nbsp;ms timeout. If we connect, the port is taken &mdash; we assume the existing instance and bail. If we get a "connection refused" error, the port is free.</p>
+
+    <h3>The restart budget</h3>
+
+    <p>This is the supervisor's actual job. Voice-core can die for a hundred reasons &mdash; CUDA OOM, missing CoreML model, a Python import error in a fresh whisper.cpp build. The supervisor's rule: <strong>three restarts in five minutes, then stop.</strong></p>
+
+    <pre><span class="label">voice-core-supervisor.ts &mdash; launch (exit handler)</span><code>child.on(<span class="st">"exit"</span>, (code, signal) =&gt; {
+  proc = <span class="kw">null</span>;
+  <span class="kw">if</span> (signal === <span class="st">"SIGTERM"</span> || isShuttingDown) <span class="kw">return</span>;  <span class="cm">// our doing</span>
+  console.warn(<span class="st">`[voice-core] exited code=${code} signal=${signal}`</span>);
+  lastExit = { code, signal, at: Date.now() };
+
+  <span class="kw">const</span> now = Date.now();
+  restarts = restarts.filter((t) =&gt; now - t &lt; RESTART_WINDOW_MS);
+  <span class="kw">if</span> (restarts.length &gt;= RESTART_MAX) {
+    gaveUp = <span class="kw">true</span>;
+    console.error(<span class="st">`[voice-core] giving up after ${RESTART_MAX} restarts...`</span>);
+    <span class="kw">return</span>;
+  }
+  restarts.push(now);
+  setTimeout(() =&gt; {
+    <span class="kw">const</span> tierNow = <span class="fn">readPersistedTier</span>();
+    <span class="kw">if</span> (tierNow) <span class="fn">launch</span>(host, port, tierNow);
+  }, RESTART_DELAY_MS);
+});</code></pre>
+
+    <p>The window slides. Three deaths spread across an hour are tolerated &mdash; they're noise. Three deaths in 90 seconds is a crash loop. The supervisor stops. The <code>gaveUp</code> flag flips to true. The UI sees this via the IPC bridge.</p>
+
+    <h3>The IPC bridge</h3>
+
+    <p>Until this commit, the supervisor was opaque. You couldn't ask it "are you running?" from the renderer. Now it exposes two IPC channels:</p>
+
+    <pre><span class="label">electron/main.ts</span><code>ipcMain.handle(<span class="st">"voice-core:state"</span>, () =&gt; {
+  <span class="kw">if</span> (!voiceCoreService?.getState) <span class="kw">return</span> { available: <span class="kw">false</span> } <span class="kw">as const</span>;
+  <span class="kw">return</span> { available: <span class="kw">true</span>, ...voiceCoreService.getState() };
+});
+
+ipcMain.handle(<span class="st">"voice-core:restart"</span>, () =&gt; {
+  <span class="kw">if</span> (!voiceCoreService?.restart) <span class="kw">return</span> { available: <span class="kw">false</span> } <span class="kw">as const</span>;
+  <span class="kw">return</span> { available: <span class="kw">true</span>, ...voiceCoreService.restart() };
+});</code></pre>
+
+    <p>The preload script whitelists those channels:</p>
+
+    <pre><span class="label">electron/preload.ts</span><code><span class="kw">const</span> ALLOWED_INVOKE_CHANNELS = <span class="kw">new</span> Set&lt;<span class="ty">string</span>&gt;([
+  ...
+  <span class="st">"voice-core:state"</span>,
+  <span class="st">"voice-core:restart"</span>,
+]);</code></pre>
+
+    <p>And the settings drawer (or the onboarding "voice broken" branch) can now:</p>
+
+    <pre><code><span class="kw">const</span> { available, gaveUp, lastExit, running } =
+  <span class="kw">await</span> window.electronAPI.invoke(<span class="st">"voice-core:state"</span>);
+
+<span class="kw">if</span> (gaveUp) {
+  <span class="cm">// Show a "voice broken — try again" button</span>
+  <span class="kw">await</span> window.electronAPI.invoke(<span class="st">"voice-core:restart"</span>);
+}</code></pre>
+
+    <p>The <code>restart()</code> method clears the give-up state, resets the restart history, kills the existing child (if any), and re-launches. It is the operator-initiated reset. The user gets one button. They don't have to relaunch the app.</p>
+
+    <div class="insight purple">
+      <div class="insight-label">THE THREE-IN-FIVE RULE</div>
+      <p>Restart budgets are a mature pattern: systemd's <code>StartLimitIntervalSec</code>, kubelet's CrashLoopBackOff, supervisord's <code>startretries</code>. The number "3 in 5 minutes" is not magic &mdash; it is enough to swallow transient hiccups (a Hugging Face mirror flake, an OOM during model load that the next retry happens to fit) without burning CPU on a permanent crash loop.</p>
+    </div>
+
+    <p>One subtlety. The supervisor re-reads <code>inference-bindings.json</code> on every restart attempt:</p>
+
+    <pre><code><span class="kw">const</span> tierNow = <span class="fn">readPersistedTier</span>();
+<span class="kw">if</span> (tierNow) <span class="fn">launch</span>(host, port, tierNow);</code></pre>
+
+    <p>Why? Because onboarding might have just changed the tier between restarts. If the first crash happened on T2_CUDA (CUDA OOM on Parakeet) and onboarding then downgraded the user to T3_CPU, the next launch picks up the new tier from disk. No relaunch needed.</p>
+  </section>
+
+  <section id="ch10">
+    <h2>10 -- THE ARBITER</h2>
+    <div class="pipeline-bar">
+      <span>detect</span>
+      <span class="arrow">&rarr;</span>
+      <span>tier</span>
+      <span class="arrow">&rarr;</span>
+      <span>gate</span>
+      <span class="arrow">&rarr;</span>
+      <span>probe</span>
+      <span class="arrow">&rarr;</span>
+      <span>install</span>
+      <span class="arrow">&rarr;</span>
+      <span>pull</span>
+      <span class="arrow">&rarr;</span>
+      <span>supervisor</span>
+      <span class="arrow">&rarr;</span>
+      <span class="active">ARBITER</span>
+    </div>
+
+    <p class="drop-cap">Every byte of VRAM on this machine is contended. Ollama wants 5&nbsp;GB for the LLM. ComfyUI wants 8&nbsp;GB for SDXL. Parakeet wants 1.5&nbsp;GB for ASR. A 12&nbsp;GB RTX 4070 cannot host all of them simultaneously &mdash; not even close. The arbiter is the thing that decides who gets the GPU, and who has to wait.</p>
+
+    <p>It is the most opinionated file in the codebase. Six hundred lines. One global mutex on <code>globalThis</code>. A lane policy table that reads like a hierarchy chart. A restore queue that brings your chat model back after you finish rendering a video.</p>
+
+    <h3>Lanes, not models</h3>
+
+    <p>The arbiter doesn't think about models. It thinks about <strong>lanes</strong>:</p>
+
+    <pre><span class="label">lib/resource/types.ts (referenced)</span><code><span class="kw">type</span> <span class="ty">LaneId</span> =
+  | <span class="st">"chat"</span>      <span class="cm">// LLM via Ollama / llama-server</span>
+  | <span class="st">"vision"</span>    <span class="cm">// VLM &mdash; usually shares chat</span>
+  | <span class="st">"tts"</span>       <span class="cm">// Kokoro / Chatterbox</span>
+  | <span class="st">"stt"</span>       <span class="cm">// Whisper / Parakeet / Moonshine</span>
+  | <span class="st">"image"</span>     <span class="cm">// ComfyUI SDXL workflow</span>
+  | <span class="st">"audio"</span>     <span class="cm">// Stable Audio</span>
+  | <span class="st">"3d"</span>        <span class="cm">// Hunyuan 3D</span>
+  | <span class="st">"video"</span>     <span class="cm">// big video model</span>
+  | <span class="st">"omni"</span>;     <span class="cm">// speech-to-speech replaces chat+vision+tts+stt</span></code></pre>
+
+    <p>Every model is mapped to one lane. Acquiring a lane reserves an estimated VRAM amount with a UUID ticket. Releasing the ticket frees the reservation. The arbiter never knows the model. It knows the lane and the estimate.</p>
+
+    <h3>The eviction policy table</h3>
+
+    <p>This is the heart of the file. <code>EVICTABLE_BY[req.lane]</code> lists which lanes can be evicted to make room for <code>req.lane</code>:</p>
+
+    <pre><span class="label">arbiter.ts &mdash; EVICTABLE_BY</span><code><span class="kw">const</span> EVICTABLE_BY: <span class="ty">Record</span>&lt;<span class="ty">LaneId</span>, <span class="ty">ReadonlySet</span>&lt;<span class="ty">LaneId</span>&gt;&gt; = {
+  chat:   <span class="kw">new</span> Set([<span class="st">"chat"</span>]),                              <span class="cm">// chat doesn't evict others</span>
+  vision: <span class="kw">new</span> Set([<span class="st">"vision"</span>]),
+  tts:    <span class="kw">new</span> Set([<span class="st">"tts"</span>]),
+  stt:    <span class="kw">new</span> Set([<span class="st">"stt"</span>]),
+  image:  <span class="kw">new</span> Set([<span class="st">"image"</span>, <span class="st">"audio"</span>, <span class="st">"3d"</span>, <span class="st">"video"</span>]),
+  audio:  <span class="kw">new</span> Set([<span class="st">"image"</span>, <span class="st">"audio"</span>, <span class="st">"3d"</span>, <span class="st">"video"</span>]),
+  <span class="st">"3d"</span>:   <span class="kw">new</span> Set([<span class="st">"image"</span>, <span class="st">"audio"</span>, <span class="st">"3d"</span>, <span class="st">"chat"</span>, <span class="st">"vision"</span>]),
+  video:  <span class="kw">new</span> Set([<span class="st">"image"</span>, <span class="st">"audio"</span>, <span class="st">"3d"</span>, <span class="st">"video"</span>, <span class="st">"chat"</span>, <span class="st">"vision"</span>]),
+  omni:   <span class="kw">new</span> Set([<span class="st">"chat"</span>, <span class="st">"vision"</span>, <span class="st">"tts"</span>, <span class="st">"stt"</span>, <span class="st">"omni"</span>]),
+};</code></pre>
+
+    <p>Read it as a hierarchy. <strong>Chat doesn't evict anything</strong> &mdash; it waits or fails. <strong>Image and audio</strong> evict each other and the heavy media lanes, but not voice. <strong>3D and video</strong> are big enough that they kick chat out. <strong>Omni</strong> is the special case &mdash; it replaces the whole voice stack, so it evicts chat+vision+tts+stt as a unit.</p>
+
+    <p>The policy is asymmetric. A video render says "yes, kick everything." A chat request says "I'll wait." A speech-to-speech omni model says "I am the voice stack now."</p>
+
+    <h3>Three evict modes</h3>
+
+    <p>Callers pick how to fail:</p>
+
+    <table>
+      <thead>
+        <tr><th>Mode</th><th>When over budget</th><th>Use case</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>none</code></td><td>Deny immediately</td><td>Background loads, "best effort"</td></tr>
+        <tr><td><code>soft</code></td><td>Queue, wait up to <code>ttlMs</code></td><td>Interactive requests that can wait briefly</td></tr>
+        <tr><td><code>hard</code></td><td>Evict whatever <code>EVICTABLE_BY</code> allows, then retry</td><td>"I need this now &mdash; kick the others"</td></tr>
+      </tbody>
+    </table>
+
+    <p>The acquire flow:</p>
+
+    <div class="svg-wrap">
+      <span class="diagram-label">acquire(req) decision tree</span>
+      <svg viewBox="0 0 760 420" xmlns="http://www.w3.org/2000/svg" style="font-family: 'JetBrains Mono', monospace; font-size: 11px;">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M0,0 L10,5 L0,10 z" fill="#6a6a7e"/>
+          </marker>
+        </defs>
+        <!-- enter -->
+        <rect x="280" y="10" width="200" height="40" fill="#12121a" stroke="#00ff88" rx="4"/>
+        <text x="380" y="35" fill="#00ff88" text-anchor="middle">acquire(req)</text>
+        <line x1="380" y1="50" x2="380" y2="75" stroke="#6a6a7e" marker-end="url(#arr)"/>
+
+        <!-- snapshot -->
+        <rect x="260" y="78" width="240" height="40" fill="#12121a" stroke="#1e1e2e" rx="4"/>
+        <text x="380" y="103" fill="#c8c8d4" text-anchor="middle">refreshSnapshot() &rarr; freeMb</text>
+        <line x1="380" y1="118" x2="380" y2="143" stroke="#6a6a7e" marker-end="url(#arr)"/>
+
+        <!-- fits? -->
+        <polygon points="380,143 470,180 380,217 290,180" fill="#12121a" stroke="#ffdd00"/>
+        <text x="380" y="175" fill="#ffdd00" text-anchor="middle">freeMb &ge;</text>
+        <text x="380" y="190" fill="#ffdd00" text-anchor="middle">est + reserve?</text>
+
+        <!-- yes -> grant -->
+        <line x1="470" y1="180" x2="600" y2="180" stroke="#00ff88" marker-end="url(#arr)"/>
+        <text x="540" y="173" fill="#00ff88" text-anchor="middle">yes</text>
+        <rect x="600" y="160" width="140" height="40" fill="#12121a" stroke="#00ff88" rx="4"/>
+        <text x="670" y="185" fill="#00ff88" text-anchor="middle">grant ticket</text>
+
+        <!-- no -> evicts? -->
+        <line x1="290" y1="180" x2="180" y2="180" stroke="#ff8800" marker-end="url(#arr)"/>
+        <text x="240" y="173" fill="#ff8800" text-anchor="middle">no</text>
+        <polygon points="180,180 110,150 40,180 110,210" fill="#12121a" stroke="#ff8800"/>
+        <text x="110" y="183" fill="#ff8800" text-anchor="middle">evicts mode?</text>
+
+        <!-- none -> deny -->
+        <line x1="110" y1="150" x2="110" y2="100" stroke="#ff3344" marker-end="url(#arr)"/>
+        <text x="155" y="125" fill="#ff3344" text-anchor="middle">none</text>
+        <rect x="50" y="60" width="120" height="40" fill="#12121a" stroke="#ff3344" rx="4"/>
+        <text x="110" y="85" fill="#ff3344" text-anchor="middle">deny</text>
+
+        <!-- soft -> queue -->
+        <line x1="110" y1="210" x2="110" y2="260" stroke="#00ddff" marker-end="url(#arr)"/>
+        <text x="155" y="240" fill="#00ddff" text-anchor="middle">soft</text>
+        <rect x="40" y="265" width="140" height="40" fill="#12121a" stroke="#00ddff" rx="4"/>
+        <text x="110" y="290" fill="#00ddff" text-anchor="middle">enqueue + wait</text>
+
+        <!-- hard -> evict -->
+        <line x1="180" y1="180" x2="280" y2="290" stroke="#ff00aa" marker-end="url(#arr)"/>
+        <text x="240" y="225" fill="#ff00aa">hard</text>
+        <rect x="280" y="290" width="200" height="40" fill="#12121a" stroke="#ff00aa" rx="4"/>
+        <text x="380" y="315" fill="#ff00aa" text-anchor="middle">unload victims &rarr; retry</text>
+
+        <line x1="380" y1="330" x2="380" y2="365" stroke="#6a6a7e" marker-end="url(#arr)"/>
+        <rect x="280" y="368" width="200" height="40" fill="#12121a" stroke="#1e1e2e" rx="4"/>
+        <text x="380" y="393" fill="#c8c8d4" text-anchor="middle">waitForFree(30s)</text>
+      </svg>
+    </div>
+
+    <h3>Restore-on-idle</h3>
+
+    <p>The trick that makes the whole thing user-friendly. When the arbiter evicts a chat model to make room for a video render, it pushes the chat reservation onto a restore queue:</p>
+
+    <pre><span class="label">arbiter.ts &mdash; evict</span><code><span class="kw">if</span> (victim.restoreOnIdle) {
+  restoreQueue.unshift({
+    lane: victim.lane,
+    estimateMb: victim.estimateMb,
+    reason: victim.reason,
+    modelId: victim.modelId,
+    evictedAt: Date.now(),
+  });
+  emit({ kind: <span class="st">"restore-scheduled"</span>, at: Date.now(), lane: victim.lane, modelId: victim.modelId });
+}</code></pre>
+
+    <p>When the video render finishes (release fires), <code>maybeRestore()</code> runs:</p>
+
+    <pre><span class="label">arbiter.ts &mdash; maybeRestore</span><code><span class="kw">async function</span> <span class="fn">maybeRestore</span>() {
+  <span class="kw">if</span> (restoreQueue.length === <span class="nm">0</span>) <span class="kw">return</span>;
+  <span class="kw">await</span> <span class="fn">refreshSnapshot</span>();
+  <span class="kw">const</span> snap = <span class="fn">getSnapshot</span>();
+  <span class="cm">// Skip restore if any heavy lane is still active.</span>
+  <span class="kw">for</span> (<span class="kw">const</span> r <span class="kw">of</span> reservations.values()) {
+    <span class="kw">if</span> (r.lane === <span class="st">"3d"</span> || r.lane === <span class="st">"video"</span> ||
+        r.lane === <span class="st">"image"</span> || r.lane === <span class="st">"audio"</span>) <span class="kw">return</span>;
+  }
+  <span class="kw">const</span> next = restoreQueue[<span class="nm">0</span>];
+  <span class="kw">if</span> (snap.freeMb &lt; next.estimateMb + snap.reserveMb + RESTORE_HEADROOM_MB) <span class="kw">return</span>;
+  restoreQueue.shift();
+  <span class="cm">// Best-effort silent re-acquire.</span>
+  <span class="kw">await</span> <span class="fn">acquire</span>({
+    lane: next.lane, estimateMb: next.estimateMb,
+    reason: <span class="st">`restore: ${next.reason}`</span>,
+    evicts: <span class="st">"none"</span>, restoreOnIdle: <span class="kw">true</span>, priority: <span class="st">"background"</span>,
+  });
+}</code></pre>
+
+    <p>The user finishes their video. The arbiter notices the GPU is idle. The chat model lazy-loads back without anyone asking. The next time the user types a message, it's already warm.</p>
+
+    <h3>Downgrade swap</h3>
+
+    <p>The wildest pattern in the file. When a video render needs to evict a 9&nbsp;GB chat model, the arbiter can perform a <strong>downgrade swap</strong> &mdash; unload the big model, load a 3&nbsp;GB version of the same model on the same lane, and queue the original for restore:</p>
+
+    <pre><span class="label">arbiter.ts &mdash; evict (swap branch)</span><code><span class="kw">if</span> (victim.swapTo) {
+  <span class="kw">const</span> unloaded = <span class="kw">await</span> <span class="fn">doUnload</span>(victim.lane, victim.modelId);
+  <span class="kw">if</span> (unloaded.ok) {
+    <span class="cm">// Insert a fresh reservation for the swap target.</span>
+    reservations.set(swapTicket, {
+      ticket: swapTicket, lane: victim.lane,
+      estimateMb: victim.swapTo.estimateMb,
+      reason: <span class="st">`downgrade for ${reason}`</span>,
+      modelId: victim.swapTo.modelId,
+      restoreOnIdle: <span class="kw">false</span>,  <span class="cm">// the *original* is what we want back</span>
+      ...
+    });
+    <span class="kw">if</span> (victim.restoreOnIdle) {
+      restoreQueue.unshift({
+        lane: victim.lane, estimateMb: victim.estimateMb,
+        modelId: victim.modelId, replacesTicket: swapTicket,
+      });
+    }
+    emit({ kind: <span class="st">"downgrade-swap"</span>, ... });
+    <span class="kw">return</span>;
+  }
+}</code></pre>
+
+    <p>The user gets a smaller, dumber chat model while their video renders. When the video finishes, the smaller model is unloaded and the original 9&nbsp;GB model lazy-loads back. <em>Chat keeps working through the eviction.</em> That's the design goal: never go silent.</p>
+
+    <div class="insight wild">
+      <div class="insight-label">SMALLER WHILE BUSY</div>
+      <p>This is the pattern that makes co-located generation feel possible on a 12&nbsp;GB card. You don't choose between "render a video" and "have a chat." The arbiter chooses for you &mdash; render gets the budget, chat gets a smaller shape, and the moment the GPU is free again, your preferred model is back. The user never knows the swap happened unless they're staring at the resource pane.</p>
+    </div>
+
+    <p>One more rule that keeps the arbiter sane. The state pins to <code>globalThis</code>:</p>
+
+    <pre><span class="label">arbiter.ts &mdash; getState</span><code><span class="kw">const</span> STATE_KEY = <span class="st">"__controlDeckArbiterState"</span>;
+<span class="kw">function</span> <span class="fn">getState</span>(): <span class="ty">ArbiterState</span> {
+  <span class="kw">const</span> g = globalThis <span class="kw">as unknown as</span> <span class="ty">Record</span>&lt;<span class="ty">string</span>, <span class="ty">ArbiterState</span> | <span class="kw">undefined</span>&gt;;
+  <span class="kw">if</span> (!g[STATE_KEY]) { g[STATE_KEY] = { reservations: <span class="kw">new</span> Map(), ... }; }
+  <span class="kw">return</span> g[STATE_KEY]!;
+}</code></pre>
+
+    <p>Why globalThis? Because Next.js dev HMR throws away module bindings every time a file changes. Without this hack, every code reload would wipe your reservations and the next acquire would think the GPU was empty &mdash; while ollama was still sitting on 5&nbsp;GB. Pinning to <code>globalThis</code> survives HMR.</p>
+  </section>
+
+  <div class="act-break">
+    <div class="act-number">// ACT III</div>
+    <div class="act-title">THE NEXT MILLION BOOTS</div>
+    <div class="act-subtitle">What changes after the first one.</div>
+  </div>
+
+  <section id="ch11">
+    <h2>11 -- THE SECOND BOOT</h2>
+    <p class="drop-cap">All of the previous ten chapters happen exactly once per machine. Second boot is the boring case &mdash; and the boring case is what most users actually experience. The user opens the app, the gate fires, sees <code>done: true</code> and <code>ollamaHealthy: true</code>, and returns null. The user lands on <code>/deck/chat</code>. The whole onboarding chain skipped silently.</p>
+
+    <p>Here is the second-boot timeline, in real time:</p>
+
+    <div class="diagram">
+      <span class="diagram-label">Second boot &mdash; ~1.2 seconds, end to end</span>
+      <pre><code><span class="nm">t=0ms</span>    Electron main starts. Reads inference-bindings.json.
+        Voice-core supervisor: tier="T2_CUDA", spawn uv run voice-core serve.
+        Voice-core child starts loading Parakeet + Kokoro (background, &asymp;15s).
+<span class="nm">t=300ms</span>  Next.js server is up. Renderer process attaches.
+<span class="nm">t=350ms</span>  Renderer mounts. Layout renders DeckShell + OnboardingGate.
+        OnboardingGate checks localStorage: <span class="st">"1"</span> -- fast path, returns null.
+<span class="nm">t=400ms</span>  Browser draws the chat pane (cached layout from .next/static).
+<span class="nm">t=600ms</span>  User sees the chat input. Types a message.
+<span class="nm">t=900ms</span>  Server receives POST /api/chat/stream.
+<span class="nm">t=1.0s</span>   Ollama returns first token (model already loaded in VRAM by ollama serve).
+<span class="nm">t=1.2s</span>   First word renders.
+
+<span class="cm">// Meanwhile, in parallel:</span>
+<span class="nm">t=400ms</span>  Gate kicks off background GET /api/onboarding/state (cache:no-store).
+<span class="nm">t=550ms</span>  Server probes 127.0.0.1:11434/api/tags. Ollama is up.
+<span class="nm">t=580ms</span>  Server returns { done:true, tier:<span class="st">"T2_CUDA"</span>, ollamaHealthy:<span class="kw">true</span> }.
+<span class="nm">t=585ms</span>  Gate confirms, re-stamps localStorage. No-op redirect.</code></pre>
+    </div>
+
+    <h3>What "supervisor takes over" actually means</h3>
+
+    <p>On first boot, the orchestrator's <code>provisionVoiceCore()</code> spawned voice-core detached. That sidecar lives until the user reboots &mdash; nothing in the deck owns it. On second boot, the picture changes.</p>
+
+    <p>The Electron supervisor reads <code>inference-bindings.json</code> at <code>app.whenReady()</code> and sees <code>selectedTier: "T2_CUDA"</code>. It probes port 4245. Three possibilities:</p>
+
+    <ol>
+      <li><strong>Port is listening</strong> &mdash; the detached sidecar from yesterday is still running. Supervisor logs "port 4245 already listening &mdash; assuming prior instance, not spawning" and stops there. The deck talks to the existing sidecar.</li>
+      <li><strong>Port is free</strong> &mdash; the user rebooted, or the sidecar crashed cleanly. Supervisor spawns a fresh child via the uv ladder.</li>
+      <li><strong>No tier persisted</strong> &mdash; first boot, before onboarding completed. Supervisor logs "no tier installed yet &mdash; idle" and waits.</li>
+    </ol>
+
+    <h3>The persisted-tier handoff</h3>
+
+    <p>This is the contract between the orchestrator and the supervisor. The orchestrator never spawns voice-core through the supervisor &mdash; it writes the tier to disk and trusts that the next boot will pick it up. The supervisor never reads the consent file or runs an installer &mdash; it just spawns whatever tier the orchestrator left behind.</p>
+
+    <pre><span class="label">voice-core-supervisor.ts &mdash; readPersistedTier</span><code><span class="kw">function</span> <span class="fn">readPersistedTier</span>(): <span class="ty">string</span> | <span class="kw">null</span> {
+  <span class="kw">const</span> base =
+    process.env.CONTROL_DECK_USER_DATA ??
+    (app.isPackaged ? app.getPath(<span class="st">"userData"</span>) : path.join(repoRoot(), <span class="st">"data"</span>));
+  <span class="kw">const</span> file = path.join(base, <span class="st">"inference-bindings.json"</span>);
+  <span class="kw">try</span> {
+    <span class="kw">if</span> (!fs.existsSync(file)) <span class="kw">return null</span>;
+    <span class="kw">const</span> parsed = JSON.parse(fs.readFileSync(file, <span class="st">"utf8"</span>)) <span class="kw">as</span> { selectedTier?: <span class="ty">string</span> };
+    <span class="kw">return</span> <span class="kw">typeof</span> parsed.selectedTier === <span class="st">"string"</span> ? parsed.selectedTier : <span class="kw">null</span>;
+  } <span class="kw">catch</span> { <span class="kw">return null</span>; }
+}</code></pre>
+
+    <p>That's the entire handshake. One file. Three OSes. The orchestrator (Next.js process) and the supervisor (Electron main) never IPC about this &mdash; they communicate through the filesystem.</p>
+
+    <h3>The Ollama health re-check</h3>
+
+    <p>Every second boot, the gate fires <code>readDoneState()</code>, which probes Ollama:</p>
+
+    <pre><code><span class="kw">const</span> ollamaHealthy = <span class="kw">await</span> <span class="fn">probeOllamaService</span>();
+<span class="kw">return</span> { done: <span class="kw">true</span>, ...stored, ollamaHealthy };</code></pre>
+
+    <p>This is one HTTP request to <code>127.0.0.1:11434/api/tags</code> with a 1.5-second timeout. If it succeeds, normal flow. If it fails &mdash; the Ollama service crashed, the port got hijacked, the user uninstalled and forgot &mdash; the gate routes back to onboarding. The probe re-detects missing pieces; the orchestrator runs only the steps that need running. The user sees a fresh checklist with <code>○ Ollama service running</code> and a "Get me running" button that just restarts the service.</p>
+
+    <div class="insight">
+      <div class="insight-label">THE IDEMPOTENT GOLDEN PATH</div>
+      <p>Every step the orchestrator runs is idempotent. Pulling a model that's already pulled is a no-op (Ollama skips because the manifest matches). Starting a service that's already running succeeds. Installing Ollama when it's already on PATH is gated out by <code>probe.missing.ollama</code>. The same code path that does a fresh install also does a repair. The user clicks "Get me running" and the system does whatever is necessary &mdash; nothing more.</p>
+    </div>
+
+    <p>Most boots after the first one feel instant because most boots don't run anything except the gate's localStorage check and a single HTTP probe. The expensive thing &mdash; voice-core loading two 1.5&nbsp;GB models from disk into VRAM &mdash; runs in the background while the user is reading their chat history.</p>
+  </section>
+
+  <section id="ch12">
+    <h2>12 -- WHAT BREAKS, AND WHY THE DECK NOTICES</h2>
+    <p class="drop-cap">A good measure of a system is the list of things it can fail at gracefully. Control Deck has a longer list than most desktop apps, because most desktop apps don't try to install neural networks on machines they've never seen. Here is the inventory: the failure modes the deck plans for, by name, with the line that catches each one.</p>
+
+    <h3>The headless SSH user</h3>
+
+    <p>A user opens the deck on a remote machine over SSH X-forwarding. There is no polkit agent. <code>pkexec</code> will hang on a prompt nobody can answer. The orchestrator catches this before it spawns:</p>
+
+    <pre><span class="label">orchestrator.ts</span><code><span class="kw">if</span> (recipe.platform === <span class="st">"linux"</span> &amp;&amp; <span class="fn">requiresGraphicalAgent</span>(recipe.ollama.install.command)) {
+  <span class="kw">if</span> (!process.env.DISPLAY &amp;&amp; !process.env.WAYLAND_DISPLAY) {
+    <span class="kw">yield</span> stamp({
+      id: <span class="st">"install-ollama"</span>,
+      status: <span class="st">"failed"</span>,
+      detail: <span class="st">`No graphical session detected &mdash; \`pkexec\` needs a polkit agent.</span>
+        <span class="st">Open a terminal and run: \`${recipe.ollama.install.consent.manual_fallback}\``</span>,
+    });
+    <span class="kw">return</span>;
+  }
+}</code></pre>
+
+    <h3>NixOS and Alpine</h3>
+
+    <p>NixOS users can't write to <code>/usr/local/bin</code>. Alpine ships musl libc, which the Ollama binary doesn't link against. Both make Ollama's <code>install.sh</code> succeed silently and produce a binary that segfaults on first run.</p>
+
+    <pre><span class="label">orchestrator.ts &mdash; detectUnsupportedDistro</span><code><span class="kw">function</span> <span class="fn">detectUnsupportedDistro</span>(): <span class="ty">string</span> | <span class="kw">null</span> {
+  <span class="kw">if</span> (process.platform !== <span class="st">"linux"</span>) <span class="kw">return null</span>;
+  <span class="kw">if</span> (existsSync(<span class="st">"/etc/nixos"</span>) || existsSync(<span class="st">"/etc/NIXOS"</span>)) <span class="kw">return</span> <span class="st">"NixOS"</span>;
+  <span class="kw">if</span> (existsSync(<span class="st">"/etc/alpine-release"</span>)) <span class="kw">return</span> <span class="st">"Alpine Linux"</span>;
+  <span class="kw">return null</span>;
+}</code></pre>
+
+    <p>Two files. Two early exits. The user gets <em>"NixOS isn't supported by Ollama's install script. Install via your distro's package manager and retry."</em> &mdash; before the 250&nbsp;MB download starts, not after.</p>
+
+    <h3>The vanilla Mac without Homebrew</h3>
+
+    <p>The macOS recipe assumes <code>brew</code> is on PATH. A fresh Mac doesn't have it. <code>firstMissingDependency()</code> catches this and the probe sets <code>autoInstallable: false</code>. The UI flips to the <code>ManualInstallPanel</code> &mdash; a card with a big "Download Ollama" button pointed at <code>ollama.com/download</code> and a "I've installed it &mdash; check again" affordance.</p>
+
+    <pre><span class="label">OnboardingFlow.tsx</span><code>{probe.missing.ollama &amp;&amp; probe.installPlan ? (
+  probe.installPlan.autoInstallable === <span class="kw">false</span> ? (
+    &lt;<span class="ty">ManualInstallPanel</span> consent={probe.installPlan.consent} /&gt;
+  ) : (
+    &lt;<span class="ty">ConsentPanel</span> ... /&gt;
+  )
+) : <span class="kw">null</span>}</code></pre>
+
+    <h3>The voice-core crash loop</h3>
+
+    <p>Three deaths in five minutes and the supervisor stops. The UI sees <code>gaveUp: true</code> via the IPC bridge. Without the just-added <code>restart()</code> method, the only fix would be relaunching Electron. Now there's a button.</p>
+
+    <p>The settings drawer's <em>Backend</em> pills are the visible surface. The drawer probes <code>/api/backend</code> for ollama and llama_server status:</p>
+
+    <pre><span class="label">SettingsDrawer.tsx &mdash; useLocalBackendHealth</span><code><span class="kw">const</span> one = <span class="kw">async</span> (provider) =&gt; {
+  <span class="kw">try</span> {
+    <span class="kw">const</span> res = <span class="kw">await</span> fetch(<span class="st">"/api/backend"</span>, {
+      method: <span class="st">"POST"</span>,
+      body: JSON.stringify({ provider, setActive: <span class="kw">false</span> }),
+    });
+    <span class="kw">return</span> res.ok &amp;&amp; !!(<span class="kw">await</span> res.json()).healthy;
+  } <span class="kw">catch</span> { <span class="kw">return</span> <span class="kw">false</span>; }
+};</code></pre>
+
+    <p>Each pill gets a colored dot: cyan accent if reachable, dim red if offline, gray if probing. The probe runs on drawer open and on backend switch. No cloud probes &mdash; those burn API credits for no benefit on a health check.</p>
+
+    <h3>The pull stream dies mid-download</h3>
+
+    <p>Already covered in chapter 8. The orchestrator never trusts the stream alone &mdash; it re-probes <code>/api/tags</code> after the loop ends. If the tag isn't there, it tells the user the network dropped and that Ollama's partial cache will resume on retry.</p>
+
+    <h3>The Windows installer changes PATH but our process can't see it</h3>
+
+    <p>Already covered in chapter 7. <code>refreshWindowsPath()</code> re-reads <code>HKCU\Environment\Path</code> via powershell and merges it into <code>process.env.PATH</code> in memory. The verify step then sees <code>ollama --version</code> succeed.</p>
+
+    <h3>The packaged Electron build can't find windows.yaml</h3>
+
+    <p>Already covered in chapter 6. Next.js's standalone tracer doesn't follow dynamic <code>readFileSync</code> calls, so the YAMLs would be missing. The fix:</p>
+
+    <pre><span class="label">next.config.ts</span><code><span class="ty">outputFileTracingIncludes:</span> {
+  <span class="st">"/api/onboarding/**/*"</span>: [<span class="st">"./lib/onboarding/recipes/*.yaml"</span>],
+},</code></pre>
+
+    <h3>OOM under arbiter contention</h3>
+
+    <p>The sidecar reports CUDA OOM to the arbiter. The arbiter drops every reservation on that lane and force-unloads:</p>
+
+    <pre><span class="label">arbiter.ts &mdash; reportOom</span><code><span class="kw">export async function</span> <span class="fn">reportOom</span>(lane, error) {
+  emit({ kind: <span class="st">"oom"</span>, at: Date.now(), lane, error });
+  <span class="kw">for</span> (<span class="kw">const</span> [ticket, r] <span class="kw">of</span> reservations) {
+    <span class="kw">if</span> (r.lane === lane) {
+      reservations.delete(ticket);
+      emit({ kind: <span class="st">"release"</span>, ... });
+    }
+  }
+  <span class="kw">await</span> <span class="fn">doUnload</span>(lane).catch(() =&gt; <span class="kw">null</span>);
+  <span class="kw">await</span> <span class="fn">refreshSnapshot</span>();
+  <span class="fn">pumpQueue</span>();
+}</code></pre>
+
+    <p>Then it pumps the queue. Anyone waiting on that lane (a soft-evict caller) gets re-tried. If they fit now, they win. If they don't, they time out gracefully.</p>
+
+    <h3>The Skip button trap</h3>
+
+    <p>One quirk worth flagging. The Skip button calls <code>markDoneManual()</code>, which writes a done flag with <code>skipped: true</code> and no tier. The next time the user opens the deck, the gate sees <code>done: true</code> and looks at <code>ollamaHealthy</code>. If they skipped before installing Ollama, <code>ollamaHealthy</code> is false, and the gate routes them <em>back</em> to onboarding. They have to skip again. This is by design &mdash; the user said "I'll set this up later" and the system honors it &mdash; but it's the rough edge most likely to confuse a future maintainer.</p>
+
+    <div class="insight danger">
+      <div class="insight-label">FAIL LOUD, FAIL EARLY</div>
+      <p>Every one of these failure modes has the same structure: detect before the expensive operation, surface a sentence the user can act on, never silently succeed. The most expensive failure is the 5&nbsp;GB pull that completes and then the smoke test discovers the wrong CPU instruction set. The cheapest failure is "you don't have <code>curl</code>." Push every check as far upstream as it'll go.</p>
+    </div>
+
+    <p>What does Control Deck actually do? It detects your hardware honestly. It picks a model stack you can actually run. It installs the pieces, with consent, and tells you exactly what command will execute. It pulls the weights, throttles the progress bar, and re-verifies after the stream closes. It supervises a Python sidecar with a sliding-window restart budget and a kill switch. It arbitrates every byte of VRAM with a lane policy that knows what's evictable for what.</p>
+
+    <p>And when it breaks &mdash; because it will &mdash; it tells you what broke, in a sentence, and gives you a button.</p>
+
+    <p>That's the whole deck. Five minutes on the first boot. Twelve hundred milliseconds every time after.</p>
+  </section>
+</div>
+</body>
+</html>

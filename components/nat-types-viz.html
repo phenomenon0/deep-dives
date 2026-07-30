@@ -1,0 +1,113 @@
+<!-- NAT Types Interactive Visualization — insert after "Four Types of NAT" heading -->
+<div class="viz-container" id="nat-viz">
+<span class="diagram-label">Interactive &ndash; NAT filtering by type</span>
+<svg viewBox="0 0 780 300" xmlns="http://www.w3.org/2000/svg" font-family="'JetBrains Mono', monospace">
+  <defs>
+    <marker id="ah" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto"><polygon points="0,0 6,2 0,4" fill="#6a6a7e"/></marker>
+    <marker id="ah-g" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto"><polygon points="0,0 6,2 0,4" fill="#00ff88"/></marker>
+    <marker id="ah-r" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto"><polygon points="0,0 6,2 0,4" fill="#ff3344"/></marker>
+  </defs>
+
+  <!-- INTERNAL DEVICE -->
+  <rect x="14" y="50" width="150" height="70" rx="4" fill="#12121a" stroke="#2a2a3a"/>
+  <text x="89" y="72" fill="#6a6a7e" font-size="9" text-anchor="middle" letter-spacing="0.08em">INTERNAL DEVICE</text>
+  <text x="89" y="95" fill="#c8c8d4" font-size="11" text-anchor="middle">10.0.0.42:51820</text>
+  <text x="89" y="112" fill="#6a6a7e" font-size="9" text-anchor="middle">sent to 5.6.7.8:4000</text>
+
+  <!-- Arrow: device → NAT -->
+  <line x1="164" y1="85" x2="240" y2="85" stroke="#6a6a7e" stroke-width="1" marker-end="url(#ah)"/>
+
+  <!-- NAT BOX -->
+  <rect x="244" y="20" width="260" height="260" rx="4" fill="#12121a" stroke="#2a2a3a"/>
+  <text x="374" y="44" fill="#6a6a7e" font-size="10" text-anchor="middle" letter-spacing="0.1em">NAT</text>
+
+  <!-- Mapping table -->
+  <text x="264" y="68" fill="#6a6a7e" font-size="8" letter-spacing="0.06em">MAPPING TABLE</text>
+  <rect x="264" y="74" width="220" height="22" rx="2" fill="#0a0a0f" stroke="#2a2a3a"/>
+  <text id="nat-map1" x="274" y="89" fill="#c8c8d4" font-size="9">10.0.0.42:51820 → 73.x:34921</text>
+  <rect id="nat-map2-bg" x="264" y="98" width="220" height="22" rx="2" fill="#0a0a0f" stroke="#2a2a3a" opacity="0"/>
+  <text id="nat-map2" x="274" y="113" fill="#c8c8d4" font-size="9" opacity="0"></text>
+
+  <!-- Filter rule -->
+  <text x="264" y="142" fill="#6a6a7e" font-size="8" letter-spacing="0.06em">FILTER RULE</text>
+  <text id="nat-rule" x="264" y="160" fill="#00ff88" font-size="10">Any source accepted</text>
+
+  <!-- Result text -->
+  <text x="264" y="195" fill="#6a6a7e" font-size="8" letter-spacing="0.06em">HOLE-PUNCHABLE?</text>
+  <text id="nat-punch" x="264" y="213" fill="#00ff88" font-size="12" font-weight="600">Yes — trivial</text>
+
+  <!-- Verdict explanation -->
+  <text id="nat-why" x="264" y="240" fill="#6a6a7e" font-size="8.5"></text>
+  <text id="nat-why2" x="264" y="254" fill="#6a6a7e" font-size="8.5"></text>
+
+  <!-- Arrows: packets → NAT (incoming) -->
+  <line id="arrow-a" x1="588" y1="85" x2="510" y2="85" stroke="#00ff88" stroke-width="1.5" marker-end="url(#ah-g)"/>
+  <line id="arrow-b" x1="588" y1="195" x2="510" y2="195" stroke="#ff3344" stroke-width="1.5" marker-end="url(#ah-r)" stroke-dasharray="4,3"/>
+
+  <!-- PACKET A -->
+  <rect x="588" y="50" width="178" height="70" rx="4" fill="#12121a" stroke="#2a2a3a"/>
+  <text x="677" y="70" fill="#6a6a7e" font-size="8" text-anchor="middle" letter-spacing="0.06em">PACKET A</text>
+  <text x="677" y="87" fill="#c8c8d4" font-size="10" text-anchor="middle">from 5.6.7.8:4000</text>
+  <text x="677" y="102" fill="#6a6a7e" font-size="8" text-anchor="middle">(host we sent to)</text>
+  <text id="verdict-a" x="677" y="138" fill="#00ff88" font-size="14" text-anchor="middle" font-weight="700">✓ PASS</text>
+
+  <!-- PACKET B -->
+  <rect x="588" y="165" width="178" height="70" rx="4" fill="#12121a" stroke="#2a2a3a"/>
+  <text x="677" y="185" fill="#6a6a7e" font-size="8" text-anchor="middle" letter-spacing="0.06em">PACKET B</text>
+  <text id="pkt-b-from" x="677" y="202" fill="#c8c8d4" font-size="10" text-anchor="middle">from 9.9.9.9:5000</text>
+  <text x="677" y="217" fill="#6a6a7e" font-size="8" text-anchor="middle">(different host)</text>
+  <text id="verdict-b" x="677" y="253" fill="#ff3344" font-size="14" text-anchor="middle" font-weight="700">✗ DROP</text>
+</svg>
+
+<div class="viz-controls">
+  <button onclick="setNat(0)" id="nb0">Full Cone</button>
+  <button onclick="setNat(1)" id="nb1" class="secondary">Restricted</button>
+  <button onclick="setNat(2)" id="nb2" class="secondary">Port-Restricted</button>
+  <button onclick="setNat(3)" id="nb3" class="secondary">Symmetric</button>
+</div>
+</div>
+
+<script>
+(function(){
+  const G = '#00ff88', C = '#00ddff', O = '#ff8800', R = '#ff3344';
+  const types = [
+    { rule: 'Any source accepted', punch: 'Yes — trivial', c: G,
+      map2: '', why: 'Any host can send to the external port.', why2: 'Both packets pass regardless of source.',
+      vb: '✓ PASS', vc: G, bd: '' },
+    { rule: 'Only IPs we sent to can reply', punch: 'Yes — both sides send first', c: C,
+      map2: '', why: 'IP 5.6.7.8 is in the allow list.', why2: 'IP 9.9.9.9 was never contacted → dropped.',
+      vb: '✗ DROP', vc: R, bd: '4,3' },
+    { rule: 'Only exact IP:port we sent to', punch: 'Usually — timing is tight', c: O,
+      map2: '', why: '5.6.7.8:4000 matches exactly.', why2: '9.9.9.9:5000 fails both IP and port check.',
+      vb: '✗ DROP', vc: R, bd: '4,3' },
+    { rule: 'Only exact IP:port + port changes', punch: 'Rarely — need relay', c: R,
+      map2: '10.0.0.42:51820 → 73.x:34922  (to C)', why: 'STUN sees port 34921, but peer gets 34922.', why2: 'Port is unpredictable → hole-punch fails.',
+      vb: '✗ DROP', vc: R, bd: '4,3' }
+  ];
+  const $ = id => document.getElementById(id);
+  window.setNat = function(i) {
+    const t = types[i];
+    for (let j = 0; j < 4; j++) $('nb'+j).className = j === i ? '' : 'secondary';
+    $('nat-rule').textContent = t.rule;
+    $('nat-rule').setAttribute('fill', t.c);
+    $('nat-punch').textContent = t.punch;
+    $('nat-punch').setAttribute('fill', t.c);
+    $('nat-why').textContent = t.why;
+    $('nat-why2').textContent = t.why2;
+    // Mapping row 2 for Symmetric
+    $('nat-map2').textContent = t.map2;
+    $('nat-map2').setAttribute('opacity', t.map2 ? '1' : '0');
+    $('nat-map2-bg').setAttribute('opacity', t.map2 ? '1' : '0');
+    // Packet B verdict
+    $('verdict-b').textContent = t.vb;
+    $('verdict-b').setAttribute('fill', t.vc);
+    // Packet A always passes
+    $('verdict-a').textContent = '✓ PASS';
+    $('verdict-a').setAttribute('fill', '#00ff88');
+    // Arrow B styling
+    $('arrow-b').setAttribute('stroke', t.vc);
+    $('arrow-b').setAttribute('stroke-dasharray', t.bd);
+    $('arrow-b').setAttribute('marker-end', t.vc === G ? 'url(#ah-g)' : 'url(#ah-r)');
+  };
+})();
+</script>

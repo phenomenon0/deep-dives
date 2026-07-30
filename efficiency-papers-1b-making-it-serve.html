@@ -1,0 +1,2671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Making It Serve &mdash; The Efficiency Papers, Part I-B</title>
+  <link rel="canonical" href="https://femiadeniran.com/deep-dives/efficiency-papers-1b-making-it-serve.html">
+  <meta property="og:title" content="Making It Serve — The Efficiency Papers, Part I-B">
+  <meta property="og:description" content="One request is easy. Ten thousand concurrent is a policy problem. The papers that turned inference into infrastructure — from continuous batching to speculative decoding.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://femiadeniran.com/deep-dives/efficiency-papers-1b-making-it-serve.html">
+  <meta property="og:site_name" content="Femi Adeniran">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Making It Serve — The Efficiency Papers, Part I-B">
+  <meta name="twitter:description" content="One request is easy. Ten thousand concurrent is a policy problem. The papers that turned inference into infrastructure — from continuous batching to speculative decoding.">
+  <meta name="author" content="Femi Adeniran">
+<meta name="description" content="One request is easy. Ten thousand concurrent is a policy problem. The papers that turned inference into infrastructure — from continuous batching to speculative decoding.">
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<link
+  href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+  rel="stylesheet"
+>
+<style>
+:root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --white: #e8e8f0;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+}
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 3rem; }
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+}
+
+body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.03) 2px,
+        rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+}
+
+nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 1000;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 1.5rem;
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+}
+nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    transition: color 0.2s, text-shadow 0.2s;
+    padding: 0.3rem 0;
+}
+nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+nav a.active { color: var(--green); text-shadow: 0 0 12px rgba(0,255,136,0.4); }
+.nav-title {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 0.5rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.25);
+    flex-shrink: 0;
+}
+
+.content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+}
+
+.hero {
+    text-align: center;
+    padding: 4rem 0 5rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4rem;
+}
+.hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3rem;
+    font-weight: 600;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+}
+.subtitle {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 640px;
+    margin: 0 auto;
+}
+.series-kicker {
+    margin-top: 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.glitch { position: relative; display: inline-block; }
+.glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    inset: 0;
+    width: 100%; height: 100%;
+}
+.glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 3s infinite linear alternate-reverse;
+    clip-path: inset(0 0 80% 0);
+}
+.glitch::after {
+    color: var(--magenta);
+    animation: glitch-2 2.5s infinite linear alternate-reverse;
+    clip-path: inset(80% 0 0 0);
+}
+.blink { display: inline-block; animation: blink 1s step-end infinite; color: var(--green); }
+@keyframes blink { 50% { opacity: 0; } }
+@keyframes glitch-1 {
+    0%, 90% { transform: translate(0); }
+    92% { transform: translate(-3px, 1px); }
+    94% { transform: translate(3px, -1px); }
+    96% { transform: translate(-2px, 2px); }
+    100% { transform: translate(0); }
+}
+@keyframes glitch-2 {
+    0%, 88% { transform: translate(0); }
+    90% { transform: translate(2px, -1px); }
+    93% { transform: translate(-3px, 2px); }
+    96% { transform: translate(1px, -2px); }
+    100% { transform: translate(0); }
+}
+
+section { margin-bottom: 5rem; padding-top: 1rem; }
+
+h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: var(--green);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: 0.02em;
+}
+h3 {
+    font-size: 1.25rem;
+    color: var(--cyan);
+    margin: 2.5rem 0 1rem;
+    font-weight: 600;
+}
+h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 2rem 0 0.8rem;
+}
+p { margin-bottom: 1rem; }
+strong { color: var(--white); }
+a { color: var(--cyan); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4rem;
+    line-height: 0.8;
+    padding: 0.1em 0.15em 0 0;
+    color: var(--green);
+    font-weight: 700;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+}
+
+code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.15em 0.4em;
+}
+pre {
+    position: relative;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    margin: 1.2rem 0;
+}
+pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+}
+
+.cm { color: var(--text-dim); }
+.kw { color: var(--magenta); }
+.ty { color: var(--cyan); }
+.st { color: var(--green); }
+.nm { color: var(--yellow); }
+.fn { color: var(--blue); }
+.pp { color: var(--orange); }
+
+.label {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.8rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+}
+
+.diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+}
+.diagram pre { border: none; margin: 0; padding: 0; background: none; font-size: 12.5px; line-height: 1.45; }
+.diagram-label {
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    margin-bottom: 0.8rem;
+}
+
+.power {
+    border-left: 3px solid var(--green-dim);
+    background: rgba(0,255,136,0.04);
+    padding: 1rem 1.2rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+}
+.power p { font-size: 0.88rem; line-height: 1.6; margin-bottom: 0; }
+.power.danger { border-left-color: var(--red); background: rgba(255,51,68,0.04); }
+.power.hack { border-left-color: var(--magenta); background: rgba(255,0,170,0.04); }
+.power.wild { border-left-color: var(--orange); background: rgba(255,136,0,0.04); }
+.power.zen { border-left-color: var(--cyan); background: rgba(0,221,255,0.04); }
+.power.purple { border-left-color: var(--purple); background: rgba(170,68,255,0.04); }
+
+.power-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--green);
+    margin-bottom: 0.5rem;
+}
+.power.danger .power-label { color: var(--red); }
+.power.hack .power-label { color: var(--magenta); }
+.power.wild .power-label { color: var(--orange); }
+.power.zen .power-label { color: var(--cyan); }
+.power.purple .power-label { color: var(--purple); }
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.92rem;
+}
+th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--green);
+    text-align: left;
+    padding: 0.6rem 0.8rem;
+    border-bottom: 2px solid var(--border);
+}
+td {
+    padding: 0.5rem 0.8rem;
+    border-bottom: 1px solid var(--border);
+}
+tr:hover td { background: rgba(0,255,136,0.03); }
+
+details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1.2rem 0;
+}
+summary {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--green);
+    padding: 0.8rem 1.2rem;
+    cursor: pointer;
+}
+details[open] summary { border-bottom: 1px solid var(--border); }
+details > div { padding: 1rem 1.2rem; }
+
+.vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+}
+.vs-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem 1.1rem;
+}
+.vs-card h4 { margin-top: 0; }
+
+.viz-container {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+}
+.viz-container svg { width: 100%; height: auto; display: block; }
+.viz-controls {
+    display: flex;
+    gap: 1.5rem;
+    margin-top: 1rem;
+    align-items: center;
+    flex-wrap: wrap;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+}
+.viz-controls label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--cyan);
+    display: block;
+    margin-bottom: 0.3rem;
+}
+.viz-controls select, .viz-controls input[type="range"] {
+    background: var(--bg-code);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 0.3rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    border-radius: 4px;
+}
+.viz-controls input[type="range"] {
+    width: 140px;
+    accent-color: var(--green);
+}
+.viz-controls .val {
+    color: var(--green);
+    font-size: 13px;
+}
+.viz-controls button {
+    background: var(--green-dim);
+    color: var(--bg);
+    border: none;
+    padding: 0.4rem 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    border-radius: 4px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    transition: background 0.15s;
+}
+.viz-controls button:hover { background: var(--green); }
+.viz-controls button.active {
+    background: var(--green);
+    color: var(--bg);
+    box-shadow: 0 0 12px rgba(0,255,136,0.3);
+}
+.viz-controls button.secondary {
+    background: var(--border);
+    color: var(--text);
+}
+.viz-controls button.secondary:hover { background: var(--border-glow); }
+.viz-controls button.secondary.active {
+    background: var(--magenta);
+    color: var(--bg);
+    box-shadow: 0 0 12px rgba(255,0,170,0.3);
+}
+
+.ticker {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--green);
+    text-shadow: 0 0 8px rgba(0,255,136,0.3);
+}
+
+.timeline-item {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.2rem;
+    align-items: flex-start;
+}
+.timeline-year {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--magenta);
+    min-width: 50px;
+    flex-shrink: 0;
+    padding-top: 0.15rem;
+}
+.timeline-body {
+    font-size: 0.9rem;
+    line-height: 1.55;
+    border-left: 2px solid var(--border);
+    padding-left: 1rem;
+}
+.timeline-body strong { color: var(--cyan); }
+
+@media (max-width: 700px) {
+    body { font-size: 16px; }
+    nav { font-size: 9px; gap: 0.7rem; }
+    .content { padding: 3rem 0.8rem 4rem; }
+    .hero h1 { font-size: 2rem; }
+    .vs { grid-template-columns: 1fr; }
+    pre { font-size: 10.5px; padding: 0.7rem; }
+    .diagram { padding: 1rem; }
+    .power { padding: 0.6rem 0.8rem; }
+    .viz-container { padding: 1rem; }
+    .viz-controls { gap: 0.8rem; font-size: 10px; }
+    .viz-controls button { padding: 0.3rem 0.8rem; font-size: 10px; }
+    .viz-controls input[type="range"] { width: 100px; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="nav-title">&gt;_ Making It Serve</span>
+  <a href="#ch1">01 Fleet</a>
+  <a href="#ch2">02 Schedule</a>
+  <a href="#ch3">03 Page Table</a>
+  <a href="#ch4">04 Prefix Tree</a>
+  <a href="#ch5">05 Idle Line</a>
+  <a href="#ch6">06 Draft</a>
+  <a href="#ch7">07 Jacobi</a>
+</nav>
+
+<div class="content">
+
+<!-- ════════════════════════════════════════════════════════════════════
+     HERO
+     ════════════════════════════════════════════════════════════════════ -->
+<div class="hero">
+  <h1><span class="glitch" data-text="MAKING IT SERVE">MAKING IT SERVE</span></h1>
+  <div class="subtitle">
+    One request is easy. Ten thousand concurrent is a policy problem. The papers that turned inference into infrastructure.<span class="blink">_</span>
+  </div>
+  <div class="series-kicker">The Efficiency Papers &mdash; Part I-B: Inference</div>
+</div>
+
+
+<p style="font-style:italic; color:var(--text-dim); font-size:0.95rem; max-width:700px; margin:0 auto 3rem; text-align:center;">Part I-A dissected the attention mechanism&mdash;the tax every token pays. This article goes one level up: from the kernel to the fleet. From one request to ten thousand. From attention to infrastructure. Seven papers. Three years. The GPU learns to be an operating system.</p>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     CHAPTER 1 — THE FLEET PROBLEM
+     ════════════════════════════════════════════════════════════════════ -->
+<section id="ch1">
+<h2>01 // The Fleet Problem</h2>
+
+<p class="drop-cap">You run a 100-room hotel. Every guest who walks in <em>might</em> stay for 30 nights&mdash;but most leave after two. Your policy: reserve 30 rooms for every guest, just in case. A weekend visitor checks in. Thirty rooms blocked. A one-night business traveler. Thirty rooms blocked. Three guests later, you have reserved 90 rooms but occupied four. The lobby is packed with people you are turning away because the booking system says you are at capacity.</p>
+
+<p>That is GPU memory management before 2023. Every inference request gets <code>max_seq_len</code> worth of contiguous KV cache allocated upfront, because the serving system does not know how long the response will be. A request that generates 50 tokens still holds memory for 2,048. Or 4,096. Or 32,768. The waste is not a rounding error. It is the <strong>majority of your most expensive resource doing nothing</strong>.</p>
+
+<p>Woosuk Kwon and his team at Berkeley measured it: only 20.4% to 38.2% of KV cache memory stores actual token states in a running system. The rest is dead weight&mdash;three kinds of dead weight, each worse than the last. <strong>Internal fragmentation</strong>: slots allocated inside a request's block that the sequence never reaches because it finishes early. <strong>External fragmentation</strong>: scattered gaps between completed requests too small to fit a new one, even though total free memory is sufficient. <strong>Reservation overhead</strong>: memory locked for tokens that will never exist, because the system cannot predict output length. On an 80GB A100, that is 48 to 64 GB of VRAM holding air.</p>
+
+<div class="power danger">
+  <div class="power-label">The constraint</div>
+  <p>60-80% of KV cache memory is wasted. Not because the model is inefficient&mdash;Part I-A already optimized that. Because the <em>serving system</em> does not know how to share.</p>
+</div>
+
+<h3>One request is a solved problem</h3>
+
+<p>Serving a single request is trivial. Load the model. Run prefill. Decode token by token. A 7B model on a single A100 handles one user comfortably. You can optimize the attention kernel (Part I-A covered that). You can quantize the weights. You can fuse operations. Single-request inference is a solved problem.</p>
+
+<p>The entire field of "LLM serving" exists because <strong>one user is not the problem</strong>.</p>
+
+<p>Scale to ten thousand concurrent users and everything changes. Not incrementally. Categorically. The problems you face at ten thousand users are <em>not</em> harder versions of the single-user problems. They are a different class entirely. They are <em>policy</em> problems&mdash;decisions about resource allocation, scheduling priority, eviction strategy, and failure handling. The same class of problem that operating systems have been solving since the 1960s. The same problems, it turns out, with the same solutions.</p>
+
+<h4>Crisis 1: Memory is finite, requests are greedy</h4>
+<p>Each request's KV cache grows with every generated token. For a 7B model with 32 layers, each token adds roughly 1 MB of KV state. Sounds small. But at 2K context across a thousand concurrent requests, that is 2 TB of KV cache&mdash;far more than any single GPU's 80 GB. Even with aggressive batching across multiple GPUs, the memory pressure is immense.</p>
+
+<p>The questions become policy questions: Who gets memory? Who waits? Who gets evicted? When two requests compete for the last free block, which one survives? These are scheduling and replacement decisions. They have the same structure as the page replacement algorithms (LRU, LFU, clock algorithms) that OS designers debated in the 1970s. The answers, as we will see, are also the same.</p>
+
+<h4>Crisis 2: Variable lengths make batching messy</h4>
+<p>The naive approach: collect N requests, run them together, wait for ALL to finish before accepting new ones. This is called static batching. If one request generates 500 tokens and the rest generate 20, the GPU sits idle for 480 decode steps on 95% of the batch. Every completed request is padded to the length of the longest. Every waiting request is blocked until the entire batch drains. The GPU alternates between full utilization during forward passes and total waste during padding. Throughput collapses to a fraction of theoretical peak.</p>
+
+<h4>Crisis 3: Prefill-decode interference</h4>
+<p>The two phases of inference have opposite computational profiles. <strong>Prefill</strong> processes the entire input prompt in one parallel pass. It is compute-heavy. GPU-bound. It loves big matrices&mdash;this is what the hardware was designed for. <strong>Decode</strong> generates one token at a time. It is memory-bandwidth-bound. The GPU reads every parameter in the model to produce a single token. Compute units sit mostly idle, waiting for data to arrive from HBM.</p>
+
+<p>When these two phases share a GPU, they sabotage each other. A long prefill&mdash;a 32K-token prompt, say&mdash;monopolizes the GPU for seconds. During that time, every decode request in the batch is <em>blocked</em>. No tokens generated. Latency spiking. Users staring at frozen cursors. This is <strong>head-of-line blocking</strong>, the same pathology that plagues single-threaded web servers.</p>
+
+<p>The fix is the same as the web server fix: disaggregate. Run prefill on one pool of GPUs and decode on another, so they never interfere. DeepSeek does this. Together AI does this (their cache-aware variant reports 40% higher throughput for long-context workloads). Every major serving framework&mdash;vLLM, SGLang, TensorRT-LLM, NVIDIA Dynamo&mdash;now supports prefill-decode disaggregation.</p>
+
+<div class="diagram">
+  <span class="diagram-label">Prefill-decode interference vs disaggregation</span>
+  <pre><code><span class="pp">SHARED GPU</span> (head-of-line blocking)
+  ┌──────────────────────────────────────────────┐
+  │ <span class="pp">████████████ PREFILL (32K tokens) ████████████</span> │ ← <span class="cm">2-3 seconds</span>
+  │ <span class="cm">decode R1 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░</span> │ ← <span class="cm">BLOCKED</span>
+  │ <span class="cm">decode R2 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░</span> │ ← <span class="cm">BLOCKED</span>
+  │ <span class="cm">decode R3 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░</span> │ ← <span class="cm">BLOCKED</span>
+  └──────────────────────────────────────────────┘
+
+<span class="st">DISAGGREGATED</span> (no interference)
+  Prefill GPU pool:
+  ┌──────────────────────────────────────────────┐
+  │ <span class="pp">████████████ PREFILL (32K tokens) ████████████</span> │
+  └──────────────────────────────────────────────┘
+
+  Decode GPU pool:
+  ┌──────────────────────────────────────────────┐
+  │ <span class="st">█ R1 █ R2 █ R3 █ R1 █ R2 █ R3 █ R1 █ R2 █</span>   │ ← <span class="cm">uninterrupted</span>
+  └──────────────────────────────────────────────┘</code></pre>
+</div>
+
+<div class="power zen">
+  <div class="power-label">The core tension</div>
+  <p>Optimizing for one request is a solved problem. Optimizing for a <em>fleet</em> of requests is where systems engineering begins. And the GPU is speed-running 50 years of OS evolution to get there.</p>
+</div>
+
+<p>LLM serving is, at its core, a <strong>scheduling problem</strong>. Closer to air traffic control than to machine learning. You have a finite runway (GPU memory). Variable-size aircraft (requests with different prompt and generation lengths). Unpredictable arrival times. The art is: who lands next? Who circles? Who gets diverted? The model itself is the easy part. The hard part is managing 10,000 overlapping lifecycles on hardware that was not designed for sharing.</p>
+
+<h3>Throughput vs latency: two different problems</h3>
+
+<p>Before we trace the solutions, we need to name the two targets precisely, because confusing them is the most common mistake in LLM optimization discussions.</p>
+
+<p><strong>Throughput</strong> is how many tokens per second the system produces across ALL users. Measured in tokens/second/GPU. It is the provider's metric&mdash;the number that determines cost per token, revenue per GPU, and how many users you can serve before buying more hardware.</p>
+
+<p><strong>Latency</strong> is how long ONE user waits. Split into TTFT (time-to-first-token, how long before the response starts streaming) and TPOT (time-per-output-token, how fast it streams once started). It is the user's metric&mdash;the number that determines whether the experience feels instant or sluggish.</p>
+
+<p>These are different problems with <strong>different solutions that sometimes conflict</strong>. Batching improves throughput (amortize weight reads across many requests) but hurts latency (your request now shares the GPU with 63 others). Speculative decoding improves latency (collapse multiple sequential steps into one verification) but has limited throughput benefit at high batch sizes (the GPU is already utilized, nothing to reclaim).</p>
+
+<table>
+  <thead>
+    <tr><th></th><th>Throughput</th><th>Latency</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><strong>Who cares</strong></td><td>Provider</td><td>User</td></tr>
+    <tr><td><strong>Metric</strong></td><td>tokens/sec/GPU</td><td>TTFT + TPOT</td></tr>
+    <tr><td><strong>Key techniques</strong></td><td>Batching, PagedAttention, caching</td><td>Speculative decoding, prefill-decode split</td></tr>
+    <tr><td><strong>When it shines</strong></td><td>High concurrency (1000s of requests)</td><td>Low concurrency, real-time apps</td></tr>
+    <tr><td><strong>GPU bottleneck</strong></td><td>Memory bandwidth, scheduling waste</td><td>Compute underutilization during decode</td></tr>
+  </tbody>
+</table>
+
+<p>The next six chapters trace two arcs through this problem. Chapters 2-4 attack <strong>throughput</strong>&mdash;scheduling, memory management, caching. Chapters 5-7 attack <strong>latency</strong>&mdash;speculation, parallel verification, self-drafting. Different problems. Different solutions. A production system uses both. Together AI's MagicDec paper even shows speculative decoding helping throughput at long context lengths, blurring the line further.</p>
+</section>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     CHAPTER 2 — THE SCHEDULING REVOLUTION
+     ════════════════════════════════════════════════════════════════════ -->
+<section id="ch2">
+<h2>02 // The Scheduling Revolution</h2>
+
+<p class="drop-cap">In July 2022, Gyeong-In Yu at Seoul National University published a paper at OSDI called Orca. The venue was the 16th USENIX Symposium on Operating Systems Design and Implementation&mdash;an OS conference, not an ML one. The title was dry. The idea was not. Yu had been watching inference servers batch requests the way a long-haul bus runs its route: everyone boards at the depot, nobody gets off until the last passenger reaches their destination. If 31 of 32 passengers want the first stop, they ride the full route anyway. The bus cannot stop.</p>
+
+<p>That is static batching. You gather a batch of requests, run them ALL through the model until EVERY request in the batch finishes generating, then return results. A request that finishes at iteration 20 sits padded and idle for 480 more iterations while the longest sequence in the batch completes at iteration 500. New requests arriving at iteration 21 must wait until the entire batch clears. GPU cycles wasted on padding. Memory wasted on completed-but-held sequences. Throughput collapses under variance.</p>
+
+<p>The pathology is worst when it matters most: in real production workloads, output lengths vary wildly. One user asks "What is the capital of France?" (3 tokens). Another asks for a 2,000-word essay. Static batching pads the first to 2,000 tokens and blocks everything behind them.</p>
+
+<p>Yu asked a simple question: <strong>what if the batch boundary was every single decode step instead of every request?</strong></p>
+
+<div class="diagram">
+  <span class="diagram-label">Static batching — the bus metaphor</span>
+  <pre><code>Batch 1 (capacity: 3 requests)
+  ┌──────────────────────────────────────────────┐
+  │ R0: <span class="st">██</span><span class="cm">░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░</span> │  (3 tokens, padded to 40)
+  │ R1: <span class="st">████████████████████████████████████████</span> │  (40 tokens)
+  │ R2: <span class="st">█</span><span class="cm">░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░</span> │  (1 token, padded to 40)
+  └──────────────────────────────────────────────┘
+  <span class="cm">↑ R0 and R2 finished long ago. Still sitting in batch.</span>
+  <span class="cm">↑ R3, R4, R5 waiting in queue. Cannot enter until R1 finishes.</span>
+  <span class="cm">↑ GPU computing padding tokens. Wasted cycles.</span>
+
+  <span class="st">█</span> = useful compute    <span class="cm">░</span> = wasted padding</code></pre>
+</div>
+
+<h3>The subway, not the bus</h3>
+
+<p>Orca introduced <strong>iteration-level scheduling</strong>. After every single forward pass&mdash;one iteration, one token generated per active sequence&mdash;the scheduler can:</p>
+
+<pre><code><span class="cm">// After each decode iteration:</span>
+<span class="nm">1.</span> <span class="kw">Eject</span> finished sequences from the batch
+<span class="nm">2.</span> <span class="kw">Inject</span> newly arrived sequences into the batch
+<span class="nm">3.</span> <span class="kw">Run</span> next forward pass with updated batch composition</code></pre>
+
+<p>The batch composition changes at every step. Requests enter and exit like passengers on a subway: at every station, not just the terminus. A request that finishes at iteration 20 is immediately ejected, and a waiting request slides into its slot at iteration 21. No padding. No blocking. The GPU stays full.</p>
+
+<p>The industry now calls this <strong>continuous batching</strong>. The name stuck because it captures the essential property: the batch never stops and restarts. It flows continuously, like a river, not a series of dams.</p>
+
+<p>It turned a 36.9x throughput improvement over FasterTransformer from a paper number into the universal default. The 36.9x is the extreme case&mdash;maximum variance in output length on GPT-3 175B. Real production gains are 3-8x for conversational workloads. Still transformative. The difference between needing 100 GPUs and needing 15.</p>
+
+<p>Every major inference framework now implements iteration-level scheduling:</p>
+
+<table>
+  <thead>
+    <tr><th>Framework</th><th>What they call it</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>vLLM</td><td>Continuous batching</td></tr>
+    <tr><td>TensorRT-LLM (NVIDIA)</td><td>In-flight batching</td></tr>
+    <tr><td>TGI (Hugging Face)</td><td>Continuous batching</td></tr>
+    <tr><td>SGLang</td><td>Continuous batching</td></tr>
+    <tr><td>LMDeploy</td><td>Persistent batching</td></tr>
+    <tr><td>NVIDIA Dynamo</td><td>Iteration-level scheduling</td></tr>
+  </tbody>
+</table>
+
+<p>Gyeong-In Yu is now CTO of FriendliAI, the company he co-founded with Orca's senior author Byung-Gon Chun. Yu won the Best PhD Dissertation Award from Seoul National's CSE department. His primary field: software systems for accelerating machine learning inference in the datacenter. Not ML research. Systems research. The paper that seemed like an OS scheduling optimization became foundational infrastructure for the entire LLM serving industry.</p>
+
+<p>FriendliAI raised venture funding on the strength of the continuous batching idea. VentureBeat covered them with the headline "the team behind continuous batching says your idle GPUs should be running." They were right. Before Orca, most production GPUs running inference were idle more than half the time&mdash;waiting for batches to complete, waiting for new batches to form, waiting for the longest sequence to finish. After Orca, the same GPUs could stay near-continuously active. The economic impact was immediate and massive.</p>
+
+<div class="power">
+  <div class="power-label">The reframe</div>
+  <p>Continuous batching is not a clever optimization. It is the moment LLM serving stopped being a batch processing system and became a real-time operating system.</p>
+</div>
+
+<!-- ──── VIZ 1: STATIC vs CONTINUOUS BATCHING ──── -->
+<div class="viz-container">
+  <span class="diagram-label">Static vs Continuous Batching &mdash; Gantt Chart</span>
+  <div id="viz-batching"></div>
+  <div class="viz-controls">
+    <button id="btn-batching-run">Run Simulation</button>
+    <button id="btn-batching-reset" class="secondary">Reset</button>
+    <div style="flex-grow:1"></div>
+    <div>
+      <span style="color:var(--text-dim)">Throughput &mdash; Static: </span><span id="static-tp" class="val">0</span>
+      <span style="color:var(--text-dim); margin-left:1rem;">Continuous: </span><span id="cont-tp" class="val">0</span>
+    </div>
+  </div>
+</div>
+
+<p>The visualization shows the core difference. On the left, static batching pads every request to the length of the longest in the batch. Short requests finish early and sit idle&mdash;the gray padding. New requests queue behind the batch boundary. On the right, continuous batching ejects finished requests and injects waiting ones at every iteration. The GPU stays full. The throughput counter accumulates the difference.</p>
+
+<details>
+  <summary>Orca's second trick: selective batching</summary>
+  <div>
+    <p>Not all operations in a Transformer can be naively batched across sequences of different lengths. Feed-forward layers are position-independent&mdash;batch freely. Attention is position-dependent&mdash;each sequence has a different context length and must attend only to its own tokens. Orca introduced <strong>selective batching</strong>: apply batching only to operations that do not depend on sequence position, while handling attention per-sequence. This lets the engine mix prefill and decode sequences in the same forward pass&mdash;a prerequisite for continuous batching to work at all.</p>
+    <p>The implementation detail matters. Prefill processes many tokens at once (a matrix). Decode processes one token at a time (a vector). Mixing them in the same batch requires the engine to track which sequences are in which phase and handle each accordingly. Without selective batching, you would need separate batches for prefill and decode, destroying the scheduling flexibility that makes continuous batching valuable.</p>
+  </div>
+</details>
+
+<h3>The numbers, in context</h3>
+
+<p>The 36.9x throughput improvement deserves context. That is the comparison against FasterTransformer at the same latency level on GPT-3 175B, measuring the pathological case: maximum output length variance. Real production gains depend on workload characteristics:</p>
+
+<table>
+  <thead>
+    <tr><th>Workload</th><th>Output Length Variance</th><th>Throughput Gain</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Classification (short, uniform)</td><td>Low</td><td>1.5-2x</td></tr>
+    <tr><td>Conversational (moderate variance)</td><td>Medium</td><td>3-8x</td></tr>
+    <tr><td>Mixed generation (high variance)</td><td>High</td><td>10-36.9x</td></tr>
+  </tbody>
+</table>
+
+<p>The gains are largest when variance is highest, because that is where static batching wastes the most padding. In production conversational workloads, where output lengths range from 10 to 500 tokens, continuous batching typically delivers 3-8x throughput improvement. Still transformative. The difference between serving 1,000 users per GPU and 5,000.</p>
+
+<h3>What Orca did not solve</h3>
+
+<p>Continuous batching solved the scheduling problem: when to admit and eject requests. But it exposed the memory management problem underneath. You could now pack more requests into the GPU at any given moment&mdash;but each request still grabbed a contiguous block of memory sized for the worst case. The scheduler was smart. The allocator was still stupid. A request that would generate 50 tokens still reserved memory for 2,048, blocking other requests from using that space.</p>
+
+<p>The combination was frustrating: Orca told you when to let requests in and out, but could not fix the fact that each request was hogging 5-10x more memory than it needed. The scheduler was optimal. The memory allocator was the new bottleneck. That is the problem the next chapter attacks.</p>
+
+<p>The pattern will repeat throughout this article. Each breakthrough exposes the next bottleneck. Continuous batching exposes memory waste. Fixing memory waste (PagedAttention) exposes prefix redundancy. Fixing prefix redundancy (RadixAttention) exposes decode latency. Fixing decode latency (speculative decoding) exposes draft model quality. Each layer of optimization reveals the constraint that was hidden behind it. The stack grows deeper. This is not a flaw in the research process. It is the research process. Systems engineering is the art of finding and eliminating the current bottleneck, knowing that a new one will emerge.</p>
+</section>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     CHAPTER 3 — THE PAGE TABLE
+     ════════════════════════════════════════════════════════════════════ -->
+<section id="ch3">
+<h2>03 // The Page Table</h2>
+
+<p class="drop-cap">In the summer of 2022, a team of PhD students in Berkeley's newly launched Sky Computing Lab had built a framework for distributing deep learning models across GPUs. When they set up a demo, performance was terrible. Not the kind of terrible that comes from a bad algorithm. The kind that comes from a hidden bottleneck nobody thought to look for. Zhuohan Li and Woosuk Kwon dug in for months, profiling every layer of the system. They expected to find compute as the constraint. They found memory.</p>
+
+<p>The KV cache management was catastrophically wasteful. Every request pre-allocated a contiguous slab of GPU memory for its maximum possible sequence length. The actual utilization was 20-38%. The rest was the hotel reservation problem, happening on every request, on every GPU, at every serving provider in the world.</p>
+
+<p>Kwon recalled something from undergrad. Every CS student takes an operating systems course. They learn about virtual memory and paging: break physical memory into small fixed-size pages, allocate on demand, map via a page table so each process <em>thinks</em> it has a big contiguous address space while the actual pages are scattered wherever there is room. No more reserving contiguous regions "just in case." They pass the exam. They forget it.</p>
+
+<p>Kwon did not forget it. He asked: <strong>why aren't we doing this for KV cache?</strong></p>
+
+<p>The answer became PagedAttention, the core algorithm of <a href="https://arxiv.org/abs/2309.06180">vLLM</a>. Published at SOSP 2023&mdash;the Symposium on <em>Operating Systems</em> Principles. Not ICML. Not NeurIPS. An OS venue. The reviewers recognized it as an OS paper that happened to run on GPUs. Because it was.</p>
+
+<h3>The explicit mapping</h3>
+
+<p>The correspondence is not an analogy. It is a one-to-one structural identity:</p>
+
+<table>
+  <thead>
+    <tr><th>OS Concept</th><th>GPU Equivalent</th><th>What it does</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Pages (4 KB)</td><td>KV blocks (16 tokens)</td><td>Fixed-size allocation unit</td></tr>
+    <tr><td>Page table</td><td>Block table</td><td>Maps logical to physical addresses</td></tr>
+    <tr><td>Virtual address space</td><td>Logical KV cache</td><td>Contiguous from the consumer's perspective</td></tr>
+    <tr><td>Physical frames</td><td>Physical GPU blocks</td><td>Scattered anywhere in VRAM</td></tr>
+    <tr><td>Demand paging</td><td>On-demand allocation</td><td>Only allocate when actually needed</td></tr>
+    <tr><td>Copy-on-write</td><td>Beam search sharing</td><td>Share until divergence, then copy</td></tr>
+  </tbody>
+</table>
+
+<p>Instead of giving each request a contiguous block of GPU memory for its maximum possible KV cache, PagedAttention breaks the cache into small fixed-size <strong>blocks</strong>&mdash;like OS pages. Each block holds the keys and values for a fixed number of tokens (typically 16). Blocks are allocated on demand as the sequence grows. A single token generated? Allocate one block. Twenty tokens? Allocate two blocks. They can be stored anywhere in GPU memory, non-contiguously. A block table maps logical positions to physical locations. The model's attention kernel looks up physical block addresses through the table, gathers the keys and values, and computes attention as if the cache were contiguous.</p>
+
+<p>The waste drops from 60-80% to <strong>under 4%</strong>. The only waste is in the last block of each active sequence&mdash;partially filled, waiting for more tokens. With 16 tokens per block, the worst case is 15 wasted tokens per sequence. For 100 concurrent sequences, that is 1,500 wasted token slots. Compare that to the pre-PagedAttention regime where the same 100 sequences might waste 200,000 token slots. Same GPU, 2-4x more concurrent requests.</p>
+
+<p>The elegance of the design is that it requires no changes to the model itself. The attention computation is mathematically identical&mdash;the same keys, the same values, the same queries, the same output. The only difference is where the keys and values are stored in physical memory. The block table is a pure indirection layer that the model never sees. This separation of concerns&mdash;the model computes, the system manages memory&mdash;is exactly the virtual memory abstraction that OS designers achieved in the 1960s.</p>
+
+<h3>Copy-on-write completes the parallel</h3>
+
+<p>In beam search, multiple candidate sequences share a common prompt prefix. Before PagedAttention, each beam candidate got its own full copy of the prefix's KV cache. Five beams, same prefix: five copies of identical data. PagedAttention applies the same trick Unix uses when you <code>fork()</code> a process: copy-on-write. All candidates point to the same physical KV blocks for the shared prefix. Only when they diverge&mdash;when a beam generates a token that differs from the others&mdash;does the system copy the diverging block. This saved <strong>55% memory</strong> on beam search workloads and 6-10% on parallel sampling.</p>
+
+<!-- ──── VIZ 2: OS vs GPU PAGE TABLE ──── -->
+<div class="viz-container">
+  <span class="diagram-label">Paged KV Cache &mdash; GPU Memory Map</span>
+  <div id="viz-pagetable"></div>
+  <div class="viz-controls">
+    <button id="btn-pt-add">+ Request</button>
+    <button id="btn-pt-complete">Complete Oldest</button>
+    <button id="btn-pt-cow" class="secondary">Fork (CoW)</button>
+    <button id="btn-pt-reset" class="secondary">Reset</button>
+    <div style="flex-grow:1"></div>
+    <div>
+      <span style="color:var(--text-dim)">Blocks used: </span><span id="pt-used" class="val">0/32</span>
+      <span style="color:var(--text-dim); margin-left:1rem;">Active: </span><span id="pt-active" class="val">0</span>
+      <span style="color:var(--text-dim); margin-left:1rem;">Waste: </span><span id="pt-waste" class="val">&lt;4%</span>
+    </div>
+  </div>
+</div>
+
+<p>Click "+ Request" to see blocks allocated non-contiguously across GPU memory. Click "Complete Oldest" to see blocks freed and immediately reusable. The "Fork (CoW)" button creates a beam search fork&mdash;the new sequence shares blocks with its parent until it diverges. Watch the block table grow and shrink. This is virtual memory. On a GPU. Solving the same problem it solved on CPUs in 1961.</p>
+
+<h3>The SOSP story</h3>
+
+<p>PagedAttention was published at SOSP&mdash;the Symposium on Operating Systems Principles. Not ICML. Not NeurIPS. Not any ML venue. An OS conference. This was not an accident. The reviewers&mdash;OS researchers, not ML researchers&mdash;recognized the paper for what it was: an operating systems contribution that happened to run on GPUs serving language models.</p>
+
+<p>The irony runs deep. Every CS undergrad learns virtual memory in their OS course. They learn about pages, page tables, demand paging, copy-on-write. They implement a simple page table in a lab assignment. They pass the exam. Most forget it within a year.</p>
+
+<p>Then, decades later, Berkeley PhD students hit the exact same problems on GPUs and reinvent the exact same solutions. The problems were always the same&mdash;memory fragmentation, resource multiplexing, sharing without interference. The solutions were always the same&mdash;indirection through a mapping table, demand allocation, copy-on-write. The only thing that changed was the hardware and the acronyms.</p>
+
+<div class="diagram">
+  <span class="diagram-label">The OS rediscovery timeline</span>
+  <pre><code><span class="nm">1961</span>  Atlas computer: first hardware virtual memory
+<span class="nm">1969</span>  Multics: demand paging
+<span class="nm">1970</span>  Unix: copy-on-write fork()
+<span class="nm">1979</span>  BSD: mmap + page cache
+           <span class="cm">... 43 years pass ...</span>
+<span class="nm">2022</span>  Orca: process scheduling → iteration scheduling
+<span class="nm">2023</span>  vLLM: virtual memory → PagedAttention
+<span class="nm">2024</span>  SGLang: page cache → RadixAttention
+<span class="nm">2025</span>  vAttention: "just use the actual MMU"
+
+<span class="st">The GPU is where operating systems were in 1970.</span>
+<span class="st">It is speed-running the same evolutionary path.</span></code></pre>
+</div>
+
+<h3>The kernel tax</h3>
+
+<p>PagedAttention's paged layout is not free. The attention kernel must now gather KV values from scattered physical blocks using a block table lookup at every attention computation. Instead of a single contiguous memory read (which the GPU can stream efficiently), the kernel must follow pointers from the block table to potentially scattered physical locations, gathering keys and values block by block. This indirection&mdash;the cost of non-contiguous memory access&mdash;makes paged attention kernels <strong>2.8x slower</strong> than native FlashAttention operating on contiguous memory.</p>
+
+<p>The system trades kernel speed for memory efficiency. When memory is the bottleneck (it usually is at high concurrency), this is a profitable trade: you are 2.8x slower per kernel call but can fit 2-4x more requests, so total throughput still wins. But the kernel tax creates a second, subtler problem: <strong>ecosystem fragmentation</strong>.</p>
+
+<p>Every new attention kernel innovation needs a paged variant. FlashAttention needs <code>flash_attn_with_kv_cache</code>. FlashInfer needs its own paged kernel. Custom MLA kernels need paged variants. Each variant requires 600+ lines of kernel changes and months of development before it reaches production. When FlashAttention-3 shipped in 2024, it initially lacked PagedAttention support&mdash;the fastest attention kernel in the world could not use dynamic memory allocation.</p>
+
+<p>This kernel tax will matter in the next chapter, when a team at Microsoft Research asks the obvious question.</p>
+
+<h3>The 2-4x throughput unlock</h3>
+
+<p>The throughput gains from PagedAttention deserve decomposition. They come from a single mechanism: <strong>reduced memory waste enables larger batch sizes</strong>.</p>
+
+<p>With static allocation, an 80GB A100 serving a 7B model might fit 10 concurrent requests (each reserving 4GB of KV cache at max_seq_len=4096). With PagedAttention, the same GPU fits 25-40 requests because each one only occupies memory for its actual token count. More requests in the batch means more work per forward pass. More work per forward pass means better GPU utilization. Better utilization means higher throughput. The 2-4x improvement over Orca (which already had continuous batching) is purely from better memory management enabling bigger batches.</p>
+
+<pre><code><span class="cm">// The throughput chain:</span>
+<span class="kw">less</span> memory waste
+  → <span class="kw">larger</span> batch size
+    → <span class="kw">more</span> work per forward pass
+      → <span class="kw">higher</span> GPU utilization
+        → <span class="nm">2-4x</span> throughput</code></pre>
+
+<div class="power">
+  <div class="power-label">From paper to industry default</div>
+  <p>June 2023: first blog post and open-source release. September 2023: SOSP publication. 2024: 50,000 GitHub stars, 350+ contributors, adopted by Meta, Mistral, Cohere, IBM, Amazon (Rufus), LinkedIn AI. October 2024: Linux Foundation AI incubation project. 2025: Woosuk Kwon co-founded Inferact, raised $150M. vLLM became the default open-source serving engine for the industry. From a profiled demo to infrastructure standard in 18 months.</p>
+</div>
+
+<details>
+  <summary>Who uses vLLM in production (2025)</summary>
+  <div>
+    <p>The adoption timeline tells the story of how quickly PagedAttention became infrastructure:</p>
+    <p><strong>Meta:</strong> Uses vLLM for internal serving. Contributed back optimizations for tensor-parallel inference and quantized model support.</p>
+    <p><strong>Mistral AI:</strong> Built their inference stack on vLLM. The startup's ability to serve models competitively depends on PagedAttention's memory efficiency.</p>
+    <p><strong>Amazon (Rufus):</strong> The Amazon shopping assistant runs on a vLLM-based backend. Millions of requests per day, each with a shared product-context prefix that benefits from prefix caching.</p>
+    <p><strong>LinkedIn AI:</strong> Uses vLLM for various generative AI features. The 50,000+ GitHub star count understates the production footprint&mdash;most enterprise deployments do not publicize their infrastructure choices.</p>
+    <p><strong>IBM + Red Hat:</strong> Red Hat AI Inference Server is built on vLLM. IBM's enterprise AI platform routes through it. This made vLLM the default for regulated industries (banking, healthcare) where Red Hat's support guarantees matter.</p>
+    <p>vLLM joined the Linux Foundation AI & Data as an incubation project in October 2024. Woosuk Kwon co-founded Inferact and raised $150M to commercialize the technology. The trajectory: from a Berkeley PhD side project profiling a slow demo to the default open-source serving engine for the industry in 18 months.</p>
+  </div>
+</details>
+
+<details>
+  <summary>vLLM internals: how the block pool actually works</summary>
+  <div>
+    <p>The current vLLM v1 architecture (post-refactor) uses three key components. <strong>BlockPool</strong> manages physical KV cache blocks, maintaining all blocks as <code>KVCacheBlock</code> objects indexed by <code>block_id</code>, a free block queue in LRU order, and a cached block map for prefix caching. <strong>BlockTable</strong> implements the page table, mapping logical request positions to physical block IDs. <strong>KVCacheManager</strong> orchestrates allocation: on each request, check prefix cache hits, allocate new blocks, cache full blocks for reuse. Eviction is LRU-based&mdash;when free blocks are exhausted, evict blocks with zero reference count from the queue head. Blocks are freed in reverse order (tail first) to prioritize evicting less-reusable blocks.</p>
+  </div>
+</details>
+</section>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     CHAPTER 4 — THE PREFIX TREE
+     ════════════════════════════════════════════════════════════════════ -->
+<section id="ch4">
+<h2>04 // The Prefix Tree</h2>
+
+<p class="drop-cap">PagedAttention reimplemented OS paging in userspace. Custom allocation logic. Custom block tables. Custom attention kernels. It worked brilliantly. But it created a new problem: every new attention innovation needed a paged variant. FlashAttention-2 needed a paged version. FlashInfer needed its own. When FlashAttention-3 shipped, it initially <em>lacked</em> PagedAttention support. The fastest attention kernel in the world could not use dynamic memory allocation. The ecosystem fragmented around a compatibility problem that vLLM's design had created.</p>
+
+<p>In 2025, Prabhu et al. at Microsoft Research India asked what should have been asked from the start: <strong>if PagedAttention was inspired by OS paging, why not just <em>use</em> OS paging?</strong></p>
+
+<h3>vAttention: just use the actual OS</h3>
+
+<p>CUDA already has virtual memory management APIs. The GPU hardware already does virtual-to-physical address translation, just like a CPU's MMU. Three API calls do all the work:</p>
+
+<pre><code><span class="fn">cuMemAddressReserve</span>(<span class="ty">ptr</span>, <span class="ty">size</span>)  <span class="cm">// Grab contiguous virtual range</span>
+                                    <span class="cm">// No physical memory allocated yet</span>
+
+<span class="fn">cuMemCreate</span>(<span class="ty">handle</span>, <span class="ty">pageSize</span>)     <span class="cm">// Create a physical page</span>
+
+<span class="fn">cuMemMap</span>(<span class="ty">ptr</span>, <span class="ty">handle</span>)              <span class="cm">// Bind physical page to virtual address</span>
+                                    <span class="cm">// GPU MMU handles translation from here</span></code></pre>
+
+<p>Reserve 12TB of virtual address space. 64-bit GPUs have 128TB available&mdash;this is a rounding error. Map physical pages only when tokens actually arrive. The GPU sees a contiguous tensor. The GPU's own memory management unit handles the scatter underneath. This is literally how <code>malloc</code> works on Linux: overcommit virtual, fault in physical.</p>
+
+<p>The result: FlashAttention works <strong>unmodified</strong>. No custom paged kernels. No block table lookups in the attention hot path. No kernel tax. vAttention achieved <strong>1.97x faster decode</strong> than vLLM's paged attention, <strong>3.92x faster prefill</strong> on long contexts, and TTFT dropped from 266ms to 68ms on a 192K-token prompt.</p>
+
+<p>The integration effort: 4 API calls. Versus rewriting every attention kernel to handle block table indirection.</p>
+
+<p>Two additional engineering tricks make vAttention practical. <strong>Deferred reclamation</strong>: when request R1 finishes, do not immediately free its pages. When R2 arrives, give it R1's request ID and reuse its already-mapped physical memory. Only allocate new pages if R2's context exceeds R1's length. This avoids the allocation overhead entirely for the common case. Reclamation is batched when free memory drops below 10%.</p>
+
+<p><strong>Custom page sizes</strong>: NVIDIA's CUDA drivers support a minimum 2MB page size. The authors modified the open-source NVIDIA unified memory driver to expose smaller granularities&mdash;64KB, 128KB, 256KB. This cuts worst-case internal fragmentation from 128MB (2MB pages on Yi-6B) to 16MB (256KB pages). The allocation bandwidth at 64KB pages is 7.6 GB/s, while decode only needs about 600 MB/s. Allocation is never the bottleneck.</p>
+
+<div class="diagram">
+  <span class="diagram-label">PagedAttention vs vAttention — the paging stack</span>
+  <pre><code><span class="pp">PAGEDATTENTION</span> (userspace reimplementation)
+  ┌────────────────┐
+  │  Serving Engine │
+  │  (custom alloc) │
+  └───────┬────────┘
+          │  Block table lookup
+  ┌───────┴────────┐
+  │  Modified Attn  │  ← <span class="cm">every kernel needs a paged variant</span>
+  │  Kernel (paged) │
+  └───────┬────────┘
+          │  Scattered physical reads
+  ┌───────┴────────┐
+  │  GPU HBM       │
+  └────────────────┘
+
+<span class="st">vATTENTION</span> (hardware paging)
+  ┌────────────────┐
+  │  Serving Engine │
+  │  (3 CUDA APIs)  │
+  └───────┬────────┘
+          │  Contiguous virtual tensor
+  ┌───────┴────────┐
+  │  <span class="st">Any</span> Attention   │  ← <span class="cm">FlashAttention works UNMODIFIED</span>
+  │  Kernel         │
+  └───────┬────────┘
+          │  GPU MMU translates virtual → physical
+  ┌───────┴────────┐
+  │  GPU HBM       │  (pages scattered, but hardware handles it)
+  └────────────────┘</code></pre>
+</div>
+
+<div class="power wild">
+  <div class="power-label">The irony</div>
+  <p>vLLM closed the vAttention integration proposal as "not planned." The ecosystem had already converged on paged layouts. Every framework, every kernel, every optimization assumed non-contiguous blocks with a block table. The kernel tax that vAttention eliminates is now load-bearing infrastructure. The incumbency problem that vAttention diagnosed is precisely what prevents its adoption.</p>
+</div>
+
+<h3>RadixAttention: a filesystem for KV caches</h3>
+
+<p>PagedAttention solved allocation. vAttention solved the kernel tax. But both threw away the KV cache after every request finished. Each new request started cold&mdash;even if it shared 90% of its prompt with the previous one. System prompts. Few-shot examples. Conversation history. All recomputed from scratch, every time.</p>
+
+<p>vLLM added "Automatic Prefix Caching" (APC) using hash-based block matching at 16-token granularity. If two prompts shared the first 32 tokens, the first two 16-token blocks would be cache hits. But the granularity was coarse. If two prompts diverge at token 17, the first 16-token block matches but the single shared token in the second block is wasted&mdash;15 tokens of reusable KV cache thrown away because of a block boundary. Across thousands of requests with slightly varying prompts, this granularity loss adds up. And APC only cached <em>prompt</em> tokens, not generated ones. In multi-turn chat, the assistant's response is part of the context for the next turn. Throwing away its KV cache means recomputing it on every follow-up message.</p>
+
+<p>Lianmin Zheng at Berkeley&mdash;the same lab that built vLLM&mdash;reimagined KV cache management as a <strong>filesystem problem</strong>. The data structure: a <a href="https://arxiv.org/abs/2312.07104">radix tree</a>, the same structure Linux uses for its page cache and routing tables. The system: SGLang, published at NeurIPS 2024. The algorithm: RadixAttention.</p>
+
+<p>The insight is structural. LLM workloads are <strong>tree-shaped</strong>:</p>
+
+<pre><code><span class="cm">// Multi-turn chat</span>
+[system prompt] → [user Q1] → [asst A1] → [user Q2] → [asst A2] ...
+                → [user Q1'] → [asst A1'] → ...   <span class="cm">// different user, same system</span>
+
+<span class="cm">// Few-shot learning</span>
+[examples 1-5] → [query A]
+               → [query B]   <span class="cm">// same examples, different queries</span>
+               → [query C]
+
+<span class="cm">// Agent workflows</span>
+[tool descriptions] → [tool call 1] → [result 1] → [tool call 2] ...
+                    → [tool call 1'] → [result 1'] ...  <span class="cm">// different task</span>
+
+<span class="cm">// Code analysis</span>
+[file context] → [question about function A]
+               → [question about function B]  <span class="cm">// same file, different questions</span></code></pre>
+
+<p>Every one of these workloads is a tree. Shared prefixes branch into diverging suffixes. A radix tree is the natural data structure for all of them. It is the same data structure Linux uses for its page cache and IP routing tables&mdash;problems that also involve hierarchical prefix matching with branching at divergence points.</p>
+
+<h4>What RadixAttention changes</h4>
+
+<p><strong>Token-level granularity.</strong> vLLM matches at 16-token block boundaries. RadixAttention matches at individual tokens. Two requests sharing 47 tokens reuse all 47. No wasted partial blocks. The tree splits nodes at exact divergence points.</p>
+
+<p><strong>Caches generated tokens too.</strong> This is the big one. When a model generates a response, those KV values stay in the tree. In multi-turn chat, the entire conversation history&mdash;system prompt, user turns, <em>assistant responses</em>&mdash;accumulates in the tree. The next user message just extends the existing path. vLLM's prefix caching only cached prompt tokens. RadixAttention caches everything.</p>
+
+<p><strong>Cache-aware scheduling.</strong> The scheduler does not process requests FIFO. It uses <strong>longest prefix match</strong>: requests sharing longer prefixes with cached data get priority. With the depth-first weight policy, the scheduler traverses the radix tree depth-first, weighting nodes by how many pending requests need them. Related requests run back-to-back, keeping their KV caches hot. Unrelated requests that would thrash the cache are deprioritized.</p>
+
+<p><strong>LRU eviction with reference counting.</strong> Active requests hold locks on their nodes via <code>lock_ref</code> counters. Only zero-reference leaf nodes are evictable. Eviction is recursive from leaves inward&mdash;you evict a leaf, then check if its parent is now a zero-reference leaf, and evict that too if so. This prevents evicting KV caches that running requests depend on&mdash;the same protection mechanism OS page caches use.</p>
+
+<p><strong>In-batch prefix sharing.</strong> When multiple requests in the same batch share a prefix, SGLang detects this via a simulated radix tree of the waiting queue. Requests with short existing cache matches but long in-batch prefix matches get deprioritized&mdash;they will benefit more from running after the prefix-establishing request completes. This avoids redundant computation even within a single batch.</p>
+
+<!-- ──── VIZ 3: RADIX TREE ──── -->
+<div class="viz-container">
+  <span class="diagram-label">Radix Tree &mdash; KV Cache Filesystem</span>
+  <div id="viz-radix"></div>
+  <div class="viz-controls">
+    <button id="btn-radix-chat1">Chat Session 1</button>
+    <button id="btn-radix-chat2">Chat Session 2</button>
+    <button id="btn-radix-turn">Add Turn</button>
+    <button id="btn-radix-reset" class="secondary">Reset</button>
+    <div style="flex-grow:1"></div>
+    <div>
+      <span style="color:var(--text-dim)">Cache hit: </span><span id="radix-hit" class="val">0%</span>
+      <span style="color:var(--text-dim); margin-left:1rem;">Nodes: </span><span id="radix-nodes" class="val">1</span>
+    </div>
+  </div>
+</div>
+
+<p>Click "Chat Session 1" to add a conversation that shares the system prompt (the green root node). Click "Chat Session 2" for a different conversation&mdash;watch the tree split at the divergence point, sharing the root. "Add Turn" extends a random leaf, simulating a multi-turn conversation. Each green node is a cache hit. Each orange node is new computation. The cache hit rate climbs as conversations accumulate shared structure.</p>
+
+<h4>How the radix tree evolves (step by step)</h4>
+
+<p>The evolution of the tree follows a predictable pattern that mirrors filesystem growth:</p>
+
+<pre><code><span class="cm">// State 1: Empty tree (just root with system prompt)</span>
+<span class="st">[SYS_PROMPT]</span>
+
+<span class="cm">// State 2: First chat session</span>
+<span class="st">[SYS_PROMPT]</span> → <span class="pp">[User1_Q1]</span> → <span class="pp">[Asst1_R1]</span>
+
+<span class="cm">// State 3: Second session arrives, same system prompt</span>
+<span class="st">[SYS_PROMPT]</span> → <span class="pp">[User1_Q1]</span> → <span class="pp">[Asst1_R1]</span>
+            ↘ <span class="pp">[User2_Q1]</span> → <span class="pp">[Asst2_R1]</span>
+
+<span class="cm">// State 4: Memory pressure — LRU evicts cold leaf</span>
+<span class="st">[SYS_PROMPT]</span> → <span class="st">[User1_Q1]</span> → <span class="st">[Asst1_R1]</span>
+            ↘ <span class="cm">[evicted]</span>
+
+<span class="cm">// State 5: Turn 2 from User 1 extends the surviving branch</span>
+<span class="st">[SYS_PROMPT]</span> → <span class="st">[User1_Q1]</span> → <span class="st">[Asst1_R1]</span> → <span class="pp">[User1_Q2]</span> → <span class="pp">[Asst1_R2]</span></code></pre>
+
+<p>Green nodes are cached (hit). Orange nodes require new computation. Every turn of every conversation that shares a system prompt benefits from the shared root. The deeper the conversation, the more history is cached, and the less compute each new turn requires.</p>
+
+<p>The numbers: up to <strong>5x throughput</strong> over vLLM on MMLU few-shot. <strong>5.6x</strong> on ReAct agent workflows. <strong>87% latency reduction</strong> on agent tasks. Few-shot workloads achieve 85-95% cache hit rates. Multi-turn chat hits 75-90% depending on conversation depth. A cache-aware load balancer added in SGLang v0.4 delivered 1.9x throughput with 3.8x higher cache hit rates across a cluster. In production, SGLang now serves trillions of tokens per day across 400,000+ GPUs.</p>
+
+<details>
+  <summary>The filesystem analogy, made explicit</summary>
+  <div>
+    <p>The correspondence between RadixAttention and a Unix filesystem is structural, not metaphorical. Every operation in one system has an exact counterpart in the other:</p>
+    <table>
+      <thead>
+        <tr><th>Filesystem</th><th>RadixAttention</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Path lookup: <code>/usr/local/bin/python</code></td><td>Prefix match: [sys_prompt] / [user_turn_1] / [asst_turn_1]</td></tr>
+        <tr><td><code>ls</code> (enumerate directory)</td><td>Cache enumeration (list cached prefixes)</td></tr>
+        <tr><td><code>rm</code> (delete file)</td><td>LRU eviction (remove cold leaf nodes)</td></tr>
+        <tr><td>Hard links (reference counting)</td><td>Shared nodes with <code>lock_ref</code> counters</td></tr>
+        <tr><td>inode (metadata)</td><td>Node (token IDs + GPU memory pointers)</td></tr>
+        <tr><td>Page cache (cache hot files in RAM)</td><td>Radix tree (cache hot prefixes in GPU memory)</td></tr>
+      </tbody>
+    </table>
+    <p>The deepest lesson: the problems of serving LLMs at scale are not new problems. They are the same problems operating systems solved 50 years ago&mdash;memory management, caching, scheduling, resource multiplexing. The innovation is recognizing the correspondence.</p>
+  </div>
+</details>
+
+<div class="power">
+  <div class="power-label">The OS arc completes</div>
+  <p>PagedAttention reimplemented virtual memory paging in userspace. vAttention said: just use the actual CUDA VMM hardware. RadixAttention applied filesystem design patterns&mdash;radix trees, LRU eviction, reference counting&mdash;to a completely different domain. Three papers. Three decades of OS research, speed-run in three years. The best ML systems papers of 2022-2025 are OS papers in disguise. Every generation of hardware eventually needs an operating system. The GPU's OS is being written right now, one SOSP paper at a time.</p>
+</div>
+
+<p>Chapters 2 through 4 have traced one arc: the throughput story. Scheduling (Orca) eliminated batch-boundary waste. Memory management (PagedAttention) eliminated allocation waste. Caching (RadixAttention) eliminated recomputation waste. The serving system can now pack more requests, manage memory efficiently, and reuse computation across requests with shared structure. The GPU stays full. The cost per token plummets.</p>
+
+<p>But throughput and latency are different problems. They can even be adversarial. A system serving 10,000 users at maximum throughput might have each individual user waiting 500ms per token because their request shares the GPU with 63 others. The provider is efficient&mdash;cost per token is minimal, GPU utilization is high. The user is impatient&mdash;the response streams slowly, the interface feels sluggish, the experience suffers.</p>
+
+<p>Chapters 5 through 7 attack the other side: <strong>how do you make one user's experience fast?</strong> The answer involves exploiting a different kind of waste. Not memory waste (that is now solved). Not scheduling waste (solved too). <em>Compute waste</em> during the decode phase. The GPU is not full during decode. It is nearly empty&mdash;95% of compute units sitting dark while the memory bus feeds one token at a time. That emptiness is an opportunity. Speculative decoding and its descendants fill it.</p>
+</section>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     CHAPTER 5 — THE IDLE ASSEMBLY LINE
+     ════════════════════════════════════════════════════════════════════ -->
+<section id="ch5">
+<h2>05 // The Idle Assembly Line</h2>
+
+<p class="drop-cap">Picture a factory floor with ten thousand machines. Drills. Lathes. Welders. Robotic arms. Each one capable of microsecond-precision work. But there is a rule: only one part can be on the line at a time, and it must visit every machine in order. Machine 1 installs a bolt. Then machines 2 through 10,000 wait idle while the part moves. Machine 2 installs a nut. 9,999 machines idle again. You have paid for a factory and you are using it as a workbench.</p>
+
+<p>That is autoregressive decoding. The GPU reads <strong>every parameter in the model</strong> to produce <strong>one token</strong>. For a 70B model in FP16, that is roughly 140 GB of data transferred from HBM to compute cores. For one token. Then it does it again for the next token. And the next. Each token depends on the previous one&mdash;you cannot start generating token N+1 until token N exists, because it changes the attention context for everything that follows.</p>
+
+<p>The arithmetic tells the whole story. During single-token decode, the operation is a matrix-vector multiply: one token's activations times the model's weight matrices. The arithmetic intensity is around 60-80 operations per byte transferred. But the GPU's compute-to-bandwidth ratio is much higher&mdash;156 ops/byte on A100, 295 ops/byte on H100. The GPU could do 2-4x more math per byte of data it reads from memory. But there is nothing to compute. The memory bus is saturated. The compute cores are dark.</p>
+
+<table>
+  <thead>
+    <tr><th>GPU</th><th>HBM Bandwidth</th><th>Peak FP16</th><th>Balance Point</th><th>Decode Intensity</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>A100 (80GB)</td><td>2.0 TB/s</td><td>312 TFLOPS</td><td>~156 ops/byte</td><td>~62 ops/byte</td></tr>
+    <tr><td>H100 (80GB)</td><td>3.35 TB/s</td><td>990 TFLOPS</td><td>~295 ops/byte</td><td>~80 ops/byte</td></tr>
+  </tbody>
+</table>
+
+<p>Studies of production inference show that attention kernels during decode achieve roughly 23% compute utilization and 47% memory bandwidth utilization. Over 50% of kernel cycles stall waiting for data to arrive from HBM. The GPU is <strong>memory-bandwidth-bound</strong>, not compute-bound. You are paying for a supercomputer and using it as a filing cabinet.</p>
+
+<p>This is the decode-phase scandal. And it is where the story shifts from throughput to latency.</p>
+
+<div class="diagram">
+  <span class="diagram-label">GPU utilization: prefill vs decode</span>
+  <pre><code><span class="st">PREFILL</span> (process 4096 input tokens)
+  ┌─────────────────────────────────────────┐
+  │<span class="st">█████████████████████████████████████████</span>│  Compute: <span class="st">95%</span>
+  │<span class="st">█████████████████████████████████████████</span>│  Bandwidth: <span class="st">80%</span>
+  └─────────────────────────────────────────┘
+  Matrix × Matrix  (4096 tokens × d_model × d_model)
+
+<span class="pp">DECODE</span> (generate 1 token)
+  ┌─────────────────────────────────────────┐
+  │<span class="pp">██</span><span class="cm">                                       </span>│  Compute: <span class="pp">5%</span>
+  │<span class="pp">████████████████████</span><span class="cm">                     </span>│  Bandwidth: <span class="pp">47%</span>
+  └─────────────────────────────────────────┘
+  Matrix × Vector  (1 token × d_model × d_model)
+
+  <span class="cm">GPU reads ~140 GB of weights. Produces 1 token.</span>
+  <span class="cm">Then reads ~140 GB again. Produces 1 token.</span>
+  <span class="cm">Then reads ~140 GB again. Produces 1 token.</span></code></pre>
+</div>
+
+<p>The contrast is stark. Prefill is what GPUs were designed for: massive parallel matrix multiplication, thousands of tokens processed simultaneously, compute units fully engaged. Decode is the opposite: the GPU loads the entire model&mdash;every weight, every parameter, every layer&mdash;to generate a single token. Then it loads the entire model again for the next token. And again. Each decode step reads the full weight matrix but performs only a vector's worth of computation against it. The ratio of compute to memory access is terrible. The hardware is bottlenecked on memory bandwidth, with compute units sitting dark, waiting for data to arrive from HBM.</p>
+
+<p>To put this in physical terms: an H100 can perform 990 trillion floating-point operations per second. During single-token decode of a 70B model, it performs roughly 140 billion operations (one matrix-vector multiply through the full network). That takes about 0.14 milliseconds of compute&mdash;but the data transfer takes 42 milliseconds because 140 GB must be read from HBM at 3.35 TB/s. The GPU spends 99.7% of decode time waiting for data and 0.3% computing. That is the scandal.</p>
+
+<h3>The asymmetry that changes everything</h3>
+
+<p>In late 2022, two teams at two different divisions of Google arrived at the same insight independently, within weeks of each other. Neither knew about the other's work.</p>
+
+<p>Yaniv Leviathan, Matan Kalman, and Yossi Matias at <strong>Google Research</strong> submitted "Fast Inference from Transformers via Speculative Decoding" on November 30, 2022. They used T5-XXL (11B) with T5-small (60M) as draft. Result: <strong>2-3x speedup, identical outputs</strong>. Published as an oral at ICML 2023.</p>
+
+<p>Markus Chen, Jerry Tworek, Heewoo Jun, and John Jumper at <strong>DeepMind</strong> published "Accelerating Large Language Model Decoding with Speculative Sampling" on February 2, 2023. They used Chinchilla (70B) in a distributed setup. Result: <strong>2-2.5x speedup, no quality loss</strong>.</p>
+
+<p>Both teams arrived at the same core mechanism: a modified rejection sampling scheme that <em>provably</em> preserves the target model's output distribution. Both teams independently proved the same theorem. The dual discovery was not a coincidence&mdash;it was a consequence of the decode-phase scandal being obvious enough that multiple groups attacked it simultaneously.</p>
+
+<p>Google Research later published a retrospective blog post calling speculative decoding "one of the more satisfying developments in machine learning inference." The two-team convergence was evidence that the idea was ready to be discovered&mdash;the underlying physics (memory-bound decode with idle compute) made the solution almost inevitable once teams started profiling their inference pipelines carefully.</p>
+
+<p>The technique borrows its name directly from CPU architecture. Modern CPUs encounter branch instructions (if/else) and do not know which path to take until the condition is evaluated. Rather than stall the pipeline, they <strong>speculatively execute</strong> instructions down the predicted path. If the prediction was right (branch predictors are 95%+ accurate), the work is committed for free. If wrong, the speculative work is discarded and execution restarts from the correct branch. LLM speculative decoding is the same principle: speculate aggressively, verify cheaply, discard mistakes. The "branch predictor" is the draft model. The "pipeline" is the target model's forward pass. The key difference: even on "misprediction," you always get at least 1 correct token, so you never waste a step entirely.</p>
+
+<p>The insight that makes it work: <strong>verifying K tokens costs approximately the same as generating 1.</strong></p>
+
+<p>Why? Three reasons, all physical:</p>
+
+<p><strong>First:</strong> the weights are already being read. Whether you process 1 token or 5, you read the same ~140 GB of parameters from HBM. The memory transfer&mdash;which is the bottleneck&mdash;is amortized across all tokens being verified.</p>
+
+<p><strong>Second:</strong> you are using idle compute cycles. Those 95% idle compute units now have something to do. The extra 4 tokens add rows to the batch, filling the compute that was previously dark.</p>
+
+<p><strong>Third:</strong> verification is parallel, generation is sequential. Generating token N+1 requires knowing token N (sequential dependency). But <em>checking</em> whether tokens N+1 through N+5 are correct can be done in one parallel forward pass. The target model processes the draft tokens as a batch, computing the probability distribution for each position simultaneously. If any draft token is wrong, the model knows immediately&mdash;because it can see the discrepancy between its own distribution and the draft's choice. This asymmetry between generation (sequential, slow) and verification (parallel, fast) is the entire trick.</p>
+
+<p>Think of it as a proofreader versus a writer. A writer produces text one word at a time, each word depending on everything before it. A proofreader can scan a paragraph in seconds and identify errors in any position simultaneously. The proofreader is parallel. The writer is sequential. Speculative decoding turns the expensive target model into a proofreader and gives the cheap draft model the writing job.</p>
+
+<h3>The mechanism</h3>
+
+<p>Speculative decoding works in rounds. Each round:</p>
+
+<pre><code><span class="cm">// STEP 1: Draft</span>
+<span class="kw">for</span> i <span class="kw">in</span> <span class="nm">1</span>..<span class="nm">K</span>:
+    draft_token[i] = <span class="fn">small_model</span>.<span class="fn">generate</span>()  <span class="cm">// fast, ~60M params</span>
+
+<span class="cm">// STEP 2: Verify (one forward pass)</span>
+p_target = <span class="fn">big_model</span>.<span class="fn">forward</span>(draft_tokens)   <span class="cm">// slow model, but parallel</span>
+p_draft  = <span class="fn">small_model</span>.<span class="fn">probs</span>(draft_tokens)
+
+<span class="cm">// STEP 3: Accept/Reject</span>
+<span class="kw">for</span> i <span class="kw">in</span> <span class="nm">1</span>..<span class="nm">K</span>:
+    <span class="kw">if</span> random() < min(<span class="nm">1</span>, p_target[i] / p_draft[i]):
+        <span class="fn">accept</span>(draft_token[i])           <span class="cm">// keep it</span>
+    <span class="kw">else</span>:
+        <span class="fn">resample</span>(<span class="fn">norm</span>(max(<span class="nm">0</span>, p_target - p_draft)))  <span class="cm">// fix it</span>
+        <span class="kw">break</span>
+
+<span class="cm">// GUARANTEE: output distribution = p_target exactly</span></code></pre>
+
+<p>The rejection sampling criterion is the mathematical heart. If the target model agrees with the draft at least as much as the draft predicted, always accept. If the target agrees less, accept proportionally and reject the rest. On rejection, resample from the residual distribution <code>norm(max(0, p_target - p_draft))</code>&mdash;this "fills in" exactly the probability mass the draft missed. The result, proved in both papers: the output distribution is <strong>exactly</strong> p_target. Not approximately. Exactly. Within hardware floating-point precision. Lossless.</p>
+
+<p>This is not a quality-speed tradeoff. It is free speed. The same output you would get from running the target model alone, produced faster through better scheduling of the same computation. The "lossless" guarantee is what separates speculative decoding from approximation techniques like quantization, pruning, or distillation. Those trade quality for speed. Speculative decoding trades <em>nothing</em>&mdash;it finds speed that was always there, hidden in the idle compute cycles of the decode phase.</p>
+
+<h3>The acceptance rate cliff</h3>
+
+<p>Here is the deceptive part. Say your draft model matches the target 90% of the time on each individual token. Sounds great. But acceptance compounds multiplicatively. Every token in the chain must survive for the full chain to be accepted:</p>
+
+<table>
+  <thead>
+    <tr><th>Chain length K</th><th>P(all accepted)</th><th>Expected tokens</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>1</td><td>90%</td><td>1.90</td></tr>
+    <tr><td>3</td><td>73%</td><td>3.44</td></tr>
+    <tr><td>5</td><td>59%</td><td>4.69</td></tr>
+    <tr><td>7</td><td>48%</td><td>5.70</td></tr>
+    <tr><td>10</td><td>35%</td><td>6.86</td></tr>
+  </tbody>
+</table>
+
+<p>At K=5, you only get all 5 tokens through 59% of the time. At K=10, you get all 10 just 35% of the time. The chain is fragile&mdash;every link must hold.</p>
+
+<p>But you do not need ALL tokens to win. The expected number of tokens per round follows a geometric series: E = 1 + alpha + alpha<sup>2</sup> + ... + alpha<sup>K</sup>. The theoretical maximum speedup, ignoring draft cost, is <strong>1/(1-alpha)</strong>. At alpha=0.9, that ceiling is 10x. At alpha=0.7, it is only 3.3x. The acceptance rate is everything.</p>
+
+<!-- ──── VIZ 4: ACCEPTANCE RATE CLIFF ──── -->
+<div class="viz-container">
+  <span class="diagram-label">Acceptance Rate Cliff &mdash; Chain Survival Probability</span>
+  <div id="viz-acceptance"></div>
+  <div class="viz-controls">
+    <div>
+      <label>Per-token alpha</label>
+      <input type="range" id="alpha-slider" min="50" max="99" value="90">
+      <span id="alpha-val" class="val">0.90</span>
+    </div>
+    <div style="flex-grow:1"></div>
+    <div>
+      <span style="color:var(--text-dim)">Expected tokens (K=5): </span><span id="expected-tokens" class="val">4.69</span>
+      <span style="color:var(--text-dim); margin-left:1rem;">Ceiling 1/(1-a): </span><span id="ceiling-val" class="val">10.0</span>
+    </div>
+  </div>
+</div>
+
+<p>Drag the alpha slider. Watch the curve steepen as acceptance drops. At 0.7, a chain of 5 has only a 17% chance of full survival. The diminishing returns on longer chains become visceral. This is why every method in the next two chapters moves from chains to trees.</p>
+
+<h3>The speedup formula, with draft cost</h3>
+
+<p>Draft models are not free. Let c = t_draft / t_target (the cost ratio&mdash;how expensive the draft model is relative to the target). Then the wall-clock speedup for generating many tokens:</p>
+
+<pre><code><span class="cm">// Wall-clock speedup including draft cost</span>
+Speedup = <span class="fn">E</span>[tokens_per_round] / cost_per_round
+        = (<span class="nm">1</span> - alpha^(K+<span class="nm">1</span>)) / ((<span class="nm">1</span> - alpha) * (K * c + <span class="nm">1</span>))
+
+<span class="cm">// Numerator: expected tokens (geometric series)</span>
+<span class="cm">// Denominator: K draft evals (each costing c) + 1 target eval</span>
+
+<span class="cm">// Typical values:</span>
+<span class="cm">//   c ~ 0.05-0.1  (draft is 5-10% of target cost)</span>
+<span class="cm">//   alpha ~ 0.7-0.9</span>
+<span class="cm">//   Sweet spot: K = 3-7</span></code></pre>
+
+<p>The optimal K balances "more draft tokens = more potential accepted tokens" against "more draft tokens = higher cost per round." Push K too high and you spend more time drafting than you save from acceptance. Push K too low and you leave accepted tokens on the table. For typical setups, the sweet spot is K=3-7. At that point, speculative decoding achieves <strong>2-3x wall-clock speedup</strong> on single-user latency. Not the theoretical 10x ceiling, but transformative for real-time applications.</p>
+
+<details>
+  <summary>Prior art: Stern, Shazeer & Uszkoreit (2018)</summary>
+  <div>
+    <p>Speculative decoding was not born in 2022. In 2018, Mitchell Stern, Noam Shazeer, and Jakob Uszkoreit at Google published "Blockwise Parallel Decoding for Deep Autoregressive Models." They added k-1 non-autoregressive heads to a Transformer decoder to predict k positions in parallel, then verified with the autoregressive head. This is <em>structurally</em> the same idea as Medusa (which would come five years later).</p>
+    <p>But Stern et al. lacked two things the 2022 papers had: (1) the rejection sampling proof that makes the output distribution lossless, and (2) the era of massive models where decode latency became the dominant bottleneck. In 2018, models were small enough that decode was fast. By 2022, models were large enough that decode latency was the primary user experience problem. The solution was the same. The problem had to catch up.</p>
+  </div>
+</details>
+
+<h3>Batching and speculation: complementary, not competing</h3>
+
+<p>A subtle point that matters for production deployments: speculative decoding and continuous batching are <strong>complementary</strong>, not competing. But their benefits appear in different regimes.</p>
+
+<p>At low batch sizes (1-8 requests), speculative decoding shines. The GPU is severely underutilized during decode&mdash;plenty of idle compute to exploit. Speedups reach 2-3x per user.</p>
+
+<p>At high batch sizes (32+), speculative decoding's benefit shrinks to 1.3x or less. Why? Because batching has already filled the idle compute cycles. The GPU is well-utilized from serving 32+ requests. There is nothing left for speculative decoding to reclaim. The two techniques target the same resource (idle GPU cycles) but from different angles.</p>
+
+<p>The exception: long context lengths. MagicDec (Together AI, 2024) showed that speculative decoding can help throughput even at high batch sizes when context lengths are long (32K+), because the KV cache bandwidth dominates and the draft model uses a much shorter context window.</p>
+
+<table>
+  <thead>
+    <tr><th>Regime</th><th>Batch Size</th><th>Spec Decode Benefit</th><th>Reason</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Single user</td><td>1</td><td><strong>2-3x</strong></td><td>GPU massively underutilized; free compute for verification</td></tr>
+    <tr><td>Light load</td><td>4-8</td><td><strong>1.5-2.5x</strong></td><td>Still significant idle compute</td></tr>
+    <tr><td>Medium load</td><td>16-32</td><td><strong>1.2-1.5x</strong></td><td>GPU filling up; diminishing idle cycles</td></tr>
+    <tr><td>Heavy load</td><td>64+</td><td><strong>1.0-1.3x</strong></td><td>GPU fully utilized; nothing to reclaim</td></tr>
+    <tr><td>Long context</td><td>Any</td><td><strong>1.5-2x</strong></td><td>KV cache bandwidth dominant; draft uses short context</td></tr>
+  </tbody>
+</table>
+
+<p>This table explains a common confusion in deployment. Teams benchmark speculative decoding at batch size 1, see a 3x speedup, deploy it to production with batch size 64, and wonder why it disappeared. The benefit is real but regime-dependent. Understanding the regime your deployment operates in determines whether speculative decoding is worth the engineering complexity.</p>
+
+<p>The practical implication: speculative decoding is most valuable for <strong>real-time interactive applications</strong> (chatbots, coding assistants, voice interfaces) where individual user latency matters and batch sizes are typically moderate. It is least valuable for <strong>batch processing</strong> (generating training data, document summarization at scale) where throughput matters and batch sizes are large. The sweet spot is the increasingly common case of serving a moderate number of concurrent users where both throughput and latency matter&mdash;exactly the operating regime of most commercial LLM APIs.</p>
+
+<div class="power zen">
+  <div class="power-label">Why trees beat chains</div>
+  <p>A chain of 5 tokens at alpha=0.9 survives with probability 0.59. One rejection kills everything downstream. But a tree with branching factor 2 and depth 5 has 32 leaf paths. The probability that <em>at least one</em> path survives all 5 levels is dramatically higher. You verify the entire tree in one forward pass using a tree attention mask&mdash;each token attends only to its ancestors. At least one path is likely to survive deeper than any single chain would.</p>
+</div>
+</section>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     CHAPTER 6 — KILLING THE DRAFT
+     ════════════════════════════════════════════════════════════════════ -->
+<section id="ch6">
+<h2>06 // Killing the Draft</h2>
+
+<p class="drop-cap">Classic speculative decoding requires a separate draft model. You need to find one, or train one, or hope someone published a compatible one. You deploy two models simultaneously&mdash;the 70B target and a 7B draft&mdash;managing distribution alignment, memory budgets, and scheduling between them. The draft model needs to be fast enough to be worth running and accurate enough to get tokens accepted. Finding that sweet spot for every target model is real engineering pain. In September 2023, Tianle Cai at Princeton asked the question that would eliminate the problem entirely: <strong>what if the target model could draft for itself?</strong></p>
+
+<h3>Medusa: the model already knows its future</h3>
+
+<p>Cai's paper, <a href="https://arxiv.org/abs/2401.10774">Medusa</a>, adds K extra prediction heads&mdash;typically five&mdash;on top of the model's final hidden states. Each head is a single-layer FFN with a residual connection. Tiny parameter overhead. Head k predicts the token at position t+k+1. The original language model head still predicts the next token normally at position t+1.</p>
+
+<p>The candidate generation is combinatorial. Take the top-s predictions from each head. Form a Cartesian product. If head 1 gives 2 candidates and head 2 gives 3, that is 6 candidate two-token continuations. Build a tree of these candidates. Verify the entire tree in a <strong>single forward pass</strong> through the target model, using a modified attention mask where each token attends only to its ancestors in the tree structure. No cross-branch contamination.</p>
+
+<p>Two training variants. <strong>Medusa-1</strong> freezes the backbone and trains only the new heads. Cross-entropy loss. Can train on a single GPU with quantization. The output distribution is unchanged&mdash;lossless. <strong>Medusa-2</strong> jointly trains backbone and heads with differential learning rates and a two-stage warmup to preserve model quality. Better predictions, higher speedup, but needs care to avoid degradation.</p>
+
+<p>Speedups: Medusa-1 achieves 2.18-2.33x. Medusa-2 reaches 2.35-3.62x, peaking on extraction tasks. The cost eliminated: 275 NVIDIA A100 GPU hours that would have been spent pre-training a separate draft model.</p>
+
+<div class="diagram">
+  <span class="diagram-label">Medusa architecture</span>
+  <pre><code>            Input tokens
+                │
+       ┌────────┴────────┐
+       │  <span class="ty">Target Model</span>    │
+       │  (frozen or      │
+       │   jointly trained)│
+       └────────┬────────┘
+                │
+          <span class="st">Final Hidden State h_t</span>
+                │
+    ┌───────┬───┼───┬───────┐
+    │       │   │   │       │
+   <span class="pp">LM</span>    <span class="pp">M_1</span>  <span class="pp">M_2</span> <span class="pp">M_3</span>   <span class="pp">M_4</span>     ← <span class="cm">Medusa heads (single FFN each)</span>
+  <span class="pp">Head</span>
+    │       │   │   │       │
+  <span class="st">t+1</span>    <span class="st">t+2</span>  <span class="st">t+3</span> <span class="st">t+4</span>   <span class="st">t+5</span>     ← <span class="cm">Each head predicts a future position</span>
+    │       │   │   │       │
+    └───┬───┴───┴───┴───────┘
+        │
+  <span class="fn">Cartesian product → candidate tree → tree attention verify</span></code></pre>
+</div>
+
+<p>Medusa proved something fundamental: a model's hidden states contain enough information to predict multiple future tokens. You never needed a second model. You needed a few extra heads. But those heads are shallow&mdash;one-layer FFNs operating only on the final hidden state. They see only the last layer's representation. They cannot access the full reasoning chain of the model's internal representations across all layers. This is the gap that the next team exploited.</p>
+
+<h3>EAGLE: predict features, not tokens</h3>
+
+<p>In January 2024, Yuhui Li at Peking University published <a href="https://arxiv.org/abs/2401.15077">EAGLE</a> with a deceptively simple insight. Token sequences are discrete and high-entropy&mdash;the next token could be any of 32,000+ vocabulary entries. Feature sequences (the second-to-top-layer representations) are continuous vectors with much more regularity. <strong>Autoregression is dramatically easier in feature space than in token space.</strong></p>
+
+<p>But there is a catch. Features at position t+1 depend on which token was <em>sampled</em> at position t. If the model might sample "am" or "always," the feature sequences diverge completely. This creates ambiguity for any feature-level predictor.</p>
+
+<p>EAGLE's fix is brilliant and simple: feed the <strong>already-sampled token embedding</strong> (one step ahead) alongside the previous feature. This resolves the sampling uncertainty. The draft model's architecture: a single FC layer for dimensionality reduction plus one Transformer decoder layer. Total trainable parameters: only 0.24B-0.99B depending on target model size. The embedding layer and LM head are frozen from the target model&mdash;zero extra training for those components.</p>
+
+<p>Result: <strong>2.7-5.6x speedup</strong>. 1.5-1.6x faster than Medusa across the board. The draft model's depth&mdash;a full Transformer decoder operating on features&mdash;gives it a richer representation of the model's internal reasoning than Medusa's shallow FFN heads.</p>
+
+<div class="diagram">
+  <span class="diagram-label">EAGLE vs Medusa — what the draft model sees</span>
+  <pre><code><span class="pp">MEDUSA</span>: Head operates on final layer only
+  ┌───────────────────────────┐
+  │  Layer 32 hidden state    │ ← <span class="cm">one snapshot of the model's "thinking"</span>
+  └─────────┬─────────────────┘
+            │
+       <span class="pp">FFN head</span> → prediction
+
+<span class="st">EAGLE</span>: Draft model operates on features + sampled tokens
+  ┌───────────────────────────┐
+  │  Layer 31 features        │ ← <span class="cm">richer, pre-final representation</span>
+  │  + sampled token embedding│ ← <span class="cm">resolves sampling uncertainty</span>
+  └─────────┬─────────────────┘
+            │
+    <span class="st">FC layer + Transformer decoder</span> → feature prediction → token prediction
+            │
+    <span class="cm">Full autoregressive chain in feature space</span></code></pre>
+</div>
+
+<p>The key architectural difference: Medusa predicts tokens from a static snapshot. EAGLE autoregressively predicts features, building a chain of reasoning in feature space. The token embedding input resolves the critical ambiguity that makes feature-level autoregression possible.</p>
+
+<details>
+  <summary>Why features are easier than tokens: the information theory</summary>
+  <div>
+    <p>Token sequences are discrete. At each position, the model picks from a vocabulary of 32,000+ options. The entropy of this choice can be very high&mdash;especially for content words, names, and creative text. Predicting the exact next token is hard because the probability mass is spread across many options.</p>
+    <p>Feature sequences (the model's internal representations) are continuous vectors in a high-dimensional space. These vectors change smoothly from one position to the next. The "path" through feature space is predictable in a way that the discrete token path is not. Think of it this way: predicting that a sentence will continue with a positive sentiment (a direction in feature space) is much easier than predicting the exact word "wonderful" versus "great" versus "excellent" (discrete choices with similar meanings).</p>
+    <p>EAGLE exploits this by predicting in feature space first, then mapping back to tokens. The feature prediction benefits from the smoothness of continuous representations. The token prediction then only needs to map a already-well-predicted feature vector to the nearest token&mdash;a much easier problem than predicting the token from scratch.</p>
+    <p>The evidence: EAGLE's feature-level prediction achieves 1.9x speedup in ablation, versus 1.5x for a matched token-level approach. The gap is entirely due to the predictability of the target.</p>
+  </div>
+</details>
+
+<h3>EAGLE-2: dynamic trees from confidence</h3>
+
+<p>EAGLE-1 uses a static draft tree&mdash;same shape regardless of input context. But acceptance rates are not just position-dependent. They are <strong>highly context-dependent</strong>. A confident prediction at depth 3 might be more valuable than an uncertain prediction at depth 1. Static trees waste slots on low-probability branches and miss high-probability deep ones.</p>
+
+<p>EAGLE-2 discovered something remarkable: the draft model's confidence score (softmax probability of its top prediction) is a <strong>near-perfect proxy</strong> for the target model's acceptance probability. Confidence below 0.05 maps to acceptance rate around 0.04. Confidence above 0.95 maps to acceptance rate around 0.98. Near-linear correlation across the full range.</p>
+
+<p>This means you can build the optimal draft tree at inference time with <strong>zero extra training</strong>. The algorithm: expand the top-k most confident tokens at each depth. Compute each candidate's value as the product of all confidence scores along its path from root (estimating actual acceptance probability since rejecting any ancestor invalidates the branch). Rerank globally. Select the top-m candidates for the final tree. Prefer shallower nodes on ties.</p>
+
+<p>Result: <strong>3.05-4.26x speedup</strong>, 20-40% faster than EAGLE-1. No additional training required beyond the EAGLE-1 draft model. Pure inference-time optimization.</p>
+
+<p>The discovery that confidence is acceptance changed how draft trees are conceptualized. Static trees are designed once at system start, based on average acceptance rates across a benchmark. Dynamic trees are designed <em>per token</em>, adapting to the model's uncertainty at that specific point in that specific context. On "easy" tokens (deterministic continuations like "the United States of"), the tree goes deep&mdash;the model is confident at every depth, so pushing deeper is almost certainly profitable. On "hard" tokens (creative choices, ambiguous grammar, domain-specific jargon), the tree goes wide and shallow&mdash;explore many possibilities at depth 1 rather than betting on any single deep chain. The tree shape becomes a real-time diagnostic of the model's confidence landscape.</p>
+
+<p>The algorithm is elegant in its simplicity. For each candidate token at each depth, compute V_i = product of all confidence scores from root to that token. This product estimates the actual acceptance probability, because rejecting <em>any</em> ancestor invalidates the entire branch. Sort all candidates globally by V_i. Take the top-m. That is your draft tree. No neural network, no optimization, no training. Just multiplication and sorting. The dynamic tree is a pure inference-time optimization&mdash;any EAGLE-1 draft model can be upgraded to EAGLE-2 by changing only the tree construction code.</p>
+
+<h3>EAGLE-3: multi-layer fusion and the scaling law</h3>
+
+<p>In March 2025, the same team published <a href="https://arxiv.org/abs/2503.01840">EAGLE-3</a> with three architectural changes that unlocked a qualitative shift in draft model capability.</p>
+
+<p><strong>Multi-layer feature fusion.</strong> EAGLE-1 and EAGLE-2 used only the second-to-top layer features. EAGLE-3 fuses features from low, mid, and high layers. Concatenate k-dimensional vectors from three layers into a 3k-dimensional vector, then project back to k dimensions via an FC layer. The rationale: low layers encode syntax and structure. Mid layers encode semantics. High layers encode task-specific reasoning. All three are useful for predicting future tokens.</p>
+
+<p><strong>Training-time test.</strong> Previous EAGLEs trained on ground-truth target model features. At inference time, the draft model sees its own imperfect outputs as inputs&mdash;a distribution shift. EAGLE-3 fixes this by performing "test steps" during training: the draft model's outputs are fed back as inputs for further training iterations. The model learns to handle its own errors. Modified self-attention masks during training handle the tree-like contextual relationships.</p>
+
+<p><strong>Direct token prediction.</strong> EAGLE-1 and EAGLE-2 required a feature prediction loss alongside token prediction, constraining the draft model to produce vectors that match the target model's features. EAGLE-3 drops this constraint entirely. The draft model generates unconstrained vectors optimized purely for token prediction accuracy. Cleaner gradients. Better training dynamics.</p>
+
+<p>These three changes unlocked something the EAGLE line never had before: <strong>a scaling law for draft models</strong>. With ~8x more training data, speedup improves roughly linearly. Previous EAGLEs hit diminishing returns quickly&mdash;more data did not help because the architecture was the bottleneck. EAGLE-3 removed the architectural constraints.</p>
+
+<p>Peak speedup: <strong>6.47x</strong> on HumanEval with Vicuna 13B. Roughly 400 tokens per second on LLaMA 3.1 8B with a single H100 via SGLang integration.</p>
+
+<div class="diagram">
+  <span class="diagram-label">EAGLE evolution — what changed at each step</span>
+  <pre><code><span class="ty">EAGLE-1</span> (Jan 2024, ICML)
+  Features:  Top layer only
+  Tree:      Static (fixed shape)
+  Training:  Feature prediction + token prediction loss
+  Speedup:   <span class="nm">2.7-5.6x</span>
+                │
+                ▼
+<span class="ty">EAGLE-2</span> (Jun 2024, EMNLP)
+  Features:  Top layer only
+  Tree:      <span class="st">Dynamic</span> (confidence-based)  ← <span class="cm">key change</span>
+  Training:  Same as EAGLE-1
+  Speedup:   <span class="nm">3.05-4.26x</span>  (+20-40%)
+                │
+                ▼
+<span class="ty">EAGLE-3</span> (Mar 2025, NeurIPS)
+  Features:  <span class="st">Multi-layer fusion</span>         ← <span class="cm">low + mid + high layers</span>
+  Tree:      Dynamic
+  Training:  <span class="st">Training-time test</span>          ← <span class="cm">self-error correction</span>
+             <span class="st">Direct token prediction</span>     ← <span class="cm">drop feature loss</span>
+  Speedup:   <span class="nm">3.3-6.5x</span>  (scaling law unlocked)</code></pre>
+</div>
+
+<details>
+  <summary>EAGLE-3's scaling law: why it matters</summary>
+  <div>
+    <p>Before EAGLE-3, draft model training had an invisible ceiling. You could throw more data at the draft model, but speedup would plateau. The draft model's architecture was the bottleneck, not the training data. EAGLE-1 and EAGLE-2 both saturated early&mdash;after moderate training, adding more data produced diminishing returns.</p>
+    <p>EAGLE-3's three architectural changes removed this ceiling. With 8x more training data, speedup improves roughly linearly. This is a qualitative shift: it means draft models can be <em>systematically</em> improved by scaling training, not just by architectural innovation. The draft model is no longer a fixed-quality component. It is an investment that pays proportional returns.</p>
+    <p>This matters for production deployment because it means providers can trade training compute for inference speed in a predictable way. Spend 2x more on draft training, get measurably faster inference. That is a resource allocation decision, not a research problem.</p>
+  </div>
+</details>
+
+<!-- ──── VIZ 5: DRAFT-VERIFY DANCE ──── -->
+<div class="viz-container">
+  <span class="diagram-label">Draft-Verify Dance &mdash; Speculative Decoding Rounds</span>
+  <div id="viz-draft"></div>
+  <div class="viz-controls">
+    <div>
+      <label>Acceptance rate (alpha)</label>
+      <input type="range" id="draft-alpha" min="50" max="95" value="80">
+      <span id="draft-alpha-val" class="val">0.80</span>
+    </div>
+    <button id="btn-draft-run">Run Round</button>
+    <button id="btn-draft-auto">Auto (10 rounds)</button>
+    <button id="btn-draft-reset" class="secondary">Reset</button>
+    <div style="flex-grow:1"></div>
+    <div>
+      <span style="color:var(--text-dim)">Tokens: </span><span id="draft-total" class="val">0</span>
+      <span style="color:var(--text-dim); margin-left:0.8rem;">Rounds: </span><span id="draft-rounds" class="val">0</span>
+      <span style="color:var(--text-dim); margin-left:0.8rem;">Speedup: </span><span id="draft-speedup" class="val">0.0x</span>
+    </div>
+  </div>
+</div>
+
+<p>Each round: the small model drafts 5 tokens (fast). The big model verifies in one pass. Green = accepted. Red = rejected. Cyan = bonus token (the big model's own prediction at the rejection point). Adjust alpha and watch how the speedup changes. At 0.5, most rounds produce just 1-2 tokens. At 0.9, most rounds produce 5-6. The tokens-per-round counter is the effective speedup.</p>
+
+<p>Run 10 rounds with "Auto" and watch the statistics converge. At alpha=0.80, you should see roughly 3-4 tokens per round&mdash;a 3-4x speedup in wall-clock time for generating a full response. This matches the empirical results from the EAGLE papers. At alpha=0.50, the speedup drops to around 2x. The acceptance rate really is everything.</p>
+
+<h3>The co-evolution: EAGLE and DeepSeek-V3</h3>
+
+<p>This is one of the clearest documented cases of <strong>mutual influence between labs</strong> in the inference optimization space. The timeline tells the story:</p>
+
+<p><strong>January 2024:</strong> EAGLE published. Core contribution: feature-level autoregression with a maintained causal chain is the key to fast speculative decoding.</p>
+
+<p><strong>December 2024:</strong> DeepSeek published V3. Their multi-token prediction architecture explicitly acknowledged EAGLE's influence: "Our principle of maintaining the causal chain of predictions is similar to that of EAGLE, but its primary objective is speculative decoding, whereas we utilize MTP to improve training." DeepSeek built sequential MTP modules into the pre-training pipeline&mdash;each module takes the previous module's hidden state plus the current token embedding and predicts the next token. The chain maintains causal coherence. At inference time, these MTP modules serve as a built-in draft model. Acceptance rate: 83% at k=1. The speedup: 1.8x with zero additional training.</p>
+
+<p><strong>March 2025:</strong> EAGLE-3 published. The paper explicitly states that EAGLE "inspired the multi-token prediction technique used in the pre-training of DeepSeek-V3," and that DeepSeek-V3's approach then "inspired new architectural designs in EAGLE-3." Specifically: dropping the feature prediction loss (DeepSeek's MTP used direct token prediction) and multi-layer information fusion (DeepSeek's MTP modules take inputs from multiple depths).</p>
+
+<p>Inference optimization inspired a pre-training technique. The pre-training technique unlocked the next generation of inference optimization. The boundary between "how we train" and "how we serve" is dissolving.</p>
+
+<div class="diagram">
+  <span class="diagram-label">The EAGLE-DeepSeek co-evolution</span>
+  <pre><code>  <span class="ty">EAGLE-1</span> (Jan 2024)                     <span class="pp">DeepSeek-V3</span> (Dec 2024)
+  "Feature-level autoregression          "Our causal chain principle is
+   with maintained causal chain"          similar to EAGLE"
+           │                                       │
+           │  ─── inspired ──────────────►         │
+           │                                       │
+           │         ◄──── inspired ───────        │
+           │                                       │
+           ▼                                       │
+  <span class="ty">EAGLE-3</span> (Mar 2025)                              │
+  "DeepSeek-V3 inspired new              ◄─────────┘
+   architectural designs:
+   - Drop feature prediction loss
+   - Multi-layer information fusion"
+
+  <span class="st">Inference optimization → Pre-training technique → Inference optimization</span></code></pre>
+</div>
+
+<table>
+  <thead>
+    <tr><th>Method</th><th>Year</th><th>Draft Model?</th><th>Key Move</th><th>Speedup</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Medusa-1/2</td><td>2023</td><td>No (FFN heads)</td><td>Multiple prediction heads on target</td><td>2.2-3.6x</td></tr>
+    <tr><td>EAGLE-1</td><td>2024</td><td>No (features)</td><td>Autoregression on features, not tokens</td><td>2.7-5.6x</td></tr>
+    <tr><td>EAGLE-2</td><td>2024</td><td>No (+ dynamic trees)</td><td>Confidence-based tree construction</td><td>3.05-4.26x</td></tr>
+    <tr><td>EAGLE-3</td><td>2025</td><td>No (multi-layer fusion)</td><td>Training-time test + scaling law</td><td>3.3-6.5x</td></tr>
+    <tr><td>DeepSeek-V3 MTP</td><td>2024</td><td>Built-in (training)</td><td>Sequential MTP baked into pre-training</td><td>1.8x</td></tr>
+  </tbody>
+</table>
+</section>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     CHAPTER 7 — JACOBI'S GHOST
+     ════════════════════════════════════════════════════════════════════ -->
+<section id="ch7">
+<h2>07 // Jacobi's Ghost</h2>
+
+<p class="drop-cap">Carl Gustav Jacob Jacobi published his iterative method in 1845 in <em>Astronomische Nachrichten</em>. The application: solving normal equations for least-squares problems in astronomical calculations&mdash;predicting where planets would be. The method decomposes a matrix into its diagonal, lower triangular, and upper triangular components, then updates all variables simultaneously using values from the previous iteration. It was considered useless for decades because sequential methods like Gauss-Seidel converge faster. But Jacobi's method has one property they lack: <strong>every variable updates in parallel</strong>. It parallelizes perfectly.</p>
+
+<p>179 years later, Yichao Fu at UC San Diego applied the same mathematical structure to predicting where <em>tokens</em> would be.</p>
+
+<h3>The reformulation</h3>
+
+<p>The insight that makes <a href="https://arxiv.org/abs/2402.02057">Lookahead Decoding</a> work is a mathematical identity hiding in plain sight. Define a function for each token position that equals zero when the token is correct:</p>
+
+<pre><code><span class="cm">// Autoregressive decoding = solving nonlinear equations</span>
+
+f(y<span class="nm">1</span>, x) = <span class="nm">0</span>                    <span class="cm">// token 1 depends only on prompt</span>
+f(y<span class="nm">2</span>, y<span class="nm">1</span>, x) = <span class="nm">0</span>               <span class="cm">// token 2 depends on token 1</span>
+f(y<span class="nm">3</span>, y<span class="nm">1</span>, y<span class="nm">2</span>, x) = <span class="nm">0</span>          <span class="cm">// token 3 depends on tokens 1-2</span>
+...
+f(y<span class="nm">m</span>, y<span class="nm">{1:m-1}</span>, x) = <span class="nm">0</span>          <span class="cm">// token m depends on all previous</span>
+
+<span class="cm">// Standard decoding: solve top-to-bottom, sequentially</span>
+<span class="cm">// Jacobi decoding: solve ALL simultaneously, iterate to convergence</span>
+
+<span class="cm">// where f(y_i, ...) = y_i - argmax P(y_i | context)</span></code></pre>
+
+<p>Standard autoregressive decoding solves these equations one at a time, top to bottom. Solve equation 1. Use the answer to solve equation 2. Use both answers to solve equation 3. Sequential. Slow. This is Gauss-Seidel iteration&mdash;the method every numerical methods textbook prefers because it converges faster.</p>
+
+<p>But Jacobi iteration solves them ALL simultaneously. Initialize all future token positions with random guesses. Run the model on all positions at once. Each position produces a new prediction based on the <em>previous iteration's</em> guesses for all preceding positions. Not the current iteration's partially-updated values (that would be Gauss-Seidel). The previous iteration's. This makes every update independent. Parallelizable. Exactly what a GPU wants.</p>
+
+<p>Convergence is guaranteed. At worst, it takes exactly m steps&mdash;the same as autoregressive&mdash;because position 1 always gets the correct token on the first iteration (it depends only on the prompt). Position 2 gets the correct token once position 1 is correct. Correctness propagates left-to-right, one position per iteration at minimum.</p>
+
+<p>At best, multiple positions can "crystallize" simultaneously&mdash;if a later position happens to guess correctly even before its preceding positions are correct, that token locks in and stays correct in all subsequent iterations. This is rare but possible, and when it happens, Jacobi decoding leaps ahead of the sequential baseline.</p>
+
+<p>The mathematical guarantee is what makes this interesting from a theoretical perspective. Unlike speculative decoding, which requires a separate draft model and a rejection sampling proof, Jacobi decoding is self-contained. The model verifies itself through the structure of iteration. The convergence proof comes from the properties of the fixed-point equation, not from any external verification mechanism.</p>
+
+<p>The problem: vanilla Jacobi decoding gives only <strong>1.05x speedup</strong>. LLMs trained with teacher forcing are terrible at predicting token t+k when tokens t+1 through t+k-1 are wrong. The model almost never "guesses right" at distant positions with corrupted context. The parallel updates converge one position per step, which is the same as sequential decoding.</p>
+
+<h3>Lookahead: the trajectory is the treasure</h3>
+
+<p>Fu et al. discovered that the Jacobi iterations themselves produce something valuable even when they fail to converge. As the model iterates, tokens at the same position across consecutive iterations form <strong>n-grams</strong>. A token appears at position k in iteration t. That token's natural continuation appears at position k+1 in iteration t+1. These trajectory n-grams are often valid continuations of the confirmed sequence&mdash;even though the individual iterations have not converged and most guesses are wrong.</p>
+
+<p><strong>Lookahead Decoding</strong> runs two parallel branches in every forward pass:</p>
+
+<p>The <strong>lookahead branch</strong> maintains a 2D window parameterized by W (window size into the future) and N (n-gram length). W positions ahead get Jacobi-updated simultaneously. As iterations proceed, n-grams are collected from the trajectory&mdash;sequences of tokens that appeared at the same position across N consecutive Jacobi steps. These n-grams are cached in a pool.</p>
+
+<p>The <strong>verification branch</strong> searches the n-gram pool for candidates whose first token matches the last confirmed token. It appends these candidates to the current sequence and verifies them in a single forward pass using an attention mask&mdash;the same tree verification trick as speculative decoding. Accept the longest correct prefix.</p>
+
+<p>The result: <strong>1.8x on MT-Bench</strong>, <strong>2.3x on code completion</strong>, up to 4x with multi-GPU parallelism. <strong>Exact output match</strong> with greedy decoding. No draft model to train or deploy. No auxiliary parameters. The model verifies itself through the structure of Jacobi iteration. The mathematical purist's answer to speculative decoding.</p>
+
+<p>The weakness is real: 1.8x is less than the 3x that well-tuned speculative decoding achieves. The "free" approach pays for its freedom with lower speedup. But the elegance is also real: exact output, zero extra models, self-verification through a 179-year-old mathematical method.</p>
+
+<p>Smaller models benefit more from Lookahead Decoding. Larger models are harder to parallelize because their decode phase is more compute-saturated. The sweet spot is models in the 7-13B range where decode is firmly memory-bound and the Jacobi iterations have room to explore.</p>
+
+<p>A related line of work&mdash;CLLMs (Consistency Large Language Models)&mdash;takes the Jacobi insight further by training models to converge faster on Jacobi trajectories. If you can train a model that produces better guesses at distant positions, the n-gram pool fills with higher-quality candidates, and the verification branch accepts longer prefixes. CLLMs achieve 2.4-3.4x speedup, but require additional training. The purity of Lookahead Decoding (zero extra training) is both its selling point and its ceiling.</p>
+
+<p>Fu et al. connected their work to an even deeper mathematical thread: the relationship between Jacobi decoding and diffusion models. Both involve iterative refinement of a noisy initial guess toward a coherent output. Both can be parallelized. The connection suggests that the boundary between "autoregressive" and "parallel" generation may be softer than the field assumes&mdash;a theme that continues to develop in 2025 research.</p>
+
+<details>
+  <summary>The Jacobi trajectory: what the iterations actually look like</summary>
+  <div>
+    <p>Imagine generating "The quick brown fox jumps over the lazy dog." with a 7B model via Jacobi iteration:</p>
+<pre><code><span class="cm">// Iteration 0 (random init):</span>
+[The] [cat] [red] [and] [sits] [near] [the] [old] [car]
+
+<span class="cm">// Iteration 1 (model updates all positions):</span>
+[The] [<span class="st">quick</span>] [old] [fox] [runs] [over] [a] [<span class="st">lazy</span>] [dog]
+
+<span class="cm">// Iteration 2:</span>
+[The] [<span class="st">quick</span>] [<span class="st">brown</span>] [<span class="st">fox</span>] [runs] [<span class="st">over</span>] [<span class="st">the</span>] [<span class="st">lazy</span>] [<span class="st">dog</span>]
+
+<span class="cm">// Iteration 3:</span>
+[The] [<span class="st">quick</span>] [<span class="st">brown</span>] [<span class="st">fox</span>] [<span class="st">jumps</span>] [<span class="st">over</span>] [<span class="st">the</span>] [<span class="st">lazy</span>] [<span class="st">dog</span>]
+<span class="cm">//    ← fixed point reached →</span></code></pre>
+    <p>Green tokens are correct. Notice how correctness propagates left-to-right across iterations. But also notice the <strong>n-grams in the trajectory</strong>: "quick" appeared at position 2 in iteration 1, "brown" appeared at position 3 in iteration 2. The pair ("quick", "brown") is a trajectory 2-gram. Lookahead mines these and verifies them against the autoregressive ground truth.</p>
+  </div>
+</details>
+
+<div class="power hack">
+  <div class="power-label">The punchline</div>
+  <p>Lookahead Decoding is n-gram mining from failed Jacobi iterations. The trajectory is the treasure, not the destination. A mathematical method invented in 1845 for finding planets spent 179 years waiting for the right problem. It found it in a GPU cluster predicting the next token.</p>
+</div>
+
+<h3>MTP: same name, different souls</h3>
+
+<p>Multi-Token Prediction is one of those names that gets reused because it is obvious. Of course you want to predict multiple tokens. The question is <em>how</em>, and two teams answered it in fundamentally different ways, for fundamentally different reasons. The disambiguation is not academic&mdash;it determines whether the technique helps training, inference, or both.</p>
+
+<p>Fabian Gloeckle and colleagues at Meta FAIR published "Better & Faster Large Language Models via Multi-token Prediction" at ICML 2024. In December 2024, DeepSeek included their own MTP architecture in the V3 technical report. Same name. Different architectures. Different goals. The disambiguation is critical for anyone deploying these techniques, because choosing the wrong one for your use case means optimizing the wrong end of the pipeline.</p>
+
+<div class="vs">
+  <div class="vs-card">
+    <h4>Meta FAIR (ICML 2024)</h4>
+    <p><strong>Parallel heads.</strong> D independent transformer-layer heads sit on top of a shared trunk. Each head predicts a different future offset: head k predicts token at position t+k. Crucially, <strong>head 3 does not see head 2's output</strong>. The heads are completely independent. Shared unembedding matrix across all heads.</p>
+    <p><strong>Primary purpose: training.</strong> The D extra heads provide denser gradient signal per training token. Each position's loss includes not just next-token prediction but predictions 2, 3, 4 tokens ahead. This forces the model to build deeper representations&mdash;like training a chess player to evaluate 4 moves ahead, not just 1. Results: +12% on HumanEval, +17% on MBPP at 13B scale. Benefits increase with scale.</p>
+    <p><strong>Inference bonus:</strong> The extra heads (normally discarded at inference) serve as a built-in draft model. Self-speculative decoding: 3.0x speedup on code, 2.7x on text. No separate draft model needed.</p>
+  </div>
+  <div class="vs-card">
+    <h4>DeepSeek-V3 (Dec 2024)</h4>
+    <p><strong>Sequential chain.</strong> D modules, each feeding the next. Module k takes the previous module's hidden state plus the current token embedding, projects them together, runs a single transformer block, and outputs a prediction. <strong>Each module sees the previous module's output.</strong> The chain maintains causal coherence at every depth.</p>
+    <p><strong>Primary purpose: inference.</strong> The MTP modules serve as a built-in draft model for speculative decoding. Because the output head is shared with the main model, memory overhead is minimal. Acceptance rates: 83% at k=1, 72% at k=2, 61% at k=3. Speedup: 1.8x in generation throughput.</p>
+    <p><strong>Training bonus:</strong> The sequential modules provide denser supervision during training. Loss weight lambda=0.3 for first 10T tokens, reduced to 0.1 for remaining 4.8T tokens. D=1 in V3 (just one extra module).</p>
+  </div>
+</div>
+
+<p>The fundamental philosophical split: Meta asks "what if the model learned to predict further ahead during training?" DeepSeek asks "what if we built a draft model into the architecture?" Meta's heads are independent because training does not need sequential coherence&mdash;it needs diverse gradient signals. DeepSeek's modules are sequential because inference <em>does</em> need sequential coherence&mdash;each draft token should condition on the previous one. Same name. Different souls. Different ends of the pipeline.</p>
+
+<details>
+  <summary>Meta MTP: the training signal argument</summary>
+  <div>
+    <p>Meta's theoretical argument for why multi-token prediction improves training quality goes deeper than "more loss terms = better." The information-theoretic claim: predicting t+2 forces the model to attend to tokens that matter for longer-range dependencies. Standard next-token prediction can be solved with shallow pattern matching&mdash;"the" is followed by a noun. But predicting t+4 requires understanding clause structure, argument relationships, and semantic coherence.</p>
+    <p>The analogy: training a chess player to evaluate 1 move ahead produces a player who responds to immediate threats. Training a player to evaluate 4 moves ahead produces a player who builds positional advantage. The extra heads are not useful at inference time for their predictions (Meta discards them). They are useful at <em>training time</em> for the gradient signal they propagate back through the shared trunk.</p>
+    <p>Results support this: MTP benefits increase with model scale (negligible at 300M-1.3B, significant at 7B+) and are strongest on tasks requiring reasoning and generation (HumanEval +12%, MBPP +17%) while actually hurting retrieval tasks (MMLU, TriviaQA). The model gets better at <em>generating</em> coherent text, not at <em>recalling</em> facts.</p>
+  </div>
+</details>
+
+<details>
+  <summary>DeepSeek MTP: the inference architecture argument</summary>
+  <div>
+    <p>DeepSeek's sequential MTP is designed for a different goal: making inference fast without post-hoc engineering. Each MTP module shares the main model's embedding layer and output head, minimizing memory overhead. The sequential structure ensures each draft token conditions on the previous one, matching how autoregressive generation actually works.</p>
+    <p>The acceptance rates tell the story: 83% at k=1 (first draft token), 72% at k=2, 61% at k=3. Even at k=3, more than half the draft tokens survive verification. And these modules were trained jointly with the base model during pre-training&mdash;no separate draft training phase, no distribution alignment problem, no deployment overhead.</p>
+    <p>DeepSeek used D=1 in V3 (a single additional MTP module) with training loss weight lambda=0.3 for the first 10T tokens, reduced to 0.1 for the final 4.8T tokens. The weight reduction schedule suggests the MTP objective is most valuable early in training, when the model is learning basic prediction patterns, and less valuable later when it is fine-tuning on specific capabilities.</p>
+  </div>
+</details>
+
+<h3>The paper timeline</h3>
+
+<details>
+  <summary>The full technique comparison: when to use what</summary>
+  <div>
+    <p>Choosing between inference optimization techniques depends on your deployment constraints. Here is the decision tree that production teams actually use:</p>
+    <p><strong>If throughput is your bottleneck</strong> (serving many users, cost per token matters): Start with continuous batching (free, universal). Add PagedAttention or RadixAttention for memory efficiency. Enable prefix caching if your workload has shared prefixes (chat, agents, few-shot). Consider prefill-decode disaggregation if you serve long prompts. You will get 5-20x improvement from these alone.</p>
+    <p><strong>If latency is your bottleneck</strong> (real-time applications, interactive use): Speculative decoding or EAGLE for 2-5x per-user speedup. Best at low batch sizes. For maximum simplicity, use DeepSeek-V3's built-in MTP modules&mdash;no separate draft model required. For maximum speed, train an EAGLE-3 draft model for your specific target.</p>
+    <p><strong>If you want both</strong>: Run continuous batching + PagedAttention for throughput, and enable speculative decoding when batch utilization is low. SGLang supports this hybrid configuration. vLLM has speculative decoding support. The systems are converging toward a unified stack where all techniques coexist.</p>
+    <p><strong>If you cannot train a draft model</strong>: Lookahead Decoding gives 1.5-2x with zero training. Medusa heads can be trained in hours on a single GPU. EAGLE's draft model trains in 1-2 days. These are not large investments.</p>
+  </div>
+</details>
+
+<h3>The paper timeline</h3>
+
+<div class="timeline-item">
+  <span class="timeline-year">1845</span>
+  <div class="timeline-body"><strong>Jacobi</strong> publishes his iterative method in <em>Astronomische Nachrichten</em>. Application: least-squares for astronomical orbit calculations. Considered useless versus sequential methods for over a century. His parallel property would take 179 years to find its moment.</div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">2018</span>
+  <div class="timeline-body"><strong>Stern, Shazeer & Uszkoreit</strong> (Google) &mdash; <a href="https://arxiv.org/abs/1811.03115">Blockwise Parallel Decoding</a>. Added k-1 heads for multi-position prediction. The structural ancestor of Medusa and EAGLE, but without rejection sampling or lossless guarantees.</div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">2022</span>
+  <div class="timeline-body"><strong>Orca</strong> (Yu et al., Seoul National, <a href="https://www.usenix.org/conference/osdi22/presentation/yu">OSDI</a>) &mdash; Iteration-level scheduling. Continuous batching. 36.9x throughput over FasterTransformer. Now universal in every major serving framework.</div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">2022</span>
+  <div class="timeline-body"><strong>Leviathan, Kalman & Matias</strong> (Google Research, <a href="https://arxiv.org/abs/2211.17192">arXiv</a>) &mdash; "Fast Inference from Transformers via Speculative Decoding." Submitted November 30. T5-XXL with T5-small as draft. 2-3x speedup. ICML 2023 oral presentation.</div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">2023</span>
+  <div class="timeline-body"><strong>Chen, Borgeaud, Irving et al.</strong> (DeepMind, <a href="https://arxiv.org/abs/2302.01318">arXiv</a>) &mdash; "Accelerating Large Language Model Decoding with Speculative Sampling." Published February 2. Chinchilla 70B distributed. 2-2.5x. Independent dual discovery. Neither team cited the other.</div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">2023</span>
+  <div class="timeline-body"><strong>PagedAttention / vLLM</strong> (Kwon et al., Berkeley, <a href="https://arxiv.org/abs/2309.06180">SOSP</a>) &mdash; OS virtual memory for GPU KV cache. 2-4x throughput. &lt;4% waste. Industry default within 18 months.</div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">2023</span>
+  <div class="timeline-body"><strong>Medusa</strong> (Cai et al., Princeton, <a href="https://arxiv.org/abs/2401.10774">ICML 2024</a>) &mdash; Multiple prediction heads on the target model. No separate draft. Tree attention verification. 2.2-3.6x.</div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">2024</span>
+  <div class="timeline-body"><strong>EAGLE-1</strong> (Li et al., Peking, <a href="https://arxiv.org/abs/2401.15077">ICML 2024</a>) &mdash; Feature-level autoregression. Predict features, not tokens. 2.7-5.6x. The insight that continuous features are easier to predict than discrete tokens.</div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">2024</span>
+  <div class="timeline-body"><strong>SGLang / RadixAttention</strong> (Zheng et al., Berkeley, <a href="https://arxiv.org/abs/2312.07104">NeurIPS 2024</a>) &mdash; Radix tree as KV cache filesystem. Token-level prefix caching. Cache-aware scheduling. Up to 5x throughput on structured workloads.</div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">2024</span>
+  <div class="timeline-body"><strong>Lookahead Decoding</strong> (Fu, Bailis, Stoica, Zhang &mdash; <a href="https://arxiv.org/abs/2402.02057">ICML 2024</a>) &mdash; Jacobi iteration applied to autoregressive decoding. N-gram mining from iteration trajectories. No draft model needed. Exact output match with greedy decoding. 1.8x on MT-Bench, up to 4x multi-GPU. 179 years from Jacobi's publication to this application.</div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">2024</span>
+  <div class="timeline-body"><strong>EAGLE-2</strong> (Li et al., <a href="https://arxiv.org/abs/2406.16858">EMNLP 2024</a>) &mdash; Dynamic trees from confidence scores. Inference-time optimization. 3.05-4.26x. Zero extra training.</div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">2024</span>
+  <div class="timeline-body"><strong>Meta MTP</strong> (Gloeckle et al., <a href="https://arxiv.org/abs/2404.19737">ICML 2024</a>) &mdash; Parallel prediction heads for denser training gradients. Self-speculative inference: 2.7-3.0x.</div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">2024</span>
+  <div class="timeline-body"><strong>DeepSeek-V3 MTP</strong> (<a href="https://arxiv.org/abs/2412.19437">arXiv</a>) &mdash; Sequential MTP modules baked into pre-training. Built-in draft model. 83% acceptance at k=1. 1.8x inference speedup.</div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">2025</span>
+  <div class="timeline-body"><strong>vAttention</strong> (Prabhu et al., Microsoft, <a href="https://arxiv.org/abs/2405.04437">ASPLOS 2025</a>) &mdash; Use the actual CUDA VMM APIs. FlashAttention works unmodified. 1.97x faster decode. 3.92x faster prefill on long contexts.</div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">2025</span>
+  <div class="timeline-body"><strong>EAGLE-3</strong> (Li et al., <a href="https://arxiv.org/abs/2503.01840">NeurIPS 2025</a>) &mdash; Multi-layer fusion + training-time test. Scaling law for draft models. Peak 6.47x. The EAGLE-DeepSeek co-evolution documented. The line between training-time and inference-time optimization blurs permanently.</div>
+</div>
+
+<p>Twelve papers in three years. Each one solved a problem the previous one exposed. Continuous batching revealed memory waste. PagedAttention revealed prefix redundancy. RadixAttention revealed decode latency. Speculative decoding revealed draft model quality. EAGLE revealed the scaling law that links training investment to inference speed. Together they transformed LLM inference from a one-at-a-time batch process into a real-time, memory-managed, speculative operating system running on GPU hardware.</p>
+
+<h3>The convergence</h3>
+
+<p>Step back and see the full arc of this article. We began with a hotel that could not manage its rooms. We moved through scheduling (Orca), memory management (PagedAttention), caching (RadixAttention), and two forms of paging (vAttention). Then we crossed from throughput to latency: the idle assembly line, speculative decoding, draft-free methods (Medusa, EAGLE), Jacobi iteration, and multi-token prediction.</p>
+
+<p>Every one of these innovations shares a property: <strong>they do not change the model</strong>. The weights are identical. The architecture is untouched. The training pipeline is unaffected (except for MTP, which deliberately entangles training and inference). All the gains come from better <em>systems engineering</em> around a fixed model.</p>
+
+<p>The cumulative impact is staggering. A production inference stack in 2025 combines all of these techniques:</p>
+
+<pre><code><span class="cm">// A modern inference stack (early 2025)</span>
+
+<span class="ty">Scheduling</span>:     Continuous batching (Orca)
+                 → iteration-level request admission/eviction
+
+<span class="ty">Memory</span>:         PagedAttention (vLLM) or RadixAttention (SGLang)
+                 → demand-paged KV cache, &lt;4% waste
+                 → prefix caching across requests
+
+<span class="ty">Disaggregation</span>: Prefill-decode split
+                 → separate GPU pools, no head-of-line blocking
+
+<span class="ty">Latency</span>:        EAGLE-2/3 or DeepSeek MTP
+                 → 3-6x faster individual decode
+                 → dynamic draft trees, no separate model
+
+<span class="ty">Result</span>:         <span class="st">10-50x more efficient than naive serving (2022)</span></code></pre>
+
+<p>Each technique compounds on the others. Continuous batching makes PagedAttention useful (more requests means more memory pressure). PagedAttention makes prefix caching possible (shared blocks need a page table). Prefix caching makes agent workflows viable at scale (90%+ cache hit rates). Speculative decoding fills the latency gap that batching creates. The stack is not a list of independent optimizations. It is a co-evolved system where each layer depends on and amplifies the others.</p>
+
+<details>
+  <summary>The production stack, end to end (early 2025)</summary>
+  <div>
+    <p>A state-of-the-art production inference deployment in early 2025 looks roughly like this:</p>
+    <p><strong>Frontend:</strong> Load balancer distributes requests across GPU pools. Cache-aware routing (SGLang v0.4) sends requests with similar prefixes to the same GPU to maximize cache hit rates.</p>
+    <p><strong>Prefill pool:</strong> Dedicated GPUs handle prompt processing. Large batch sizes for matrix-matrix efficiency. Long prompts are chunked to avoid memory spikes. Output: computed KV cache, transferred to decode pool.</p>
+    <p><strong>Decode pool:</strong> Dedicated GPUs handle token generation. Continuous batching keeps slots filled. PagedAttention or RadixAttention manages KV cache memory. Speculative decoding (EAGLE-2/3 or MTP) runs when batch utilization allows.</p>
+    <p><strong>KV cache management:</strong> RadixAttention radix tree shared across the decode pool via cache-aware scheduling. Prefix caching eliminates recomputation for system prompts, few-shot examples, and conversation history. LRU eviction keeps the most-used prefixes hot.</p>
+    <p><strong>Monitoring:</strong> TTFT, TPOT, throughput, cache hit rate, batch utilization, memory usage. Alert thresholds for each. The system self-tunes batch size and speculation depth based on current load.</p>
+    <p>This stack delivers 10-50x improvement over naive serving circa 2022. The gains come from every layer of the stack working together, not from any single technique.</p>
+  </div>
+</details>
+
+<p>That is both the triumph and the limitation. Systems optimization has delivered 10-50x total improvement across throughput and latency since 2022. But the model itself&mdash;its attention mechanism, its parameter count, its activation precision&mdash;remains the same hungry consumer of compute and memory it always was. The systems engineers have squeezed the lemon. The lemon is still the same size.</p>
+
+<div class="power purple">
+  <div class="power-label">What comes next</div>
+  <p>We have optimized memory, scheduling, and latency&mdash;all without changing the model itself. Continuous batching packs the GPU. PagedAttention and RadixAttention manage its memory. Speculative decoding and its descendants reclaim its idle cycles. But the biggest gains are not optimizations. They are architectural decisions made before training begins. What if attention was not quadratic? What if 75% of the weights could be thrown away after training? What if experts could be routed instead of broadcast? Part II asks those questions. The answers do not optimize the model. They reshape it.</p>
+</div>
+</section>
+
+</div><!-- .content -->
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     SCRIPTS — ALL D3 VISUALIZATIONS
+     ════════════════════════════════════════════════════════════════════ -->
+<script>
+// ─── SHARED ──────────────────────────────────────────────
+const C = {
+  bg:'#0a0a0f', card:'#12121a', border:'#1e1e2e', borderGlow:'#2a2a4a',
+  text:'#c8c8d4', dim:'#6a6a7e', white:'#e8e8f0',
+  green:'#00ff88', greenDim:'#00aa55', cyan:'#00ddff',
+  magenta:'#ff00aa', orange:'#ff8800', red:'#ff3344',
+  yellow:'#ffdd00', blue:'#4488ff', purple:'#aa44ff'
+};
+const rColors = [C.cyan, C.magenta, C.orange, C.blue, C.purple, C.yellow, C.green, C.red];
+
+
+/* ═══════════════════════════════════════════════════════════
+   VIZ 1 — STATIC vs CONTINUOUS BATCHING (Animated Gantt)
+   ═══════════════════════════════════════════════════════════ */
+(function(){
+  const W=760, H=340, pad={t:30,r:20,b:30,l:10};
+  const svg = d3.select('#viz-batching').append('svg').attr('viewBox',`0 0 ${W} ${H}`);
+  const midX = W/2;
+  const slotH = 32, maxIter = 22, batchSz = 3;
+
+  const requests = [
+    {id:0,len:3},{id:1,len:9},{id:2,len:2},
+    {id:3,len:6},{id:4,len:4},{id:5,len:5}
+  ];
+
+  // Static header / divider
+  svg.append('text').attr('x',midX/2).attr('y',18).attr('text-anchor','middle')
+    .attr('fill',C.dim).attr('font-family','JetBrains Mono').attr('font-size',10)
+    .text('STATIC BATCHING');
+  svg.append('text').attr('x',midX+midX/2).attr('y',18).attr('text-anchor','middle')
+    .attr('fill',C.dim).attr('font-family','JetBrains Mono').attr('font-size',10)
+    .text('CONTINUOUS BATCHING');
+  svg.append('line').attr('x1',midX).attr('y1',pad.t).attr('x2',midX).attr('y2',H-pad.b)
+    .attr('stroke',C.border).attr('stroke-dasharray','4,4');
+
+  // Slot labels
+  for(let i=0;i<batchSz;i++){
+    svg.append('text').attr('x',4).attr('y',pad.t+10+i*slotH+slotH/2)
+      .attr('fill',C.dim).attr('font-family','JetBrains Mono').attr('font-size',8)
+      .attr('text-anchor','start').text('S'+i);
+    svg.append('text').attr('x',midX+6).attr('y',pad.t+10+i*slotH+slotH/2)
+      .attr('fill',C.dim).attr('font-family','JetBrains Mono').attr('font-size',8)
+      .attr('text-anchor','start').text('S'+i);
+  }
+
+  let animId = null;
+
+  function reset(){
+    if(animId) clearInterval(animId);
+    svg.selectAll('.anim').remove();
+    d3.select('#static-tp').text('0');
+    d3.select('#cont-tp').text('0');
+  }
+
+  function run(){
+    reset();
+    const g = svg.append('g').attr('class','anim');
+    const dur = 160;
+    const lOff = 22;
+    const rOff = midX + 22;
+    const leftW = (midX - lOff - 8) / maxIter;
+    const rightW = (W - rOff - 8) / maxIter;
+
+    // ── Static side ──
+    let col = 0;
+    let staticSlots = [];
+    for(let b=0; b<requests.length; b+=batchSz){
+      const batch = requests.slice(b, b+batchSz);
+      const bLen = Math.max(...batch.map(r=>r.len));
+      batch.forEach((r,i)=>{
+        staticSlots.push({id:r.id, row:i, colStart:col, batchEnd:col+bLen, activeEnd:col+r.len});
+      });
+      col += bLen;
+    }
+    const staticIter = col;
+
+    staticSlots.forEach(s=>{
+      const batchLen = s.batchEnd - s.colStart;
+      const activeLen = s.activeEnd - s.colStart;
+      const color = rColors[s.id%rColors.length];
+      // Padding ghost
+      g.append('rect').attr('x',lOff+s.colStart*leftW).attr('y',pad.t+10+s.row*slotH)
+        .attr('width',0).attr('height',slotH-6).attr('rx',3)
+        .attr('fill',color).attr('opacity',0.08)
+        .transition().delay(s.colStart*dur).duration(batchLen*dur)
+        .attr('width',batchLen*leftW);
+      // Active fill
+      g.append('rect').attr('x',lOff+s.colStart*leftW).attr('y',pad.t+10+s.row*slotH)
+        .attr('width',0).attr('height',slotH-6).attr('rx',3)
+        .attr('fill',color).attr('opacity',0.55)
+        .transition().delay(s.colStart*dur).duration(activeLen*dur)
+        .attr('width',activeLen*leftW);
+      // Request ID label
+      g.append('text')
+        .attr('x',lOff+s.colStart*leftW+3).attr('y',pad.t+10+s.row*slotH+slotH/2)
+        .attr('fill',C.bg).attr('font-family','JetBrains Mono').attr('font-size',8)
+        .attr('opacity',0)
+        .text('R'+s.id)
+        .transition().delay(s.colStart*dur+100).attr('opacity',0.8);
+    });
+
+    // Batch boundary markers on static side
+    let bCol = 0;
+    for(let b=0;b<requests.length;b+=batchSz){
+      const batch = requests.slice(b,b+batchSz);
+      const bLen = Math.max(...batch.map(r=>r.len));
+      if(bCol>0){
+        g.append('line').attr('x1',lOff+bCol*leftW).attr('y1',pad.t+6)
+          .attr('x2',lOff+bCol*leftW).attr('y2',pad.t+10+batchSz*slotH)
+          .attr('stroke',C.red).attr('stroke-width',1).attr('stroke-dasharray','3,3').attr('opacity',0.5);
+        g.append('text').attr('x',lOff+bCol*leftW).attr('y',pad.t+4)
+          .attr('fill',C.red).attr('font-family','JetBrains Mono').attr('font-size',7)
+          .attr('text-anchor','middle').attr('opacity',0.5).text('BATCH');
+      }
+      bCol += bLen;
+    }
+
+    // ── Continuous side ──
+    let lanes = new Array(batchSz).fill(-1);
+    let queue = requests.map(r=>({...r, rem:r.len}));
+    let active = [];
+    let iter = 0;
+    let contSlots = [];
+
+    while((queue.length||active.length) && iter<maxIter){
+      active = active.filter(a=>{ if(a.rem<=0){lanes[a.lane]=-1; return false;} return true; });
+      while(active.length<batchSz && queue.length){
+        const fi = lanes.indexOf(-1);
+        if(fi===-1) break;
+        const r = queue.shift();
+        lanes[fi]=r.id;
+        active.push({...r, rem:r.rem, start:iter, lane:fi});
+        contSlots.push({id:r.id, row:fi, col:iter, len:r.rem});
+      }
+      active.forEach(a=>a.rem--);
+      iter++;
+    }
+    const contIter = iter;
+
+    contSlots.forEach(s=>{
+      const color = rColors[s.id%rColors.length];
+      g.append('rect')
+        .attr('x',rOff+s.col*rightW).attr('y',pad.t+10+s.row*slotH)
+        .attr('width',0).attr('height',slotH-6).attr('rx',3)
+        .attr('fill',color).attr('opacity',0.55)
+        .transition().delay(s.col*dur).duration(s.len*dur)
+        .attr('width',s.len*rightW);
+      g.append('text')
+        .attr('x',rOff+s.col*rightW+3).attr('y',pad.t+10+s.row*slotH+slotH/2)
+        .attr('fill',C.bg).attr('font-family','JetBrains Mono').attr('font-size',8)
+        .attr('opacity',0)
+        .text('R'+s.id)
+        .transition().delay(s.col*dur+100).attr('opacity',0.8);
+    });
+
+    // Iteration axis
+    for(let i=0;i<=maxIter;i+=5){
+      g.append('text').attr('x',lOff+i*leftW).attr('y',H-8)
+        .attr('fill',C.dim).attr('font-family','JetBrains Mono').attr('font-size',8)
+        .attr('text-anchor','middle').text(i);
+      g.append('text').attr('x',rOff+i*rightW).attr('y',H-8)
+        .attr('fill',C.dim).attr('font-family','JetBrains Mono').attr('font-size',8)
+        .attr('text-anchor','middle').text(i);
+    }
+    g.append('text').attr('x',lOff+maxIter*leftW/2).attr('y',H-1)
+      .attr('fill',C.dim).attr('font-family','JetBrains Mono').attr('font-size',7)
+      .attr('text-anchor','middle').text('ITERATIONS →');
+    g.append('text').attr('x',rOff+maxIter*rightW/2).attr('y',H-1)
+      .attr('fill',C.dim).attr('font-family','JetBrains Mono').attr('font-size',7)
+      .attr('text-anchor','middle').text('ITERATIONS →');
+
+    // Throughput counters animate in
+    const totalTok = requests.reduce((a,r)=>a+r.len,0);
+    const finalDur = Math.max(staticIter, contIter) * dur;
+    setTimeout(()=>{
+      d3.select('#static-tp').text((totalTok/staticIter).toFixed(1)+' tok/iter');
+      d3.select('#cont-tp').text((totalTok/contIter).toFixed(1)+' tok/iter');
+    }, finalDur);
+  }
+
+  d3.select('#btn-batching-run').on('click',run);
+  d3.select('#btn-batching-reset').on('click',reset);
+})();
+
+
+/* ═══════════════════════════════════════════════════════════
+   VIZ 2 — PAGED KV CACHE (GPU Memory Map)
+   ═══════════════════════════════════════════════════════════ */
+(function(){
+  const W=760, H=260;
+  const svg = d3.select('#viz-pagetable').append('svg').attr('viewBox',`0 0 ${W} ${H}`);
+  const total=48, cols=16, bW=18, bH=18, gap=2;
+  let mem = new Array(total).fill(null);
+  let bt = {};
+  let nxt = 0;
+  let active = [];
+
+  function draw(){
+    svg.selectAll('*').remove();
+    svg.append('text').attr('x',W/2).attr('y',14).attr('text-anchor','middle')
+      .attr('fill',C.dim).attr('font-family','JetBrains Mono').attr('font-size',9)
+      .text('GPU PHYSICAL MEMORY — KV CACHE BLOCKS');
+    const sx = (W-cols*(bW+gap))/2, sy = 28;
+    mem.forEach((v,i)=>{
+      const c=i%cols, r=Math.floor(i/cols);
+      svg.append('rect').attr('x',sx+c*(bW+gap)).attr('y',sy+r*(bW+gap))
+        .attr('width',bW).attr('height',bH).attr('rx',2)
+        .attr('fill',v!==null?rColors[v%rColors.length]:'#16162a')
+        .attr('opacity',v!==null?0.6:0.2)
+        .attr('stroke',v!==null?rColors[v%rColors.length]:C.border)
+        .attr('stroke-width',v!==null?1.5:0.5);
+    });
+    // Block table
+    const ty = sy+Math.ceil(total/cols)*(bW+gap)+20;
+    svg.append('text').attr('x',W/2).attr('y',ty).attr('text-anchor','middle')
+      .attr('fill',C.dim).attr('font-family','JetBrains Mono').attr('font-size',9)
+      .text('BLOCK TABLE');
+    let tx=20;
+    active.forEach(req=>{
+      const blocks=bt[req.id]||[];
+      const col=rColors[req.id%rColors.length];
+      svg.append('text').attr('x',tx).attr('y',ty+18).attr('fill',col)
+        .attr('font-family','JetBrains Mono').attr('font-size',9).text('R'+req.id);
+      blocks.forEach((bi,j)=>{
+        svg.append('rect').attr('x',tx+22+j*16).attr('y',ty+6).attr('width',13).attr('height',13)
+          .attr('rx',2).attr('fill',col).attr('opacity',0.45);
+        svg.append('text').attr('x',tx+22+j*16+6.5).attr('y',ty+16).attr('text-anchor','middle')
+          .attr('fill','#000').attr('font-family','JetBrains Mono').attr('font-size',7).text(bi);
+      });
+      tx += 22+blocks.length*16+16;
+    });
+    const used=mem.filter(v=>v!==null).length;
+    d3.select('#pt-used').text(used+'/'+total);
+    d3.select('#pt-active').text(active.length);
+    d3.select('#pt-waste').text(active.length>0?'<4%':'0%');
+  }
+
+  function alloc(id,n){
+    const b=[];
+    for(let i=0;i<total&&b.length<n;i++) if(mem[i]===null){mem[i]=id;b.push(i);}
+    return b;
+  }
+
+  d3.select('#btn-pt-add').on('click',()=>{
+    const id=nxt++;
+    const n=2+Math.floor(Math.random()*5);
+    const b=alloc(id,n);
+    if(b.length){bt[id]=b;active.push({id});}
+    draw();
+  });
+  d3.select('#btn-pt-complete').on('click',()=>{
+    if(!active.length) return;
+    const r=active.shift();
+    (bt[r.id]||[]).forEach(i=>{mem[i]=null;});
+    delete bt[r.id];
+    draw();
+  });
+  d3.select('#btn-pt-cow').on('click',()=>{
+    if(!active.length) return;
+    const src=active[active.length-1];
+    const sb=bt[src.id]||[];
+    if(!sb.length) return;
+    const fid=nxt++;
+    const shared=sb.slice(0,-1);
+    const nb=alloc(fid,1);
+    bt[fid]=[...shared,...nb];
+    active.push({id:fid});
+    draw();
+  });
+  d3.select('#btn-pt-reset').on('click',()=>{
+    mem.fill(null); bt={}; nxt=0; active=[];
+    draw();
+  });
+
+  // Add initial demo state
+  // Pre-populate with 3 requests to show non-contiguous allocation
+  function initDemo(){
+    for(let i=0;i<3;i++){
+      const id=nxt++;
+      const n=2+Math.floor(Math.random()*4);
+      const b=alloc(id,n);
+      if(b.length){bt[id]=b;active.push({id});}
+    }
+    draw();
+  }
+  initDemo();
+})();
+
+
+/* ═══════════════════════════════════════════════════════════
+   VIZ 3 — RADIX TREE (Interactive)
+   ═══════════════════════════════════════════════════════════ */
+(function(){
+  const W=760, H=320;
+  const svg = d3.select('#viz-radix').append('svg').attr('viewBox',`0 0 ${W} ${H}`);
+
+  let tree = {label:'SYS',children:[],cached:true,depth:0};
+  let nodeCount=1, hits=0, lookups=0, chatN=0;
+
+  function layout(node,x,y,w){
+    node.x=x+w/2; node.y=y;
+    if(node.children.length){
+      const cw=w/node.children.length;
+      node.children.forEach((c,i)=>layout(c,x+i*cw,y+55,cw));
+    }
+  }
+
+  function draw(){
+    svg.selectAll('*').remove();
+    layout(tree,30,30,W-60);
+    function renderNode(n){
+      n.children.forEach(ch=>{
+        svg.append('line').attr('x1',n.x).attr('y1',n.y+11).attr('x2',ch.x).attr('y2',ch.y-11)
+          .attr('stroke',C.border).attr('stroke-width',1.5);
+        renderNode(ch);
+      });
+      const col=n.cached?C.green:C.orange;
+      svg.append('circle').attr('cx',n.x).attr('cy',n.y).attr('r',13)
+        .attr('fill',col).attr('opacity',0.2).attr('stroke',col).attr('stroke-width',1.5);
+      svg.append('text').attr('x',n.x).attr('y',n.y+3).attr('text-anchor','middle')
+        .attr('fill',C.white).attr('font-family','JetBrains Mono').attr('font-size',7)
+        .text(n.label.slice(0,6));
+    }
+    renderNode(tree);
+    // Legend
+    [[C.green,'CACHED (HIT)',30],[C.orange,'NEW (COMPUTE)',160]].forEach(([col,txt,x])=>{
+      svg.append('circle').attr('cx',x).attr('cy',H-16).attr('r',5).attr('fill',col).attr('opacity',0.5);
+      svg.append('text').attr('x',x+10).attr('y',H-12).attr('fill',C.dim)
+        .attr('font-family','JetBrains Mono').attr('font-size',8).text(txt);
+    });
+    d3.select('#radix-nodes').text(nodeCount);
+    d3.select('#radix-hit').text(lookups?Math.round(hits/lookups*100)+'%':'0%');
+  }
+
+  function addChat(){
+    chatN++;
+    lookups+=2; hits+=1;
+    const u={label:'U'+chatN+':Q',children:[],cached:false,depth:1};
+    const a={label:'A'+chatN+':R',children:[],cached:false,depth:2};
+    u.children.push(a);
+    tree.children.push(u);
+    nodeCount+=2;
+    draw();
+  }
+
+  function addTurn(){
+    function leaves(n,acc){
+      if(!n.children.length && n!==tree) acc.push(n);
+      else n.children.forEach(c=>leaves(c,acc));
+      return acc;
+    }
+    const ls=leaves(tree,[]);
+    if(!ls.length) return;
+    const leaf=ls[Math.floor(Math.random()*ls.length)];
+    lookups+=2; hits+=1+leaf.depth;
+    leaf.cached=true;
+    const u={label:'T'+(nodeCount+1),children:[],cached:false,depth:leaf.depth+1};
+    const a={label:'R'+(nodeCount+1),children:[],cached:false,depth:leaf.depth+2};
+    u.children.push(a); leaf.children.push(u);
+    nodeCount+=2;
+    draw();
+  }
+
+  d3.select('#btn-radix-chat1').on('click',addChat);
+  d3.select('#btn-radix-chat2').on('click',addChat);
+  d3.select('#btn-radix-turn').on('click',addTurn);
+  d3.select('#btn-radix-reset').on('click',()=>{
+    tree={label:'SYS',children:[],cached:true,depth:0};
+    nodeCount=1;hits=0;lookups=0;chatN=0;draw();
+  });
+
+  // Pre-populate with a demo state showing tree structure
+  addChat(); // First chat session
+  addChat(); // Second chat session (shared root)
+  addTurn(); // Extend one conversation
+
+  // Draw with initial animation
+  function animatedDraw(){
+    draw();
+    // Pulse the root to draw attention
+    const rootCircle = svg.select('circle');
+    if(rootCircle.node()){
+      rootCircle
+        .transition().duration(600).attr('r',18).attr('opacity',0.4)
+        .transition().duration(600).attr('r',13).attr('opacity',0.2);
+    }
+  }
+  animatedDraw();
+})();
+
+
+/* ═══════════════════════════════════════════════════════════
+   VIZ 4 — ACCEPTANCE RATE CLIFF (Interactive chart)
+   ═══════════════════════════════════════════════════════════ */
+(function(){
+  const W=760, H=300, pad={t:20,r:40,b:45,l:55};
+  const svg = d3.select('#viz-acceptance').append('svg').attr('viewBox',`0 0 ${W} ${H}`);
+  const pw=W-pad.l-pad.r, ph=H-pad.t-pad.b;
+  const g = svg.append('g').attr('transform',`translate(${pad.l},${pad.t})`);
+
+  const xS=d3.scaleLinear().domain([1,10]).range([0,pw]);
+  const yS=d3.scaleLinear().domain([0,1]).range([ph,0]);
+
+  // Axes
+  g.append('g').attr('transform',`translate(0,${ph})`)
+    .call(d3.axisBottom(xS).ticks(10).tickFormat(d=>d))
+    .call(s=>{s.selectAll('text').attr('fill',C.dim).attr('font-family','JetBrains Mono').attr('font-size',9);
+      s.selectAll('line,.domain').attr('stroke',C.border);});
+  g.append('g')
+    .call(d3.axisLeft(yS).ticks(5).tickFormat(d3.format('.0%')))
+    .call(s=>{s.selectAll('text').attr('fill',C.dim).attr('font-family','JetBrains Mono').attr('font-size',9);
+      s.selectAll('line,.domain').attr('stroke',C.border);});
+
+  g.append('text').attr('x',pw/2).attr('y',ph+36).attr('text-anchor','middle')
+    .attr('fill',C.dim).attr('font-family','JetBrains Mono').attr('font-size',9).text('CHAIN LENGTH (K)');
+  g.append('text').attr('x',-ph/2).attr('y',-40).attr('text-anchor','middle')
+    .attr('fill',C.dim).attr('font-family','JetBrains Mono').attr('font-size',9)
+    .attr('transform','rotate(-90)').text('P(ALL K ACCEPTED)');
+
+  // Grid lines
+  yS.ticks(5).forEach(t=>{
+    g.append('line').attr('x1',0).attr('y1',yS(t)).attr('x2',pw).attr('y2',yS(t))
+      .attr('stroke',C.border).attr('opacity',0.3);
+  });
+  xS.ticks(10).forEach(t=>{
+    g.append('line').attr('x1',xS(t)).attr('y1',0).attr('x2',xS(t)).attr('y2',ph)
+      .attr('stroke',C.border).attr('opacity',0.15);
+  });
+
+  // 50% ref line
+  g.append('line').attr('x1',0).attr('y1',yS(0.5)).attr('x2',pw).attr('y2',yS(0.5))
+    .attr('stroke',C.red).attr('stroke-dasharray','4,4').attr('opacity',0.35);
+  g.append('text').attr('x',pw+4).attr('y',yS(0.5)+3)
+    .attr('fill',C.red).attr('font-family','JetBrains Mono').attr('font-size',8).attr('opacity',0.5).text('50%');
+
+  // Area fill under curve
+  const area = g.append('path').attr('fill',C.cyan).attr('opacity',0.06);
+
+  const chainPath = g.append('path').attr('fill','none').attr('stroke',C.cyan).attr('stroke-width',2.5);
+  const dots = g.append('g');
+  const labels = g.append('g');
+
+  // Expected tokens bar chart overlay (right side)
+  const barG = g.append('g');
+  const barW = pw * 0.03;
+  const barScale = d3.scaleLinear().domain([0,10]).range([0,ph*0.6]);
+
+  function update(){
+    const a=parseInt(d3.select('#alpha-slider').property('value'))/100;
+    d3.select('#alpha-val').text(a.toFixed(2));
+    const data=d3.range(1,11).map(k=>({k,p:Math.pow(a,k)}));
+
+    // Survival curve
+    chainPath.attr('d',d3.line().x(d=>xS(d.k)).y(d=>yS(d.p)).curve(d3.curveMonotoneX)(data));
+
+    // Area under curve
+    const areaGen = d3.area()
+      .x(d=>xS(d.k)).y0(ph).y1(d=>yS(d.p)).curve(d3.curveMonotoneX);
+    area.attr('d',areaGen(data));
+
+    // Dots with glow
+    dots.selectAll('circle').data(data,d=>d.k).join('circle')
+      .attr('cx',d=>xS(d.k)).attr('cy',d=>yS(d.p)).attr('r',5)
+      .attr('fill',C.cyan).attr('stroke',C.card).attr('stroke-width',2);
+
+    // Percentage labels
+    labels.selectAll('text').data(data,d=>d.k).join('text')
+      .attr('x',d=>xS(d.k)).attr('y',d=>yS(d.p)-12).attr('text-anchor','middle')
+      .attr('fill',d=>d.p<0.5?C.red:C.text)
+      .attr('font-family','JetBrains Mono').attr('font-size',8)
+      .text(d=>(d.p*100).toFixed(0)+'%');
+
+    // Expected tokens
+    let e5=0; for(let i=0;i<=5;i++) e5+=Math.pow(a,i);
+    d3.select('#expected-tokens').text(e5.toFixed(2));
+    d3.select('#ceiling-val').text((1/(1-a)).toFixed(1));
+
+    // Ceiling reference text
+    g.selectAll('.ceil-text').remove();
+    g.append('text').attr('class','ceil-text')
+      .attr('x',pw-5).attr('y',12)
+      .attr('text-anchor','end')
+      .attr('fill',C.green).attr('font-family','JetBrains Mono').attr('font-size',9)
+      .attr('opacity',0.6)
+      .text('max speedup: '+(1/(1-a)).toFixed(1)+'x');
+  }
+  d3.select('#alpha-slider').on('input',update);
+  update();
+})();
+
+
+/* ═══════════════════════════════════════════════════════════
+   VIZ 5 — DRAFT-VERIFY DANCE (Speculative rounds)
+   ═══════════════════════════════════════════════════════════ */
+(function(){
+  const W=760, H=220;
+  const svg = d3.select('#viz-draft').append('svg').attr('viewBox',`0 0 ${W} ${H}`);
+  const K=5, tokW=46, tokH=32, gap=5;
+  let total=0, rounds=0, tokens=[];
+
+  function draw(){
+    svg.selectAll('*').remove();
+
+    // Header with legend
+    svg.append('text').attr('x',16).attr('y',16)
+      .attr('fill',C.dim).attr('font-family','JetBrains Mono').attr('font-size',9)
+      .text('GENERATED TOKENS');
+
+    // Legend items
+    const legendData = [
+      {label:'ACCEPTED',color:C.green,x:180},
+      {label:'REJECTED',color:C.red,x:290},
+      {label:'BONUS',color:C.cyan,x:390}
+    ];
+    legendData.forEach(l=>{
+      svg.append('rect').attr('x',l.x).attr('y',6).attr('width',10).attr('height',10).attr('rx',2)
+        .attr('fill',l.color).attr('opacity',0.3).attr('stroke',l.color);
+      svg.append('text').attr('x',l.x+14).attr('y',15)
+        .attr('fill',C.dim).attr('font-family','JetBrains Mono').attr('font-size',8).text(l.label);
+    });
+
+    const sx=16, sy=28;
+    const perRow=Math.floor((W-32)/(tokW+gap));
+
+    // Round separators
+    let prevRound = null;
+    tokens.forEach((t,i)=>{
+      const col=i%perRow, row=Math.floor(i/perRow);
+      const x=sx+col*(tokW+gap), y=sy+row*(tokH+gap);
+
+      // Round separator line
+      if(t.roundStart && col>0){
+        svg.append('line').attr('x1',x-2).attr('y1',y).attr('x2',x-2).attr('y2',y+tokH)
+          .attr('stroke',C.border).attr('stroke-dasharray','2,2');
+      }
+
+      const color = t.type==='accepted'?C.green : t.type==='rejected'?C.red : C.cyan;
+      // Background
+      svg.append('rect').attr('x',x).attr('y',y).attr('width',tokW).attr('height',tokH)
+        .attr('rx',3).attr('fill',color).attr('opacity',0.1)
+        .attr('stroke',color).attr('stroke-width',1);
+      // Label
+      svg.append('text').attr('x',x+tokW/2).attr('y',y+tokH/2+3).attr('text-anchor','middle')
+        .attr('fill',color).attr('font-family','JetBrains Mono').attr('font-size',8)
+        .attr('font-weight',t.type==='bonus'?'600':'400')
+        .text(t.label);
+    });
+
+    // Stats
+    const accepted = tokens.filter(t=>t.type==='accepted').length;
+    const rejected = tokens.filter(t=>t.type==='rejected').length;
+    const bonus = tokens.filter(t=>t.type==='bonus').length;
+
+    d3.select('#draft-total').text(total);
+    d3.select('#draft-rounds').text(rounds);
+    d3.select('#draft-speedup').text(rounds>0?(total/rounds).toFixed(1)+'x':'0.0x');
+  }
+
+  function doRound(){
+    const a=parseInt(d3.select('#draft-alpha').property('value'))/100;
+    d3.select('#draft-alpha-val').text(a.toFixed(2));
+    rounds++;
+    let acc=0;
+    let first = true;
+    for(let i=0;i<K;i++){
+      if(Math.random()<a){
+        tokens.push({label:'d'+rounds+'.'+(i+1),type:'accepted',roundStart:first});
+        first=false;
+        acc++; total++;
+      } else {
+        tokens.push({label:'d'+rounds+'.'+(i+1),type:'rejected',roundStart:first});
+        first=false;
+        tokens.push({label:'b'+rounds,type:'bonus',roundStart:false});
+        total++;
+        break;
+      }
+    }
+    if(acc===K){tokens.push({label:'b'+rounds,type:'bonus',roundStart:false});total++;}
+    draw();
+  }
+
+  function autoRun(){
+    let n=0;
+    const iv=setInterval(()=>{doRound();n++;if(n>=10)clearInterval(iv);},250);
+  }
+
+  d3.select('#btn-draft-run').on('click',doRound);
+  d3.select('#btn-draft-auto').on('click',autoRun);
+  d3.select('#btn-draft-reset').on('click',()=>{total=0;rounds=0;tokens=[];draw();});
+  draw();
+})();
+
+
+/* ═══════════════════════════════════════════════════════════
+   VIZ 6 — GPU UTILIZATION GAUGES (Prefill vs Decode vs Spec)
+   Three arc gauges showing compute utilization comparison
+   ═══════════════════════════════════════════════════════════ */
+(function(){
+  // Find the diagram section after the GPU utilization diagram in Ch5
+  const containers = document.querySelectorAll('#ch5 .diagram');
+  const container = containers.length > 0 ? containers[0] : null;
+  if(!container) return;
+
+  // Create a viz-container after the existing diagram
+  const vizDiv = document.createElement('div');
+  vizDiv.className = 'viz-container';
+  vizDiv.innerHTML = '<span class="diagram-label">Compute Utilization &mdash; Three Regimes</span>';
+  container.after(vizDiv);
+
+  const W = 720, H = 160;
+  const svg = d3.select(vizDiv).append('svg')
+    .attr('viewBox', `0 0 ${W} ${H}`)
+    .attr('style','max-height:160px');
+
+  const gauges = [
+    { label: 'PREFILL', util: 0.95, color: C.green, desc: 'Matrix x Matrix' },
+    { label: 'DECODE (STANDARD)', util: 0.05, color: C.red, desc: 'Matrix x Vector' },
+    { label: 'DECODE (SPECULATIVE)', util: 0.35, color: C.cyan, desc: 'Verify K tokens' }
+  ];
+
+  const gapBetween = W / gauges.length;
+  const arcInner = 38, arcOuter = 52;
+  const centerY = H - 25;
+
+  gauges.forEach((ga, idx) => {
+    const cx = gapBetween * idx + gapBetween / 2;
+    const g = svg.append('g').attr('transform', `translate(${cx},${centerY})`);
+
+    const arcGen = d3.arc()
+      .innerRadius(arcInner).outerRadius(arcOuter)
+      .startAngle(-Math.PI * 0.75);
+
+    // Background track
+    g.append('path')
+      .attr('d', arcGen.endAngle(Math.PI * 0.75)())
+      .attr('fill', C.border);
+
+    // Animated fill arc
+    const endAngle = -Math.PI * 0.75 + (Math.PI * 1.5) * ga.util;
+    g.append('path')
+      .attr('d', arcGen.endAngle(-Math.PI * 0.75)())
+      .attr('fill', ga.color)
+      .attr('opacity', 0.7)
+      .transition().duration(1800).delay(idx * 300).ease(d3.easeCubicOut)
+      .attrTween('d', function(){
+        const interp = d3.interpolate(-Math.PI * 0.75, endAngle);
+        return function(t) { return arcGen.endAngle(interp(t))(); };
+      });
+
+    // Glow effect
+    g.append('path')
+      .attr('d', arcGen.endAngle(-Math.PI * 0.75)())
+      .attr('fill', 'none')
+      .attr('stroke', ga.color)
+      .attr('stroke-width', 1)
+      .attr('opacity', 0)
+      .transition().duration(1800).delay(idx * 300)
+      .attr('opacity', 0.3)
+      .attrTween('d', function(){
+        const interp = d3.interpolate(-Math.PI * 0.75, endAngle);
+        return function(t) { return arcGen.endAngle(interp(t))(); };
+      });
+
+    // Percentage text (large)
+    g.append('text')
+      .attr('y', -8)
+      .attr('text-anchor', 'middle')
+      .attr('fill', ga.color)
+      .attr('font-family', 'JetBrains Mono')
+      .attr('font-size', 20)
+      .attr('font-weight', 600)
+      .text(Math.round(ga.util * 100) + '%');
+
+    // Label
+    g.append('text')
+      .attr('y', 12)
+      .attr('text-anchor', 'middle')
+      .attr('fill', C.dim)
+      .attr('font-family', 'JetBrains Mono')
+      .attr('font-size', 8)
+      .text(ga.label);
+
+    // Sub-description
+    g.append('text')
+      .attr('y', 24)
+      .attr('text-anchor', 'middle')
+      .attr('fill', C.dim)
+      .attr('font-family', 'JetBrains Mono')
+      .attr('font-size', 7)
+      .attr('opacity', 0.6)
+      .text(ga.desc);
+  });
+})();
+
+
+/* ═══════════════════════════════════════════════════════════
+   VIZ 7 — SPEEDUP COMPARISON BAR CHART
+   Horizontal bars comparing all methods discussed
+   ═══════════════════════════════════════════════════════════ */
+(function(){
+  // Create viz after the summary table in Ch6
+  const tables = document.querySelectorAll('#ch6 table');
+  const table = tables.length > 0 ? tables[tables.length - 1] : null;
+  if(!table) return;
+
+  const vizDiv = document.createElement('div');
+  vizDiv.className = 'viz-container';
+  vizDiv.innerHTML = '<span class="diagram-label">Speedup Comparison &mdash; All Methods Discussed</span>';
+  table.after(vizDiv);
+
+  const W = 720, H = 260, pad = { t: 10, r: 80, b: 30, l: 160 };
+  const svg = d3.select(vizDiv).append('svg').attr('viewBox', `0 0 ${W} ${H}`);
+  const pw = W - pad.l - pad.r, ph = H - pad.t - pad.b;
+  const g = svg.append('g').attr('transform', `translate(${pad.l},${pad.t})`);
+
+  const data = [
+    { name: 'DeepSeek MTP', low: 1.8, high: 1.8, color: C.orange },
+    { name: 'Lookahead', low: 1.5, high: 2.3, color: C.purple },
+    { name: 'Spec Decode (classic)', low: 2.0, high: 3.0, color: C.dim },
+    { name: 'Medusa-1/2', low: 2.2, high: 3.6, color: C.blue },
+    { name: 'Meta MTP (self-spec)', low: 2.7, high: 3.0, color: C.yellow },
+    { name: 'EAGLE-1', low: 2.7, high: 5.6, color: C.cyan },
+    { name: 'EAGLE-2', low: 3.05, high: 4.26, color: C.cyan },
+    { name: 'EAGLE-3', low: 3.3, high: 6.5, color: C.green }
+  ];
+
+  const yS = d3.scaleBand().domain(data.map(d => d.name)).range([0, ph]).padding(0.18);
+  const xS = d3.scaleLinear().domain([0, 7.5]).range([0, pw]);
+
+  // Grid lines
+  [1, 2, 3, 4, 5, 6, 7].forEach(v => {
+    g.append('line')
+      .attr('x1', xS(v)).attr('y1', 0)
+      .attr('x2', xS(v)).attr('y2', ph)
+      .attr('stroke', C.border).attr('opacity', 0.25);
+  });
+
+  // X axis labels
+  [1, 2, 3, 4, 5, 6, 7].forEach(v => {
+    g.append('text')
+      .attr('x', xS(v)).attr('y', ph + 16)
+      .attr('text-anchor', 'middle')
+      .attr('fill', C.dim)
+      .attr('font-family', 'JetBrains Mono')
+      .attr('font-size', 9)
+      .text(v + 'x');
+  });
+
+  // 1x baseline reference
+  g.append('line')
+    .attr('x1', xS(1)).attr('y1', 0)
+    .attr('x2', xS(1)).attr('y2', ph)
+    .attr('stroke', C.red).attr('stroke-dasharray', '3,3').attr('opacity', 0.3);
+  g.append('text')
+    .attr('x', xS(1)).attr('y', ph + 26)
+    .attr('text-anchor', 'middle')
+    .attr('fill', C.red).attr('font-family', 'JetBrains Mono').attr('font-size', 7)
+    .attr('opacity', 0.5).text('BASELINE');
+
+  // Draw bars with animation
+  data.forEach((d, i) => {
+    const y = yS(d.name);
+    const h = yS.bandwidth();
+
+    // Range bar background
+    g.append('rect')
+      .attr('x', xS(d.low)).attr('y', y)
+      .attr('width', 0).attr('height', h)
+      .attr('fill', d.color).attr('opacity', 0.2).attr('rx', 3)
+      .transition().duration(700).delay(i * 60)
+      .attr('width', Math.max(2, xS(d.high) - xS(d.low)));
+
+    // Range bar border
+    g.append('rect')
+      .attr('x', xS(d.low)).attr('y', y)
+      .attr('width', 0).attr('height', h)
+      .attr('fill', 'none').attr('stroke', d.color).attr('stroke-width', 1)
+      .attr('opacity', 0).attr('rx', 3)
+      .transition().duration(700).delay(i * 60)
+      .attr('width', Math.max(2, xS(d.high) - xS(d.low)))
+      .attr('opacity', 0.5);
+
+    // Low marker dot
+    g.append('circle')
+      .attr('cx', xS(d.low)).attr('cy', y + h / 2)
+      .attr('r', 0)
+      .attr('fill', d.color)
+      .transition().delay(i * 60 + 400).duration(300)
+      .attr('r', 3);
+
+    // High marker dot
+    if (d.high > d.low) {
+      g.append('circle')
+        .attr('cx', xS(d.high)).attr('cy', y + h / 2)
+        .attr('r', 0)
+        .attr('fill', d.color)
+        .transition().delay(i * 60 + 500).duration(300)
+        .attr('r', 3);
+    }
+
+    // High value text
+    g.append('text')
+      .attr('x', xS(d.high) + 8).attr('y', y + h / 2 + 3.5)
+      .attr('fill', d.color)
+      .attr('font-family', 'JetBrains Mono')
+      .attr('font-size', 10)
+      .attr('font-weight', 500)
+      .attr('opacity', 0)
+      .text(d.high + 'x')
+      .transition().delay(i * 60 + 600).attr('opacity', 0.9);
+
+    // Method name label
+    g.append('text')
+      .attr('x', -10).attr('y', y + h / 2 + 3.5)
+      .attr('text-anchor', 'end')
+      .attr('fill', C.text)
+      .attr('font-family', 'JetBrains Mono')
+      .attr('font-size', 9)
+      .text(d.name);
+  });
+
+  // Legend at bottom
+  g.append('text')
+    .attr('x', pw / 2).attr('y', ph + 26)
+    .attr('text-anchor', 'middle')
+    .attr('fill', C.dim)
+    .attr('font-family', 'JetBrains Mono')
+    .attr('font-size', 7)
+    .text('SPEEDUP RANGE (WALL-CLOCK)');
+})();
+
+
+/* ═══════════════════════════════════════════════════════════
+   VIZ 7 — SPEEDUP COMPARISON BAR CHART
+   Horizontal bars comparing all methods discussed
+   ═══════════════════════════════════════════════════════════ */
+(function(){
+  // Create viz after the summary table in Ch6
+  const table = document.querySelector('#ch6 table:last-of-type');
+  if(!table) return;
+
+  const vizDiv = document.createElement('div');
+  vizDiv.className = 'viz-container';
+  vizDiv.innerHTML = '<span class="diagram-label">Speedup Comparison — All Methods</span>';
+  table.after(vizDiv);
+
+  const W=720, H=240, pad={t:10,r:80,b:25,l:140};
+  const svg = d3.select(vizDiv).append('svg').attr('viewBox',`0 0 ${W} ${H}`);
+  const pw=W-pad.l-pad.r, ph=H-pad.t-pad.b;
+  const g = svg.append('g').attr('transform',`translate(${pad.l},${pad.t})`);
+
+  const data = [
+    {name:'DeepSeek MTP',low:1.8,high:1.8,color:C.orange},
+    {name:'Lookahead',low:1.5,high:2.3,color:C.purple},
+    {name:'Medusa-1/2',low:2.2,high:3.6,color:C.blue},
+    {name:'Spec Decode (classic)',low:2.0,high:3.0,color:C.dim},
+    {name:'Meta MTP (self-spec)',low:2.7,high:3.0,color:C.yellow},
+    {name:'EAGLE-1',low:2.7,high:5.6,color:C.cyan},
+    {name:'EAGLE-2',low:3.05,high:4.26,color:C.cyan},
+    {name:'EAGLE-3',low:3.3,high:6.5,color:C.green}
+  ];
+
+  const yS = d3.scaleBand().domain(data.map(d=>d.name)).range([0,ph]).padding(0.2);
+  const xS = d3.scaleLinear().domain([0,7]).range([0,pw]);
+
+  // Grid
+  [1,2,3,4,5,6,7].forEach(v=>{
+    g.append('line').attr('x1',xS(v)).attr('y1',0).attr('x2',xS(v)).attr('y2',ph)
+      .attr('stroke',C.border).attr('opacity',0.3);
+    g.append('text').attr('x',xS(v)).attr('y',ph+16)
+      .attr('text-anchor','middle')
+      .attr('fill',C.dim).attr('font-family','JetBrains Mono').attr('font-size',8)
+      .text(v+'x');
+  });
+
+  // 1x baseline
+  g.append('line').attr('x1',xS(1)).attr('y1',0).attr('x2',xS(1)).attr('y2',ph)
+    .attr('stroke',C.red).attr('stroke-dasharray','3,3').attr('opacity',0.3);
+
+  data.forEach(d=>{
+    const y = yS(d.name);
+    const h = yS.bandwidth();
+
+    // Range bar
+    g.append('rect')
+      .attr('x',xS(d.low)).attr('y',y)
+      .attr('width',0).attr('height',h)
+      .attr('fill',d.color).attr('opacity',0.25).attr('rx',3)
+      .transition().duration(800).delay(data.indexOf(d)*80)
+      .attr('width',xS(d.high)-xS(d.low));
+
+    // Low marker
+    g.append('line')
+      .attr('x1',xS(d.low)).attr('y1',y).attr('x2',xS(d.low)).attr('y2',y+h)
+      .attr('stroke',d.color).attr('stroke-width',2).attr('opacity',0);
+
+    // High value text
+    g.append('text')
+      .attr('x',xS(d.high)+5).attr('y',y+h/2+3)
+      .attr('fill',d.color).attr('font-family','JetBrains Mono').attr('font-size',9)
+      .attr('opacity',0)
+      .text(d.high+'x')
+      .transition().delay(data.indexOf(d)*80+600).attr('opacity',0.8);
+
+    // Label
+    g.append('text')
+      .attr('x',-8).attr('y',y+h/2+3)
+      .attr('text-anchor','end')
+      .attr('fill',C.text).attr('font-family','JetBrains Mono').attr('font-size',9)
+      .text(d.name);
+  });
+})();
+
+
+/* ═══════════════════════════════════════════════════════════
+   SCROLL SPY
+   ═══════════════════════════════════════════════════════════ */
+(function(){
+  const sects=document.querySelectorAll('section[id]');
+  const links=document.querySelectorAll('nav a');
+  const obs=new IntersectionObserver(entries=>{
+    entries.forEach(e=>{
+      if(e.isIntersecting){
+        links.forEach(a=>a.classList.remove('active'));
+        const l=document.querySelector('nav a[href="#'+e.target.id+'"]');
+        if(l) l.classList.add('active');
+      }
+    });
+  },{rootMargin:'-20% 0px -60% 0px'});
+  sects.forEach(s=>obs.observe(s));
+})();
+</script>
+
+</body>
+</html>

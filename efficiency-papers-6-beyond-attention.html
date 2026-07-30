@@ -1,0 +1,2003 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>What If Attention Is Wrong? &mdash; The Efficiency Papers, Part VI</title>
+  <link rel="canonical" href="https://femiadeniran.com/deep-dives/efficiency-papers-6-beyond-attention.html">
+  <meta property="og:title" content="What If Attention Is Wrong? — The Efficiency Papers, Part VI">
+  <meta property="og:description" content="State space models from S4 through Mamba-3 and the hybrid architectures replacing pure attention. The series finale of The Efficiency Papers — closing the Tri Dao through-line that began in Part I.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://femiadeniran.com/deep-dives/efficiency-papers-6-beyond-attention.html">
+  <meta property="og:site_name" content="Femi Adeniran">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="What If Attention Is Wrong? — The Efficiency Papers, Part VI">
+  <meta name="twitter:description" content="State space models from S4 through Mamba-3 and the hybrid architectures replacing pure attention. The series finale of The Efficiency Papers — closing the Tri Dao through-line that began in Part I.">
+  <meta name="author" content="Femi Adeniran">
+<meta name="description" content="State space models from S4 through Mamba-3 and the hybrid architectures replacing pure attention. The series finale of The Efficiency Papers — closing the Tri Dao through-line that began in Part I.">
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<link
+  href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+  rel="stylesheet"
+>
+<style>
+:root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --white: #e8e8f0;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+}
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 3rem; }
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+}
+
+body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.03) 2px,
+        rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+}
+
+nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 1000;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 1.5rem;
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+}
+nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    transition: color 0.2s, text-shadow 0.2s;
+    padding: 0.3rem 0;
+}
+nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+nav a.active { color: var(--green); text-shadow: 0 0 12px rgba(0,255,136,0.4); }
+.nav-title {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 0.5rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.25);
+    flex-shrink: 0;
+}
+
+.content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+}
+
+.hero {
+    text-align: center;
+    padding: 4rem 0 5rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4rem;
+}
+.hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 2.6rem;
+    font-weight: 600;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+}
+.subtitle {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 640px;
+    margin: 0 auto;
+}
+.series-kicker {
+    margin-top: 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+.series-finale {
+    display: inline-block;
+    margin-top: 0.5rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    border: 1px solid rgba(255,0,170,0.3);
+    padding: 0.2rem 0.8rem;
+    border-radius: 3px;
+    background: rgba(255,0,170,0.06);
+}
+
+.glitch { position: relative; display: inline-block; }
+.glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    inset: 0;
+    width: 100%; height: 100%;
+}
+.glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 3s infinite linear alternate-reverse;
+    clip-path: inset(0 0 80% 0);
+}
+.glitch::after {
+    color: var(--magenta);
+    animation: glitch-2 2.5s infinite linear alternate-reverse;
+    clip-path: inset(80% 0 0 0);
+}
+.blink { display: inline-block; animation: blink 1s step-end infinite; color: var(--green); }
+@keyframes blink { 50% { opacity: 0; } }
+@keyframes glitch-1 {
+    0%, 90% { transform: translate(0); }
+    92% { transform: translate(-3px, 1px); }
+    94% { transform: translate(3px, -1px); }
+    96% { transform: translate(-2px, 2px); }
+    100% { transform: translate(0); }
+}
+@keyframes glitch-2 {
+    0%, 88% { transform: translate(0); }
+    90% { transform: translate(2px, -1px); }
+    93% { transform: translate(-3px, 2px); }
+    96% { transform: translate(1px, -2px); }
+    100% { transform: translate(0); }
+}
+
+section { margin-bottom: 5rem; padding-top: 1rem; }
+
+h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: var(--green);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: 0.02em;
+}
+h3 {
+    font-size: 1.25rem;
+    color: var(--cyan);
+    margin: 2.5rem 0 1rem;
+    font-weight: 600;
+}
+h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 2rem 0 0.8rem;
+}
+p { margin-bottom: 1rem; }
+strong { color: var(--white); }
+a { color: var(--cyan); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4rem;
+    line-height: 0.8;
+    padding: 0.1em 0.15em 0 0;
+    color: var(--green);
+    font-weight: 700;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+}
+
+code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.15em 0.4em;
+}
+pre {
+    position: relative;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    margin: 1.2rem 0;
+}
+pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+}
+
+.cm { color: var(--text-dim); }
+.kw { color: var(--magenta); }
+.ty { color: var(--cyan); }
+.st { color: var(--green); }
+.nm { color: var(--yellow); }
+.fn { color: var(--blue); }
+.pp { color: var(--orange); }
+
+.label {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.8rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+}
+
+.diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+}
+.diagram pre { border: none; margin: 0; padding: 0; background: none; font-size: 12.5px; line-height: 1.45; }
+.diagram-label {
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    margin-bottom: 0.8rem;
+}
+
+.power {
+    border-left: 3px solid var(--green-dim);
+    background: rgba(0,255,136,0.04);
+    padding: 1rem 1.2rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+}
+.power p { font-size: 0.88rem; line-height: 1.6; margin-bottom: 0; }
+.power.danger { border-left-color: var(--red); background: rgba(255,51,68,0.04); }
+.power.hack { border-left-color: var(--magenta); background: rgba(255,0,170,0.04); }
+.power.wild { border-left-color: var(--orange); background: rgba(255,136,0,0.04); }
+.power.zen { border-left-color: var(--cyan); background: rgba(0,221,255,0.04); }
+.power.purple { border-left-color: var(--purple); background: rgba(170,68,255,0.04); }
+
+.power-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--green);
+    margin-bottom: 0.5rem;
+}
+.power.danger .power-label { color: var(--red); }
+.power.hack .power-label { color: var(--magenta); }
+.power.wild .power-label { color: var(--orange); }
+.power.zen .power-label { color: var(--cyan); }
+.power.purple .power-label { color: var(--purple); }
+
+.vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+}
+.vs-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem 1.1rem;
+}
+.vs-card h4 { margin-top: 0; }
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.92rem;
+}
+th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--green);
+    text-align: left;
+    padding: 0.6rem 0.8rem;
+    border-bottom: 2px solid var(--border);
+}
+td {
+    padding: 0.5rem 0.8rem;
+    border-bottom: 1px solid var(--border);
+}
+tr:hover td { background: rgba(0,255,136,0.03); }
+
+details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1.2rem 0;
+}
+summary {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--green);
+    padding: 0.8rem 1.2rem;
+    cursor: pointer;
+}
+details[open] summary { border-bottom: 1px solid var(--border); }
+details > div { padding: 1rem 1.2rem; }
+
+/* D3 viz containers */
+.viz-container {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin: 2rem 0;
+    overflow: hidden;
+}
+.viz-container svg { display: block; }
+.viz-controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 1rem;
+    flex-wrap: wrap;
+}
+.viz-controls label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+.viz-controls input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    outline: none;
+    flex: 1;
+    max-width: 300px;
+}
+.viz-controls input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--green);
+    cursor: pointer;
+    box-shadow: 0 0 8px rgba(0,255,136,0.4);
+}
+.viz-controls input[type="range"]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--green);
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 0 8px rgba(0,255,136,0.4);
+}
+.viz-readout {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--green);
+    min-width: 80px;
+}
+.viz-btn {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 0.4rem 0.8rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.viz-btn:hover { border-color: var(--green); color: var(--green); }
+.viz-btn.active { border-color: var(--green); color: var(--green); background: rgba(0,255,136,0.08); }
+
+/* Timeline */
+.timeline {
+    position: relative;
+    padding-left: 2rem;
+    margin: 2rem 0;
+}
+.timeline::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: linear-gradient(to bottom, var(--green), var(--cyan), var(--magenta), var(--green));
+}
+.timeline-node {
+    position: relative;
+    margin-bottom: 2rem;
+    padding-left: 1rem;
+}
+.timeline-node::before {
+    content: '';
+    position: absolute;
+    left: -2.35rem;
+    top: 0.4rem;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 10px rgba(0,255,136,0.5);
+}
+.timeline-node .timeline-year {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.3rem;
+}
+
+/* Series arc */
+.series-arc {
+    background: linear-gradient(135deg, rgba(0,255,136,0.04), rgba(0,221,255,0.04), rgba(255,0,170,0.04));
+    border: 1px solid var(--border-glow);
+    border-radius: 8px;
+    padding: 2rem;
+    margin: 2rem 0;
+}
+.series-arc-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--magenta);
+    margin-bottom: 1rem;
+}
+
+@media (max-width: 700px) {
+    body { font-size: 16px; }
+    nav { font-size: 9px; gap: 0.7rem; }
+    .content { padding: 3rem 0.8rem 4rem; }
+    .hero h1 { font-size: 1.8rem; }
+    .vs { grid-template-columns: 1fr; }
+    pre { font-size: 10.5px; padding: 0.7rem; }
+    .diagram { padding: 1rem; }
+    .power { padding: 0.6rem 0.8rem; }
+    .viz-container { padding: 1rem; }
+    .viz-controls { flex-direction: column; align-items: flex-start; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+    <span class="nav-title">>_ BEYOND ATTENTION</span>
+    <a href="#quadratic-problem">The Quadratic Problem</a>
+    <a href="#state-space-models">State Space Models</a>
+    <a href="#mechanical-clock">The Mechanical Clock</a>
+    <a href="#selective-revolution">The Selective Revolution</a>
+    <a href="#duality">Duality and Beyond</a>
+    <a href="#hybrids-win">Hybrids Win</a>
+</nav>
+
+<div class="content">
+
+<!-- ════════════════════════════════════════════ HERO ════════════════════════════════════════════ -->
+
+<div class="hero">
+    <h1><span class="glitch" data-text="WHAT IF ATTENTION IS WRONG?">WHAT IF ATTENTION IS WRONG?</span></h1>
+    <div class="subtitle">
+        In 2022, Tri Dao made attention fast. In 2023, he helped replace it entirely. Same person. Same principle. Different substrate.<span class="blink">_</span>
+    </div>
+    <div class="series-kicker">The Efficiency Papers &mdash; Part VI</div>
+    <div class="series-finale">Series Finale</div>
+</div>
+
+<!-- ═══════════════════════════════════ CH 1: THE QUADRATIC PROBLEM ═══════════════════════════════════ -->
+
+<section id="quadratic-problem">
+<h2>01 // The Quadratic Problem</h2>
+
+<p class="drop-cap">
+Every token attends to every other token. That single design decision &mdash; pairwise comparison across the full sequence &mdash; is both the fundamental promise of self-attention and the fundamental problem with it. At 1,000 tokens, the attention matrix contains one million entries. At 10,000, one hundred million. At 100,000, ten billion. Double the context, quadruple the cost. This is not a constant you can engineer away or a coefficient you can shrink. It is the exponent of the algorithm itself.
+</p>
+
+<p>
+<a href="efficiency-papers-1-attention-tax.html">In Part I of this series</a>, we watched Tri Dao attack this problem with FlashAttention &mdash; tiling the attention computation so it fits in fast SRAM, avoiding the catastrophic memory traffic of materializing the full N&times;N matrix in slow HBM. It worked brilliantly. FlashAttention gave a 2-4x wall-clock speedup with zero approximation. Every major framework adopted it. The attention tax got cheaper.
+</p>
+
+<p>
+But the tax was still quadratic.
+</p>
+
+<p>
+FlashAttention changed the constant, not the exponent. At 4K tokens, that constant matters enormously &mdash; it's the difference between a model that fits on one GPU and one that doesn't. At 256K tokens, no constant saves you. The quadratic curve bends upward and nothing you do to the constant factor prevents it from eventually dwarfing everything else. You need a different curve entirely.
+</p>
+
+<p>
+What if, instead of comparing every token against every other token, you could process each token exactly once? Read it, update a fixed-size state, and move on. Never look back. O(n) instead of O(n&sup2;). No KV cache growing without bound. Constant memory per token during generation. The same cost to generate token 1,001 as token 1. The same memory at 256K context as at 4K.
+</p>
+
+<p>
+That is the promise of <strong>state space models</strong>. For decades, they lived in control theory &mdash; modeling physical systems like aircraft dynamics, chemical reactions, and signal processing. In 2020, Albert Gu and colleagues at Stanford began asking: what if the same mathematical framework could model sequences of text? The answer would take four years, three major architectures, and one of the most surprising mathematical equivalences in modern machine learning to fully unfold.
+</p>
+
+<!-- D3 VIZ: The Scaling Curves -->
+<div class="viz-container">
+    <span class="diagram-label">Interactive: The Scaling Curves</span>
+    <div id="scaling-curves-viz"></div>
+    <div class="viz-controls">
+        <label>Sequence Length</label>
+        <input type="range" id="seq-slider" min="1" max="256" value="32" step="1">
+        <span class="viz-readout" id="seq-readout">32K tokens</span>
+    </div>
+</div>
+
+<script>
+(function() {
+    const margin = {top: 30, right: 30, bottom: 50, left: 70};
+    const containerWidth = document.getElementById('scaling-curves-viz').getBoundingClientRect().width || 760;
+    const width = Math.min(containerWidth, 760) - margin.left - margin.right;
+    const height = 340 - margin.top - margin.bottom;
+
+    const svg = d3.select('#scaling-curves-viz')
+        .append('svg')
+        .attr('viewBox', `0 0 ${width + margin.left + margin.right} ${height + margin.top + margin.bottom}`)
+        .attr('width', '100%')
+        .append('g')
+        .attr('transform', `translate(${margin.left},${margin.top})`);
+
+    const x = d3.scaleLog().domain([1, 256]).range([0, width]);
+    const y = d3.scaleLog().domain([1, 70000]).range([height, 0]);
+
+    // Grid lines
+    svg.append('g')
+        .attr('transform', `translate(0,${height})`)
+        .call(d3.axisBottom(x).tickValues([1, 4, 16, 64, 256]).tickFormat(d => d + 'K'))
+        .selectAll('text').style('fill', '#6a6a7e').style('font-family', 'JetBrains Mono').style('font-size', '10px');
+    svg.selectAll('.domain, .tick line').style('stroke', '#1e1e2e');
+
+    svg.append('g')
+        .call(d3.axisLeft(y).ticks(5, '~s'))
+        .selectAll('text').style('fill', '#6a6a7e').style('font-family', 'JetBrains Mono').style('font-size', '10px');
+
+    // Axis labels
+    svg.append('text').attr('x', width / 2).attr('y', height + 40)
+        .style('fill', '#6a6a7e').style('font-family', 'JetBrains Mono').style('font-size', '10px')
+        .style('text-anchor', 'middle').text('SEQUENCE LENGTH');
+
+    svg.append('text').attr('transform', 'rotate(-90)').attr('x', -height / 2).attr('y', -55)
+        .style('fill', '#6a6a7e').style('font-family', 'JetBrains Mono').style('font-size', '10px')
+        .style('text-anchor', 'middle').text('RELATIVE COMPUTE');
+
+    // Data generators
+    const points = d3.range(1, 257, 0.5);
+    const attentionData = points.map(d => ({x: d, y: d * d}));
+    const flashData = points.map(d => ({x: d, y: d * d * 0.35}));
+    const ssmData = points.map(d => ({x: d, y: d * 8}));
+
+    const line = d3.line().x(d => x(d.x)).y(d => y(Math.max(1, d.y))).curve(d3.curveMonotoneX);
+
+    // Lines
+    svg.append('path').datum(attentionData).attr('d', line)
+        .style('fill', 'none').style('stroke', '#ff3344').style('stroke-width', 2).style('opacity', 0.8);
+    svg.append('path').datum(flashData).attr('d', line)
+        .style('fill', 'none').style('stroke', '#ff8800').style('stroke-width', 2).style('opacity', 0.8)
+        .style('stroke-dasharray', '6,3');
+    svg.append('path').datum(ssmData).attr('d', line)
+        .style('fill', 'none').style('stroke', '#00ff88').style('stroke-width', 2.5).style('opacity', 0.9);
+
+    // Legend
+    const legend = svg.append('g').attr('transform', `translate(${width - 180}, 5)`);
+    [
+        {label: 'Attention (O(n\u00B2))', color: '#ff3344', dash: ''},
+        {label: 'FlashAttention', color: '#ff8800', dash: '6,3'},
+        {label: 'SSM (O(n))', color: '#00ff88', dash: ''}
+    ].forEach((d, i) => {
+        legend.append('line').attr('x1', 0).attr('x2', 20).attr('y1', i * 18).attr('y2', i * 18)
+            .style('stroke', d.color).style('stroke-width', 2).style('stroke-dasharray', d.dash);
+        legend.append('text').attr('x', 26).attr('y', i * 18 + 4)
+            .style('fill', d.color).style('font-family', 'JetBrains Mono').style('font-size', '9px')
+            .text(d.label);
+    });
+
+    // Marker line
+    const markerLine = svg.append('line')
+        .attr('y1', 0).attr('y2', height)
+        .style('stroke', '#e8e8f0').style('stroke-width', 1).style('stroke-dasharray', '3,3').style('opacity', 0.5);
+
+    // Cost readouts
+    const costGroup = svg.append('g');
+    const attDot = svg.append('circle').attr('r', 5).style('fill', '#ff3344');
+    const flashDot = svg.append('circle').attr('r', 5).style('fill', '#ff8800');
+    const ssmDot = svg.append('circle').attr('r', 5).style('fill', '#00ff88').style('filter', 'drop-shadow(0 0 4px rgba(0,255,136,0.6))');
+
+    const costText = svg.append('text')
+        .style('fill', '#e8e8f0').style('font-family', 'JetBrains Mono').style('font-size', '10px');
+
+    function update(seqK) {
+        const attY = seqK * seqK;
+        const flashY = seqK * seqK * 0.35;
+        const ssmY = seqK * 8;
+        const px = x(seqK);
+
+        markerLine.attr('x1', px).attr('x2', px);
+        attDot.attr('cx', px).attr('cy', y(Math.max(1, attY)));
+        flashDot.attr('cx', px).attr('cy', y(Math.max(1, flashY)));
+        ssmDot.attr('cx', px).attr('cy', y(Math.max(1, ssmY)));
+
+        const ratio = Math.round(attY / ssmY);
+        costText.attr('x', Math.min(px + 10, width - 140)).attr('y', y(Math.max(1, ssmY)) - 12)
+            .text(ratio > 1 ? `Attention costs ${ratio}x more` : '');
+
+        document.getElementById('seq-readout').textContent = seqK + 'K tokens';
+    }
+
+    update(32);
+
+    document.getElementById('seq-slider').addEventListener('input', function() {
+        update(+this.value);
+    });
+})();
+</script>
+
+<p>
+Drag the slider. At 4K tokens, FlashAttention keeps attention competitive &mdash; you can see the orange dashed line tracking close to the green. At 16K, a factor-of-ten gap opens. At 64K, the gap is an order of magnitude. At 256K, attention costs over 3,000 times more compute than a linear-time model. The curves do not negotiate. Quadratic is quadratic.
+</p>
+
+<p>
+Put it in dollar terms. If an SSM costs you $1 to process a 256K-token document, standard attention costs $3,000. FlashAttention brings that down to about $1,000. Still unacceptable. The exponent rules everything at scale.
+</p>
+
+<p>
+And this is only the compute cost. The <em>memory</em> cost is worse. Attention requires a KV cache that grows linearly with sequence length &mdash; every token you process adds to the cache, and the cache must persist for the entire generation. At 256K tokens with a 70B model, the KV cache alone can exceed 100GB. That is an entire GPU's worth of memory consumed by just the cache, leaving nothing for the model weights, activations, or anything else. Batch size goes to 1. Throughput collapses.
+</p>
+
+<p>
+An SSM's state is fixed-size regardless of sequence length. Process a thousand tokens or a million &mdash; the state vector stays the same size. A Mamba model with a 256-dimensional state uses the same memory at 1K tokens as at 256K tokens. The batch size stays constant. The throughput stays constant. The memory bill does not grow with the conversation.
+</p>
+
+<div class="power danger">
+    <div class="power-label">The Exponent Wall</div>
+    <p>FlashAttention changed the constant on the quadratic curve. It did not &mdash; and cannot &mdash; change the exponent. For long-context inference, you do not need faster attention. You need to replace it.</p>
+</div>
+
+<p>
+The history of SSMs is the history of trying to build that replacement. It begins with a mathematical insight about memory, passes through a structural limitation that blocked progress for two years, and culminates in a revolution that merged the two fields into one. Along the way, it reveals that the replacement looks more like attention than anyone expected &mdash; and that attention, viewed correctly, was always a state space model in disguise.
+</p>
+
+</section>
+
+<!-- ═══════════════════════════════════ CH 2: STATE SPACE MODELS ═══════════════════════════════════ -->
+
+<section id="state-space-models">
+<h2>02 // State Space Models</h2>
+
+<p class="drop-cap">
+Imagine a reader summarizing a thousand-page book. After each page, they update a fixed-size notepad &mdash; maybe a hundred lines of notes. When asked a question about the book, they answer from the notepad, never from the book itself. The notepad is the hidden state. The update rules are the model parameters. The question is always: what did you choose to write down?
+</p>
+
+<p>
+That is a state space model. It comes from control theory &mdash; the mathematics of systems that evolve over time. Two equations define it:
+</p>
+
+<pre><span class="label">SSM Core</span><code><span class="cm">// State equation: how hidden state evolves</span>
+<span class="fn">h'</span>(t) = <span class="ty">A</span> &middot; <span class="fn">h</span>(t) + <span class="ty">B</span> &middot; <span class="fn">x</span>(t)
+
+<span class="cm">// Output equation: how state maps to output</span>
+<span class="fn">y</span>(t)  = <span class="ty">C</span> &middot; <span class="fn">h</span>(t)
+
+<span class="cm">// A: state dynamics (N x N)  &mdash; how the notepad updates itself</span>
+<span class="cm">// B: input projection (N x 1) &mdash; what enters the notepad from input</span>
+<span class="cm">// C: output projection (1 x N) &mdash; what we read from the notepad</span></code></pre>
+
+<p>
+The state <code>h(t)</code> is a vector &mdash; think of it as a compressed summary of everything the model has seen so far. Matrix <strong>A</strong> controls how the state evolves on its own: the decay, the memory, the internal dynamics. If A is zero, the state has no memory &mdash; each output depends only on the current input. If A is identity, the state remembers everything forever &mdash; but also accumulates noise without bound. The art of SSM design is choosing A so the state remembers what matters and forgets what doesn't. Matrix <strong>B</strong> controls how new input gets written into the state. Matrix <strong>C</strong> controls what gets read out.
+</p>
+
+<p>
+Notice what is absent: there is no mechanism for the state at position 47 to directly access the input at position 12. The state at position 47 is a compressed function of ALL prior inputs, mediated through the recurrence. This is fundamentally different from attention, where position 47 can directly compute a similarity score with position 12 and retrieve its value. The SSM state is a <em>summary</em>. The attention KV cache is a <em>database</em>. This distinction drives every architectural choice in the rest of this article.
+</p>
+
+<p>
+This is a continuous-time formulation. To handle discrete tokens &mdash; words, audio samples, DNA bases &mdash; you <strong>discretize</strong>: a learnable step size <strong>Delta</strong> converts the continuous dynamics into a step-by-step recurrence. Each token's value is "held" until the next token arrives, converting the discrete stream into a piecewise-constant signal, processing it, then sampling back.
+</p>
+
+<h3>The Dual Personality</h3>
+
+<p>
+Here is the beautiful trick. The same SSM can be computed two entirely different ways:
+</p>
+
+<div class="vs">
+    <div class="vs-card">
+        <h4>Recurrent Mode</h4>
+        <p>Process tokens one at a time. Update state sequentially. <strong>O(1) per step</strong>, constant memory. Perfect for inference &mdash; generate one token, update state, generate the next. But impossible to parallelize during training.</p>
+    </div>
+    <div class="vs-card">
+        <h4>Convolutional Mode</h4>
+        <p>Unroll the recurrence into a single convolution with a kernel derived from A, B, C. <strong>O(n log n) parallel</strong>. Perfect for training &mdash; process the entire sequence at once on GPU. But requires a fixed kernel.</p>
+    </div>
+</div>
+
+<p>
+Same math. Two algorithms. One for training, one for inference. This duality is extraordinary &mdash; no other sequence model has it. RNNs are recurrent but have no convolutional form. CNNs are convolutional but have no recurrent form. Transformers are neither. SSMs are both.
+</p>
+
+<p>
+Pre-Mamba SSMs used both: convolutional mode for the forward pass during training (where you need to process the entire sequence in parallel), recurrent mode for autoregressive generation (where you process one token at a time). Best of both worlds &mdash; <em>if</em> your parameters never need to change per-token.
+</p>
+
+<p>
+Now the comparison with attention becomes crisp. A Transformer keeps the entire book open on the desk. It can flip to any page instantly &mdash; the KV cache is an explicit database of every token the model has seen. Ask about something from chapter 3? The model looks it up directly. Powerful, but the book gets bigger with every word, and eventually it fills the desk, then the room, then the building. An SSM only has the notepad. Compact and fast &mdash; the notepad stays the same size whether the book is 100 pages or 100,000. But it can only answer from what it chose to write down. If it did not record a fact, that fact is gone.
+</p>
+
+<h3>Discretization: From Continuous to Tokens</h3>
+
+<p>
+The raw SSM equations are continuous-time &mdash; the state flows smoothly, not in discrete steps. But language is discrete. Audio is sampled. DNA comes in base pairs. To handle tokens, you <strong>discretize</strong> the continuous dynamics using a zero-order hold and a learnable step size <strong>Delta</strong>.
+</p>
+
+<p>
+The discretization converts the continuous matrices into their discrete equivalents:
+</p>
+
+<pre><span class="label">Discretization</span><code><span class="cm">// Zero-Order Hold: convert continuous (A, B) to discrete (A_bar, B_bar)</span>
+<span class="ty">A_bar</span> = <span class="fn">exp</span>(<span class="ty">Delta</span> &middot; <span class="ty">A</span>)         <span class="cm">// matrix exponential</span>
+<span class="ty">B_bar</span> = (<span class="ty">A_bar</span> - <span class="ty">I</span>) &middot; <span class="ty">A</span><span class="kw">^-1</span> &middot; <span class="ty">B</span>  <span class="cm">// scaled input matrix</span>
+
+<span class="cm">// Now the recurrence is discrete:</span>
+<span class="fn">h</span>[t] = <span class="ty">A_bar</span> &middot; <span class="fn">h</span>[t-1] + <span class="ty">B_bar</span> &middot; <span class="fn">x</span>[t]
+<span class="fn">y</span>[t] = <span class="ty">C</span> &middot; <span class="fn">h</span>[t]</code></pre>
+
+<p>
+Think of Delta as a zoom lens. Large Delta = wide aperture, the model integrates more of the input into the state per step. Small Delta = narrow aperture, the model takes finer-grained steps and the state evolves slowly. In pre-Mamba SSMs, Delta is a fixed hyperparameter &mdash; every token gets the same aperture. In Mamba, as we will see, Delta becomes input-dependent: the model adjusts the lens for every token. That one change &mdash; from fixed to learned Delta &mdash; is arguably the most consequential idea in the entire SSM lineage.
+</p>
+
+<div class="power zen">
+    <div class="power-label">The Core Trade</div>
+    <p>Attention is a database &mdash; stores everything, retrieves anything, grows without bound. An SSM is a brain &mdash; compresses everything into finite state, processes in constant memory, but the compression is lossy. The question of this entire article: when is the brain enough?</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════ CH 3: THE MECHANICAL CLOCK ═══════════════════════════════════ -->
+
+<section id="mechanical-clock">
+<h2>03 // The Mechanical Clock</h2>
+
+<p class="drop-cap">
+In 2020, Albert Gu at Stanford asked a question that would reshape sequence modeling: what should matrix A look like? If A is randomly initialized, the SSM behaves like a leaky bucket &mdash; recent inputs are vivid, but information from 50 tokens ago has evaporated into noise. This is the same vanishing gradient problem that killed vanilla RNNs in the 1990s, wearing a different hat.
+</p>
+
+<p>
+Gu's answer was <a href="https://arxiv.org/abs/2008.07669"><strong>HiPPO</strong></a> (High-order Polynomial Projection Operators, NeurIPS 2020): instead of random values, construct A so the hidden state tracks <strong>Legendre polynomial coefficients</strong> of the entire input history. This is not a learning trick or a training heuristic. It is a mathematical structure derived from approximation theory.
+</p>
+
+<p>
+HiPPO defines A so that, at every timestep, the hidden state is the optimal polynomial approximation of all input seen so far under a specific measure. Each dimension of the hidden state corresponds to a coefficient of the Legendre polynomial expansion. Dimension 0 tracks the running mean. Dimension 1 tracks the first-order trend. Dimension 2 tracks curvature. Higher dimensions capture progressively finer detail. Recent tokens are captured precisely because all coefficients are fresh. Older tokens decay gracefully &mdash; not exponentially to zero, but as a smooth polynomial rolloff that preserves the gist even when details fade. The high-frequency coefficients decay first (fine details lost), while low-frequency coefficients persist (broad structure retained). The notepad becomes an optimal compressor.
+</p>
+
+<p>
+Two years later, Gu combined HiPPO with two more ingredients. First, a structured parameterization: S4 conditions matrix A with a low-rank correction that enables stable diagonalization. A naive diagonalization of the HiPPO matrix is numerically unstable; S4's structured approach avoids this. Second, an efficient computation trick: by reducing the SSM computation to a <strong>Cauchy kernel</strong> &mdash; a well-studied mathematical object with existing fast algorithms &mdash; S4 achieved O(n log n) training instead of the O(n&sup2;) that a naive approach would require.
+</p>
+
+<p>
+The result was <strong>S4</strong> &mdash; Structured State Spaces for Sequences &mdash; published at <a href="https://arxiv.org/abs/2111.00396">ICLR 2022</a>, where it received an Outstanding Paper Honorable Mention. The results were extraordinary.
+</p>
+
+<p>
+The Long Range Arena (LRA) benchmark was designed to test architectures on extreme-length sequences. Every Transformer variant had plateaued below 60% average accuracy. S4 scored <strong>80.48%</strong>. On Path-X &mdash; a sequence classification task at 16,384 tokens &mdash; every prior architecture performed at chance. Random guessing. S4 solved it.
+</p>
+
+<p>
+For the first time, a non-attention architecture dominated on the tasks that were supposed to prove attention's superiority.
+</p>
+
+<h3>What S4 Proved</h3>
+
+<p>
+The results bear repeating. On Long Range Arena, the benchmark specifically designed to test long-sequence architectures, every Transformer variant &mdash; vanilla, Performer, Linear Transformer, Reformer &mdash; scored below 60% average. S4 scored <strong>80.48%</strong>. On Path-X, a task requiring the model to track a path through a 128x128 image flattened into 16,384 tokens, Transformers literally performed at random (50% on a binary classification). S4 cracked it.
+</p>
+
+<p>
+This was not incremental. This was a regime change. For context: LRA had been considered intractable for Transformers for years. Efficient Transformer variants (Performer, Linear Transformer, BigBird) had chipped away at it without breaking through. S4 obliterated the benchmark with an entirely different paradigm &mdash; no attention mechanism anywhere in the model. The HiPPO initialization gave S4 a mathematically principled long-range memory that no amount of positional encoding could match.
+</p>
+
+<p>
+What made S4's long-range performance possible was HiPPO's polynomial compression. Where a randomly-initialized SSM loses signal exponentially &mdash; tokens at distance D are attenuated by roughly e^(-D) &mdash; HiPPO maintains a polynomial approximation that decays gracefully. At distance 1000, a random SSM has lost everything. A HiPPO-initialized SSM retains the gist. The difference is structural, not learned: it is baked into the eigenvalue spectrum of matrix A.
+</p>
+
+<h3>The Fatal Flaw</h3>
+
+<p>
+Then researchers tried S4 on language modeling. It failed.
+</p>
+
+<p>
+Not failed-somewhat. Failed structurally. S4 could not do in-context learning. Could not learn from few-shot examples in the prompt. Could not solve selective copying &mdash; given <code>[a, noise, b, noise, c, MARKER]</code>, copy out <code>[a, b, c]</code>. Could not form induction heads &mdash; detect the pattern "A B ... A" and predict "B."
+</p>
+
+<p>
+The reason is elegant and damning. S4's matrices A, B, and C are <strong>fixed per layer</strong>. They do not change based on what the input is. Every token passes through identical dynamics. The model is a mechanical clock: perfect rhythm, exquisite engineering, but <em>no judgment</em>.
+</p>
+
+<pre><span class="label">The LTI Constraint</span><code><span class="cm">// S4: parameters are FIXED (Linear Time-Invariant)</span>
+<span class="kw">for</span> token <span class="kw">in</span> sequence:
+    h = <span class="ty">A</span> &middot; h + <span class="ty">B</span> &middot; token   <span class="cm">// same A, same B, every time</span>
+    y = <span class="ty">C</span> &middot; h                 <span class="cm">// same C, no matter what token is</span>
+
+<span class="cm">// "quantum" gets the same processing as "the"</span>
+<span class="cm">// a keyword gets the same weight as filler</span>
+<span class="cm">// the clock ticks at the same rate regardless of content</span></code></pre>
+
+<p>
+This is <strong>Linear Time Invariance</strong> (LTI). It means S4 literally cannot implement <code>if token == important: pay_attention()</code>. The math forbids it. The model treats every input identically &mdash; brilliant for audio waveforms where every sample matters roughly equally, catastrophic for language where information density varies wildly from token to token.
+</p>
+
+<p>
+Consider a concrete example. The sentence: "The capital of France, which has been the subject of many discussions in recent parliamentary sessions involving various stakeholders from across the European Union, is Paris." A human reader skims the subordinate clause and lands hard on "Paris." An attention mechanism can do the same &mdash; the attention score for "Paris" given the query "capital of France" will be high, regardless of the filler in between. An LTI SSM processes every word in that subordinate clause with the same dynamics as "Paris." By the time it reaches the answer, the state has been polluted by 20 tokens of noise, each written with equal strength.
+</p>
+
+<p>
+<a href="https://machinelearning.apple.com/research/machine-translation">Apple's ML research team</a> confirmed this in a targeted study: state spaces alone are not enough for machine translation. The tasks that require content-aware gating &mdash; aligning source and target words, handling reordering, tracking agreement across clauses &mdash; break on LTI dynamics. Language is not like audio. It is not like control signals. It has variable information density, long-range dependencies that are content-specific, and syntax that requires selective memory. The mechanical clock cannot parse a sentence because parsing requires knowing which words are verbs, which are nouns, and which are filler &mdash; and treating them differently.
+</p>
+
+<div class="power danger">
+    <div class="power-label">The Mechanical Clock Problem</div>
+    <p>S4 solved the memory problem (HiPPO tells you HOW to remember) but not the selection problem (WHAT to remember). Language requires both. Fixed parameters give you a perfect stenographer who transcribes everything at constant speed but cannot skim, skip, or focus. When the CEO says "this next part is critical," the stenographer does not change behavior.</p>
+</div>
+
+<table>
+    <thead>
+        <tr><th>Property</th><th>S4 (Fixed)</th><th>What Language Needs</th></tr>
+    </thead>
+    <tbody>
+        <tr><td>Parameters</td><td>Fixed A, B, C per layer</td><td>Content-dependent</td></tr>
+        <tr><td>Token treatment</td><td>Uniform</td><td>Selective</td></tr>
+        <tr><td>Convolution mode</td><td>Yes (fast training)</td><td>Must sacrifice it</td></tr>
+        <tr><td>Content awareness</td><td>None</td><td>Essential</td></tr>
+        <tr><td>In-context learning</td><td>Fails</td><td>Required</td></tr>
+    </tbody>
+</table>
+
+<p>
+S4 proved that linear-time models could capture long-range dependencies Transformers couldn't. But it also proved something harder: memory without selection is not enough. The model needs to decide, per token, what matters.
+</p>
+
+<details>
+    <summary>The Convolutional Mode Explained</summary>
+    <div>
+        <p>Why can S4 use convolution? Because its parameters are fixed, you can unroll the recurrence algebraically. The output at position t depends on all prior inputs weighted by powers of A:</p>
+        <pre><code><span class="fn">y</span>[t] = <span class="ty">C</span> &middot; <span class="ty">A_bar</span><span class="kw">^t</span> &middot; <span class="ty">B_bar</span> &middot; <span class="fn">x</span>[0]
+     + <span class="ty">C</span> &middot; <span class="ty">A_bar</span><span class="kw">^(t-1)</span> &middot; <span class="ty">B_bar</span> &middot; <span class="fn">x</span>[1]
+     + ...
+     + <span class="ty">C</span> &middot; <span class="ty">B_bar</span> &middot; <span class="fn">x</span>[t]
+
+<span class="cm">// This is a convolution with kernel K:</span>
+<span class="ty">K</span> = [<span class="ty">C</span><span class="ty">B_bar</span>, <span class="ty">C</span><span class="ty">A_bar</span><span class="ty">B_bar</span>, <span class="ty">C</span><span class="ty">A_bar</span><span class="kw">^2</span><span class="ty">B_bar</span>, ...]
+<span class="fn">y</span> = <span class="ty">K</span> <span class="kw">*</span> <span class="fn">x</span>   <span class="cm">// convolution, computable via FFT in O(n log n)</span></code></pre>
+        <p>The kernel K is precomputed once per layer. This is why fixed parameters enable O(n log n) training. The moment you make B or C input-dependent, K changes at every position and the convolution disappears.</p>
+    </div>
+</details>
+
+<p>
+The question hung in the air for eighteen months: can you make SSM parameters input-dependent without losing the efficiency that makes SSMs worth building?
+</p>
+
+</section>
+
+<!-- ═══════════════════════════════════ CH 4: THE SELECTIVE REVOLUTION ═══════════════════════════════════ -->
+
+<section id="selective-revolution">
+<h2>04 // The Selective Revolution</h2>
+
+<p class="drop-cap">
+In December 2023, Albert Gu and Tri Dao published a paper that answered the question with elegant brutality. They called it <a href="https://arxiv.org/abs/2312.00752">Mamba: Linear-Time Sequence Modeling with Selective State Spaces</a>. The fix was disarmingly simple: make B, C, and Delta functions of the input.
+</p>
+
+<p>
+Not functions of the layer. Not functions of the position. Functions of the <em>actual token</em> being processed right now. Each input passes through a small linear projection to produce its own B, its own C, its own Delta. Three projections, each a single matrix multiply. The overhead is trivial. The impact is fundamental. The mechanical clock gains a conductor who can speed up, slow down, amplify, or ignore &mdash; all in response to what the music demands.
+</p>
+
+<pre><span class="label">Mamba: Input-Dependent Parameters</span><code><span class="cm">// Mamba: parameters respond to content</span>
+<span class="kw">for</span> token <span class="kw">in</span> sequence:
+    <span class="ty">B_t</span> = <span class="fn">project_B</span>(token)     <span class="cm">// what enters the state (content-aware)</span>
+    <span class="ty">C_t</span> = <span class="fn">project_C</span>(token)     <span class="cm">// what we read out (content-aware)</span>
+    <span class="ty">Delta_t</span> = <span class="fn">softplus</span>(<span class="fn">project_Delta</span>(token))
+                                <span class="cm">// how much to remember vs forget</span>
+    <span class="ty">A_bar</span> = <span class="fn">exp</span>(<span class="ty">Delta_t</span> &middot; <span class="ty">A</span>)  <span class="cm">// A stays fixed &mdash; stable dynamics</span>
+    <span class="ty">B_bar</span> = <span class="ty">Delta_t</span> &middot; <span class="ty">B_t</span>
+
+    h = <span class="ty">A_bar</span> &middot; h + <span class="ty">B_bar</span> &middot; token
+    y = <span class="ty">C_t</span> &middot; h</code></pre>
+
+<p>
+<strong>Delta</strong> is the key. It controls the resolution of discretization &mdash; how strongly the model integrates the current input versus coasting on the existing state. Large Delta means "this token matters, write it hard into the state." Small Delta means "this is noise, let the state barely change." Delta is the attention gate of the SSM world &mdash; the same per-token importance scoring that attention provides, achieved through a completely different mechanism.
+</p>
+
+<p>
+Matrix <strong>A</strong> stays fixed. Its job is stable base dynamics &mdash; decay rates inherited from HiPPO. Making A input-dependent would add complexity without proportional benefit, because A's role is providing the background memory structure, not per-token gating. The selectivity comes from the gates around it: B decides what enters, C decides what gets read, Delta decides how strongly. The clock gains a conductor.
+</p>
+
+<p>
+Note the analogy with attention. In a Transformer, the attention scores determine per-token importance: "How much should position 47 attend to position 12?" In Mamba, Delta performs the same function through a completely different mechanism: "How strongly should position 47 write into the state?" High attention score and high Delta achieve the same effect &mdash; amplifying the signal from an important token &mdash; through architectures that share no components.
+</p>
+
+<!-- D3 VIZ: Fixed vs Selective -->
+<div class="viz-container">
+    <span class="diagram-label">Interactive: Fixed vs Selective Processing</span>
+    <div id="fixed-vs-selective-viz"></div>
+    <div class="viz-controls">
+        <button class="viz-btn active" id="fvs-play">Play Sequence</button>
+        <button class="viz-btn" id="fvs-reset">Reset</button>
+        <span class="viz-readout" id="fvs-readout">Ready</span>
+    </div>
+</div>
+
+<script>
+(function() {
+    const container = document.getElementById('fixed-vs-selective-viz');
+    const cW = container.getBoundingClientRect().width || 760;
+    const totalW = Math.min(cW, 760);
+    const panelW = (totalW - 40) / 2;
+    const panelH = 300;
+
+    const svg = d3.select('#fixed-vs-selective-viz')
+        .append('svg')
+        .attr('viewBox', `0 0 ${totalW} ${panelH}`)
+        .attr('width', '100%');
+
+    // Token sequence with importance
+    const tokens = [
+        {word: 'The', importance: 0.1},
+        {word: 'key', importance: 0.85},
+        {word: 'to', importance: 0.1},
+        {word: 'quantum', importance: 0.95},
+        {word: 'computing', importance: 0.8},
+        {word: 'is', importance: 0.1},
+        {word: 'error', importance: 0.9},
+        {word: 'correction', importance: 0.88}
+    ];
+
+    const stateSlots = 6;
+
+    function drawPanel(g, offsetX, title, isSelective) {
+        const panel = g.append('g').attr('transform', `translate(${offsetX}, 0)`);
+
+        // Panel bg
+        panel.append('rect')
+            .attr('width', panelW).attr('height', panelH)
+            .attr('rx', 4).style('fill', 'rgba(18,18,26,0.6)').style('stroke', '#1e1e2e');
+
+        // Title
+        panel.append('text')
+            .attr('x', panelW / 2).attr('y', 20)
+            .style('fill', isSelective ? '#00ff88' : '#ff8800')
+            .style('font-family', 'JetBrains Mono').style('font-size', '11px')
+            .style('text-anchor', 'middle').style('text-transform', 'uppercase')
+            .style('letter-spacing', '0.08em')
+            .text(title);
+
+        // State bars
+        const stateY = 40;
+        const barW = (panelW - 40) / stateSlots;
+        const bars = [];
+        for (let i = 0; i < stateSlots; i++) {
+            const bar = panel.append('rect')
+                .attr('x', 20 + i * barW + 2).attr('y', stateY + 100)
+                .attr('width', barW - 4).attr('height', 0)
+                .attr('rx', 2)
+                .style('fill', isSelective ? '#00ff88' : '#ff8800')
+                .style('opacity', 0.6);
+            bars.push(bar);
+        }
+
+        // State label
+        panel.append('text')
+            .attr('x', panelW / 2).attr('y', stateY + 120)
+            .style('fill', '#6a6a7e').style('font-family', 'JetBrains Mono')
+            .style('font-size', '9px').style('text-anchor', 'middle')
+            .text('HIDDEN STATE');
+
+        // Token display
+        const tokenText = panel.append('text')
+            .attr('x', panelW / 2).attr('y', stateY - 5)
+            .style('fill', '#e8e8f0').style('font-family', 'JetBrains Mono')
+            .style('font-size', '14px').style('text-anchor', 'middle')
+            .style('opacity', 0);
+
+        // Delta display
+        const deltaText = panel.append('text')
+            .attr('x', panelW / 2).attr('y', stateY + 160)
+            .style('fill', isSelective ? '#00ff88' : '#ff8800')
+            .style('font-family', 'JetBrains Mono').style('font-size', '10px')
+            .style('text-anchor', 'middle').style('opacity', 0);
+
+        return {bars, tokenText, deltaText};
+    }
+
+    const fixedPanel = drawPanel(svg, 0, 'S4 (Fixed)', false);
+    const selectivePanel = drawPanel(svg, panelW + 40, 'Mamba (Selective)', true);
+
+    let animating = false;
+    let animTimeout = null;
+
+    function animateSequence() {
+        if (animating) return;
+        animating = true;
+        let step = 0;
+        const stateFixed = new Array(stateSlots).fill(0);
+        const stateSelective = new Array(stateSlots).fill(0);
+
+        function processToken() {
+            if (step >= tokens.length) {
+                animating = false;
+                document.getElementById('fvs-readout').textContent = 'Complete';
+                return;
+            }
+
+            const t = tokens[step];
+            const fixedDelta = 0.5;
+            const selectiveDelta = t.importance;
+
+            // Show token
+            fixedPanel.tokenText.style('opacity', 1).text(t.word);
+            selectivePanel.tokenText.style('opacity', 1).text(t.word);
+
+            // Show delta
+            fixedPanel.deltaText.style('opacity', 1).text(`Delta: ${fixedDelta.toFixed(2)} (fixed)`);
+            selectivePanel.deltaText.style('opacity', 1).text(`Delta: ${selectiveDelta.toFixed(2)} (learned)`);
+
+            // Update states
+            const slot = step % stateSlots;
+            stateFixed[slot] = Math.min(100, stateFixed[slot] + fixedDelta * 50);
+            stateSelective[slot] = Math.min(100, stateSelective[slot] + selectiveDelta * 80);
+
+            // Decay other slots
+            for (let i = 0; i < stateSlots; i++) {
+                if (i !== slot) {
+                    stateFixed[i] *= 0.85;
+                    stateSelective[i] *= (1 - selectiveDelta * 0.15);
+                }
+            }
+
+            // Animate bars
+            fixedPanel.bars.forEach((bar, i) => {
+                bar.transition().duration(400)
+                    .attr('y', 140 - stateFixed[i] * 0.8)
+                    .attr('height', stateFixed[i] * 0.8);
+            });
+            selectivePanel.bars.forEach((bar, i) => {
+                bar.transition().duration(400)
+                    .attr('y', 140 - stateSelective[i] * 0.8)
+                    .attr('height', stateSelective[i] * 0.8)
+                    .style('opacity', 0.3 + stateSelective[i] * 0.007);
+            });
+
+            document.getElementById('fvs-readout').textContent = `Token ${step + 1}/${tokens.length}: "${t.word}"`;
+
+            step++;
+            animTimeout = setTimeout(processToken, 900);
+        }
+
+        processToken();
+    }
+
+    function resetViz() {
+        animating = false;
+        if (animTimeout) clearTimeout(animTimeout);
+        fixedPanel.bars.forEach(b => b.transition().duration(300).attr('height', 0).attr('y', 140));
+        selectivePanel.bars.forEach(b => b.transition().duration(300).attr('height', 0).attr('y', 140));
+        fixedPanel.tokenText.style('opacity', 0);
+        selectivePanel.tokenText.style('opacity', 0);
+        fixedPanel.deltaText.style('opacity', 0);
+        selectivePanel.deltaText.style('opacity', 0);
+        document.getElementById('fvs-readout').textContent = 'Ready';
+    }
+
+    document.getElementById('fvs-play').addEventListener('click', animateSequence);
+    document.getElementById('fvs-reset').addEventListener('click', resetViz);
+})();
+</script>
+
+<p>
+Watch the two panels. S4 updates its state uniformly for every token &mdash; "the" gets the same treatment as "quantum." Each bar rises by the same amount regardless of content. Mamba amplifies high-information tokens ("quantum," "error," "key") and lets filler ("the," "to," "is") pass through with minimal impact. The selective model builds a state that actually reflects what matters in the input.
+</p>
+
+<p>
+This is the visual proof that selection is not a minor improvement. It is a qualitative change in what the model can represent. After processing the same 8-token sequence, the fixed model's state is a uniform blur. The selective model's state has structure &mdash; peaks where information-rich tokens arrived, valleys where filler passed through. The state has become a <em>content-aware summary</em>, not a mechanical average.
+</p>
+
+<h3>The Price of Selection</h3>
+
+<p>
+Making parameters input-dependent kills the convolutional representation. Convolution mode works because you can precompute a fixed kernel from A, B, C. If B and C change at every timestep, there is no fixed kernel. The elegant O(n log n) parallel training disappears.
+</p>
+
+<p>
+So Mamba abandons convolution entirely and runs purely in recurrent mode. This is the painful sacrifice. The elegant dual-mode computation that made S4 attractive &mdash; convolutional for training, recurrent for inference &mdash; disappears. Selection and convolution are mutually exclusive. You can have content awareness or parallel training via convolution, but not both.
+</p>
+
+<p>
+But recurrence is sequential &mdash; process token 1 before token 2 before token 3. How do you parallelize training on GPUs that thrive on parallelism?
+</p>
+
+<p>
+This is where Tri Dao's FlashAttention expertise becomes decisive. The answer is a <strong>parallel associative scan</strong>. The SSM recurrence <code>h_t = A_t * h_{t-1} + B_t * x_t</code> can be rewritten as a binary operator that combines (state, input) pairs. The key observation: this operator is <strong>associative</strong>. Associativity means you can reorder computations without changing the result: instead of computing tokens 1, 2, 3, 4 sequentially, compute (1,2) and (3,4) in parallel, then combine. O(log L) parallel depth instead of O(L). This is a well-known technique from parallel computing &mdash; the prefix sum algorithm &mdash; applied to the SSM recurrence.
+</p>
+
+<p>
+But the real trick is not the scan algorithm &mdash; it is the <strong>IO-aware kernel fusion</strong>. The naive implementation would materialize the full expanded state (batch x dim x length x state_dim) in GPU HBM. That tensor is enormous. Instead, Mamba loads SSM parameters directly from slow HBM to fast SRAM, performs discretization and the entire recurrence in SRAM, and writes only final outputs back. The expanded intermediate state never touches HBM.
+</p>
+
+<div class="diagram">
+    <span class="diagram-label">IO-Aware Kernel: FlashAttention vs Mamba</span>
+    <pre><code>
+  <span class="ty">GPU Memory Hierarchy</span>
+
+  &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;
+  &boxv;  <span class="st">SRAM  (20 MB, 19 TB/s)</span>  &mdash; Fast, tiny         &boxv;
+  &boxv;  This is where compute happens.                 &boxv;
+  &boxv;  Data here is FREE to access.                   &boxv;
+  &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;
+          &darr;&uarr; <span class="pp">The bottleneck is HERE</span> &darr;&uarr;
+  &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;
+  &boxv;  <span class="ty">HBM  (80 GB, 3.35 TB/s)</span> &mdash; Slow, large       &boxv;
+  &boxv;  Data lives here between operations.            &boxv;
+  &boxv;  Every read/write costs ~6x more than SRAM.     &boxv;
+  &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;
+
+  <span class="kw">FlashAttention:</span>                   <span class="st">Mamba Selective Scan:</span>
+  Load Q,K,V tiles to SRAM          Load Delta,B,C to SRAM
+  Compute partial attention          Compute discretization
+  Accumulate in SRAM                 Run recurrence in SRAM
+  Write only output to HBM           Write only output to HBM
+  <span class="cm">Never materialize N&times;N matrix</span>      <span class="cm">Never materialize expanded state</span>
+    </code></pre>
+</div>
+
+<div class="series-arc">
+    <div class="series-arc-title">The Tri Dao Connection</div>
+    <p>
+        This is the same principle as FlashAttention. <strong>Exactly</strong> the same. FlashAttention tiles the attention matrix to fit in SRAM, never materializing the full N&times;N matrix in HBM. Mamba scans the SSM state in SRAM, never materializing the expanded state in HBM. Same author. Same insight. Different substrate.
+    </p>
+    <p style="margin-top: 0.8rem; margin-bottom: 0;">
+        The fused selective scan runs <strong>40x faster</strong> than a naive implementation. For backpropagation, intermediate states are <strong>recomputed</strong> rather than stored &mdash; trading compute for memory, just like gradient checkpointing but at the kernel level. The bottleneck was never the algorithm. It was always memory movement.
+    </p>
+</div>
+
+<h3>The Parallel Scan: Associativity Enables Speed</h3>
+
+<p>
+The associative scan deserves a closer look, because it is the key that makes selective SSMs trainable. Consider a sequence of 8 tokens processed sequentially: 8 steps, one after another. The parallel scan exploits the fact that the SSM recurrence defines an associative binary operator &mdash; you can group operations arbitrarily.
+</p>
+
+<div class="diagram">
+    <span class="diagram-label">Parallel Scan: 8 Tokens in 3 Steps</span>
+    <pre><code>
+  <span class="cm">Sequential: 8 steps</span>
+  <span class="fn">h1</span> &rarr; <span class="fn">h2</span> &rarr; <span class="fn">h3</span> &rarr; <span class="fn">h4</span> &rarr; <span class="fn">h5</span> &rarr; <span class="fn">h6</span> &rarr; <span class="fn">h7</span> &rarr; <span class="fn">h8</span>
+
+  <span class="cm">Parallel scan: 3 steps (log2 of 8)</span>
+  <span class="st">Step 1:</span> (h1,h2)  (h3,h4)  (h5,h6)  (h7,h8)   <span class="cm">&larr; 4 pairs in parallel</span>
+  <span class="st">Step 2:</span> (h1-2, h3-4)    (h5-6, h7-8)       <span class="cm">&larr; 2 pairs in parallel</span>
+  <span class="st">Step 3:</span> (h1-4, h5-8)                       <span class="cm">&larr; 1 combine</span>
+
+  <span class="cm">Same result. O(log L) depth instead of O(L).</span>
+    </code></pre>
+</div>
+
+<p>
+The scan produces identical results to sequential processing &mdash; associativity guarantees this mathematically. The binary operator <code>op(a, b)</code> that combines two state transitions satisfies <code>op(op(a, b), c) = op(a, op(b, c))</code>, so you can group operations arbitrarily without changing the result. Because each level of the tree can be computed in parallel on GPU, the depth drops from L to log L. For a 4096-token sequence, that is 4096 sequential steps versus 12 parallel levels. For 64K tokens, 16 levels instead of 65,536 steps.
+</p>
+
+<p>
+The scan alone is not enough, though. Without IO-awareness, you are just doing the wrong thing faster. The fused kernel is what makes it practical.
+</p>
+
+<h3>The Simplified Architecture</h3>
+
+<p>
+Mamba does not merely replace attention with a selective SSM. It simplifies the entire block. No separate attention module. No separate MLP. One block: expand, conv1d, selective SSM, gate (SiLU on a parallel branch), project down. The gating provides the nonlinearity that the missing MLP would have contributed. This is radically simpler than a Transformer block with its multi-head attention, two layer norms, MLP, and residual connections around both.
+</p>
+
+<div class="diagram">
+    <span class="diagram-label">Mamba Block vs Transformer Block</span>
+    <pre><code>
+  <span class="ty">Transformer Block</span>               <span class="st">Mamba Block</span>
+  &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;               &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;
+  &boxv;  Layer Norm      &boxv;               &boxv;  Linear (expand) &boxv;
+  &boxv;  Multi-Head Attn &boxv;               &boxv;  Conv1d           &boxv;
+  &boxv;  + Residual      &boxv;               &boxv;  Selective SSM    &boxv;
+  &boxv;  Layer Norm      &boxv;               &boxv;  SiLU Gate        &boxv;
+  &boxv;  MLP (2 linears) &boxv;               &boxv;  Linear (project) &boxv;
+  &boxv;  + Residual      &boxv;               &boxv;  + Residual       &boxv;
+  &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;               &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;
+  <span class="ty">6 components</span>                    <span class="st">5 components, no attention</span>
+    </code></pre>
+</div>
+
+<h3>Results</h3>
+
+<p>
+At 3B parameters, Mamba matched or exceeded Transformer baselines of the same size on language modeling. It solved selective copying and induction heads &mdash; the exact tasks S4 failed at. It achieved state-of-the-art on audio and genomics. And it ran at <strong>5x higher throughput</strong> than Transformers at inference, with linear scaling in sequence length.
+</p>
+
+<p>
+The throughput number deserves emphasis. Five times faster does not mean 5% faster, or "marginally better on a cherry-picked benchmark." It means that for every token a Transformer generates, Mamba generates five. At inference prices measured in dollars per million tokens, this is the difference between profitable and unprofitable, between a product that scales and one that doesn't.
+</p>
+
+<p>
+On genomics &mdash; where sequences routinely exceed 100K bases &mdash; Mamba established new state-of-the-art across multiple benchmarks. On audio, where each second contains 16,000 or more samples, the linear scaling made Mamba practical at durations where attention-based models could not even load the sequence into memory. Consider: 10 seconds of audio at 16KHz is 160,000 timesteps. The attention matrix alone would require 160,000 &times; 160,000 = 25.6 billion entries. Even in FP16, that is 48GB &mdash; more than most GPUs have. An SSM processes the same audio in linear time with a fixed-size state. The efficiency advantage is not theoretical. It is the difference between "can run this task" and "cannot."
+</p>
+
+<div class="power">
+    <div class="power-label">The Revolution</div>
+    <p>Mamba proved three things simultaneously: SSMs can do language. Selection is the missing ingredient. And IO-awareness &mdash; the same principle that made FlashAttention fast &mdash; is universal. Whether your inner loop is a softmax or a scan, the optimization target is identical: minimize transfers between slow and fast memory.</p>
+</div>
+
+<p>
+The Mamba paper landed in December 2023 like a thunderbolt. Within weeks, open-source implementations appeared on GitHub. Within months, every major lab was experimenting with Mamba layers. The Hugging Face community built integrations. Research groups published Mamba variants for vision, graphs, point clouds, and protein folding. The architecture's simplicity &mdash; fewer components than a Transformer block, no positional encoding needed &mdash; made it easy to adapt.
+</p>
+
+<p>
+But a question lingered: Mamba was good at language modeling. Was it good <em>enough</em>? The 3B results were impressive, but Transformers had seven years of scaling laws, battle-tested training recipes, and billions of dollars of infrastructure investment. Could SSMs compete at 70B? At 400B? Could they handle the full spectrum of tasks that modern LLMs are expected to perform &mdash; reasoning, coding, retrieval, instruction following?
+</p>
+
+<p>
+The answer would come from an unexpected direction. Not by scaling Mamba to compete with Transformers head-on, but by combining the two into something neither could achieve alone.
+</p>
+
+</section>
+
+<!-- ═══════════════════════════════════ CH 5: DUALITY AND BEYOND ═══════════════════════════════════ -->
+
+<section id="duality">
+<h2>05 // Duality and Beyond</h2>
+
+<p class="drop-cap">
+Six months after Mamba rewrote the rules for efficient sequence modeling, Dao and Gu dropped a mathematical bombshell. The title of the <a href="https://arxiv.org/abs/2405.21060">May 2024 paper</a> said it plainly: <strong>"Transformers are SSMs: Generalized Models and Efficient Algorithms Through Structured State Space Duality."</strong>
+</p>
+
+<p>
+Read that title again. Not "SSMs are like attention." Not "SSMs approximate attention." <em>Are.</em> The State Space Duality (SSD) framework proves a mathematical equivalence that collapses the "SSM vs. attention" debate into a false dichotomy. A state-space model with a scalar-times-identity state matrix computes the <em>same transformation</em> as masked self-attention with a specific matrix structure &mdash; a 1-semiseparable causal mask. Same input, same output, two algorithms. The proof goes through structured matrices: the SSM's output has a specific low-rank structure below the diagonal that corresponds exactly to a particular attention mask pattern.
+</p>
+
+<p>
+The connection runs through <strong>structured semiseparable matrices</strong>. When you unroll an SSM's recurrence, the input-to-output mapping can be expressed as a matrix multiplication <code>y = M * x</code> where M is lower-triangular (causal) and has a specific low-rank structure in each entry. This is exactly the structure of a 1-semiseparable matrix &mdash; and it corresponds to a particular attention mask pattern. When all the scalar A values equal 1 (no decay), the SSM collapses to standard causal linear attention. SSMs and attention are not rival architectures. They are endpoints on the same spectrum, connected by the decay parameter.
+</p>
+
+<div class="vs">
+    <div class="vs-card">
+        <h4>The SSM View</h4>
+        <p>Linear-time O(T) recurrence. Process tokens sequentially, update state. Fast at inference, hard to parallelize.</p>
+    </div>
+    <div class="vs-card">
+        <h4>The Attention View</h4>
+        <p>Quadratic-time O(T&sup2;) matrix multiply. Process all tokens at once. Easy to parallelize, expensive at long sequences.</p>
+    </div>
+</div>
+
+<p>
+Same computation. Two decompositions. The question is not "which is correct?" but "which is faster on your hardware for your sequence length?" For short sequences, the matmul version is faster (GPUs are spectacularly optimized for matrix multiplication). For long sequences, the recurrence is faster (linear beats quadratic). The optimal strategy is both.
+</p>
+
+<!-- D3 VIZ: The Duality Spectrum -->
+<div class="viz-container">
+    <span class="diagram-label">Interactive: The SSM-Attention Spectrum</span>
+    <div id="duality-viz"></div>
+    <div class="viz-controls">
+        <label>Decay Factor (A)</label>
+        <input type="range" id="decay-slider" min="0" max="100" value="70" step="1">
+        <span class="viz-readout" id="decay-readout">A = 0.70</span>
+    </div>
+</div>
+
+<script>
+(function() {
+    const containerW = document.getElementById('duality-viz').getBoundingClientRect().width || 760;
+    const W = Math.min(containerW, 760);
+    const H = 220;
+    const N = 8;
+    const cellSize = Math.min(24, (W - 240) / N);
+
+    const svg = d3.select('#duality-viz')
+        .append('svg')
+        .attr('viewBox', `0 0 ${W} ${H}`)
+        .attr('width', '100%');
+
+    // SSM label
+    svg.append('text').attr('x', 20).attr('y', 20)
+        .style('fill', '#00ff88').style('font-family', 'JetBrains Mono')
+        .style('font-size', '11px').style('text-transform', 'uppercase')
+        .style('letter-spacing', '0.08em').text('SSM Transition Matrix');
+
+    // Attention label
+    svg.append('text').attr('x', W / 2 + 20).attr('y', 20)
+        .style('fill', '#00ddff').style('font-family', 'JetBrains Mono')
+        .style('font-size', '11px').style('text-transform', 'uppercase')
+        .style('letter-spacing', '0.08em').text('Equivalent Attention Mask');
+
+    const ssmGroup = svg.append('g').attr('transform', 'translate(20, 35)');
+    const attGroup = svg.append('g').attr('transform', `translate(${W / 2 + 20}, 35)`);
+
+    // Explanation text
+    const explainText = svg.append('text')
+        .attr('x', W / 2).attr('y', H - 10)
+        .style('fill', '#6a6a7e').style('font-family', 'JetBrains Mono')
+        .style('font-size', '10px').style('text-anchor', 'middle');
+
+    function createGrid(group, N, cellSize) {
+        const cells = [];
+        for (let r = 0; r < N; r++) {
+            cells[r] = [];
+            for (let c = 0; c < N; c++) {
+                cells[r][c] = group.append('rect')
+                    .attr('x', c * (cellSize + 2))
+                    .attr('y', r * (cellSize + 2))
+                    .attr('width', cellSize)
+                    .attr('height', cellSize)
+                    .attr('rx', 2)
+                    .style('stroke', '#1e1e2e').style('stroke-width', 0.5);
+            }
+        }
+        return cells;
+    }
+
+    const ssmCells = createGrid(ssmGroup, N, cellSize);
+    const attCells = createGrid(attGroup, N, cellSize);
+
+    function update(aVal) {
+        for (let r = 0; r < N; r++) {
+            for (let c = 0; c < N; c++) {
+                if (c > r) {
+                    // Upper triangle: zero (causal)
+                    ssmCells[r][c].style('fill', '#0a0a0f').style('opacity', 0.3);
+                    attCells[r][c].style('fill', '#0a0a0f').style('opacity', 0.3);
+                } else {
+                    // Lower triangle + diagonal
+                    const dist = r - c;
+                    const weight = Math.pow(aVal, dist);
+
+                    // SSM matrix: powers of A
+                    const ssmGreen = Math.round(weight * 255);
+                    ssmCells[r][c].style('fill', `rgb(0, ${ssmGreen}, ${Math.round(ssmGreen * 0.53)})`)
+                        .style('opacity', 0.2 + weight * 0.8);
+
+                    // Attention mask: same pattern
+                    const attBlue = Math.round(weight * 255);
+                    attCells[r][c].style('fill', `rgb(0, ${Math.round(attBlue * 0.87)}, ${attBlue})`)
+                        .style('opacity', 0.2 + weight * 0.8);
+                }
+            }
+        }
+
+        document.getElementById('decay-readout').textContent = `A = ${aVal.toFixed(2)}`;
+
+        if (aVal > 0.98) {
+            explainText.text('A \u2248 1: No decay. SSM = standard causal attention (full triangle).');
+        } else if (aVal < 0.15) {
+            explainText.text('A \u2248 0: Extreme decay. Only the current token matters (diagonal).');
+        } else {
+            explainText.text(`A = ${aVal.toFixed(2)}: Exponential decay mask. Same matrix, two algorithms.`);
+        }
+    }
+
+    update(0.70);
+
+    document.getElementById('decay-slider').addEventListener('input', function() {
+        update(+this.value / 100);
+    });
+})();
+</script>
+
+<p>
+Drag the decay slider. When A approaches 1, both matrices become the standard causal mask &mdash; every token attends equally to all prior tokens. The triangle fills completely. This is the "no forgetting" regime: the SSM remembers everything, just like standard causal attention. When A is low, only the diagonal glows &mdash; each token sees only itself and its immediate neighbors. This is the "rapid forgetting" regime. At every position between, the SSM and attention matrices are identical. The duality is not an approximation. It is an algebraic identity.
+</p>
+
+<p>
+The implications are profound. Every efficient attention variant (linear attention, local attention, sliding window attention) corresponds to a specific choice of A in the SSM framework. Every SSM with a specific decay structure corresponds to an attention pattern. Researchers who thought they were working on separate problems were solving the same problem from different ends. The unification simplifies the entire field: instead of a zoo of architectures, there is a single family parameterized by the decay structure, and the question is which member runs fastest on your hardware.
+</p>
+
+<h3>Mamba-2: The Practical Payoff</h3>
+
+<p>
+The duality was not merely theoretical. It unlocked a dramatically faster architecture. By restricting A to scalar-times-identity (all diagonal entries identical), Mamba-2 could use <strong>matrix multiplication as its core primitive</strong> instead of the custom CUDA scan kernels Mamba-1 required.
+</p>
+
+<table>
+    <thead>
+        <tr><th>Aspect</th><th>Mamba-1</th><th>Mamba-2</th></tr>
+    </thead>
+    <tbody>
+        <tr><td>State dimension N</td><td>16</td><td>64&ndash;256</td></tr>
+        <tr><td>Head dimension</td><td>1 (per channel)</td><td>64 (default)</td></tr>
+        <tr><td>Training speed</td><td>Parallel scan only</td><td>Matmul primitive &mdash; 2-8x faster</td></tr>
+        <tr><td>Core code</td><td>Hundreds of CUDA lines</td><td>~30 lines</td></tr>
+        <tr><td>Algorithm</td><td>Scan within full sequence</td><td>Quadratic within chunks, linear between</td></tr>
+    </tbody>
+</table>
+
+<p>
+That last row is the clue. Mamba-2 uses a <strong>chunked algorithm</strong>: divide the sequence into chunks of, say, 256 tokens. Within each chunk, use the quadratic (attention-like) computation. Why? Because for 256 tokens, the 256&times;256 matrix multiply fits comfortably on Tensor Cores, and matmul is what GPUs do fastest. Between chunks, pass state using the linear (SSM) recurrence &mdash; a single state vector bridging the gap from one chunk to the next.
+</p>
+
+<pre><span class="label">Chunked SSD Algorithm</span><code><span class="cm">// Mamba-2's hybrid approach: best of both worlds</span>
+<span class="kw">for</span> chunk <span class="kw">in</span> <span class="fn">split_sequence</span>(tokens, chunk_size=<span class="nm">256</span>):
+    <span class="cm">// WITHIN chunk: quadratic matmul (fast on Tensor Cores)</span>
+    <span class="fn">Y_chunk</span> = <span class="fn">attention_like_matmul</span>(chunk, <span class="ty">A</span>, <span class="ty">B</span>, <span class="ty">C</span>)
+
+    <span class="cm">// BETWEEN chunks: linear state passing (O(1) per chunk boundary)</span>
+    <span class="fn">state</span> = <span class="fn">ssm_recurrence</span>(<span class="fn">state</span>, chunk)
+
+<span class="cm">// Quadratic LOCALLY (where it's fast), linear GLOBALLY (where it matters)</span></code></pre>
+
+<p>
+This hybrid algorithm is faster than either pure approach. Pure recurrence wastes GPU parallelism. Pure attention wastes memory and compute at long ranges. The chunked approach uses quadratic where it is cheap (short chunks) and linear where it is necessary (long sequences). The duality is not just a theorem. It is an engineering blueprint.
+</p>
+
+<p>
+The implementation simplification is staggering. Mamba-1 required hundreds of lines of custom CUDA kernels &mdash; intricate, hardware-specific code that few researchers could modify or port. Debugging required deep GPU programming expertise. Mamba-2's core is approximately <strong>30 lines of Python</strong>, using standard PyTorch operations. Any ML engineer can read it, modify it, and extend it.
+</p>
+
+<p>
+This accessibility matters more than it might seem. In ML research, adoption speed determines impact. FlashAttention succeeded not just because it was fast, but because it was adopted everywhere &mdash; PyTorch, JAX, TensorRT, every major framework integrated it within months. Why? Because Dao worked with each framework's maintainers to ensure compatibility. Mamba-1's complex CUDA kernels were a barrier to the same kind of adoption &mdash; porting them to AMD GPUs or TPUs required reimplementing the entire kernel from scratch.
+</p>
+
+<p>
+Mamba-2's simple matmul-based implementation removed that barrier entirely. Any platform that can do matrix multiplication (which is to say, every platform) can run Mamba-2. The duality turned a systems engineering problem into a linear algebra problem, and linear algebra has mature, optimized implementations on every chip ever manufactured for machine learning.
+</p>
+
+<details>
+    <summary>The Mamba-2 Chunked Algorithm in Detail</summary>
+    <div>
+        <p>The SSD algorithm divides the sequence into chunks of size C (typically 64-256 tokens). Within each chunk:</p>
+        <p><strong>Intra-chunk computation</strong> uses the quadratic (attention-like) form: compute a C&times;C matrix of token-to-token interactions and multiply by the value matrix. This leverages Tensor Cores, which are optimized for matrix multiplication. For chunk size 256, the 256&times;256 matrix is small enough that the quadratic cost is negligible.</p>
+        <p><strong>Inter-chunk state passing</strong> uses the linear (SSM) form: the hidden state at the end of chunk k is passed to chunk k+1 via the SSM recurrence. This is a single matrix-vector multiply per chunk boundary &mdash; O(1) per transition.</p>
+        <p>The total cost: O(T &middot; C) for intra-chunk (quadratic within chunks of size C, but there are T/C chunks) plus O(T/C &middot; N) for inter-chunk state passing. By choosing C appropriately, this is faster than either pure O(T&sup2;) attention or pure O(T &middot; N) scan.</p>
+    </div>
+</details>
+
+<h3>Mamba-3: Complex Values and MIMO</h3>
+
+<p>
+At <a href="https://arxiv.org/abs/2603.15569">ICLR 2026</a>, the latest evolution arrived with three innovations rooted in classical control theory.
+</p>
+
+<p>
+<strong>Complex-valued state spaces.</strong> Mamba-3 models the SSM state as complex numbers. Complex transitions act as <em>rotations</em> in the state space, not just scalings. A real-valued state can stretch or shrink along the real axis. A complex-valued state can rotate &mdash; maintaining magnitude while shifting phase. This is mathematically equivalent to applying data-dependent Rotary Position Embeddings (RoPE) on the B and C projections. The implication is startling: Mamba-3 reuses the RoPE module already optimized in every Transformer library. No new kernel required. SSM researchers and Transformer researchers, working independently, converged on the same mathematical object.
+</p>
+
+<p>
+The payoff is concrete. On the Parity task &mdash; a challenging state-tracking benchmark that requires the model to track cumulative XOR over a sequence &mdash; Mamba-2 achieves 0.9% accuracy. Essentially random. Mamba-3 achieves <strong>100%</strong>. Complex values crack state tracking in a way real values cannot, because rotations preserve information that scaling destroys.
+</p>
+
+<p>
+<strong>MIMO (Multi-Input Multi-Output).</strong> Previous Mamba versions used SISO dynamics &mdash; each channel processed independently, no cross-channel interaction within the SSM. MIMO couples multiple input and output channels, switching from an outer-product state update to a matrix-multiplication state update. Channels now interact within the state transition itself, not just in the projections around it. It improves downstream accuracy by 1.2 percentage points at 1.5B scale, and the MIMO state is <strong>2x smaller</strong> than the equivalent SISO state for the same expressivity. A rare Pareto improvement: better and cheaper simultaneously.
+</p>
+
+<p>
+<strong>Exponential-trapezoidal discretization.</strong> Mamba-3 also replaces the zero-order hold discretization of Mamba-1/2 with an exponential-trapezoidal method. Where zero-order hold assumes the input is constant between timesteps (a coarse approximation), the trapezoidal rule interpolates between the start and end of each step. The result: richer transition dynamics per step, meaning the recurrence can model more complex temporal patterns without increasing the state size. A small change in the discretization formula, but it allows each step to capture nuance that previously required multiple steps.
+</p>
+
+<p>
+At 1.5B parameters, Mamba-3 beats Gated DeltaNet (the previous best non-attention model) by 1.8 points average. It achieves the fastest combined prefill + decode latency across all sequence lengths tested, beating Mamba-2, Gated DeltaNet, and optimized Transformers. The evolution from S4 to Mamba-3 spans just four years, but the distance is enormous: from a model that could not do language to one that beats Transformers at it.
+</p>
+
+<div class="power purple">
+    <div class="power-label">The Fields Merge</div>
+    <p>Complex SSMs turn out to be equivalent to RoPE &mdash; a Transformer technique invented by Jianlin Su in 2021. MIMO uses matrix multiplication as its core primitive &mdash; the same hardware-friendly operation Mamba-2 pivoted to. Mamba-3 beats the previous best non-attention model by 1.8 points average at 1.5B scale. The boundary between "SSM technique" and "Transformer technique" has dissolved. These were never separate fields. They were always one field, seen from two angles, converging on the same mathematical objects.</p>
+</div>
+
+<p>
+The evolution from S4 to Mamba-3 reads like a compression of decades of progress into four years:
+</p>
+
+<table>
+    <thead>
+        <tr><th>Model</th><th>Year</th><th>Key Innovation</th><th>What It Solved</th></tr>
+    </thead>
+    <tbody>
+        <tr><td>S4</td><td>2022</td><td>HiPPO + structured computation</td><td>Long-range dependencies</td></tr>
+        <tr><td>Mamba</td><td>2023</td><td>Input-dependent B, C, Delta</td><td>Content selection</td></tr>
+        <tr><td>Mamba-2</td><td>2024</td><td>SSD framework, matmul primitive</td><td>SSM = attention duality</td></tr>
+        <tr><td>Mamba-3</td><td>2026</td><td>Complex values + MIMO</td><td>State tracking + efficiency</td></tr>
+    </tbody>
+</table>
+
+<p>
+Each generation solved the previous generation's limitation. S4 solved memory but not selection. Mamba solved selection but required complex CUDA kernels. Mamba-2 simplified implementation but used real-valued states that could not track certain patterns. Mamba-3 added complex values and cross-channel interaction, cracking those patterns while shrinking the state.
+</p>
+
+<p>
+The trajectory is toward more expressivity with less implementation complexity &mdash; the opposite of what you might expect. S4 needed the Cauchy kernel trick. Mamba needed custom CUDA. Mamba-2 needs 30 lines of PyTorch. Mamba-3 reuses existing RoPE implementations. Each generation makes the math deeper and the code simpler. This is the hallmark of a maturing field: the early implementations are complex because the understanding is shallow. As understanding deepens, the implementations simplify. The duality was always there. It took four years to see it clearly enough to exploit it.
+</p>
+
+</section>
+
+<!-- ═══════════════════════════════════ CH 6: HYBRIDS WIN ═══════════════════════════════════ -->
+
+<section id="hybrids-win">
+<h2>06 // Hybrids Win</h2>
+
+<p class="drop-cap">
+Pure Mamba has a structural ceiling: fixed-size state means lossy compression. A Transformer's KV cache is an explicit database. Every past token's key and value are stored and retrievable exactly. Ask "what was the 47th token?" and attention can look it up. Ask the same of an SSM and the answer is: it has been blended into a 256-dimensional state vector along with everything else. You cannot un-blend it.
+</p>
+
+<p>
+This manifests in specific failure modes. Exact copying over long distances &mdash; "repeat this paragraph verbatim 2,000 tokens later" &mdash; Transformers handle trivially via the KV cache; SSMs degrade as distance grows. Phonebook lookup &mdash; given a name-number mapping seen once, retrieve the number for a specific name &mdash; requires exact storage, not compression. Complex in-context learning where the model must simultaneously track multiple independent facts and retrieve specific ones on demand.
+</p>
+
+<p>
+A <a href="https://arxiv.org/abs/2402.01032">Harvard study</a> formalized this rigorously: Transformers are provably better than SSMs at copying tasks. The proof follows from information theory &mdash; you cannot losslessly compress arbitrary data into a fixed-size vector. A state of dimension 256 can hold at most 256 dimensions of information, regardless of how clever the compression is. If the task requires retrieving one specific fact from among thousands of stored facts, the compressed state literally does not have the capacity.
+</p>
+
+<p>
+The KV cache is not a bug. It is a feature. The explicit storage of every past token &mdash; wasteful as it seems &mdash; is <em>necessary</em> for exact retrieval tasks. The question is not how to eliminate it, but how to use it sparingly: have attention layers only at the positions where the model needs to write to its database, and let SSM layers handle everything else.
+</p>
+
+<p>
+Pure attention, meanwhile, cannot scale cheaply to 256K tokens. The quadratic cost and unbounded KV cache make it economically impractical at extreme context lengths. You pay for perfect recall at every layer, even when 90% of those layers only need compressed context. A 32-layer Transformer with 256K context maintains 32 separate KV caches, one per layer, each storing all 256K tokens. That is 32 &times; 256K separate key-value pairs. Most of those caches go largely unused &mdash; the model looks up specific facts in only a handful of layers &mdash; but you pay for all of them.
+</p>
+
+<p>
+The answer is both. A brain with access to a database. The brain (SSM layers) handles the vast majority of processing cheaply. The database (attention layers) appears only at the critical moments where exact recall matters. This is not a compromise. It is an insight: most of computation does not need exact recall, and paying for it everywhere is waste.
+</p>
+
+<h3>The Architecture: Brain + Database</h3>
+
+<p>
+Hybrid models interleave SSM layers and attention layers at a fixed ratio. The SSM layers process the bulk of the sequence efficiently &mdash; they are the brain, compressing context, handling the 90% of tokens that need understanding but not exact recall. Periodically, an attention layer acts as a database checkpoint &mdash; the KV cache appears, tokens are filed into explicit storage, and the model gains precise retrieval of the 10% that matters for exact recall.
+</p>
+
+<p>
+Think of it as a pipeline. Nine Mamba layers flow forward cheaply, compressing and contextualizing. Then one attention layer pauses, examines what the brain has accumulated, and writes the critical facts into its KV cache. The brain continues. Nine more cheap layers. Another checkpoint. The ratio determines how much database overhead you pay. At 7:1, only 12.5% of your layers carry the expensive KV cache. The other 87.5% are pure linear-time.
+</p>
+
+<p>
+In March 2024, AI21 Labs built the first large-scale hybrid: <a href="https://arxiv.org/abs/2403.19887"><strong>Jamba</strong></a>. The architecture interleaves Mamba and Transformer layers at a 7:1 ratio &mdash; seven Mamba layers for every one attention layer. MoE (Mixture of Experts) layers appear every two blocks for capacity without proportional cost: 52B total parameters, only 12B active at inference. The context window stretches to 256K tokens.
+</p>
+
+<p>
+The design philosophy is deliberate. Mamba layers handle the global context flow &mdash; the conveyor belt that processes the full sequence cheaply. Every eighth layer, an attention layer acts as a quality control checkpoint, examining the compressed state and adding precise retrieval capability. The 7:1 ratio means 87.5% of layers are linear-time.
+</p>
+
+<p>
+Jamba matched or exceeded Transformer-only models of equivalent active parameter count at dramatically lower memory footprint. Jamba 1.5 scaled to 398B total / 94B active with 72 layers and grouped-query attention, achieving state-of-the-art on NVIDIA's RULER long-context benchmark.
+</p>
+
+<p>
+IBM took the ratio further with <a href="https://www.ibm.com/new/announcements/ibm-granite-4-0-hyper-efficient-high-performance-hybrid-models"><strong>Granite 4.0-H</strong></a>: nine Mamba-2 layers per one Transformer block. The logic: Mamba-2 layers handle global context propagation. Periodically, that compressed context passes through a Transformer block for precise local parsing via self-attention, then continues through the next Mamba-2 group. Over <strong>70% RAM reduction</strong> for long-context inference versus conventional Transformers. Up to <strong>8x faster</strong> token generation. The 8B hybrid exceeded the 8B Transformer on all twelve evaluated tasks.
+</p>
+
+<p>
+NVIDIA's <strong>Nemotron-H</strong> pushed to a 12:1 ratio (92% SSM layers), achieving up to 3x faster throughput than LLaMA 3.1. Microsoft's <strong>Phi-4-mini</strong> reported up to 10x higher throughput and 2-3x lower latency with its hybrid approach. TII's <strong>Falcon-H1</strong> uses a three-way ratio (SSM:attention:MLP) to balance efficiency and expressivity. NVIDIA's <strong>Hymba</strong> takes a different approach entirely: hybrid heads within the same layer, mixing SSM and attention channels instead of alternating layers.
+</p>
+
+<p>
+The signal from every major lab is the same: the age of pure attention is ending. Not because attention was wrong, but because it was expensive for what 90% of layers need to do. The 10% that need exact recall still get it.
+</p>
+
+<table>
+    <thead>
+        <tr><th>Model</th><th>Org</th><th>SSM:Attention</th><th>Params (Total / Active)</th><th>Context</th></tr>
+    </thead>
+    <tbody>
+        <tr><td>Jamba</td><td>AI21</td><td>7:1</td><td>52B / 12B</td><td>256K</td></tr>
+        <tr><td>Jamba 1.5</td><td>AI21</td><td>~7:1</td><td>398B / 94B</td><td>256K</td></tr>
+        <tr><td>Granite 4.0-H</td><td>IBM</td><td>9:1</td><td>2B&ndash;8B</td><td>&mdash;</td></tr>
+        <tr><td>Nemotron-H</td><td>NVIDIA</td><td>~12:1</td><td>&mdash;</td><td>&mdash;</td></tr>
+        <tr><td>Falcon-H1</td><td>TII</td><td>Mixed ratio</td><td>&mdash;</td><td>&mdash;</td></tr>
+    </tbody>
+</table>
+
+<p>
+Dozens of independent research groups converged on the same range: <strong>3:1 to 10:1 SSM:attention</strong> is the sweet spot. Below 3:1, you don't gain enough efficiency. Above 10:1, recall degrades noticeably. This convergence is not coincidence &mdash; it likely reflects the fundamental ratio of tokens that need exact recall to tokens that need compressed context in natural language.
+</p>
+
+<!-- D3 VIZ: The Ratio Dial -->
+<div class="viz-container">
+    <span class="diagram-label">Interactive: The Hybrid Ratio Tradeoff</span>
+    <div id="ratio-viz"></div>
+    <div class="viz-controls">
+        <label>SSM:Attention Ratio</label>
+        <input type="range" id="ratio-slider" min="0" max="20" value="7" step="1">
+        <span class="viz-readout" id="ratio-readout">7:1</span>
+    </div>
+</div>
+
+<script>
+(function() {
+    const containerW = document.getElementById('ratio-viz').getBoundingClientRect().width || 760;
+    const W = Math.min(containerW, 760);
+    const margin = {top: 20, right: 30, bottom: 40, left: 60};
+    const width = W - margin.left - margin.right;
+    const height = 260 - margin.top - margin.bottom;
+
+    const svg = d3.select('#ratio-viz')
+        .append('svg')
+        .attr('viewBox', `0 0 ${W} 260`)
+        .attr('width', '100%')
+        .append('g')
+        .attr('transform', `translate(${margin.left},${margin.top})`);
+
+    const x = d3.scaleLinear().domain([0, 20]).range([0, width]);
+    const y = d3.scaleLinear().domain([0, 100]).range([height, 0]);
+
+    // X axis
+    svg.append('g')
+        .attr('transform', `translate(0,${height})`)
+        .call(d3.axisBottom(x).ticks(10).tickFormat(d => d === 0 ? 'Pure Attn' : d >= 20 ? 'Pure SSM' : d + ':1'))
+        .selectAll('text').style('fill', '#6a6a7e').style('font-family', 'JetBrains Mono').style('font-size', '9px');
+    svg.selectAll('.domain, .tick line').style('stroke', '#1e1e2e');
+
+    // Metrics
+    // Throughput: rises with more SSM
+    const throughputData = d3.range(0, 21).map(d => ({
+        x: d, y: 20 + d * 4
+    }));
+    // Recall: drops with more SSM
+    const recallData = d3.range(0, 21).map(d => ({
+        x: d, y: Math.max(15, 98 - d * d * 0.3)
+    }));
+    // RAM efficiency: rises with more SSM
+    const ramData = d3.range(0, 21).map(d => ({
+        x: d, y: 10 + d * 4.2
+    }));
+
+    const line = d3.line().x(d => x(d.x)).y(d => y(d.y)).curve(d3.curveMonotoneX);
+
+    svg.append('path').datum(throughputData).attr('d', line)
+        .style('fill', 'none').style('stroke', '#00ff88').style('stroke-width', 2);
+    svg.append('path').datum(recallData).attr('d', line)
+        .style('fill', 'none').style('stroke', '#ff3344').style('stroke-width', 2);
+    svg.append('path').datum(ramData).attr('d', line)
+        .style('fill', 'none').style('stroke', '#00ddff').style('stroke-width', 2).style('stroke-dasharray', '4,2');
+
+    // Sweet spot band
+    svg.append('rect')
+        .attr('x', x(3)).attr('y', 0)
+        .attr('width', x(10) - x(3)).attr('height', height)
+        .style('fill', 'rgba(0,255,136,0.04)').style('stroke', 'rgba(0,255,136,0.15)')
+        .style('stroke-dasharray', '4,4');
+
+    svg.append('text').attr('x', x(6.5)).attr('y', 12)
+        .style('fill', 'rgba(0,255,136,0.4)').style('font-family', 'JetBrains Mono')
+        .style('font-size', '9px').style('text-anchor', 'middle').text('SWEET SPOT');
+
+    // Legend
+    const legend = svg.append('g').attr('transform', `translate(${width - 140}, ${height - 60})`);
+    [{label: 'Throughput', color: '#00ff88', dash: ''},
+     {label: 'Recall Accuracy', color: '#ff3344', dash: ''},
+     {label: 'RAM Efficiency', color: '#00ddff', dash: '4,2'}
+    ].forEach((d, i) => {
+        legend.append('line').attr('x1', 0).attr('x2', 16).attr('y1', i * 16).attr('y2', i * 16)
+            .style('stroke', d.color).style('stroke-width', 2).style('stroke-dasharray', d.dash);
+        legend.append('text').attr('x', 22).attr('y', i * 16 + 4)
+            .style('fill', d.color).style('font-family', 'JetBrains Mono').style('font-size', '9px')
+            .text(d.label);
+    });
+
+    // Marker
+    const marker = svg.append('line')
+        .attr('y1', 0).attr('y2', height)
+        .style('stroke', '#e8e8f0').style('stroke-width', 1)
+        .style('stroke-dasharray', '3,3').style('opacity', 0.6);
+
+    const markerLabel = svg.append('text')
+        .style('fill', '#e8e8f0').style('font-family', 'JetBrains Mono').style('font-size', '10px')
+        .style('text-anchor', 'middle');
+
+    function update(ratio) {
+        marker.attr('x1', x(ratio)).attr('x2', x(ratio));
+        const label = ratio === 0 ? 'Pure Attention' : ratio >= 20 ? 'Pure SSM' : ratio + ':1';
+        markerLabel.attr('x', x(ratio)).attr('y', -5).text(label);
+        document.getElementById('ratio-readout').textContent = label;
+    }
+
+    update(7);
+
+    document.getElementById('ratio-slider').addEventListener('input', function() {
+        update(+this.value);
+    });
+})();
+</script>
+
+<p>
+At the extremes, one metric dominates at the other's expense. Pure attention (left edge) gives perfect recall but poor throughput and enormous RAM usage. Pure SSM (right edge) gives blazing speed and minimal memory but the recall curve drops &mdash; the model can no longer retrieve specific facts from deep in the context. The sweet spot &mdash; the green-shaded band between 3:1 and 10:1 &mdash; gives you 80-90% of the efficiency gain while retaining the recall accuracy that matters for practical tasks. Jamba (7:1) and Granite 4.0-H (9:1) both land squarely inside it.
+</p>
+
+<p>
+The economics are compelling. At a 7:1 ratio, you eliminate the KV cache from 87.5% of your layers. For a 70B model serving 256K context, this can reduce GPU memory requirements by <strong>50-70%</strong>. That translates directly into serving the same model on fewer GPUs, or serving more concurrent users on the same hardware. The efficiency gain compounds: fewer GPUs means lower electricity, lower cooling, lower capital cost, lower carbon footprint. The hybrid ratio is not just an architectural choice. It is a business decision worth millions of dollars per year at datacenter scale.
+</p>
+
+<p>
+For context: a single H100 GPU costs approximately $30,000. A 70B Transformer serving 256K context might require 8 GPUs for KV cache and weights alone. The same model as a 7:1 hybrid might fit on 4 GPUs. Multiply by thousands of serving instances across a large provider, and the savings are staggering. This is why every major AI lab is investing in hybrid architectures &mdash; not for academic novelty, but for operational survival as context windows expand and serving costs dominate budgets.
+</p>
+
+<h3>The Tri Dao Thread Completes</h3>
+
+<p>
+We can now see the full arc. One person's obsession with the GPU memory hierarchy changed two fields.
+</p>
+
+<div class="timeline">
+    <div class="timeline-node">
+        <div class="timeline-year">2022 &mdash; FlashAttention</div>
+        <p>Tri Dao's PhD work identified that attention's bottleneck was IO, not compute. Standard attention materializes the N&times;N matrix in HBM, reads it back for softmax, writes it again. FlashAttention tiled the computation into SRAM blocks. Never materialize the full matrix. Same exact result, <strong>2-4x faster</strong>. This became the standard attention implementation everywhere. <em><a href="efficiency-papers-1-attention-tax.html">Part I of this series.</a></em></p>
+    </div>
+    <div class="timeline-node">
+        <div class="timeline-year">2023 &mdash; Mamba</div>
+        <p>One year later, Dao co-authored Mamba with Albert Gu. The selective scan's hardware-aware kernel uses the identical principle: load parameters to SRAM, compute the recurrence in SRAM, never materialize the expanded state in HBM. The insight was not "SSMs are better than attention." It was: <strong>the memory hierarchy is the real bottleneck, regardless of what you are computing</strong>.</p>
+    </div>
+    <div class="timeline-node">
+        <div class="timeline-year">2024 &mdash; Mamba-2 / SSD</div>
+        <p>The duality paper made the connection explicit. SSMs and attention are two algorithms for decomposing the same structured matrix. FlashAttention optimizes the quadratic decomposition. The selective scan optimizes the linear decomposition. Mamba-2's chunked algorithm literally uses <strong>both</strong>: quadratic within chunks, linear between.</p>
+    </div>
+    <div class="timeline-node">
+        <div class="timeline-year">2026 &mdash; Mamba-3</div>
+        <p>Complex-valued SSMs turn out to be equivalent to RoPE &mdash; a Transformer technique. MIMO uses matrix multiplication as its core primitive. The boundary between the two fields dissolves. They were always the same field, seen from different angles.</p>
+    </div>
+</div>
+
+<div class="power hack">
+    <div class="power-label">The Meta-Lesson</div>
+    <p>The fundamental constraints are not architectural &mdash; they are physical. GPU memory hierarchies, matrix multiplication units, IO bandwidth. Any architecture that respects these constraints can be made fast. The question was never "attention or SSM?" It was always "how do you arrange your computation to match your hardware?"</p>
+</div>
+
+<p>
+Consider the symmetry. In 2022, the ML community believed attention was the answer and the only question was how to make it scale. Tri Dao made it fast with FlashAttention. In 2023, a new community formed around SSMs as the replacement for attention. Tri Dao made them fast with Mamba's IO-aware kernel. In 2024, he proved the two were the same thing with the SSD framework. In 2026, Mamba-3 uses RoPE &mdash; a Transformer invention &mdash; to implement complex SSM dynamics, closing the loop.
+</p>
+
+<p>
+The through-line is not a preference for one architecture or the other. It is a preference for respecting the hardware. And a proof that when you do, the architecture stops mattering. Attention, recurrence, convolution &mdash; they are all matrix operations executed on silicon that has specific memory hierarchies, specific compute units, specific bandwidth constraints. The architecture that wins is the one that fits its operations to those constraints most precisely.
+</p>
+
+<h3>Where It Goes From Here</h3>
+
+<p>
+The trend line is clear. Pure Transformers dominated 2017-2023 &mdash; attention was all you needed, until the KV cache and quadratic cost became crippling at scale. Pure SSMs (S4, Mamba) showed linear-time was possible but exposed the recall wall. Hybrids (2024-present) combine both, getting 80-90% of the efficiency gain while retaining recall. And the duality (Mamba-2, Mamba-3) suggests the endgame: architectures that flexibly switch between SSM and attention modes within the same mathematical framework, optimized per-layer for what that layer needs.
+</p>
+
+<p>
+The bet from Goomba Lab (Gu's research group at Carnegie Mellon): on high-resolution data &mdash; raw bytes, audio waveforms, DNA base pairs &mdash; SSMs will dominate outright, because attention is a poor inductive bias for data without semantic units. You do not want to "attend" to individual ASCII values. On tokenized language, hybrids will dominate, because some tasks genuinely require exact recall. The ratio will be <em>learned</em>, not hand-tuned &mdash; each layer deciding whether it needs a brain or a database.
+</p>
+
+<p>
+The most ambitious vision: a single model that dynamically adjusts its computation mode per-layer and per-sequence, in real time. Short prompts use mostly the quadratic (attention-like) decomposition &mdash; it is faster for small N because matmul hardware is so efficient for small matrices. Long contexts activate the linear (SSM) decomposition &mdash; when N exceeds the crossover point (somewhere around 4K-16K tokens depending on hardware), linear scaling wins decisively. Recall-heavy tasks route through attention checkpoints where KV caches are maintained. Compression-heavy tasks skip them entirely, saving the memory and compute. The architecture adapts to the workload, not the other way around.
+</p>
+
+<p>
+We are not there yet. Current hybrids use fixed ratios determined at training time &mdash; the same ratio for every input, every task, every sequence length. But the duality says the math allows dynamic selection. And hardware is getting better at conditional computation &mdash; the same trend that enabled Mixture of Experts routing (<a href="efficiency-papers-5-sparse-by-design.html">Part V</a>) could enable Mixture of Algorithms. Route easy tokens through SSM layers. Route hard tokens through attention. The ingredients are assembling.
+</p>
+
+<p>
+What's clear is this: the era of "attention is all you need" is over. Not because attention was wrong, but because it was incomplete. Attention is one decomposition of a matrix that can also be decomposed as a recurrence. Sometimes the quadratic decomposition is faster. Sometimes the linear one is. Usually, the answer is a mix of both. The future is not pure anything. It is the right algorithm for each layer, each sequence, each token &mdash; chosen not by ideology but by the physics of the silicon underneath.
+</p>
+
+<h3>The Close</h3>
+
+<p>
+Five articles optimized the Transformer. <a href="efficiency-papers-1-attention-tax.html">Part I</a> attacked the KV cache with MQA, GQA, MLA, and FlashAttention &mdash; the first encounter with Tri Dao's IO-awareness principle. Parts II through V compressed weights to fewer bits, pruned redundant connections, routed tokens through sparse experts, and generated multiple tokens in parallel through speculative decoding. Every article found speed by changing the constants &mdash; smaller caches, fewer bits, sparser experts, smarter scheduling. Every article left the exponent intact.
+</p>
+
+<p>
+This one asked whether we need the Transformer at all.
+</p>
+
+<p>
+The answer &mdash; for now &mdash; is <em>partly</em>. The future is not pure anything. It is hybrid: state spaces for most of the work, attention for the moments that require exact recall. The ratio will shift. Mamba-3 already blurs the boundary. Complex SSMs are RoPE. The chunked algorithm is simultaneously attention and recurrence. The two decompositions of the same matrix are converging back into one.
+</p>
+
+<p>
+But the principle underneath everything &mdash; from FlashAttention to MLA to Mamba to MoE &mdash; is the same. <strong>Respect the memory hierarchy. Move less data. Do more with what you have.</strong>
+</p>
+
+<p>
+That principle does not care whether you are computing a softmax or a scan, tiling an attention matrix or fusing a selective recurrence. It cares only that your computation stays close to the silicon that does the work and far from the memory bus that slows it down.
+</p>
+
+<p>
+Tri Dao understood this before most. He applied it to attention and made it fast. He applied it to state spaces and made them competitive. He proved the two are dual. And the hybrid architectures now being built by AI21, IBM, NVIDIA, Microsoft, and TII all encode the same lesson: the model that wins is the one that matches its computation to the physics of the hardware it runs on.
+</p>
+
+<p>
+The bottleneck was never the architecture. It was the distance between where your data lives and where your data is needed. That distance is measured in nanoseconds and joules, in SRAM bandwidth and HBM latency, in the gap between a register file and a memory controller. Every technique in this series &mdash; tiling, quantization, pruning, sparse routing, speculative decoding, selective scanning &mdash; is a strategy for closing that distance.
+</p>
+
+<p>
+That has always been the efficiency problem. That has always been the answer.
+</p>
+
+<div class="power">
+    <div class="power-label">The Series in One Sentence</div>
+    <p>The fastest model is not the one with the best algorithm. It is the one whose algorithm best matches the memory hierarchy of the silicon it runs on.</p>
+</div>
+
+<p>
+There is a poetry in the fact that the same person who made attention fast also helped build its replacement. Tri Dao did not switch sides. He followed the constraint. FlashAttention said: the bottleneck is memory movement, so tile the computation. Mamba said: the bottleneck is <em>still</em> memory movement, so fuse the scan. Mamba-2 said: these are the same computation, viewed from opposite ends. The architecture never mattered. The physics always did.
+</p>
+
+<p>
+If you read only one thing from six articles, let it be this: every technique that made AI inference faster in the last four years &mdash; FlashAttention, quantization, pruning, MoE routing, speculative decoding, selective state spaces &mdash; did it by moving less data between where it is stored and where it is computed. The names change. The substrates change. The papers have different authors, different conferences, different mathematical frameworks. The principle never does. Move less. Compute more. Respect the hierarchy.
+</p>
+
+<div class="series-arc" style="margin-top: 3rem;">
+    <div class="series-arc-title">The Efficiency Papers &mdash; Series Complete</div>
+    <p style="margin-bottom: 0;">
+        <strong>Part I</strong>: <a href="efficiency-papers-1-attention-tax.html">The Attention Tax</a> &mdash; MQA, GQA, MLA, FlashAttention. The KV cache bottleneck and two directions of attack: share more (MQA/GQA/MLA) or tile smarter (FlashAttention).<br><br>
+        <strong>Part II</strong>: <a href="efficiency-papers-2-fewer-bits.html">Fewer Bits, Same Brain</a> &mdash; LLM.int8(), GPTQ, AWQ, GGML, BitNet. The quantization papers that put LLMs on consumer hardware.<br><br>
+        <strong>Part III</strong>: <a href="efficiency-papers-3-serving-the-swarm.html">Serving the Swarm</a> &mdash; Orca, PagedAttention, vAttention, SGLang. ML engineers rediscovered OS virtual memory for KV caches.<br><br>
+        <strong>Part IV</strong>: <a href="efficiency-papers-4-breaking-the-chain.html">Breaking the Chain</a> &mdash; Speculative decoding, Medusa, EAGLE, MTP. Filling the GPU's idle time with parallel verification.<br><br>
+        <strong>Part V</strong>: <a href="efficiency-papers-5-sparse-by-design.html">Sparse by Design</a> &mdash; MoE from Jacobs 1991 to DeepSeek-V3. 671B parameters, 37B active.<br><br>
+        <strong>Part VI</strong>: Beyond Attention &mdash; State space models, Mamba, hybrids, and the IO-awareness principle underneath everything.
+    </p>
+</div>
+
+<details>
+    <summary>The Resolution Hypothesis: Why Data Format Determines Architecture</summary>
+    <div>
+        <p>The Goomba Lab research group has identified a pattern that may predict architecture choices going forward. On <strong>high-resolution data</strong> &mdash; raw bytes (UTF-8), audio samples, DNA base pairs &mdash; even when matching for data volume, SSMs consistently outperform Transformers. The hypothesis: at byte level, the data is too redundant for attention to be useful. You are "attending" to individual ASCII values. The inductive bias of compression (SSM) is far more appropriate than the inductive bias of retrieval (attention).</p>
+        <p>On <strong>BPE-tokenized text</strong>, each token carries enough semantic meaning to warrant explicit storage. The attention mechanism earns its quadratic cost because tokens are meaningful enough to retrieve individually. This suggests the optimal architecture depends not just on the task, but on the <em>tokenizer</em>: the granularity of your input representation determines whether a brain or a database serves you better.</p>
+        <p>As models increasingly process raw modalities &mdash; bytes, pixels, audio frames &mdash; the balance may shift further toward SSM-dominant architectures. Byte-level language models, multimodal models, and genomics models are the frontier where SSMs may ultimately displace attention entirely.</p>
+    </div>
+</details>
+
+<details>
+    <summary>Key Numbers: The Efficiency Papers Scorecard</summary>
+    <div>
+        <table>
+            <thead>
+                <tr><th>Metric</th><th>Value</th><th>Source</th></tr>
+            </thead>
+            <tbody>
+                <tr><td>S4 LRA average accuracy</td><td>80.48% (vs &lt;60% baselines)</td><td>Gu et al., ICLR 2022</td></tr>
+                <tr><td>S4 Path-X (seq len 16K)</td><td>First above chance</td><td>Gu et al., ICLR 2022</td></tr>
+                <tr><td>Mamba inference throughput</td><td>5x over Transformers</td><td>Gu &amp; Dao, 2023</td></tr>
+                <tr><td>Mamba fused scan speedup</td><td>40x over naive</td><td>Gu &amp; Dao, 2023</td></tr>
+                <tr><td>Mamba-2 training speed</td><td>2-8x over Mamba-1</td><td>Dao &amp; Gu, 2024</td></tr>
+                <tr><td>Mamba-2 state dimension</td><td>16 &rarr; 256 (16x larger)</td><td>Dao &amp; Gu, 2024</td></tr>
+                <tr><td>Mamba-3 Parity task</td><td>0.9% &rarr; 100%</td><td>ICLR 2026</td></tr>
+                <tr><td>Mamba-3 MIMO state size</td><td>2x smaller than SISO</td><td>ICLR 2026</td></tr>
+                <tr><td>Jamba context length</td><td>256K tokens</td><td>AI21, 2024</td></tr>
+                <tr><td>Granite 4.0-H RAM reduction</td><td>&gt;70% vs Transformers</td><td>IBM, 2025</td></tr>
+                <tr><td>Granite 4.0-H speed</td><td>Up to 8x faster generation</td><td>IBM, 2025</td></tr>
+                <tr><td>Hybrid sweet spot</td><td>3:1 to 10:1 SSM:attention</td><td>Multiple groups, 2024-25</td></tr>
+            </tbody>
+        </table>
+    </div>
+</details>
+
+<!-- Paper Timeline -->
+<h3>Paper Timeline</h3>
+
+<div class="timeline" style="margin-bottom: 3rem;">
+    <div class="timeline-node">
+        <div class="timeline-year">2020</div>
+        <p><a href="https://arxiv.org/abs/2008.07669">HiPPO: Recurrent Memory with Optimal Polynomial Projections</a> &mdash; Gu et al., NeurIPS 2020</p>
+    </div>
+    <div class="timeline-node">
+        <div class="timeline-year">2022 Jan</div>
+        <p><a href="https://arxiv.org/abs/2111.00396">S4: Efficiently Modeling Long Sequences with Structured State Spaces</a> &mdash; Gu, Goel, Re, ICLR 2022 (Outstanding Paper Honorable Mention)</p>
+    </div>
+    <div class="timeline-node">
+        <div class="timeline-year">2022 May</div>
+        <p><a href="https://arxiv.org/abs/2205.14135">FlashAttention: Fast and Memory-Efficient Exact Attention</a> &mdash; Dao et al.</p>
+    </div>
+    <div class="timeline-node">
+        <div class="timeline-year">2023 Dec</div>
+        <p><a href="https://arxiv.org/abs/2312.00752">Mamba: Linear-Time Sequence Modeling with Selective State Spaces</a> &mdash; Gu &amp; Dao</p>
+    </div>
+    <div class="timeline-node">
+        <div class="timeline-year">2024 Mar</div>
+        <p><a href="https://arxiv.org/abs/2403.19887">Jamba: A Hybrid Transformer-Mamba Language Model</a> &mdash; AI21 Labs</p>
+    </div>
+    <div class="timeline-node">
+        <div class="timeline-year">2024 May</div>
+        <p><a href="https://arxiv.org/abs/2405.21060">Transformers are SSMs (Mamba-2 / SSD)</a> &mdash; Dao &amp; Gu</p>
+    </div>
+    <div class="timeline-node">
+        <div class="timeline-year">2025</div>
+        <p><a href="https://www.ibm.com/new/announcements/ibm-granite-4-0-hyper-efficient-high-performance-hybrid-models">Granite 4.0-H / Bamba</a> &mdash; IBM (9:1 Mamba-2:Transformer hybrid)</p>
+    </div>
+    <div class="timeline-node">
+        <div class="timeline-year">2026 Mar</div>
+        <p><a href="https://arxiv.org/abs/2603.15569">Mamba-3: Improved Sequence Modeling using State Space Principles</a> &mdash; ICLR 2026</p>
+    </div>
+</div>
+
+<h3>Further Reading</h3>
+
+<p>
+For those wanting to go deeper: <a href="https://iclr-blog-track.github.io/2022/03/25/annotated-s4/">The Annotated S4</a> (ICLR Blog Track) walks through the original S4 implementation line by line &mdash; one of the best technical blog posts in ML. <a href="https://newsletter.maartengrootendorst.com/p/a-visual-guide-to-mamba-and-state">A Visual Guide to Mamba and State Space Models</a> by Maarten Grootendorst provides excellent visual explanations of the selective mechanism and the difference between fixed and input-dependent parameters. <a href="https://goombalab.github.io/blog/2024/mamba2-part1-model/">The Goomba Lab blog series</a> on Mamba-2 and Mamba-3 is the most detailed technical exposition available, written by members of Gu's research group. And <a href="https://goombalab.github.io/blog/2025/tradeoffs/">On the Tradeoffs of SSMs and Transformers</a> lays out the theoretical foundations for hybrid architecture design, including the resolution hypothesis that predicts when SSMs win and when attention is necessary.
+</p>
+
+<p>
+The code is open. <a href="https://github.com/state-spaces/mamba">The official Mamba repository</a> (state-spaces/mamba on GitHub) contains implementations of all three generations. The barrier to experimenting with these ideas has never been lower.
+</p>
+
+</section>
+
+</div> <!-- .content -->
+
+<!-- ═══════════════════════════════════ SCROLL SPY ═══════════════════════════════════ -->
+<script>
+(function() {
+    const sections = document.querySelectorAll('section[id]');
+    const navLinks = document.querySelectorAll('nav a');
+
+    function updateActiveNav() {
+        let current = '';
+        const scrollY = window.scrollY + 80;
+
+        sections.forEach(section => {
+            if (section.offsetTop <= scrollY) {
+                current = section.getAttribute('id');
+            }
+        });
+
+        navLinks.forEach(link => {
+            link.classList.toggle('active', link.getAttribute('href') === '#' + current);
+        });
+    }
+
+    window.addEventListener('scroll', updateActiveNav, {passive: true});
+    updateActiveNav();
+})();
+</script>
+
+</body>
+</html>

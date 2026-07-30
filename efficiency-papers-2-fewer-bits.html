@@ -1,0 +1,2507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fewer Bits, Same Brain &mdash; The Efficiency Papers, Part II</title>
+  <link rel="canonical" href="https://femiadeniran.com/deep-dives/efficiency-papers-2-fewer-bits.html">
+  <meta property="og:title" content="Fewer Bits, Same Brain — The Efficiency Papers, Part II">
+  <meta property="og:description" content="A 72-billion-parameter model needs 144 GB of memory. Your GPU has 24 GB. The answer is hidden in what you can throw away.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://femiadeniran.com/deep-dives/efficiency-papers-2-fewer-bits.html">
+  <meta property="og:site_name" content="Femi Adeniran">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Fewer Bits, Same Brain — The Efficiency Papers, Part II">
+  <meta name="twitter:description" content="A 72-billion-parameter model needs 144 GB of memory. Your GPU has 24 GB. The answer is hidden in what you can throw away.">
+  <meta name="author" content="Femi Adeniran">
+<meta name="description" content="A 72-billion-parameter model needs 144 GB of memory. Your GPU has 24 GB. The answer is hidden in what you can throw away.">
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --white: #e8e8f0;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+}
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 3rem; }
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+}
+
+body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.03) 2px,
+        rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+}
+
+nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 1000;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 1.5rem;
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+}
+nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    transition: color 0.2s, text-shadow 0.2s;
+    padding: 0.3rem 0;
+}
+nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+.nav-title {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 0.5rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.25);
+    flex-shrink: 0;
+}
+
+.content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+}
+
+.hero {
+    text-align: center;
+    padding: 4rem 0 5rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4rem;
+}
+.hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3rem;
+    font-weight: 600;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+}
+.subtitle {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 640px;
+    margin: 0 auto;
+}
+.series-kicker {
+    margin-top: 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.glitch { position: relative; display: inline-block; }
+.glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    inset: 0;
+    width: 100%; height: 100%;
+}
+.glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 3s infinite linear alternate-reverse;
+    clip-path: inset(0 0 80% 0);
+}
+.glitch::after {
+    color: var(--magenta);
+    animation: glitch-2 2.5s infinite linear alternate-reverse;
+    clip-path: inset(80% 0 0 0);
+}
+.blink { display: inline-block; animation: blink 1s step-end infinite; color: var(--green); }
+@keyframes blink { 50% { opacity: 0; } }
+@keyframes glitch-1 {
+    0%, 90% { transform: translate(0); }
+    92% { transform: translate(-3px, 1px); }
+    94% { transform: translate(3px, -1px); }
+    96% { transform: translate(-2px, 2px); }
+    100% { transform: translate(0); }
+}
+@keyframes glitch-2 {
+    0%, 88% { transform: translate(0); }
+    90% { transform: translate(2px, -1px); }
+    93% { transform: translate(-3px, 2px); }
+    96% { transform: translate(1px, -2px); }
+    100% { transform: translate(0); }
+}
+
+section { margin-bottom: 5rem; padding-top: 1rem; }
+
+h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: var(--green);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: 0.02em;
+}
+h3 {
+    font-size: 1.25rem;
+    color: var(--cyan);
+    margin: 2.5rem 0 1rem;
+    font-weight: 600;
+}
+h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 2rem 0 0.8rem;
+}
+
+p { margin-bottom: 1rem; }
+strong { color: var(--white); }
+a { color: var(--cyan); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4rem;
+    line-height: 0.8;
+    padding: 0.1em 0.15em 0 0;
+    color: var(--green);
+    font-weight: 700;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+}
+
+code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.15em 0.4em;
+}
+pre {
+    position: relative;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    margin: 1.2rem 0;
+}
+pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+}
+
+.cm { color: var(--text-dim); }
+.kw { color: var(--magenta); }
+.ty { color: var(--cyan); }
+.st { color: var(--green); }
+.nm { color: var(--yellow); }
+.fn { color: var(--blue); }
+.pp { color: var(--orange); }
+
+.label {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.8rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+}
+
+.diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+}
+.diagram pre {
+    border: none;
+    margin: 0;
+    padding: 0;
+    background: none;
+    font-size: 12.5px;
+    line-height: 1.45;
+}
+.diagram-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    margin-bottom: 0.8rem;
+    display: block;
+}
+
+.power {
+    border-left: 3px solid var(--green-dim);
+    background: rgba(0,255,136,0.04);
+    padding: 0.8rem 1.2rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+}
+.power p { font-size: 0.88rem; line-height: 1.6; margin-bottom: 0; }
+.power.danger { border-left-color: var(--red); background: rgba(255,51,68,0.04); }
+.power.hack { border-left-color: var(--magenta); background: rgba(255,0,170,0.04); }
+.power.wild { border-left-color: var(--orange); background: rgba(255,136,0,0.04); }
+.power.zen { border-left-color: var(--cyan); background: rgba(0,221,255,0.04); }
+.power.purple { border-left-color: var(--purple); background: rgba(170,68,255,0.04); }
+
+.power-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--green);
+    margin-bottom: 0.5rem;
+}
+.power.danger .power-label { color: var(--red); }
+.power.hack .power-label { color: var(--magenta); }
+.power.wild .power-label { color: var(--orange); }
+.power.zen .power-label { color: var(--cyan); }
+.power.purple .power-label { color: var(--purple); }
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.92rem;
+}
+th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--green);
+    text-align: left;
+    padding: 0.6rem 0.8rem;
+    border-bottom: 2px solid var(--border);
+}
+td {
+    padding: 0.5rem 0.8rem;
+    border-bottom: 1px solid var(--border);
+}
+tr:hover td { background: rgba(0,255,136,0.03); }
+
+details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1.2rem 0;
+}
+summary {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--green);
+    padding: 0.8rem 1.2rem;
+    cursor: pointer;
+}
+details[open] summary { border-bottom: 1px solid var(--border); }
+details > div { padding: 0.8rem 1.2rem; }
+
+.vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+}
+.vs-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem 1.1rem;
+}
+.vs-card h4 { margin-top: 0; }
+
+.viz-container {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+}
+.viz-container svg {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+.viz-controls {
+    display: flex;
+    gap: 1.5rem;
+    margin-top: 1rem;
+    align-items: center;
+    flex-wrap: wrap;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+}
+.viz-controls label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--cyan);
+    display: block;
+    margin-bottom: 0.3rem;
+}
+.viz-controls select, .viz-controls input[type="range"] {
+    background: var(--bg-code);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 0.3rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    border-radius: 4px;
+}
+.viz-controls .val {
+    color: var(--green);
+    font-size: 13px;
+}
+.viz-controls button {
+    background: var(--green-dim);
+    color: var(--bg);
+    border: none;
+    padding: 0.4rem 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    border-radius: 4px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.viz-controls button:hover { background: var(--green); }
+.viz-controls button.active {
+    background: var(--green);
+    color: var(--bg);
+    box-shadow: 0 0 10px rgba(0,255,136,0.3);
+}
+.viz-controls button.secondary {
+    background: var(--border);
+    color: var(--text);
+}
+.viz-controls button.secondary:hover {
+    background: var(--border-glow);
+}
+.viz-controls button.secondary.active {
+    background: var(--cyan);
+    color: var(--bg);
+    box-shadow: 0 0 10px rgba(0,221,255,0.3);
+}
+
+.ticker {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--green);
+    text-shadow: 0 0 8px rgba(0,255,136,0.3);
+}
+
+.tabbed { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; margin: 1.2rem 0; overflow: hidden; }
+.tabbed input[type="radio"] { display: none; }
+.tabbed .tab-bar { border-bottom: 1px solid var(--border); display: flex; }
+.tabbed .tab-bar label {
+    flex: 1; padding: 0.55rem 1rem; text-align: center;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--text-dim); cursor: pointer;
+    border-right: 1px solid var(--border);
+    transition: color 0.2s, background 0.2s;
+}
+.tabbed .tab-bar label:last-child { border-right: none; }
+.tabbed .tab-bar label:hover { color: var(--green); }
+.tabbed .tab-panel { display: none; padding: 1.2rem 1.4rem; font-size: 0.92rem; line-height: 1.6; }
+.tabbed input.t1:checked ~ .tab-bar label[for$="-t1"] { color: var(--green); background: var(--bg); text-shadow: 0 0 8px rgba(0,255,136,0.2); }
+.tabbed input.t2:checked ~ .tab-bar label[for$="-t2"] { color: var(--green); background: var(--bg); text-shadow: 0 0 8px rgba(0,255,136,0.2); }
+.tabbed input.t3:checked ~ .tab-bar label[for$="-t3"] { color: var(--green); background: var(--bg); text-shadow: 0 0 8px rgba(0,255,136,0.2); }
+.tabbed input.t4:checked ~ .tab-bar label[for$="-t4"] { color: var(--green); background: var(--bg); text-shadow: 0 0 8px rgba(0,255,136,0.2); }
+.tabbed input.t1:checked ~ .tab-panel.p1 { display: block; }
+.tabbed input.t2:checked ~ .tab-panel.p2 { display: block; }
+.tabbed input.t3:checked ~ .tab-panel.p3 { display: block; }
+.tabbed input.t4:checked ~ .tab-panel.p4 { display: block; }
+
+.act-break {
+    text-align: center;
+    padding: 3rem 0;
+    margin: 3rem 0;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+}
+.act-break .act-number { font-family: 'JetBrains Mono', monospace; font-size: 11px; text-transform: uppercase; letter-spacing: 0.15em; color: var(--text-dim); margin-bottom: 0.3rem; }
+.act-break .act-title { font-family: 'JetBrains Mono', monospace; font-size: 1.3rem; color: var(--green); text-shadow: 0 0 20px rgba(0,255,136,0.15); margin-bottom: 0.5rem; }
+.act-break .act-subtitle { font-size: 0.95rem; color: var(--text-dim); font-style: italic; }
+
+.paper-timeline {
+    border-left: 2px solid var(--border);
+    margin: 2rem 0 2rem 1rem;
+    padding-left: 1.5rem;
+}
+.paper-entry {
+    position: relative;
+    margin-bottom: 1.5rem;
+}
+.paper-entry::before {
+    content: '';
+    position: absolute;
+    left: -1.85rem;
+    top: 0.35rem;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--green-dim);
+    border: 2px solid var(--bg);
+}
+.paper-date {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--green);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.paper-title {
+    font-weight: 600;
+    color: var(--white);
+    font-size: 0.95rem;
+}
+.paper-meta {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+}
+
+@media (max-width: 700px) {
+    body { font-size: 16px; }
+    nav { font-size: 9px; gap: 0.7rem; }
+    .content { padding: 3rem 0.8rem 4rem; }
+    .hero h1 { font-size: 2rem; }
+    .vs { grid-template-columns: 1fr; }
+    pre { font-size: 10.5px; padding: 0.7rem; }
+    .diagram { padding: 1rem; }
+    .power { padding: 0.6rem 0.8rem; }
+    .viz-controls { gap: 0.8rem; }
+    .tabbed .tab-bar { flex-wrap: wrap; }
+    .tabbed .tab-bar label { padding: 0.4rem 0.6rem; font-size: 9px; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+    <span class="nav-title">&gt;_ FEWER BITS</span>
+    <a href="#ch1">Weight of Intelligence</a>
+    <a href="#ch2">Outlier Discovery</a>
+    <a href="#ch3">Weight Surgeons</a>
+    <a href="#ch4">GGML Revolution</a>
+    <a href="#ch5">Radical Frontier</a>
+    <a href="#ch6">The Spectrum</a>
+</nav>
+
+<div class="content">
+
+<div class="hero">
+    <h1><span class="glitch" data-text="FEWER BITS, SAME BRAIN">FEWER BITS, SAME BRAIN</span></h1>
+    <div class="subtitle">
+        A 72-billion-parameter model needs 144 GB of memory. Your GPU has 24 GB. The answer is hidden in what you can throw away.<span class="blink">_</span>
+    </div>
+    <div class="series-kicker">The Efficiency Papers &mdash; Part II</div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 1: THE WEIGHT OF INTELLIGENCE                                  -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+
+<section id="ch1">
+<h2>01 // The Weight of Intelligence</h2>
+
+<p class="drop-cap">A model&rsquo;s entire knowledge is stored as numbers. GPT-2 has 124 million of them&nbsp;&mdash; 250 megabytes in half-precision floating point. You can download it in the time it takes to make coffee. Qwen 2.5 72B has 72 billion numbers&nbsp;&mdash; 144 gigabytes. That&rsquo;s more than most hard drives. DeepSeek-V3 has 671 billion&nbsp;&mdash; 1.3 terabytes. To run it, you need a server room.</p>
+
+<p>These numbers are called <strong>weights</strong>. Each one is a floating-point number &mdash; a decimal with a sign, an exponent, and a fraction. In the FP16 format, that&rsquo;s 16 bits per weight: 1 bit for sign, 5 for exponent, 10 for the fraction (mantissa). This gives you roughly 65,000 distinct representable values. Enough precision that the 15th and 16th digits of pi would survive the encoding.</p>
+
+<p>The formula for how much memory a model needs is embarrassingly simple: <strong>parameters &times; bytes per parameter</strong>. Two bytes per weight at FP16. Multiply and weep.</p>
+
+<table>
+<thead>
+    <tr><th>Model</th><th>Parameters</th><th>FP16 Memory</th><th>INT4 Memory</th></tr>
+</thead>
+<tbody>
+    <tr><td>GPT-2</td><td>124M</td><td style="color:var(--green);">~250 MB</td><td>~62 MB</td></tr>
+    <tr><td>Qwen 2.5 7B</td><td>7.6B</td><td style="color:var(--yellow);">~15 GB</td><td>~3.8 GB</td></tr>
+    <tr><td>Qwen 2.5 72B</td><td>72B</td><td style="color:var(--red);">~144 GB</td><td>~36 GB</td></tr>
+    <tr><td>DeepSeek-V3</td><td>671B</td><td style="color:var(--red);">~1.34 TB</td><td>~335 GB</td></tr>
+</tbody>
+</table>
+
+<p>But here&rsquo;s the question that drives this entire article: <strong>how much information does a weight actually carry?</strong></p>
+
+<!-- ── VISUALIZATION: Bit-Level Exploder ── -->
+<div class="viz-container">
+    <span class="diagram-label">A Single Weight at Every Precision</span>
+    <svg id="viz-bit-exploder" viewBox="0 0 780 260"></svg>
+</div>
+
+<script>
+(function() {
+    const svg = d3.select('#viz-bit-exploder');
+    const W = 780, H = 260;
+    const weight = 0.342;
+
+    const formats = [
+        {
+            name: 'FP16', bits: 16, color: '#00ddff',
+            fields: [
+                {label: 'S', bits: 1, vals: '0', color: '#ff00aa'},
+                {label: 'Exp', bits: 5, vals: '01101', color: '#ffdd00'},
+                {label: 'Mantissa', bits: 10, vals: '0101111010', color: '#00ddff'}
+            ],
+            value: '0.3420',
+            desc: '65,536 distinct values. Exact to 3 decimal places.'
+        },
+        {
+            name: 'INT8', bits: 8, color: '#00ff88',
+            fields: [
+                {label: 'Value', bits: 8, vals: '00101100', color: '#00ff88'}
+            ],
+            value: '0.3386',
+            desc: '256 levels. Rounded to nearest grid point. Error: 0.0034'
+        },
+        {
+            name: 'INT4', bits: 4, color: '#ff8800',
+            fields: [
+                {label: 'Value', bits: 4, vals: '0101', color: '#ff8800'}
+            ],
+            value: '0.3333',
+            desc: '16 levels. Coarser, but close. Error: 0.0087'
+        },
+        {
+            name: 'Ternary', bits: 2, color: '#ff00aa',
+            fields: [
+                {label: 'Value', bits: 2, vals: '01', color: '#ff00aa'}
+            ],
+            value: '+1 (\u00D70.342)',
+            desc: '3 levels: {-1, 0, +1}. Scaled by group average.'
+        }
+    ];
+
+    const rowH = 52;
+    const startY = 20;
+    const labelX = 15;
+    const bitsX = 120;
+    const bitW = 28, bitH = 28, bitGap = 2;
+
+    // Original weight label
+    svg.append('text').attr('x', W/2).attr('y', 14).attr('text-anchor','middle')
+        .attr('fill','#e8e8f0').attr('font-family','JetBrains Mono, monospace')
+        .attr('font-size', 12).attr('font-weight', 600)
+        .text('Weight = 0.342');
+
+    formats.forEach((fmt, fi) => {
+        const y = startY + 12 + fi * rowH;
+
+        // Format name
+        svg.append('text').attr('x', labelX).attr('y', y + bitH/2 + 5)
+            .attr('fill', fmt.color).attr('font-family','JetBrains Mono, monospace')
+            .attr('font-size', 12).attr('font-weight', 600)
+            .text(fmt.name);
+
+        // Bit boxes
+        let bx = bitsX;
+        fmt.fields.forEach(field => {
+            // Field label above first bit
+            svg.append('text').attr('x', bx + (field.bits * (bitW + bitGap)) / 2).attr('y', y - 2)
+                .attr('text-anchor','middle').attr('fill','#6a6a7e')
+                .attr('font-family','JetBrains Mono, monospace').attr('font-size', 8)
+                .text(field.label);
+
+            for (let b = 0; b < field.bits; b++) {
+                svg.append('rect')
+                    .attr('x', bx).attr('y', y)
+                    .attr('width', bitW).attr('height', bitH)
+                    .attr('fill', field.color + '22')
+                    .attr('stroke', field.color + '66')
+                    .attr('rx', 3);
+                svg.append('text')
+                    .attr('x', bx + bitW/2).attr('y', y + bitH/2 + 4)
+                    .attr('text-anchor','middle')
+                    .attr('fill', field.color)
+                    .attr('font-family','JetBrains Mono, monospace').attr('font-size', 11)
+                    .text(field.vals[b]);
+                bx += bitW + bitGap;
+            }
+        });
+
+        // Value and description
+        const descX = bx + 15;
+        svg.append('text').attr('x', descX).attr('y', y + 12)
+            .attr('fill','#e8e8f0').attr('font-family','JetBrains Mono, monospace').attr('font-size', 11)
+            .text('\u2192 ' + fmt.value);
+        svg.append('text').attr('x', descX).attr('y', y + 27)
+            .attr('fill','#6a6a7e').attr('font-family','Source Serif 4, serif').attr('font-size', 10)
+            .text(fmt.desc);
+    });
+})();
+</script>
+
+<p>Imagine measuring the width of a door. You get out a micrometer and record 914.4000 millimeters&nbsp;&mdash; seven significant figures. But you&rsquo;re just checking if your couch fits through. You needed two figures. Those extra five decimal places are wasted precision. You paid for a micrometer when a tape measure would have told you everything you needed to know.</p>
+
+<p>Neural network weights are the same. They&rsquo;re stored to 65,000 levels of precision. But after training, most of them cluster in a narrow band around zero. The vast majority are quiet background noise&nbsp;&mdash; the numerical equivalent of silent musicians in a vast orchestra. A few outliers carry real signal. The dominant instruments, the ones the audience actually hears.</p>
+
+<p>What if you could represent each weight with just <strong>16 values</strong> instead of 65,000? That&rsquo;s INT4 quantization. Four bits per weight instead of sixteen. One quarter the memory. And it works far better than it has any right to. A 72B model quantized to INT4 retains roughly 95&ndash;98% of its FP16 quality. The symphony still sounds recognizable. The bridge still stands. The measurement is close enough.</p>
+
+<p>The central surprise of quantization: the information content of a trained neural network weight is far less than the bits we store it in. Most of those bits are noise. The art is figuring out which bits are signal.</p>
+
+<h3>The Scale Problem, Made Physical</h3>
+
+<p>GPT-2 at 250 MB fits on a phone, a Raspberry Pi, a browser tab. No quantization needed. This is the &ldquo;fits anywhere&rdquo; tier.</p>
+
+<p>Qwen 2.5 7B at 15 GB needs a gaming GPU. An RTX 3090 or 4090 has 24 GB. Quantize to 4-bit and it drops to about 4&ndash;5 GB with overhead &mdash; suddenly a $300 GPU runs a real chatbot.</p>
+
+<p>Qwen 2.5 72B at 144 GB is impossible on consumer hardware. You&rsquo;d need 2x A100s (80 GB each) or 6x RTX 4090s (24 GB each). That&rsquo;s $30,000+ in hardware. Quantize to 4-bit and it drops to 36&ndash;48 GB with overhead &mdash; a single A100, or two RTX 4090s. A $2,000 home setup runs what used to need a server room.</p>
+
+<p>DeepSeek-V3 at 1.34 TB needs a data center. Eight H100s (80 GB each = 640 GB) aren&rsquo;t enough at FP16. It&rsquo;s an MoE model &mdash; 671B total parameters but only 37B activated per token &mdash; so the <em>compute</em> is manageable. But all 671B parameters still need to be <em>in memory</em>. At 4-bit, it fits on 8x A100s.</p>
+
+<h3>Does It Fit?</h3>
+
+<p>The interactive calculator below makes this visceral. Pick a model. Pick a precision. Watch the memory bar fill up against real GPU hardware. The punchline: Qwen 72B at FP16 needs two A100s. At INT4, it fits on a single RTX 4090.</p>
+
+<!-- ── VISUALIZATION: Does It Fit? ── -->
+<div class="viz-container">
+    <span class="diagram-label">Interactive: Does It Fit?</span>
+    <svg id="viz-does-it-fit" viewBox="0 0 780 310"></svg>
+    <div class="viz-controls">
+        <div>
+            <label>Model</label>
+            <select id="fit-model">
+                <option value="gpt2">GPT-2 (124M)</option>
+                <option value="qwen7b" selected>Qwen 2.5 7B</option>
+                <option value="qwen72b">Qwen 2.5 72B</option>
+                <option value="dsv3">DeepSeek-V3 (671B)</option>
+            </select>
+        </div>
+        <div>
+            <label>Precision</label>
+            <select id="fit-precision">
+                <option value="fp16">FP16 (16-bit)</option>
+                <option value="int8">INT8 (8-bit)</option>
+                <option value="int4" selected>INT4 (4-bit)</option>
+                <option value="int2">2-bit</option>
+            </select>
+        </div>
+        <div>
+            <label>Your GPU</label>
+            <select id="fit-gpu">
+                <option value="3060">RTX 3060 (12 GB)</option>
+                <option value="4090" selected>RTX 4090 (24 GB)</option>
+                <option value="a100">A100 (80 GB)</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    const models = {
+        gpt2:    { name: 'GPT-2',          params: 0.124 },
+        qwen7b:  { name: 'Qwen 2.5 7B',    params: 7.6 },
+        qwen72b: { name: 'Qwen 2.5 72B',   params: 72 },
+        dsv3:    { name: 'DeepSeek-V3',     params: 671 }
+    };
+    const precisions = {
+        fp16: { name: 'FP16', bpw: 16, color: '#ff3344' },
+        int8: { name: 'INT8', bpw: 8,  color: '#ff8800' },
+        int4: { name: 'INT4', bpw: 4,  color: '#00ff88' },
+        int2: { name: '2-bit', bpw: 2, color: '#00ddff' }
+    };
+    const gpus = {
+        '3060': { name: 'RTX 3060', vram: 12 },
+        '4090': { name: 'RTX 4090', vram: 24 },
+        'a100': { name: 'A100',     vram: 80 }
+    };
+
+    const svg = d3.select('#viz-does-it-fit');
+    const W = 780, H = 310;
+    const barX = 40, barY = 70, barW = 700, barH = 50;
+
+    function calcGB(params, bpw) {
+        return (params * bpw) / 8;
+    }
+
+    function formatGB(gb) {
+        if (gb < 1) return (gb * 1024).toFixed(0) + ' MB';
+        if (gb >= 1000) return (gb / 1000).toFixed(2) + ' TB';
+        return gb.toFixed(1) + ' GB';
+    }
+
+    function draw() {
+        svg.selectAll('*').remove();
+        const m = models[document.getElementById('fit-model').value];
+        const p = precisions[document.getElementById('fit-precision').value];
+        const g = gpus[document.getElementById('fit-gpu').value];
+        const modelGB = calcGB(m.params, p.bpw);
+        const overhead = modelGB * 0.2;
+        const totalGB = modelGB + overhead;
+        const maxScale = Math.max(totalGB, g.vram) * 1.15;
+        const scale = d3.scaleLinear().domain([0, maxScale]).range([0, barW]);
+        const fits = totalGB <= g.vram;
+
+        // Title
+        svg.append('text').attr('x', W/2).attr('y', 30).attr('text-anchor', 'middle')
+            .attr('fill', '#e8e8f0').attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 14).attr('font-weight', 600)
+            .text(m.name + ' at ' + p.name);
+
+        svg.append('text').attr('x', W/2).attr('y', 52).attr('text-anchor', 'middle')
+            .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 11)
+            .text(m.params + 'B params \u00D7 ' + p.bpw + ' bits = ' + formatGB(modelGB) + ' weights' + (overhead > 0.01 ? ' + ~' + formatGB(overhead) + ' overhead' : ''));
+
+        // Background bar
+        svg.append('rect').attr('x', barX).attr('y', barY).attr('width', barW).attr('height', barH)
+            .attr('fill', '#12121a').attr('stroke', '#1e1e2e').attr('rx', 4);
+
+        // GPU capacity line
+        const gpuX = barX + scale(g.vram);
+        if (gpuX <= barX + barW) {
+            svg.append('line').attr('x1', gpuX).attr('y1', barY - 8).attr('x2', gpuX).attr('y2', barY + barH + 8)
+                .attr('stroke', '#ffdd00').attr('stroke-width', 2).attr('stroke-dasharray', '4,3');
+            svg.append('text').attr('x', gpuX).attr('y', barY - 14).attr('text-anchor', 'middle')
+                .attr('fill', '#ffdd00').attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 10)
+                .text(g.name + ' (' + g.vram + ' GB)');
+        }
+
+        // Model bar
+        const modelW = Math.min(scale(totalGB), barW);
+        const barColor = fits ? p.color : '#ff3344';
+        svg.append('rect').attr('x', barX).attr('y', barY).attr('width', 0).attr('height', barH)
+            .attr('fill', barColor).attr('opacity', 0.3).attr('rx', 4)
+            .transition().duration(600).attr('width', modelW);
+        svg.append('rect').attr('x', barX).attr('y', barY).attr('width', 0).attr('height', barH)
+            .attr('fill', 'none').attr('stroke', barColor).attr('stroke-width', 1.5).attr('rx', 4)
+            .transition().duration(600).attr('width', modelW);
+
+        // Size label on bar
+        svg.append('text').attr('x', barX + Math.min(modelW, barW) / 2).attr('y', barY + barH / 2 + 5)
+            .attr('text-anchor', 'middle')
+            .attr('fill', '#e8e8f0').attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 13).attr('font-weight', 600)
+            .text(formatGB(totalGB) + ' total')
+            .attr('opacity', 0).transition().delay(400).duration(200).attr('opacity', 1);
+
+        // Result
+        const resultY = barY + barH + 50;
+        if (fits) {
+            svg.append('text').attr('x', W/2).attr('y', resultY).attr('text-anchor', 'middle')
+                .attr('fill', '#00ff88').attr('font-family', 'JetBrains Mono, monospace')
+                .attr('font-size', 20).attr('font-weight', 700)
+                .text('\u2713 FITS');
+            svg.append('text').attr('x', W/2).attr('y', resultY + 22).attr('text-anchor', 'middle')
+                .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 11)
+                .text((g.vram - totalGB).toFixed(1) + ' GB headroom');
+        } else {
+            svg.append('text').attr('x', W/2).attr('y', resultY).attr('text-anchor', 'middle')
+                .attr('fill', '#ff3344').attr('font-family', 'JetBrains Mono, monospace')
+                .attr('font-size', 20).attr('font-weight', 700)
+                .text('\u2717 DOESN\'T FIT');
+            const gpusNeeded = Math.ceil(totalGB / g.vram);
+            svg.append('text').attr('x', W/2).attr('y', resultY + 22).attr('text-anchor', 'middle')
+                .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 11)
+                .text('Need ' + gpusNeeded + '\u00D7 ' + g.name + ' (' + formatGB(totalGB - g.vram) + ' over)');
+        }
+
+        // Comparison hint
+        svg.append('text').attr('x', W/2).attr('y', H - 15).attr('text-anchor', 'middle')
+            .attr('fill', '#6a6a7e').attr('font-family', 'Source Serif 4, serif').attr('font-size', 12)
+            .attr('font-style', 'italic')
+            .text('Try: Qwen 72B at FP16 vs INT4 on the RTX 4090');
+    }
+
+    draw();
+    document.getElementById('fit-model').addEventListener('change', draw);
+    document.getElementById('fit-precision').addEventListener('change', draw);
+    document.getElementById('fit-gpu').addEventListener('change', draw);
+})();
+</script>
+
+<h3>Why Shrinking Works</h3>
+
+<p>The drop from 65,536 representable values to 16 sounds catastrophic. It isn&rsquo;t. And understanding why is the key to everything that follows.</p>
+
+<p>FP32 is a ruler marked in tenths of a millimeter. FP16 is marked in millimeters. INT8 is marked in centimeters. INT4 is marked in inches. You lose fine-grained precision at each step, but the rough measurement &mdash; &ldquo;about three inches&rdquo; &mdash; is usually close enough. Neural networks, it turns out, are building bridges, not measuring gravitational constants. They need a few significant figures, not many.</p>
+
+<p>After training, neural network weights follow a bell curve centered near zero. The vast majority live in a narrow band between -0.1 and +0.1. Only rare outliers &mdash; a fraction of a percent &mdash; have large magnitudes. Think of a 65,536-color palette being used to paint a stark line drawing with only a few distinct regions. Most of those colors are wasted. The weight distribution looks more like a line drawing than a sunset.</p>
+
+<p>This means most weights don&rsquo;t need many bits. If 95% of your values fit in a tiny range, you can represent that range with a handful of evenly-spaced levels and barely lose anything. The rare outliers &mdash; the few weights with large magnitudes &mdash; carry disproportionate information. They&rsquo;re the model&rsquo;s &ldquo;strong opinions.&rdquo; Modern quantization techniques specifically protect these outliers while aggressively compressing everything else.</p>
+
+<p>Think of JPEG compression. JPEG throws away high-frequency visual detail your eyes don&rsquo;t notice. Quantization throws away numerical precision the network&rsquo;s downstream layers don&rsquo;t notice. Both are lossy. Both exploit redundancy. JPEG exploits the fact that human vision is more sensitive to brightness than color. Quantization exploits the fact that neural networks care about the <em>direction</em> of weight vectors, not their exact magnitude.</p>
+
+<p>The evidence goes deeper. Neural networks are massively over-parameterized. This isn&rsquo;t a bug &mdash; it&rsquo;s how training works. You need billions of parameters to navigate the loss landscape during training, but the final solution uses far fewer degrees of freedom. The <a href="https://arxiv.org/abs/1803.03635">Lottery Ticket Hypothesis</a> (Frankle &amp; Carlin, 2018) proved you can prune 90% of a network&rsquo;s weights with minimal accuracy loss. Dense networks contain small subnetworks &mdash; &ldquo;winning tickets&rdquo; &mdash; that, if trained in isolation from the right initialization, match the full network&rsquo;s accuracy. The implication: most parameters are scaffolding, not structure.</p>
+
+<p>Later, Microsoft would train a model where every weight is literally -1, 0, or +1 &mdash; 1.58 bits per weight &mdash; and it matches models using 10x the storage. The actual information content per weight in a well-trained LLM might be less than 2 bits. We have been storing 14 bits of noise per weight this entire time.</p>
+
+<p>Why are neural networks so redundant? One perspective: the loss landscape is smooth enough that many different weight configurations lead to effectively the same function. The network has many &ldquo;equivalent&rdquo; solutions, and the exact values are arbitrary. Quantization, in this view, isn&rsquo;t damaging the network. It&rsquo;s snapping each weight to a nearby equivalent value. Another perspective: the knowledge lives in <em>weight ratios and directions</em>, not absolute magnitudes. If a layer has weights [0.342, -0.118, 0.891], the network cares about the relative pattern. Quantizing to [0.33, -0.11, 0.89] preserves it. The direction of the vector is nearly identical. The magnitude shifted slightly. The downstream computation barely notices.</p>
+
+<p>This is why quantization at 4 bits preserves 95&ndash;98% of model quality. You&rsquo;re not destroying information. You&rsquo;re rounding to the nearest useful value, and the nearest useful value is almost always close enough. The exceptions &mdash; the outliers, the sensitive weights, the dimensions the model uses for steering &mdash; are what the rest of this article is about. Handling those exceptions is what separates naive rounding (which breaks models) from modern quantization (which barely touches them).</p>
+
+<h3>The Weight Distribution</h3>
+
+<p>To make this visceral, look at what quantization grid lines actually do to a real weight distribution. The histogram below shows a bell curve of weight values &mdash; the kind you find in every trained neural network. The colored grid lines show the representable values at each precision level. At FP16, the grid is so fine the curve looks smooth. At INT4, it&rsquo;s 16 giant buckets. At 2-bit, three lines.</p>
+
+<!-- ── VISUALIZATION: Weight Distribution ── -->
+<div class="viz-container">
+    <span class="diagram-label">Interactive: Weight Distribution vs. Quantization Grid</span>
+    <svg id="viz-weight-dist" viewBox="0 0 780 300"></svg>
+    <div class="viz-controls">
+        <button id="wd-fp16" class="secondary active">FP16 (65K levels)</button>
+        <button id="wd-int8" class="secondary">INT8 (256 levels)</button>
+        <button id="wd-int4" class="secondary">INT4 (16 levels)</button>
+        <button id="wd-ternary" class="secondary">Ternary (3 levels)</button>
+    </div>
+</div>
+
+<script>
+(function() {
+    const svg = d3.select('#viz-weight-dist');
+    const W = 780, H = 300;
+    const margin = {top: 30, right: 30, bottom: 40, left: 50};
+    const plotW = W - margin.left - margin.right;
+    const plotH = H - margin.top - margin.bottom;
+
+    // Generate bell-curve-like weight distribution with outliers
+    const numWeights = 2000;
+    const weights = [];
+    for (let i = 0; i < numWeights; i++) {
+        // Box-Muller for Gaussian
+        const u1 = Math.random(), u2 = Math.random();
+        let val = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2) * 0.15;
+        // Add rare outliers
+        if (Math.random() > 0.995) val = (Math.random() > 0.5 ? 1 : -1) * (0.8 + Math.random() * 0.7);
+        weights.push(val);
+    }
+
+    const xScale = d3.scaleLinear().domain([-1.5, 1.5]).range([0, plotW]);
+    const bins = d3.bin().domain([-1.5, 1.5]).thresholds(80)(weights);
+    const yMax = d3.max(bins, b => b.length);
+    const yScale = d3.scaleLinear().domain([0, yMax]).range([plotH, 0]);
+
+    const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+    // Histogram bars (static)
+    g.selectAll('.hist-bar')
+        .data(bins).enter().append('rect')
+        .attr('class','hist-bar')
+        .attr('x', d => xScale(d.x0) + 0.5)
+        .attr('y', d => yScale(d.length))
+        .attr('width', d => Math.max(0, xScale(d.x1) - xScale(d.x0) - 1))
+        .attr('height', d => plotH - yScale(d.length))
+        .attr('fill', 'rgba(0,255,136,0.2)')
+        .attr('stroke', 'rgba(0,255,136,0.1)');
+
+    // Axes
+    g.append('line').attr('x1',0).attr('y1',plotH).attr('x2',plotW).attr('y2',plotH).attr('stroke','#2a2a4a');
+    [-1.5,-1,-0.5,0,0.5,1,1.5].forEach(v => {
+        g.append('text').attr('x', xScale(v)).attr('y', plotH + 18).attr('text-anchor','middle')
+            .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size', 9)
+            .text(v.toFixed(1));
+    });
+    g.append('text').attr('x', plotW/2).attr('y', plotH + 35).attr('text-anchor','middle')
+        .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size', 10)
+        .text('Weight Value');
+
+    // Title text
+    const titleText = g.append('text').attr('x', plotW/2).attr('y', -8).attr('text-anchor','middle')
+        .attr('fill','#e8e8f0').attr('font-family','JetBrains Mono, monospace').attr('font-size', 12);
+
+    // Grid lines group
+    const gridG = g.append('g').attr('class','quant-grid');
+
+    function drawGrid(type) {
+        gridG.selectAll('*').remove();
+        let levels = [];
+        let color = '#00ff88';
+        let label = '';
+
+        if (type === 'fp16') {
+            // Just show a few representative levels in the range
+            for (let v = -1.5; v <= 1.5; v += 0.01) levels.push(v);
+            color = 'rgba(0,221,255,0.08)';
+            label = 'FP16: ~65,536 levels \u2014 grid so fine it\'s invisible';
+        } else if (type === 'int8') {
+            const step = 3.0 / 256;
+            for (let v = -1.5; v <= 1.5; v += step) levels.push(v);
+            color = 'rgba(0,221,255,0.15)';
+            label = 'INT8: 256 levels \u2014 fine grid, minimal distortion';
+        } else if (type === 'int4') {
+            const step = 3.0 / 16;
+            for (let v = -1.5; v <= 1.5; v += step) levels.push(v);
+            color = 'rgba(255,136,0,0.5)';
+            label = 'INT4: 16 levels \u2014 coarse buckets, but the bell curve survives';
+        } else if (type === 'ternary') {
+            levels = [-1, 0, 1];
+            color = 'rgba(255,0,170,0.7)';
+            label = 'Ternary: 3 levels \u2014 {-1, 0, +1} is all you get';
+        }
+
+        levels.forEach(v => {
+            const x = xScale(v);
+            if (x >= 0 && x <= plotW) {
+                gridG.append('line')
+                    .attr('x1', x).attr('y1', 0)
+                    .attr('x2', x).attr('y2', plotH)
+                    .attr('stroke', color)
+                    .attr('stroke-width', type === 'ternary' ? 2 : type === 'int4' ? 1.5 : 0.5);
+            }
+        });
+
+        titleText.text(label);
+    }
+
+    function setActive(id) {
+        ['wd-fp16','wd-int8','wd-int4','wd-ternary'].forEach(b => document.getElementById(b).classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+    }
+
+    drawGrid('fp16');
+    document.getElementById('wd-fp16').addEventListener('click', () => { setActive('wd-fp16'); drawGrid('fp16'); });
+    document.getElementById('wd-int8').addEventListener('click', () => { setActive('wd-int8'); drawGrid('int8'); });
+    document.getElementById('wd-int4').addEventListener('click', () => { setActive('wd-int4'); drawGrid('int4'); });
+    document.getElementById('wd-ternary').addEventListener('click', () => { setActive('wd-ternary'); drawGrid('ternary'); });
+})();
+</script>
+
+<div class="power">
+    <div class="power-label">The human story</div>
+    <p>Running models locally means no API costs, no censorship, no data leakage, no latency. Your prompts never leave your machine. Lawyers, doctors, journalists, dissidents &mdash; this matters. But consumer GPUs top out at 24&ndash;32 GB. An RTX 4090 costs $1,600 and gives you 24 GB. An RTX 5090 costs $2,000 for 32 GB. An Apple M4 Max gives you 128 GB of unified memory but costs $5,000+. Without quantization, open-source AI is just a press release. With it, open-source AI is software you can actually run.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 2: THE OUTLIER DISCOVERY                                       -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+
+<section id="ch2">
+<h2>02 // The Outlier Discovery</h2>
+
+<p class="drop-cap">In August 2022, Tim Dettmers at the University of Washington was doing something nobody thought was exciting. He was trying to make INT8 quantization work for large language models. Quantization research, as he&rsquo;d later put it, was &ldquo;like printers &mdash; nobody cares about printers, nobody likes printers, but everybody is happy if printers do their job.&rdquo;</p>
+
+<p>Dettmers had an unusual background. Before his PhD, he&rsquo;d spent three years in factory automation &mdash; routing data in food and milk processing plants. He studied psychology alongside his technical work. At FAIR, he ran 1.3-billion-parameter baselines on 128 GPUs each and still felt compute-constrained. He&rsquo;s been described as independent-minded and sincere &mdash; someone who thinks creatively and challenges conventional wisdom.</p>
+
+<p>He set out to make quantization &ldquo;just work&rdquo; at scale. A plumbing project. The kind of work that doesn&rsquo;t win awards or generate Twitter buzz. But what he found along the way was far more interesting than the plumbing. He stumbled onto something about how large transformers organize themselves internally &mdash; emergent features that nobody had predicted or observed. The plumber discovered a secret room in the basement.</p>
+
+<h3>The Phase Transition</h3>
+
+<p>Small models quantized fine. At 125 million parameters, INT8 was trivial. At 1 billion, still clean. At 2.7 billion, some minor degradation appeared &mdash; nothing alarming. Dettmers kept scaling. Then at <strong>6.7 billion parameters, something broke.</strong></p>
+
+<p>Below 6.7B, some transformer layers had outlier activations &mdash; values far larger than normal &mdash; but they were disorganized. Only about 60% of layers agreed on which hidden dimensions held the outliers. The dimensions shifted between batches. Everything was probabilistic and messy.</p>
+
+<p>Then at exactly 6.7B, the model snapped into order. Suddenly, <strong>100% of layers coordinated through the same outlier dimensions</strong>. Every layer &ldquo;knew beforehand&rdquo; which dimensions would hold the extreme values. Six feature dimensions &mdash; out of thousands &mdash; carried activations 100x larger than everything else. Seventy-five percent of all sequence dimensions were now affected by these extreme-magnitude features.</p>
+
+<p>The numbers are vivid. Normal activation values in these models look like: <code>[-0.10, -0.23, 0.08, -0.38, -0.28]</code>. Nicely distributed. Manageable. The outlier dimensions look like: <code>[-60, -45, -51, -35, -67]</code>. Monsters. And the magnitude kept growing with scale: roughly 15 at 6B, 60 at 13B, 95 at 66B. The bigger the model, the louder the outliers screamed.</p>
+
+<p>This wasn&rsquo;t gradual. It was a phase transition, like water freezing. One moment, disorder. The next, crystalline coordination. Below the threshold, outliers were scattered and random &mdash; different layers, different dimensions, shifting between mini-batches. Above it, every layer locked onto the same six dimensions. The model had spontaneously organized itself.</p>
+
+<!-- ── VISUALIZATION: The Phase Transition ── -->
+<div class="viz-container">
+    <span class="diagram-label">Interactive: The Phase Transition</span>
+    <svg id="viz-phase-transition" viewBox="0 0 780 340"></svg>
+    <div class="viz-controls">
+        <div>
+            <label>Model Scale</label>
+            <input type="range" id="phase-slider" min="0" max="100" value="0" style="width:260px;">
+        </div>
+        <div>
+            <span id="phase-model-label" style="color:var(--green); font-size:13px;">125M params</span>
+        </div>
+        <div>
+            <button id="phase-play">Grow Model</button>
+            <button id="phase-reset" class="secondary">Reset</button>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    const svg = d3.select('#viz-phase-transition');
+    const W = 780, H = 340;
+    const margin = {top: 40, right: 40, bottom: 50, left: 60};
+    const plotW = W - margin.left - margin.right;
+    const plotH = H - margin.top - margin.bottom;
+
+    const modelSizes = [
+        {label:'125M', params:0.125, pctOutlier:25, magnitude:5},
+        {label:'350M', params:0.35, pctOutlier:30, magnitude:6},
+        {label:'1.3B', params:1.3, pctOutlier:35, magnitude:8},
+        {label:'2.7B', params:2.7, pctOutlier:42, magnitude:10},
+        {label:'6.7B', params:6.7, pctOutlier:100, magnitude:60},
+        {label:'13B', params:13, pctOutlier:100, magnitude:65},
+        {label:'30B', params:30, pctOutlier:100, magnitude:75},
+        {label:'66B', params:66, pctOutlier:100, magnitude:95},
+        {label:'175B', params:175, pctOutlier:100, magnitude:100}
+    ];
+
+    const xScale = d3.scaleLog().domain([0.1, 200]).range([0, plotW]);
+    const yScale = d3.scaleLinear().domain([0, 110]).range([plotH, 0]);
+    const magScale = d3.scaleLinear().domain([0, 110]).range([plotH, 0]);
+
+    const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
+
+    // Grid lines
+    [20,40,60,80,100].forEach(v => {
+        g.append('line').attr('x1',0).attr('y1',yScale(v)).attr('x2',plotW).attr('y2',yScale(v))
+            .attr('stroke','#1e1e2e').attr('stroke-dasharray','2,4');
+    });
+
+    // Axes
+    g.append('line').attr('x1',0).attr('y1',plotH).attr('x2',plotW).attr('y2',plotH)
+        .attr('stroke','#2a2a4a');
+    g.append('line').attr('x1',0).attr('y1',0).attr('x2',0).attr('y2',plotH)
+        .attr('stroke','#2a2a4a');
+
+    // X axis labels
+    ['125M','1B','6.7B','13B','66B','175B'].forEach(label => {
+        const val = label === '125M' ? 0.125 : label === '1B' ? 1 : parseFloat(label);
+        g.append('text').attr('x', xScale(val)).attr('y', plotH + 20)
+            .attr('text-anchor','middle').attr('fill','#6a6a7e')
+            .attr('font-family','JetBrains Mono, monospace').attr('font-size',9)
+            .text(label);
+    });
+
+    g.append('text').attr('x', plotW/2).attr('y', plotH + 42)
+        .attr('text-anchor','middle').attr('fill','#6a6a7e')
+        .attr('font-family','JetBrains Mono, monospace').attr('font-size',10)
+        .text('Model Size (parameters)');
+
+    // Y axis label
+    g.append('text').attr('x', -plotH/2).attr('y', -42)
+        .attr('text-anchor','middle').attr('fill','#00ff88')
+        .attr('font-family','JetBrains Mono, monospace').attr('font-size',10)
+        .attr('transform','rotate(-90)')
+        .text('% Layers with Coordinated Outliers');
+
+    // 6.7B threshold line
+    const threshX = xScale(6.7);
+    g.append('line').attr('x1',threshX).attr('y1',0).attr('x2',threshX).attr('y2',plotH)
+        .attr('stroke','#ff00aa').attr('stroke-width',1).attr('stroke-dasharray','4,4').attr('opacity',0.5);
+    g.append('text').attr('x',threshX).attr('y',-8).attr('text-anchor','middle')
+        .attr('fill','#ff00aa').attr('font-family','JetBrains Mono, monospace').attr('font-size',9)
+        .text('6.7B threshold');
+
+    // Draw all static points dim
+    modelSizes.forEach(m => {
+        g.append('circle')
+            .attr('class','static-dot')
+            .attr('cx', xScale(m.params))
+            .attr('cy', yScale(m.pctOutlier))
+            .attr('r', 4)
+            .attr('fill', '#1e1e2e')
+            .attr('stroke', '#2a2a4a');
+    });
+
+    // Active dots group
+    const activeG = g.append('g').attr('class','active-dots');
+    const labelG = g.append('g').attr('class','active-labels');
+
+    let currentIdx = -1;
+    let animTimer = null;
+
+    function updateToIndex(idx) {
+        if (idx === currentIdx) return;
+        currentIdx = idx;
+
+        activeG.selectAll('*').remove();
+        labelG.selectAll('*').remove();
+
+        for (let i = 0; i <= idx && i < modelSizes.length; i++) {
+            const m = modelSizes[i];
+            const color = m.pctOutlier >= 100 ? '#ff00aa' : '#00ff88';
+            const cx = xScale(m.params);
+            const cy = yScale(m.pctOutlier);
+
+            if (m.pctOutlier >= 100 && (i === 4 || i === idx)) {
+                activeG.append('circle')
+                    .attr('cx', cx).attr('cy', cy).attr('r', 12)
+                    .attr('fill', 'none').attr('stroke', color).attr('opacity', 0.2);
+            }
+
+            activeG.append('circle')
+                .attr('cx', cx).attr('cy', cy)
+                .attr('r', i === idx ? 6 : 4)
+                .attr('fill', color)
+                .attr('opacity', i === idx ? 1 : 0.7);
+
+            if (i === idx) {
+                labelG.append('text')
+                    .attr('x', cx + 10).attr('y', cy + 4)
+                    .attr('fill', color)
+                    .attr('font-family','JetBrains Mono, monospace').attr('font-size', 10)
+                    .text(m.label + ': ' + m.pctOutlier + '%');
+            }
+        }
+
+        // Draw connecting line
+        if (idx > 0) {
+            const lineData = modelSizes.slice(0, idx + 1);
+            const lineGen = d3.line()
+                .x(d => xScale(d.params))
+                .y(d => yScale(d.pctOutlier))
+                .curve(d3.curveMonotoneX);
+            activeG.append('path')
+                .attr('d', lineGen(lineData))
+                .attr('fill','none').attr('stroke','#00ff88').attr('stroke-width',1.5)
+                .attr('opacity', 0.5);
+        }
+
+        // Update slider and label
+        const sliderVal = (idx / (modelSizes.length - 1)) * 100;
+        document.getElementById('phase-slider').value = sliderVal;
+        const m = modelSizes[idx];
+        document.getElementById('phase-model-label').textContent =
+            m.label + ' params \u2014 ' + m.pctOutlier + '% coordinated' +
+            (m.pctOutlier >= 100 ? ' \u26A1' : '');
+        document.getElementById('phase-model-label').style.color =
+            m.pctOutlier >= 100 ? '#ff00aa' : '#00ff88';
+    }
+
+    document.getElementById('phase-slider').addEventListener('input', function() {
+        const idx = Math.round((this.value / 100) * (modelSizes.length - 1));
+        if (animTimer) { clearInterval(animTimer); animTimer = null; }
+        updateToIndex(idx);
+    });
+
+    document.getElementById('phase-play').addEventListener('click', function() {
+        if (animTimer) { clearInterval(animTimer); animTimer = null; }
+        currentIdx = -1;
+        let step = 0;
+        animTimer = setInterval(function() {
+            if (step >= modelSizes.length) { clearInterval(animTimer); animTimer = null; return; }
+            updateToIndex(step);
+            step++;
+        }, 600);
+    });
+
+    document.getElementById('phase-reset').addEventListener('click', function() {
+        if (animTimer) { clearInterval(animTimer); animTimer = null; }
+        currentIdx = -1;
+        activeG.selectAll('*').remove();
+        labelG.selectAll('*').remove();
+        document.getElementById('phase-slider').value = 0;
+        document.getElementById('phase-model-label').textContent = '125M params';
+        document.getElementById('phase-model-label').style.color = '#00ff88';
+    });
+
+    updateToIndex(0);
+})();
+</script>
+
+<h3>The Steering Wheel</h3>
+
+<p>What were these outlier dimensions doing? Dettmers found they acted as the model&rsquo;s steering wheel.</p>
+
+<p>In a 6.7B transformer with sequence length 2048, there were roughly 150,000 outlier values per sequence. But they concentrated in only <strong>6 feature dimensions</strong> out of thousands. That&rsquo;s approximately 0.1% of all input features. A quantization error analysis made the damage clear: a vector WITH outliers showed a mean error of 0.12 after INT8 rounding. A vector WITHOUT outliers showed 0.015. The outliers caused <strong>8x more quantization error</strong> than everything else combined.</p>
+
+<p>Dettmers tried clipping them. Setting those 6 dimensions to zero. The result was devastating:</p>
+
+<div class="vs">
+    <div class="vs-card">
+        <h4>With outliers</h4>
+        <p>Top-1 softmax probability: <strong style="color:var(--green);">~40%</strong></p>
+        <p>Perplexity: <strong style="color:var(--green);">normal</strong></p>
+        <p>Model: <strong>coherent</strong></p>
+    </div>
+    <div class="vs-card">
+        <h4>Outliers zeroed</h4>
+        <p>Top-1 softmax probability: <strong style="color:var(--red);">~20%</strong></p>
+        <p>Perplexity: <strong style="color:var(--red);">600&ndash;1000% worse</strong></p>
+        <p>Model: <strong style="color:var(--red);">shattered</strong></p>
+    </div>
+</div>
+
+<p>The model didn&rsquo;t get worse. It broke. The outliers were consumed by the softmax nonlinearity in the attention mechanism, controlling which tokens attended to which. They functioned as a feature masking system &mdash; the model used these giant activations to <em>suppress</em> irrelevant information across layers. Without them, the softmax distribution became nearly uniform. The model couldn&rsquo;t focus. Like ripping the steering wheel out of a car that&rsquo;s still moving at highway speed.</p>
+
+<p>And these features weren&rsquo;t designed. Nobody told the model to use 6 dimensions as steering channels. They emerged spontaneously from the training process, only after the model crossed a critical size threshold. Below 6.7B, the model managed attention through scattered, ad-hoc mechanisms. Above it, the model invented a privileged coordinate system. This is an emergent property of scale, and Dettmers was the first to see it clearly.</p>
+
+<h3>The Mixed-Precision Fix</h3>
+
+<p>The solution, which Dettmers called <a href="https://arxiv.org/abs/2208.07339">LLM.int8()</a>, was elegant precisely because the outliers were so systematic:</p>
+
+<pre><code><span class="cm"># LLM.int8() — mixed-precision decomposition</span>
+<span class="kw">for</span> each hidden dimension:
+    <span class="kw">if</span> magnitude >= <span class="nm">6.0</span>:
+        route to FP16 matrix multiply    <span class="cm"># 0.1% of values</span>
+    <span class="kw">else</span>:
+        quantize to INT8                 <span class="cm"># 99.9% of values</span>
+combine both outputs
+<span class="cm"># Result: zero quality loss. Half the memory.</span></code></pre>
+
+<p>The threshold of 6.0 was empirically chosen &mdash; it cleanly separates the two populations. At that threshold, only about 0.1% of values route to FP16. The computational overhead is negligible. The memory savings are real: half the memory of FP16 for the 99.9% of values that go to INT8.</p>
+
+<p>It ran OPT-175B and BLOOM-176B with <strong>zero performance degradation</strong> on a single server with consumer GPUs. This was the first time anyone had run inference on models of this scale with INT8 quantization and no quality loss at all. Andrej Karpathy <a href="https://x.com/karpathy/status/1560327774623055872">called it</a> &ldquo;Beautiful work (as usual)&rdquo; and highlighted the &ldquo;emergent features&rdquo; questions it opened up.</p>
+
+<p>The paper, &ldquo;LLM.int8(): 8-bit Matrix Multiplication for Transformers at Scale,&rdquo; was published at NeurIPS 2022. Its lasting significance isn&rsquo;t just the quantization method &mdash; it&rsquo;s the discovery of emergent outlier features, which every subsequent quantization paper had to reckon with. The outliers are there. You must handle them. How you handle them defines the method.</p>
+
+<div class="power zen">
+    <div class="power-label">The discovery</div>
+    <p>Dettmers didn&rsquo;t just solve a quantization problem. He revealed that large transformers self-organize. Past a critical size, the model spontaneously develops a privileged coordinate system &mdash; a small set of dimensions that become highways for steering attention. Nobody designed this. It emerges from scale alone.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 3: THE WEIGHT SURGEONS                                         -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+
+<section id="ch3">
+<h2>03 // The Weight Surgeons</h2>
+
+<p class="drop-cap">Dettmers had opened the door. He&rsquo;d shown that naive quantization fails because of outliers, and that a simple mixed-precision decomposition can fix it. But LLM.int8() only got you to 8 bits. The memory savings were 2x. For the models people actually wanted to run on consumer hardware, they needed 4 bits. That&rsquo;s 4x memory reduction. And 4-bit quantization is a harder problem &mdash; you&rsquo;re representing each weight with just 16 possible values instead of 256.</p>
+
+<p>Within months, three more research groups walked through the door Dettmers had opened, each wielding a different scalpel. All four methods share one insight: <strong>not all numbers are equally important</strong>. But they found the important ones through radically different lenses.</p>
+
+<h3>GPTQ: The Hessian Surgeon</h3>
+
+<p>October 2022. Two months after Dettmers&rsquo; paper, Elias Frantar at IST Austria asked a clean mathematical question: if I round this weight, how much damage does it cause? Not all rounding is equal. Some weights, if perturbed, cause the layer&rsquo;s output to shift dramatically. Others can be rounded freely without consequence.</p>
+
+<p>The answer lives in the <strong>Hessian matrix</strong> &mdash; the matrix of second partial derivatives of the reconstruction error with respect to the weights. Weights with high Hessian values are fragile. Weights with low Hessian values are sturdy. The Hessian tells you where the model&rsquo;s sensitivity landscape has cliffs versus where it has gentle slopes.</p>
+
+<p><a href="https://arxiv.org/abs/2210.17323">GPTQ</a> processed weight matrices column by column. For each column: quantize using round-to-nearest, measure the error, then <strong>redistribute that error</strong> to all not-yet-quantized columns, weighted by the inverse Hessian. Later columns absorb the mistakes of earlier ones. It&rsquo;s like a surgeon who cuts in one place and immediately adjusts surrounding tissue to compensate, column by column, left to right, error flowing forward and getting absorbed.</p>
+
+<p>GPTQ descended from a rich lineage. Optimal Brain Surgeon (1993) showed you could use second-order information to decide which weights to prune. Optimal Brain Quantization (OBQ) applied the same idea to rounding: quantize one weight at a time, in order of quantization cost, and compensate after each step. Mathematically elegant. Practically absurd &mdash; processing 175 billion weights one by one would take several hundred hours on modern hardware.</p>
+
+<p>GPTQ&rsquo;s breakthrough was a change in granularity: process columns instead of individual weights. A column of weights (say, 4096 values in a hidden dimension) can be quantized in one pass, and the error can be redistributed across remaining columns in a single matrix operation. This enables massive parallelism. Add mild dampening (1% of the average Hessian diagonal) to prevent numerical explosions from accumulated updates, and use Cholesky decomposition for the inverse Hessian to keep everything stable.</p>
+
+<p>The speed headline: <strong>OPT-175B and BLOOM-176B quantized to 3&ndash;4 bits in four GPU hours</strong>. For comparison, the linear extrapolation of OBQ&rsquo;s per-weight approach would need several hundred hours. GPTQ was 100x faster. The math isn&rsquo;t just elegant &mdash; it&rsquo;s the difference between &ldquo;possible in a weekend&rdquo; and &ldquo;impossible in a month.&rdquo;</p>
+
+<p>It was published at ICLR 2023 and became the first practical sub-8-bit post-training quantization method for LLMs. The 175B model fit in a single GPU for generative inference, running at 3.25x speedup on an A100 and 4.5x on an A6000. For LLaMA-2 7B at INT4 with group size 128, GPTQ achieved 5.63 perplexity versus the 5.47 FP16 baseline &mdash; a gap most users cannot perceive in conversation.</p>
+
+<h3>SmoothQuant: The Channel Balancer</h3>
+
+<p>November 2022. Guangxuan Xiao at MIT&rsquo;s Han Lab was staring at two distributions side by side and noticed something the previous researchers had overlooked.</p>
+
+<p><strong>Activations were spiky</strong> &mdash; a few channels had values 100x larger than the rest. Trying to quantize them to INT8 was like trying to fit a skyscraper and a cottage into the same size box. The range was too wide, and the fine-grained values got crushed into a few coarse levels.</p>
+
+<p><strong>Weights were smooth</strong> &mdash; nicely bell-shaped, easy to quantize. They fit into INT8 without drama. The quantization difficulty was completely lopsided: one side easy, one side impossible.</p>
+
+<p>His insight: <em>what if you could transfer the difficulty from one side to the other?</em></p>
+
+<p>Imagine a seesaw. On the left: the activation distribution, with tall spikes jutting up. On the right: the weight distribution, flat and manageable. The seesaw is tilted hard to the left. SmoothQuant introduces a per-channel scaling factor that pushes the seesaw toward balance. Divide the spiky activation channels by a factor s. Multiply the corresponding weight channels by the same s. The spikes shrink on the activation side. The weights get slightly spikier &mdash; but they had headroom. Now both sides fit into INT8.</p>
+
+<p>Published as <a href="https://arxiv.org/abs/2211.10438">SmoothQuant</a>, the mathematical trick is a single line: <code>Y = (X / s) @ (s * W)</code>. The output Y is <em>identical</em> to the original <code>Y = X @ W</code>. You&rsquo;re just rearranging which side of the multiplication holds the difficult numbers. It&rsquo;s a bookkeeping trick &mdash; invisible to the model, transformative for the hardware.</p>
+
+<pre><code><span class="cm"># SmoothQuant — the seesaw trick</span>
+<span class="cm"># Y = X @ W  (original)</span>
+<span class="cm"># Y = (X / s) @ (s * W)  (identical output, smoother both sides)</span>
+s_j = max(|X_j|)^<span class="nm">0.5</span> / max(|W_j|)^<span class="nm">0.5</span>   <span class="cm"># per-channel scale</span>
+X_smooth = X * diag(s)^<span class="nm">-1</span>                 <span class="cm"># activations become calm</span>
+W_smooth = diag(s) * W                     <span class="cm"># weights absorb the spikes</span>
+<span class="cm"># Now BOTH fit in INT8 → use INT8 tensor cores → real speedup</span></code></pre>
+
+<p>The alpha parameter controls the seesaw balance. At alpha = 0.5, difficulty is split evenly between activations and weights. This works for most models &mdash; OPT, BLOOM, and the LLaMA family all do well here. At alpha = 0.75, more difficulty migrates to the weight side, which helps models with particularly severe activation outliers like GLM-130B. The intuition: if the activation spikes are truly extreme, you need to absorb more of them into the weights, even though that makes weights harder to quantize. There&rsquo;s a sweet spot, and it&rsquo;s typically found with a quick grid search over alpha values from 0 to 1.</p>
+
+<p>At alpha = 0, you&rsquo;re not smoothing at all &mdash; activations stay spiky, weights stay smooth, and you&rsquo;re back to the original problem. At alpha = 1, all difficulty transfers to weights, which makes weights as spiky as activations originally were. Neither extreme works. The magic lives in the middle.</p>
+
+<p>Why does W8A8 matter so much? Weight-only quantization (W4A16, W8A16) still needs FP16 compute for activations. The GPU loads smaller weights, but the actual matrix multiply still runs in FP16. SmoothQuant enables <strong>W8A8</strong> &mdash; both weights AND activations in INT8 &mdash; which unlocks INT8 tensor cores on NVIDIA GPUs, Intel CPUs, and Qualcomm DSPs. That&rsquo;s the difference between &ldquo;smaller model&rdquo; and &ldquo;actually faster inference.&rdquo; Results: up to 1.56x speedup, 2x memory reduction, negligible accuracy loss. A 530B model that previously needed 16 GPUs could serve from 8. SmoothQuant was presented at ICML 2023.</p>
+
+<h3>AWQ: The Activation Scout</h3>
+
+<p>June 2023. Ji Lin, also at MIT&rsquo;s Han Lab, asked a question that sounds almost naive: how should you decide which weights are important? The obvious answer: look at the weights. Big weights are important. Small weights are disposable. This is what most people assume. It is almost completely wrong.</p>
+
+<p>Lin ran an experiment on OPT-6.7B at INT3 with group size 128 that produced the most devastating table in quantization research:</p>
+
+<table>
+<thead>
+    <tr><th>Method</th><th>Perplexity</th><th>Verdict</th></tr>
+</thead>
+<tbody>
+    <tr><td>FP16 baseline</td><td style="color:var(--green);">10.86</td><td>Perfect</td></tr>
+    <tr><td>Round-to-nearest (naive)</td><td style="color:var(--red);">23.54</td><td>Broken</td></tr>
+    <tr><td>Keep 1% FP16 by <em>weight</em> magnitude</td><td style="color:var(--red);">22.37</td><td>Barely helps</td></tr>
+    <tr><td>Keep 1% FP16 by <em>activation</em> magnitude</td><td style="color:var(--green);">11.36</td><td>Nearly perfect</td></tr>
+</tbody>
+</table>
+
+<p>Read that again. Protecting the biggest <em>weights</em> does almost nothing. Protecting the weights that the largest <em>activations</em> flow through recovers nearly all quality. The weights that look important are not the ones that are important. The activations tell you what matters.</p>
+
+<p>The fix was elegantly simple. Instead of keeping salient weights in FP16 (which requires mixed-precision hardware support), <a href="https://arxiv.org/abs/2306.00978">AWQ</a> (Activation-Aware Weight Quantization) <strong>scaled up</strong> salient weight channels before quantizing. If a weight is 0.3 and you scale it to 3.0 before rounding to the nearest 4-bit level, the rounding error becomes proportionally 10x smaller relative to the weight&rsquo;s magnitude. The activations get divided by the same scale factor, so the output is identical. It&rsquo;s the same algebraic trick as SmoothQuant, applied with surgical precision to just the weights the activations care about.</p>
+
+<p>AWQ won the <strong>MLSys 2024 Best Paper Award</strong>. It needed a 10x smaller calibration set than GPTQ. It was robust across domains &mdash; when you switched calibration data from one domain to another, AWQ&rsquo;s perplexity varied by 0.5&ndash;0.6, versus GPTQ&rsquo;s 2.3&ndash;4.9. And it was adopted everywhere: FastChat, vLLM, HuggingFace TGI, LMDeploy, and nearly every major serving framework.</p>
+
+<p>In community benchmarks on LLaMA-2 13B at 4-bit, the methods are nearly indistinguishable: AWQ 4.33 perplexity, Q4_K_M (GGUF) 4.33, GPTQ 4.34. The differences are in the noise. The real differentiators are calibration robustness (AWQ wins), inference speed (depends on your kernel), and ease of use (GGUF wins for local, AWQ/GPTQ for serving).</p>
+
+<details>
+<summary>Head-to-head: AWQ vs GPTQ on LLaMA-2</summary>
+<div>
+<table>
+<thead><tr><th>Model</th><th>AWQ (PPL)</th><th>GPTQ (PPL)</th><th>Winner</th></tr></thead>
+<tbody>
+<tr><td>LLaMA-2 7B</td><td style="color:var(--green);">5.60</td><td>5.63</td><td>AWQ</td></tr>
+<tr><td>LLaMA-2 13B</td><td style="color:var(--green);">4.33</td><td>4.34</td><td>AWQ (marginal)</td></tr>
+<tr><td>LLaMA-2 70B</td><td style="color:var(--green);">3.41</td><td>3.43</td><td>AWQ</td></tr>
+</tbody>
+</table>
+<p style="font-size:0.85rem; color:var(--text-dim);">All at INT4-g128. AWQ wins on quality, calibration robustness (0.5&ndash;0.6 PPL variance when switching domains, vs GPTQ&rsquo;s 2.3&ndash;4.9), and calibration set size (10x smaller). GPTQ offers more flexibility in bit-width configurations. Source: AWQ paper, Table 2.</p>
+</div>
+</details>
+
+<!-- ── VISUALIZATION: The Four Surgeons ── -->
+<div class="viz-container">
+    <span class="diagram-label">Interactive: The Four Surgeons</span>
+    <svg id="viz-surgeons" viewBox="0 0 780 400"></svg>
+    <div class="viz-controls">
+        <button id="surg-llmint8" class="secondary active">LLM.int8()</button>
+        <button id="surg-gptq" class="secondary">GPTQ</button>
+        <button id="surg-smooth" class="secondary">SmoothQuant</button>
+        <button id="surg-awq" class="secondary">AWQ</button>
+        <span id="surg-readout" style="margin-left:auto; color:var(--green); font-size:12px;"></span>
+    </div>
+</div>
+
+<script>
+(function() {
+    const svg = d3.select('#viz-surgeons');
+    const W = 780, H = 400;
+    const ROWS = 16, COLS = 32;
+    const cellW = 20, cellH = 18;
+    const gridX = 40, gridY = 50;
+    const outlierCols = [3, 11, 19]; // 3 outlier columns
+
+    // Generate weight matrix
+    const weights = [];
+    for (let r = 0; r < ROWS; r++) {
+        weights[r] = [];
+        for (let c = 0; c < COLS; c++) {
+            if (outlierCols.includes(c)) {
+                weights[r][c] = -(40 + Math.random() * 30); // outliers: -40 to -70
+            } else {
+                weights[r][c] = (Math.random() - 0.5) * 0.6; // normal: -0.3 to 0.3
+            }
+        }
+    }
+
+    // Activation magnitudes per column (for AWQ)
+    const actMag = [];
+    for (let c = 0; c < COLS; c++) {
+        if (outlierCols.includes(c)) {
+            actMag[c] = 50 + Math.random() * 20;
+        } else if (c === 7 || c === 15 || c === 23) {
+            actMag[c] = 8 + Math.random() * 5; // some mid-importance
+        } else {
+            actMag[c] = Math.random() * 3;
+        }
+    }
+
+    const salientByAct = actMag.map((v,i) => ({v,i})).sort((a,b) => b.v - a.v).slice(0, Math.ceil(COLS * 0.1)).map(d => d.i);
+
+    // Hessian sensitivity (for GPTQ) — outlier cols + some others
+    const hessian = [];
+    for (let c = 0; c < COLS; c++) {
+        if (outlierCols.includes(c)) hessian[c] = 0.8 + Math.random() * 0.2;
+        else if (c === 5 || c === 14 || c === 27) hessian[c] = 0.5 + Math.random() * 0.3;
+        else hessian[c] = Math.random() * 0.3;
+    }
+
+    const colorScaleNormal = d3.scaleSequential(d3.interpolateBlues).domain([-0.3, 0.3]);
+    const colorScaleOutlier = d3.scaleSequential(d3.interpolateReds).domain([-70, -30]);
+
+    let currentMethod = 'llmint8';
+
+    function cellColor(r, c, method) {
+        const isOutlier = outlierCols.includes(c);
+        const val = weights[r][c];
+
+        if (method === 'llmint8') {
+            if (isOutlier) return { fill: 'rgba(255,221,0,0.5)', stroke: '#ffdd00' }; // FP16 gold
+            return { fill: 'rgba(68,136,255,0.25)', stroke: '#4488ff33' }; // INT8 blue
+        }
+
+        if (method === 'gptq') {
+            const h = hessian[c];
+            const r2 = Math.floor(h * 255);
+            return { fill: `rgba(${r2}, ${Math.floor((1-h)*100)}, ${Math.floor((1-h)*200)}, 0.4)`, stroke: h > 0.5 ? '#ff884466' : '#4488ff22' };
+        }
+
+        if (method === 'smooth') {
+            if (isOutlier) return { fill: 'rgba(0,255,136,0.3)', stroke: '#00ff8844' }; // smoothed
+            return { fill: 'rgba(68,136,255,0.2)', stroke: '#4488ff22' };
+        }
+
+        if (method === 'awq') {
+            if (salientByAct.includes(c)) return { fill: 'rgba(0,255,136,0.45)', stroke: '#00ff88' }; // salient
+            return { fill: 'rgba(68,136,255,0.15)', stroke: '#4488ff22' };
+        }
+
+        return { fill: '#12121a', stroke: '#1e1e2e' };
+    }
+
+    function draw(method) {
+        svg.selectAll('*').remove();
+        currentMethod = method;
+
+        // Title
+        const titles = {
+            llmint8: 'LLM.int8() \u2014 Outlier columns in FP16, everything else INT8',
+            gptq: 'GPTQ \u2014 Color by Hessian sensitivity (bright = fragile)',
+            smooth: 'SmoothQuant \u2014 Outlier spikes smoothed across both sides',
+            awq: 'AWQ \u2014 Salient weights chosen by activation magnitude (green)'
+        };
+
+        svg.append('text').attr('x', W/2).attr('y', 28).attr('text-anchor','middle')
+            .attr('fill','#e8e8f0').attr('font-family','JetBrains Mono, monospace')
+            .attr('font-size', 12).text(titles[method]);
+
+        // Draw grid
+        for (let r = 0; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+                const {fill, stroke} = cellColor(r, c, method);
+                svg.append('rect')
+                    .attr('x', gridX + c * cellW)
+                    .attr('y', gridY + r * cellH)
+                    .attr('width', cellW - 1)
+                    .attr('height', cellH - 1)
+                    .attr('fill', fill)
+                    .attr('stroke', stroke)
+                    .attr('rx', 1);
+            }
+        }
+
+        // Column labels for outliers
+        if (method === 'llmint8') {
+            outlierCols.forEach(c => {
+                svg.append('text')
+                    .attr('x', gridX + c * cellW + cellW/2)
+                    .attr('y', gridY + ROWS * cellH + 15)
+                    .attr('text-anchor','middle')
+                    .attr('fill','#ffdd00')
+                    .attr('font-family','JetBrains Mono, monospace').attr('font-size', 8)
+                    .text('FP16');
+            });
+        }
+
+        // Legend
+        const legY = gridY + ROWS * cellH + 35;
+        if (method === 'llmint8') {
+            svg.append('rect').attr('x', gridX).attr('y', legY).attr('width',12).attr('height',12).attr('fill','rgba(255,221,0,0.5)').attr('stroke','#ffdd00');
+            svg.append('text').attr('x', gridX+18).attr('y', legY+10).attr('fill','#c8c8d4').attr('font-family','JetBrains Mono, monospace').attr('font-size',10).text('0.1% outlier dims \u2192 FP16 (gold)');
+            svg.append('rect').attr('x', gridX+280).attr('y', legY).attr('width',12).attr('height',12).attr('fill','rgba(68,136,255,0.25)').attr('stroke','#4488ff33');
+            svg.append('text').attr('x', gridX+298).attr('y', legY+10).attr('fill','#c8c8d4').attr('font-family','JetBrains Mono, monospace').attr('font-size',10).text('99.9% normal \u2192 INT8 (blue)');
+            document.getElementById('surg-readout').textContent = 'Perplexity: 10.86 (no degradation)';
+        } else if (method === 'gptq') {
+            svg.append('rect').attr('x', gridX).attr('y', legY).attr('width',12).attr('height',12).attr('fill','rgba(255,80,0,0.5)');
+            svg.append('text').attr('x', gridX+18).attr('y', legY+10).attr('fill','#c8c8d4').attr('font-family','JetBrains Mono, monospace').attr('font-size',10).text('High Hessian = sensitive (bright)');
+            svg.append('rect').attr('x', gridX+280).attr('y', legY).attr('width',12).attr('height',12).attr('fill','rgba(40,60,180,0.3)');
+            svg.append('text').attr('x', gridX+298).attr('y', legY+10).attr('fill','#c8c8d4').attr('font-family','JetBrains Mono, monospace').attr('font-size',10).text('Low Hessian = safe to round');
+            document.getElementById('surg-readout').textContent = 'Column-by-column error redistribution \u2192 4-bit in 4 GPU hours';
+        } else if (method === 'smooth') {
+            svg.append('rect').attr('x', gridX).attr('y', legY).attr('width',12).attr('height',12).attr('fill','rgba(0,255,136,0.3)').attr('stroke','#00ff8844');
+            svg.append('text').attr('x', gridX+18).attr('y', legY+10).attr('fill','#c8c8d4').attr('font-family','JetBrains Mono, monospace').attr('font-size',10).text('After smoothing: spikes transferred to weights');
+            svg.append('text').attr('x', gridX).attr('y', legY+28).attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size',10).text('Enables W8A8 \u2192 INT8 tensor cores \u2192 real speedup');
+            document.getElementById('surg-readout').textContent = 'Both sides INT8 \u2192 1.56\u00D7 speedup';
+        } else if (method === 'awq') {
+            svg.append('rect').attr('x', gridX).attr('y', legY).attr('width',12).attr('height',12).attr('fill','rgba(0,255,136,0.45)').attr('stroke','#00ff88');
+            svg.append('text').attr('x', gridX+18).attr('y', legY+10).attr('fill','#c8c8d4').attr('font-family','JetBrains Mono, monospace').attr('font-size',10).text('~1% salient weights (chosen by ACTIVATION magnitude)');
+            svg.append('rect').attr('x', gridX+380).attr('y', legY).attr('width',12).attr('height',12).attr('fill','rgba(68,136,255,0.15)').attr('stroke','#4488ff22');
+            svg.append('text').attr('x', gridX+398).attr('y', legY+10).attr('fill','#c8c8d4').attr('font-family','JetBrains Mono, monospace').attr('font-size',10).text('99% scaled down');
+            document.getElementById('surg-readout').textContent = 'MLSys 2024 Best Paper \u2014 PPL 11.36 vs 10.86 baseline';
+        }
+    }
+
+    function setActive(id) {
+        ['surg-llmint8','surg-gptq','surg-smooth','surg-awq'].forEach(btnId => {
+            document.getElementById(btnId).classList.remove('active');
+        });
+        document.getElementById(id).classList.add('active');
+    }
+
+    draw('llmint8');
+    document.getElementById('surg-llmint8').addEventListener('click', () => { setActive('surg-llmint8'); draw('llmint8'); });
+    document.getElementById('surg-gptq').addEventListener('click', () => { setActive('surg-gptq'); draw('gptq'); });
+    document.getElementById('surg-smooth').addEventListener('click', () => { setActive('surg-smooth'); draw('smooth'); });
+    document.getElementById('surg-awq').addEventListener('click', () => { setActive('surg-awq'); draw('awq'); });
+})();
+</script>
+
+<h3>The Shared Insight</h3>
+
+<p>All four methods converge on one truth: <strong>not all numbers are equally important for model quality</strong>. But they identify the important ones through different lenses, and the evolution of &ldquo;what counts as important&rdquo; tells a story about the field&rsquo;s growing sophistication.</p>
+
+<table>
+<thead>
+    <tr><th>Method</th><th>What It Protects</th><th>How It Finds Importance</th><th>Surgery Type</th></tr>
+</thead>
+<tbody>
+    <tr><td>LLM.int8()</td><td>Outlier activations</td><td>Magnitude threshold (&ge; 6.0)</td><td>Mixed-precision decomposition</td></tr>
+    <tr><td>GPTQ</td><td>Sensitive weights</td><td>Hessian (2nd-order sensitivity)</td><td>Error redistribution across columns</td></tr>
+    <tr><td>SmoothQuant</td><td>Spiky activation channels</td><td>Channel magnitude ratio</td><td>Difficulty transfer (seesaw)</td></tr>
+    <tr><td>AWQ</td><td>Salient weight channels</td><td>Activation magnitude (not weight!)</td><td>Per-channel scaling</td></tr>
+</tbody>
+</table>
+
+<div class="power hack">
+    <div class="power-label">The evolution of &ldquo;importance&rdquo;</div>
+    <p><strong>LLM.int8() (Aug 2022)</strong> said: some activations are huge &mdash; don&rsquo;t touch them. Brute force, but it works. <strong>GPTQ (Oct 2022)</strong> said: some weights are fragile &mdash; if you must round them, compensate elsewhere. Surgical redistribution. <strong>SmoothQuant (Nov 2022)</strong> said: the problem isn&rsquo;t the numbers, it&rsquo;s which side they&rsquo;re on &mdash; move the difficulty. Algebraic rebalancing. <strong>AWQ (Jun 2023)</strong> said: forget the weights entirely &mdash; the activations tell you what matters. Activation-aware philosophy. Each method is more elegant than the last. All started from the same observation: naive quantization destroys a tiny fraction of values the model relies on disproportionately.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 4: THE GGML REVOLUTION                                         -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+
+<section id="ch4">
+<h2>04 // The GGML Revolution</h2>
+
+<p class="drop-cap">September 2022. A medical physicist named Georgi Gerganov, working from an apartment in Sofia, Bulgaria, started writing a tensor library in C. He called it ggml. It had no dependencies, no Python, no GPU requirement. He described himself as &ldquo;a non-AI-believer&rdquo; when it came to neural networks. He was building it, he said, &ldquo;mostly for fun.&rdquo;</p>
+
+<p>His <a href="https://ggerganov.com/">personal website</a> is a pure project portfolio &mdash; no bio, no social proof, no LinkedIn-style career narrative. Just a wall of side projects: acoustic keystroke sniffers, terminal UIs, Morse code decoders, a Bulgarian Wordle clone. The guy just builds things. His stated philosophy: &ldquo;I prefer things to be super-minimal and without any third-party dependencies.&rdquo;</p>
+
+<p>Gerganov follows in the tradition of <a href="https://bellard.org/">Fabrice Bellard</a>, the legendary French programmer behind FFmpeg, QEMU, and TCC. One person, C code, absurd ambition. ggml was directly inspired by Bellard&rsquo;s LibNC tensor library. The lineage runs deep: from Bellard&rsquo;s philosophy of minimal, dependency-free C to Gerganov&rsquo;s implementation of tensor algebra with strict memory management, multithreading, zero runtime allocations, and zero dependencies.</p>
+
+<p>In October 2022, OpenAI released Whisper, their speech recognition model. Gerganov recognized the transformer architecture resembled GPT-2, which he&rsquo;d already partially implemented in ggml. He realized: &ldquo;Okay, I can easily port this. It might be interesting to have it running on a CPU.&rdquo; He ported it. <strong>whisper.cpp</strong> ran faster than the Python original on an M1 Mac. The open-source community took notice. But nobody anticipated what came next.</p>
+
+<p>Then came the earthquake.</p>
+
+<h3>Seven Days</h3>
+
+<p>On February 24, 2023, Meta published the LLaMA paper and began distributing weights to approved researchers through a gated access process. You needed to apply, get approved, and sign an agreement. On March 3, somebody uploaded the weights to 4chan. Within hours, they were on BitTorrent. Within days, every AI community on the internet had them. The weights that were supposed to be gated were now everywhere.</p>
+
+<p><strong>Seven days later, on March 10, Georgi Gerganov committed the first version of llama.cpp.</strong></p>
+
+<p>One person. One week. A 7-billion-parameter language model, quantized to 4 bits, generating text at human reading speed on a MacBook CPU. No GPU needed. No Python. No CUDA. Pure C/C++, with 4-bit quantization implemented from scratch using the ggml tensor library he&rsquo;d built as a side project months earlier.</p>
+
+<p>His README was characteristically modest:</p>
+
+<div class="power wild">
+    <div class="power-label">The README</div>
+    <p>&ldquo;The main goal is to run the model using 4-bit quantization on a MacBook. [...] This was hacked in an evening &mdash; I have no idea if it works correctly.&rdquo;</p>
+</div>
+
+<p>The next morning, developer Simon Willison ran it on his laptop and <a href="https://simonwillison.net/2023/Mar/11/llama/">wrote</a>: &ldquo;As my laptop started to spit out text at me I genuinely had a feeling that the world was about to change, again.&rdquo; He called it LLMs&rsquo; <strong>&ldquo;Stable Diffusion moment.&rdquo;</strong></p>
+
+<p>Twelve days after the first commit, the <a href="https://changelog.com/podcast/532">Changelog podcast</a> noted llama.cpp was growing in GitHub stars <strong>faster than Stable Diffusion</strong> &mdash; which had itself been a rocket ship. The Hacker News community would later summarize: &ldquo;He pretty much kicked off the revolution in March 2023.&rdquo;</p>
+
+<p>Think about what happened in those seven days. A single developer, working from Sofia, ported an entire large language model architecture to run on consumer hardware with 4-bit quantization, in pure C/C++, with no GPU dependency. Meta had teams of dozens, purpose-built infrastructure, and a multi-million-dollar compute budget. Gerganov had a MacBook and the ggml tensor library he&rsquo;d written as a hobby. The asymmetry is staggering.</p>
+
+<p>But it makes sense when you consider what ggml already was. The tensor library handled the low-level algebra &mdash; matrix multiplies, element-wise operations, memory management. The Whisper port had already proven the architecture could handle transformer inference in C. LLaMA&rsquo;s architecture (self-attention + feedforward + RMSNorm) was structurally similar to what Gerganov had already built. The 4-bit quantization was a straightforward extension of block quantization. Each piece existed. Gerganov assembled them in a week because he&rsquo;d been building the components for months.</p>
+
+<p>Within months, <strong>every</strong> local AI tool was built on Gerganov&rsquo;s code:</p>
+
+<table>
+<thead>
+    <tr><th>Tool</th><th>What It Is</th><th>GitHub Stars</th></tr>
+</thead>
+<tbody>
+    <tr><td><strong>Ollama</strong></td><td>Docker-like CLI for local models</td><td>~144K</td></tr>
+    <tr><td><strong>Open WebUI</strong></td><td>Web interface for local/remote models</td><td>~100K</td></tr>
+    <tr><td><strong>llama.cpp</strong></td><td>The engine underneath</td><td>~95K</td></tr>
+    <tr><td><strong>GPT4All</strong></td><td>All-in-one local ChatGPT</td><td>~73K</td></tr>
+    <tr><td><strong>LM Studio</strong></td><td>Desktop GUI for local models</td><td>&mdash;</td></tr>
+    <tr><td><strong>KoboldCpp</strong></td><td>Creative writing / roleplay</td><td>&mdash;</td></tr>
+    <tr><td><strong>Jan</strong></td><td>Open-source ChatGPT alternative</td><td>&mdash;</td></tr>
+</tbody>
+</table>
+
+<p>The irony: Ollama (144K stars) is more popular than llama.cpp (95K stars) despite being built <em>on top of</em> it. The infrastructure layer is invisible &mdash; like how most people use Linux without knowing it.</p>
+
+<p>As one Hacker News commenter summarized: &ldquo;If you have ever run an AI model on your iPhone, Mac, or PC without an internet connection, llama.cpp almost certainly made it possible.&rdquo;</p>
+
+<!-- ── VISUALIZATION: The Seven-Day Revolution Timeline ── -->
+<div class="viz-container">
+    <span class="diagram-label">Timeline: The Seven-Day Revolution</span>
+    <svg id="viz-timeline" viewBox="0 0 780 180"></svg>
+</div>
+
+<script>
+(function() {
+    const svg = d3.select('#viz-timeline');
+    const W = 780, H = 180;
+    const events = [
+        {day: 0, label: 'Mar 3', title: 'LLaMA weights leak', desc: 'Uploaded to 4chan, spread via BitTorrent', color: '#ff3344'},
+        {day: 7, label: 'Mar 10', title: 'llama.cpp first commit', desc: '"Hacked in an evening"', color: '#00ff88'},
+        {day: 8, label: 'Mar 11', title: 'Willison: "world about to change"', desc: 'The "Stable Diffusion moment"', color: '#00ddff'},
+        {day: 19, label: 'Mar 22', title: 'Changelog podcast', desc: 'Growing faster than Stable Diffusion', color: '#ffdd00'},
+        {day: 60, label: 'May', title: 'Ecosystem explosion', desc: 'Ollama, GPT4All, LM Studio emerge', color: '#aa44ff'},
+    ];
+
+    const lineY = 60;
+    const xScale = d3.scaleLinear().domain([0, 65]).range([60, W - 40]);
+
+    // Timeline line
+    svg.append('line').attr('x1', 50).attr('y1', lineY).attr('x2', W - 30).attr('y2', lineY)
+        .attr('stroke','#2a2a4a').attr('stroke-width', 2);
+
+    events.forEach((e, i) => {
+        const x = xScale(e.day);
+        const above = i % 2 === 0;
+        const dy = above ? -1 : 1;
+
+        // Dot
+        svg.append('circle').attr('cx', x).attr('cy', lineY).attr('r', 6)
+            .attr('fill', e.color).attr('opacity', 0.8);
+        svg.append('circle').attr('cx', x).attr('cy', lineY).attr('r', 10)
+            .attr('fill', 'none').attr('stroke', e.color).attr('opacity', 0.3);
+
+        // Connector
+        svg.append('line').attr('x1', x).attr('y1', lineY + dy * 10).attr('x2', x).attr('y2', lineY + dy * 35)
+            .attr('stroke', e.color).attr('opacity', 0.4);
+
+        // Label
+        const textY = above ? lineY - 40 : lineY + 45;
+        svg.append('text').attr('x', x).attr('y', textY).attr('text-anchor','middle')
+            .attr('fill', e.color).attr('font-family','JetBrains Mono, monospace')
+            .attr('font-size', 10).attr('font-weight', 600).text(e.label);
+        svg.append('text').attr('x', x).attr('y', textY + 14).attr('text-anchor','middle')
+            .attr('fill','#e8e8f0').attr('font-family','Source Serif 4, serif')
+            .attr('font-size', 10).text(e.title);
+        svg.append('text').attr('x', x).attr('y', textY + 27).attr('text-anchor','middle')
+            .attr('fill','#6a6a7e').attr('font-family','Source Serif 4, serif')
+            .attr('font-size', 9).attr('font-style','italic').text(e.desc);
+    });
+})();
+</script>
+
+<h3>Block Quantization: How It Actually Works</h3>
+
+<p>The core operation is deceptively simple. Take a group of 32 weights. Find the maximum absolute value &mdash; that&rsquo;s your scale. Divide every weight by the scale, round to the nearest 4-bit integer, store the results plus the scale factor. To reconstruct: multiply each integer by the scale.</p>
+
+<pre><code><span class="cm"># Q4_0: the simplest block quantization</span>
+<span class="kw">block_size</span> = <span class="nm">32</span>
+<span class="kw">for</span> block <span class="kw">in</span> chunks(weights, <span class="nm">32</span>):
+    scale = max(abs(block))                <span class="cm"># 1 FP16 number</span>
+    quantized = round(block / scale * <span class="nm">7</span>)  <span class="cm"># 32 x 4-bit integers</span>
+    store(scale, quantized)
+<span class="cm"># 32 weights = 16 bytes (data) + 2 bytes (scale) = 18 bytes</span>
+<span class="cm"># That's 4.5 bits per weight on average</span></code></pre>
+
+<p>Simple. But crude. Why per-block and not per-tensor? Because weight distributions vary dramatically within a single tensor. One block might have values ranging from -0.01 to +0.01. Another might span -0.5 to +0.5. A global scale wastes precision &mdash; the small-value block gets mapped to a tiny subset of the 16 available INT4 levels. Per-block scaling lets each group of 32 weights use the full range. The smaller the block, the better the fit, but the more overhead from scale storage.</p>
+
+<p>And different regions of a model need different precision entirely. The attention value projections &mdash; where the model encodes <em>what information</em> to extract from each token &mdash; are far more sensitive to rounding than the feedforward gate projections. The embedding and output layers, which map between token IDs and the continuous vector space, are fragile. Treating them all identically wastes bits where they&rsquo;re not needed and starves them where they are.</p>
+
+<h3>K-Quants: The Hierarchical Leap</h3>
+
+<p>The K-quant system introduced a two-level hierarchy. Instead of one scale per 32 weights, it uses <strong>superblocks of 256 weights</strong> containing 8 sub-blocks of 32 each:</p>
+
+<div class="diagram">
+<span class="diagram-label">K-Quant Superblock Structure</span>
+<pre><code>Superblock (256 weights)
+ \u251c\u2500\u2500 1\u00d7 FP16 super-scale (d)          \u2190 dequantizes the block scales
+ \u251c\u2500\u2500 1\u00d7 FP16 super-minimum (dmin)     \u2190 for asymmetric variants
+ \u251c\u2500\u2500 Sub-block 1 (32 weights)
+ \u2502   \u251c\u2500\u2500 Quantized scale (<span class="nm">4-8 bits</span>)  \u2190 NOT full FP16!
+ \u2502   \u251c\u2500\u2500 Quantized minimum
+ \u2502   \u2514\u2500\u2500 Weight data (4-bit nibbles)
+ \u251c\u2500\u2500 Sub-block 2...
+ \u2514\u2500\u2500 Sub-block 8...</code></pre>
+</div>
+
+<p>The key innovation: <strong>the scales themselves are quantized</strong>. Instead of storing an FP16 scale per 32 weights (expensive overhead), K-quants store quantized scales with a single FP16 super-scale per 256 weights. It&rsquo;s like compressing a JPEG, then compressing the compression tables. The &ldquo;K&rdquo; in K-quants: the block scales are optimized using K-means clustering, finding the best discrete scale values to minimize total quantization error.</p>
+
+<h3>Q4_K_M: The Community Consensus</h3>
+
+<p>Q4_K_M became the default recommendation across the local AI community. The &ldquo;M&rdquo; stands for &ldquo;medium&rdquo; &mdash; balanced between aggressive compression and careful preservation. It applies <strong>different quantization levels to different tensor types</strong>:</p>
+
+<table>
+<thead>
+    <tr><th>Tensor Type</th><th>Quant Level</th><th>Why</th></tr>
+</thead>
+<tbody>
+    <tr><td>Embeddings, output</td><td style="color:var(--green);">Q6_K</td><td>Token identity is fragile</td></tr>
+    <tr><td>Attention value projections</td><td style="color:var(--green);">Q6_K</td><td>Encodes what to extract</td></tr>
+    <tr><td>FFN down-projections</td><td style="color:var(--green);">Q6_K</td><td>Final information gate</td></tr>
+    <tr><td>Query projections, FFN gates</td><td style="color:var(--cyan);">Q4_K</td><td>More tolerant of rounding</td></tr>
+</tbody>
+</table>
+
+<p>For Llama-3.1-8B, Q4_K_M produces 4.89 bits per weight &mdash; 4.58 GiB. It fits comfortably in 8 GB of RAM. This is why Q4_K_M became the default: it preserves quality where the model is sensitive (embeddings, attention values) while compressing aggressively where the model is tolerant (FFN gates, query projections). The bits are allocated based on measured sensitivity, not uniformly. It&rsquo;s the quantization equivalent of variable bitrate encoding in audio &mdash; more bits during complex passages, fewer bits during silence.</p>
+
+<!-- ── VISUALIZATION: Block Quantization Explorer ── -->
+<div class="viz-container">
+    <span class="diagram-label">Interactive: Block Quantization Explorer</span>
+    <svg id="viz-block-quant" viewBox="0 0 780 380"></svg>
+    <div class="viz-controls">
+        <button id="bq-q4_0" class="secondary active">Q4_0 (simple)</button>
+        <button id="bq-q4km" class="secondary">Q4_K_M</button>
+        <button id="bq-q5ks" class="secondary">Q5_K_S</button>
+        <button id="bq-q8_0" class="secondary">Q8_0</button>
+        <span id="bq-readout" style="margin-left:auto; color:var(--green); font-size:12px;">4.50 bpw</span>
+    </div>
+</div>
+
+<script>
+(function() {
+    const svg = d3.select('#viz-block-quant');
+    const W = 780, H = 380;
+
+    const quantTypes = {
+        'q4_0':  { bpw: 4.5, bits: 4, superblock: false, label: 'Q4_0 \u2014 Simple 4-bit, 1 scale per 32 weights' },
+        'q4km':  { bpw: 4.89, bits: 4, superblock: true, label: 'Q4_K_M \u2014 K-quant, mixed precision across tensors' },
+        'q5ks':  { bpw: 5.54, bits: 5, superblock: true, label: 'Q5_K_S \u2014 5-bit K-quant, quality-conscious' },
+        'q8_0':  { bpw: 8.5, bits: 8, superblock: false, label: 'Q8_0 \u2014 8-bit, effectively lossless' }
+    };
+
+    // Generate 256 "weights" in a superblock
+    const rawWeights = [];
+    for (let i = 0; i < 256; i++) {
+        // Most near zero, few outliers
+        const r = Math.random();
+        if (r > 0.98) rawWeights.push((Math.random() > 0.5 ? 1 : -1) * (0.5 + Math.random() * 1.5));
+        else rawWeights.push((Math.random() - 0.5) * 0.4);
+    }
+
+    function draw(type) {
+        svg.selectAll('*').remove();
+        const q = quantTypes[type];
+
+        // Title
+        svg.append('text').attr('x', W/2).attr('y', 25).attr('text-anchor','middle')
+            .attr('fill','#e8e8f0').attr('font-family','JetBrains Mono, monospace')
+            .attr('font-size', 12).text(q.label);
+
+        const blockSize = 32;
+        const numBlocks = 8;
+        const cellW = 2.6, cellH = 16;
+        const blockGap = 8;
+        const startX = 30, startY = 55;
+
+        // Color scale
+        const maxAbs = d3.max(rawWeights.map(Math.abs));
+        const colorScale = d3.scaleSequential(d3.interpolateRdBu).domain([maxAbs, -maxAbs]);
+
+        // Quantize
+        function quantize(val, bits, scale) {
+            const maxInt = (1 << (bits - 1)) - 1;
+            const q = Math.round((val / scale) * maxInt);
+            const clamped = Math.max(-maxInt, Math.min(maxInt, q));
+            return (clamped / maxInt) * scale;
+        }
+
+        // Draw blocks
+        for (let b = 0; b < numBlocks; b++) {
+            const bx = startX + b * (blockSize * cellW + blockGap);
+            const by = startY;
+            const blockWeights = rawWeights.slice(b * blockSize, (b + 1) * blockSize);
+            const scale = d3.max(blockWeights.map(Math.abs));
+
+            // Block border
+            svg.append('rect')
+                .attr('x', bx - 1).attr('y', by - 1)
+                .attr('width', blockSize * cellW + 2).attr('height', cellH * 2 + 24)
+                .attr('fill', 'none').attr('stroke', q.superblock ? '#2a2a4a' : '#1e1e2e')
+                .attr('rx', 2);
+
+            // Original weights (top row)
+            blockWeights.forEach((w, i) => {
+                svg.append('rect')
+                    .attr('x', bx + i * cellW).attr('y', by)
+                    .attr('width', cellW - 0.5).attr('height', cellH)
+                    .attr('fill', colorScale(w));
+            });
+
+            // Quantized weights (bottom row)
+            blockWeights.forEach((w, i) => {
+                const qw = quantize(w, q.bits, scale);
+                svg.append('rect')
+                    .attr('x', bx + i * cellW).attr('y', by + cellH + 4)
+                    .attr('width', cellW - 0.5).attr('height', cellH)
+                    .attr('fill', colorScale(qw));
+            });
+
+            // Scale indicator
+            const scaleColor = q.superblock ? '#00ff88' : '#ffdd00';
+            svg.append('rect')
+                .attr('x', bx).attr('y', by + cellH * 2 + 10)
+                .attr('width', blockSize * cellW).attr('height', 6)
+                .attr('fill', scaleColor).attr('opacity', 0.3).attr('rx', 1);
+            svg.append('text')
+                .attr('x', bx + (blockSize * cellW) / 2).attr('y', by + cellH * 2 + 25)
+                .attr('text-anchor','middle')
+                .attr('fill', scaleColor).attr('font-family','JetBrains Mono, monospace').attr('font-size', 7)
+                .text('s=' + scale.toFixed(2));
+        }
+
+        // Superblock bracket
+        if (q.superblock) {
+            const totalW = numBlocks * (blockSize * cellW + blockGap) - blockGap;
+            const bracketY = startY + cellH * 2 + 32;
+            svg.append('line').attr('x1', startX).attr('y1', bracketY).attr('x2', startX + totalW).attr('y2', bracketY)
+                .attr('stroke', '#00ff88').attr('stroke-width', 1);
+            svg.append('text').attr('x', startX + totalW/2).attr('y', bracketY + 15)
+                .attr('text-anchor','middle').attr('fill','#00ff88')
+                .attr('font-family','JetBrains Mono, monospace').attr('font-size', 10)
+                .text('Superblock (256) \u2014 1 FP16 super-scale + quantized sub-scales');
+        }
+
+        // Row labels
+        svg.append('text').attr('x', 15).attr('y', startY + 10).attr('fill','#6a6a7e')
+            .attr('font-family','JetBrains Mono, monospace').attr('font-size', 8)
+            .attr('text-anchor','end').text('FP16');
+        svg.append('text').attr('x', 15).attr('y', startY + cellH + 14).attr('fill','#6a6a7e')
+            .attr('font-family','JetBrains Mono, monospace').attr('font-size', 8)
+            .attr('text-anchor','end').text(q.bits + 'bit');
+
+        // Error analysis
+        let totalError = 0;
+        for (let i = 0; i < 256; i++) {
+            const b = Math.floor(i / 32);
+            const scale = d3.max(rawWeights.slice(b * 32, (b + 1) * 32).map(Math.abs));
+            const qw = quantize(rawWeights[i], q.bits, scale);
+            totalError += Math.abs(rawWeights[i] - qw);
+        }
+        const meanError = totalError / 256;
+
+        // Stats panel
+        const statsY = q.superblock ? startY + cellH * 2 + 60 : startY + cellH * 2 + 40;
+        const stats = [
+            { label: 'Bits per weight', value: q.bpw.toFixed(2), color: '#00ff88' },
+            { label: 'Mean abs error', value: meanError.toFixed(4), color: meanError < 0.01 ? '#00ff88' : meanError < 0.03 ? '#ffdd00' : '#ff8800' },
+            { label: '8B model size', value: ((8 * q.bpw) / 8).toFixed(1) + ' GiB', color: '#00ddff' },
+        ];
+        stats.forEach((s, i) => {
+            svg.append('text').attr('x', startX + i * 220).attr('y', statsY)
+                .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size', 10)
+                .text(s.label + ': ');
+            svg.append('text').attr('x', startX + i * 220 + s.label.length * 6.2 + 10).attr('y', statsY)
+                .attr('fill', s.color).attr('font-family','JetBrains Mono, monospace').attr('font-size', 10)
+                .text(s.value);
+        });
+
+        document.getElementById('bq-readout').textContent = q.bpw.toFixed(2) + ' bpw';
+    }
+
+    function setActive(id) {
+        ['bq-q4_0','bq-q4km','bq-q5ks','bq-q8_0'].forEach(b => document.getElementById(b).classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+    }
+
+    draw('q4_0');
+    document.getElementById('bq-q4_0').addEventListener('click', () => { setActive('bq-q4_0'); draw('q4_0'); });
+    document.getElementById('bq-q4km').addEventListener('click', () => { setActive('bq-q4km'); draw('q4km'); });
+    document.getElementById('bq-q5ks').addEventListener('click', () => { setActive('bq-q5ks'); draw('q5ks'); });
+    document.getElementById('bq-q8_0').addEventListener('click', () => { setActive('bq-q8_0'); draw('q8_0'); });
+})();
+</script>
+
+<h3>Importance Matrices: Tell the Quantizer What Matters</h3>
+
+<p>Below 3 bits per weight, block quantization alone isn&rsquo;t enough. The model starts producing gibberish. At IQ2_XXS (2.38 bits per weight), a naive quantization produces incoherent text. The same model, quantized with an importance matrix, holds together.</p>
+
+<p>The rescue: <strong>importance matrices</strong> (imatrix). The workflow is straightforward:</p>
+
+<pre><code><span class="cm"># Step 1: Generate importance matrix from calibration data</span>
+llama-imatrix -m model-f16.gguf -f calibration.txt -o imatrix.dat
+
+<span class="cm"># Step 2: Quantize using the importance matrix</span>
+llama-quantize --imatrix imatrix.dat model-f16.gguf model-IQ3_M.gguf IQ3_M
+
+<span class="cm"># The imatrix tells the quantizer which weights matter most.</span>
+<span class="cm"># High-importance: preserved carefully. Low-importance: compressed hard.</span>
+<span class="cm"># Zero runtime overhead — all work happens at quantization time.</span></code></pre>
+
+<p>Run the model on representative text using <code>llama-imatrix</code>, record activation statistics &mdash; which weights produce large activations, which ones are quiet. Feed that importance matrix to <code>llama-quantize</code> via the <code>--imatrix</code> flag. High-importance weights get more bits. Low-importance weights get fewer. The result has zero inference overhead &mdash; all the extra computation happens at quantization time, not at runtime.</p>
+
+<p>Two counterintuitive findings. First, diverse, somewhat random calibration data works better than domain-specific text. If you calibrate on medical journals and then use the model for code generation, the importance matrix is biased. Varied, general-purpose text produces better all-around quantization. Second, the impact scales inversely with bit-width. At Q4_K_M and above, importance matrices offer marginal benefit &mdash; there are enough bits to go around. At Q3_K_M, noticeable improvement. At IQ2 and below, <strong>essential</strong> &mdash; the difference between coherent output and word salad.</p>
+
+<h3>The Constraint-Driven Thesis</h3>
+
+<p>The numbers as of early 2026: ~95,400 GitHub stars on llama.cpp. 15,000+ forks. 4,585+ commits. Thousands of GGUF models hosted on Hugging Face, with every significant open-source release quantized and uploaded within hours of publication. Hardware backends for x86, ARM, Metal, CUDA, HIP (AMD), Vulkan, and BLAS. License: MIT &mdash; maximally permissive, as Gerganov insisted from the start.</p>
+
+<p>The project&rsquo;s timeline is a cascade of capability unlocks: October 2022, whisper.cpp for speech recognition. March 2023, llama.cpp for text generation. August 2023, GGUF file format replacing the earlier GGML format with a more extensible, self-describing container. April 2024, FlashAttention added to llama.cpp. December 2025, full Android and ChromeOS acceleration via a new GUI binding. The project grew from one person&rsquo;s evening hack to the backbone of local AI inference.</p>
+
+<p>In 2023, ggml.ai was founded in Sofia with pre-seed funding from Nat Friedman (former GitHub CEO) and Daniel Gross. Two of the most connected people in AI investing looked at a medical physicist&rsquo;s C tensor library in Bulgaria and wrote a check. The company&rsquo;s mission statement: &ldquo;in the spirit of play.&rdquo;</p>
+
+<p>In February 2026, Georgi Gerganov and the founding ggml.ai team <a href="https://huggingface.co/blog/ggml-joins-hf">joined Hugging Face</a>. From the HF blog: &ldquo;llama.cpp is the fundamental building block for local inference, and transformers is the fundamental building block for model definition, so this is basically a match made in heaven.&rdquo; The projects remain 100% open-source, MIT-licensed. Georgi and team retain full autonomy on technical direction. The core team: Georgi Gerganov, Xuan-Son Nguyen, and Aleksander Grygier.</p>
+
+<details>
+<summary>Practical: How to quantize a model with llama.cpp</summary>
+<div>
+<p>The workflow for creating a GGUF quantization is straightforward. You need the model in FP16 (usually from Hugging Face), the llama.cpp tooling built from source, and optionally a calibration dataset for importance matrices.</p>
+<pre><code><span class="cm"># 1. Convert HuggingFace model to GGUF format</span>
+python convert_hf_to_gguf.py ./model-dir --outtype f16 --outfile model-f16.gguf
+
+<span class="cm"># 2. (Optional) Generate importance matrix for sub-4-bit quants</span>
+./llama-imatrix -m model-f16.gguf -f wiki.train.raw -o model.imatrix \
+    --chunks <span class="nm">200</span>
+
+<span class="cm"># 3. Quantize to your target precision</span>
+./llama-quantize model-f16.gguf model-Q4_K_M.gguf Q4_K_M
+
+<span class="cm"># 3b. Or with importance matrix for aggressive quants</span>
+./llama-quantize --imatrix model.imatrix \
+    model-f16.gguf model-IQ3_M.gguf IQ3_M
+
+<span class="cm"># 4. Test it</span>
+./llama-cli -m model-Q4_K_M.gguf -p <span class="st">"Hello, world"</span> -n <span class="nm">100</span></code></pre>
+<p style="font-size: 0.85rem; color: var(--text-dim);">Most users never do this &mdash; they download pre-quantized GGUF files from Hugging Face. But understanding the pipeline demystifies what those files contain.</p>
+</div>
+</details>
+
+<div class="power">
+    <div class="power-label">The constraint thesis</div>
+    <p>No Python dependency forced pure C/C++, leading to dramatically faster inference. No GPU requirement forced quantization innovation, creating the entire GGUF ecosystem. No corporate backing forced simplicity, making it hackable by everyone. One person forced decisions, avoiding design-by-committee paralysis. NOT having access to GPU clusters drove more innovation than having them. Google, Meta, and OpenAI had unlimited compute but built systems that <em>required</em> unlimited compute. Gerganov had a MacBook and built something that ran on everything.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 5: THE RADICAL FRONTIER                                        -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+
+<section id="ch5">
+<h2>05 // The Radical Frontier</h2>
+
+<p class="drop-cap">What if every weight in a neural network was one of three values: -1, 0, or +1? No floating-point multiplication at all. Every matrix multiply becomes pure addition and subtraction. The weight matrix is no longer a dense grid of precise decimal numbers &mdash; it&rsquo;s a sparse instruction set: add this, subtract that, skip the rest.</p>
+
+<p>That sounds like a thought experiment. A parlor trick that couldn&rsquo;t possibly produce a working language model. Microsoft Research built it. And it works.</p>
+
+<h3>BitNet: The Ternary Revolution</h3>
+
+<p>The idea traces back to &ldquo;The Era of 1-bit LLMs&rdquo; (Ma et al., Microsoft Research, February 2024). The claim was extraordinary: you can train a Transformer where every weight is constrained to {-1, 0, +1} and match FP16 quality at scale. Three possible values means log<sub>2</sub>(3) = 1.58 bits per weight &mdash; the theoretical minimum to encode a ternary value. Hence the name: BitNet b1.58.</p>
+
+<p>The quantization formula is beautiful in its simplicity:</p>
+
+<pre><code><span class="cm"># BitNet b1.58 — absmean quantization</span>
+gamma = mean(abs(W))          <span class="cm"># average magnitude of weight matrix</span>
+W_ternary = round(W / gamma)  <span class="cm"># divide by average, round to integer</span>
+W_ternary = clamp(W_ternary, <span class="nm">-1</span>, <span class="nm">+1</span>)  <span class="cm"># clamp to {-1, 0, +1}</span>
+
+<span class="cm"># Matrix multiplication becomes:</span>
+<span class="cm">#   +1 \u2192 add the activation</span>
+<span class="cm">#   -1 \u2192 subtract the activation</span>
+<span class="cm">#    0 \u2192 skip</span>
+<span class="cm"># No multiply-accumulate. Just accumulate.</span></code></pre>
+
+<p>In April 2025, Microsoft released <a href="https://huggingface.co/microsoft/bitnet-b1.58-2B-4T">BitNet b1.58 2B4T</a> &mdash; the first open-source natively-trained ternary LLM. Two billion parameters. Four trillion training tokens. The numbers are startling:</p>
+
+<div class="vs">
+    <div class="vs-card">
+        <h4>BitNet b1.58 2B</h4>
+        <p><strong style="color:var(--green);">0.4 GB</strong> memory (non-embedding)</p>
+        <p><strong style="color:var(--green);">29 ms/token</strong> on CPU</p>
+        <p><strong style="color:var(--green);">0.028 J</strong> per inference</p>
+    </div>
+    <div class="vs-card">
+        <h4>Qwen 2.5 1.5B</h4>
+        <p><strong style="color:var(--orange);">2.6 GB</strong> memory</p>
+        <p><strong style="color:var(--orange);">65 ms/token</strong> on CPU</p>
+        <p><strong style="color:var(--orange);">0.347 J</strong> per inference</p>
+    </div>
+</div>
+
+<p>Let that sink in. BitNet b1.58 2B uses less memory than a single high-resolution photograph on your phone. It runs on a CPU at 29 milliseconds per token &mdash; human reading speed. It scores within striking distance of models using 6&ndash;12x more memory.</p>
+
+<p>Six times less memory. Twice as fast on CPU. Twelve times less energy. And benchmark quality within 2% of Qwen 2.5 1.5B on average (slightly behind on MMLU, slightly ahead on GSM8K and Arc-Challenge). The energy savings on 7nm chips are staggering: <strong>71.4x fewer arithmetic operations</strong> for matrix multiplication compared to FP16. This isn&rsquo;t a marginal improvement. It&rsquo;s a different category of computation.</p>
+
+<p>The architecture replaces <code>nn.Linear</code> with <code>BitLinear</code> &mdash; same Transformer skeleton (RMSNorm, SwiGLU, rotary embeddings), but fundamentally different arithmetic. When every weight is ternary, you don&rsquo;t need a multiply-accumulate unit. Multiply by +1 means add the activation. Multiply by -1 means subtract. Multiply by 0 means skip. Integer addition is orders of magnitude cheaper than floating-point multiplication. The hardware implications cascade: simpler ALUs, less power, less heat, potentially custom silicon that&rsquo;s dramatically more efficient than general-purpose GPUs.</p>
+
+<p>The catch: BitNet is <strong>not</strong> post-training quantization. You cannot take Qwen 2.5 72B and &ldquo;BitNet it.&rdquo; The model must be trained from scratch with ternary weights. It learns to express knowledge through -1, 0, and +1 during training &mdash; it doesn&rsquo;t get compressed into that representation afterward. This is a fundamentally different training paradigm, and the cost of training from scratch is the reason ternary models are still rare. You also need Microsoft&rsquo;s dedicated <code>bitnet.cpp</code> runtime with optimized kernels for ternary arithmetic. Standard <code>transformers</code> gives zero efficiency gains &mdash; it doesn&rsquo;t know how to exploit the ternary structure.</p>
+
+<p>On x86 CPUs, bitnet.cpp is 2.37x to 6.17x faster than llama.cpp for equivalent model sizes. On ARM (MacBook), 1.37x to 5.07x faster. Energy reduction: 72&ndash;82%. The speedup comes from replacing floating-point multiply-accumulate units with simple integer addition, which is fundamentally cheaper on every processor architecture. The energy savings compound: less compute per operation, fewer operations per inference, less memory bandwidth consumed.</p>
+
+<p>The projection nobody has fulfilled yet: bitnet.cpp can run a <strong>100-billion-parameter ternary model on a single CPU at 5&ndash;7 tokens per second</strong>. Human reading speed. No GPU. A 100B model &mdash; the size of GPT-3 &mdash; in roughly 12 GB of RAM, on a laptop. Nobody has trained and released such a model. But the framework is waiting. The question is not whether the hardware can do it. The question is whether anyone will spend the training compute. A 100B model training run costs millions of dollars. The potential payoff is enormous &mdash; a model the size of GPT-3 that runs on a laptop, no internet required, no GPU required, at reading speed. But nobody has placed that bet yet.</p>
+
+<p>The implications ripple outward. If ternary models scale to 100B+ and maintain quality, the entire economics of AI inference changes. GPU clusters become less critical. Edge devices become more capable. The power consumption of AI drops by an order of magnitude. Countries without data centers can run frontier models on commodity hardware. The constraints that define who can and cannot deploy AI shift fundamentally. All from replacing multiplication with addition.</p>
+
+<h3>The Kernel Lesson</h3>
+
+<p>Here is the most important number in this article.</p>
+
+<p>Benchmark: Qwen2.5-32B-Instruct on an NVIDIA H200, via vLLM:</p>
+
+<table>
+<thead>
+    <tr><th>Method</th><th>Throughput</th><th>vs FP16</th></tr>
+</thead>
+<tbody>
+    <tr><td>FP16 baseline</td><td>461 tok/s</td><td style="color:var(--text-dim);">1.00x</td></tr>
+    <tr><td>AWQ (standard kernel)</td><td style="color:var(--red);">68 tok/s</td><td style="color:var(--red);">0.15x</td></tr>
+    <tr><td>GPTQ (standard kernel)</td><td>277 tok/s</td><td style="color:var(--text-dim);">0.60x</td></tr>
+    <tr><td>GPTQ + Marlin</td><td>712 tok/s</td><td style="color:var(--green);">1.55x</td></tr>
+    <tr><td><strong>AWQ + Marlin</strong></td><td style="color:var(--green);"><strong>741 tok/s</strong></td><td style="color:var(--green);"><strong>1.61x</strong></td></tr>
+</tbody>
+</table>
+
+<p>Read that again. AWQ without the Marlin kernel runs at <strong>15% of FP16 speed</strong>. The mathematically elegant 4-bit quantization is <em>catastrophically slower</em> than not quantizing at all. How is this possible? The model is four times smaller. Shouldn&rsquo;t it be faster?</p>
+
+<p>The answer is that quantization doesn&rsquo;t reduce the amount of computation. It changes the <em>shape</em> of computation. The GPU still performs the same number of multiply-accumulate operations. But now each one requires dequantizing the INT4 weight to FP16 first, computing the multiply, and accumulating. The default dequantization kernel &mdash; the code that unpacks 4-bit integers back to floating point &mdash; is so unoptimized that this overhead overwhelms the memory bandwidth savings. You saved VRAM but burned clock cycles. A latency nightmare disguised as an optimization.</p>
+
+<p>AWQ <em>with</em> the Marlin kernel: 741 tok/s. <strong>10.9x faster from the kernel alone.</strong> The weights didn&rsquo;t change. The algorithm didn&rsquo;t change. The GPU didn&rsquo;t change. Only the execution changed. Marlin interleaves dequantization with tensor core operations so tightly that neither pipeline stalls waiting for the other. It&rsquo;s the difference between a runner who stops to tie their shoes every hundred meters and one who never breaks stride.</p>
+
+<!-- ── VISUALIZATION: The Kernel Gap ── -->
+<div class="viz-container">
+    <span class="diagram-label">The Kernel Gap: Same Weights, Different Execution</span>
+    <svg id="viz-kernel-gap" viewBox="0 0 780 280"></svg>
+</div>
+
+<script>
+(function() {
+    const svg = d3.select('#viz-kernel-gap');
+    const W = 780, H = 280;
+    const data = [
+        { method: 'AWQ (standard)', toks: 68, color: '#ff3344' },
+        { method: 'GPTQ (standard)', toks: 277, color: '#ff8800' },
+        { method: 'FP16 (no quant)', toks: 461, color: '#6a6a7e' },
+        { method: 'GPTQ + Marlin', toks: 712, color: '#00ddff' },
+        { method: 'AWQ + Marlin', toks: 741, color: '#00ff88' },
+    ];
+
+    const maxTok = 800;
+    const barX = 180, barMaxW = 540;
+    const barH = 30, barGap = 12;
+    const startY = 35;
+
+    const scale = d3.scaleLinear().domain([0, maxTok]).range([0, barMaxW]);
+
+    data.forEach((d, i) => {
+        const y = startY + i * (barH + barGap);
+
+        // Label
+        svg.append('text').attr('x', barX - 10).attr('y', y + barH/2 + 4)
+            .attr('text-anchor','end').attr('fill', d.color)
+            .attr('font-family','JetBrains Mono, monospace').attr('font-size', 11)
+            .text(d.method);
+
+        // Bar background
+        svg.append('rect').attr('x', barX).attr('y', y).attr('width', barMaxW).attr('height', barH)
+            .attr('fill','#12121a').attr('rx', 3);
+
+        // Bar
+        svg.append('rect').attr('x', barX).attr('y', y).attr('width', 0).attr('height', barH)
+            .attr('fill', d.color).attr('opacity', 0.35).attr('rx', 3)
+            .transition().duration(800).delay(i * 100).attr('width', scale(d.toks));
+
+        svg.append('rect').attr('x', barX).attr('y', y).attr('width', 0).attr('height', barH)
+            .attr('fill','none').attr('stroke', d.color).attr('stroke-width', 1).attr('rx', 3)
+            .transition().duration(800).delay(i * 100).attr('width', scale(d.toks));
+
+        // Value
+        svg.append('text').attr('x', barX + scale(d.toks) + 8).attr('y', y + barH/2 + 4)
+            .attr('fill', d.color).attr('font-family','JetBrains Mono, monospace').attr('font-size', 12)
+            .attr('font-weight', 600).attr('opacity', 0)
+            .text(d.toks + ' tok/s')
+            .transition().delay(800 + i * 100).duration(200).attr('opacity', 1);
+    });
+
+    // Annotation: the 10.9x gap
+    const awqY = startY;
+    const marlinY = startY + 4 * (barH + barGap);
+    svg.append('line')
+        .attr('x1', barX + scale(68) + 3).attr('y1', awqY + barH/2)
+        .attr('x2', barX + scale(68) + 3).attr('y2', marlinY + barH/2)
+        .attr('stroke','#ff00aa').attr('stroke-width', 1).attr('stroke-dasharray','3,3')
+        .attr('opacity', 0).transition().delay(1400).duration(400).attr('opacity', 0.7);
+
+    svg.append('text')
+        .attr('x', barX + scale(68) + 10).attr('y', (awqY + marlinY + barH) / 2 + 4)
+        .attr('fill','#ff00aa').attr('font-family','JetBrains Mono, monospace').attr('font-size', 11)
+        .attr('font-weight', 600)
+        .text('10.9\u00D7 from kernel alone')
+        .attr('opacity', 0).transition().delay(1600).duration(400).attr('opacity', 1);
+})();
+</script>
+
+<p><a href="https://arxiv.org/abs/2408.11743">MARLIN</a> (Mixed-precision Auto-Regressive LINear kernel) was published at PPoPP 2025 by the same IST Austria group behind GPTQ &mdash; Elias Frantar and Dan Alistarh. It&rsquo;s an FP16&times;INT4 matrix multiplication kernel that takes 4-bit quantized weights and FP16 activations and multiplies them with near-ideal efficiency.</p>
+
+<p>Three techniques make it work. First, <strong>asynchronous weight loading</strong>: Marlin uses <code>cuda::memcpy_async</code> (Ampere and newer) to load INT4 weights directly to shared memory without blocking compute. A cache eviction policy prevents polluting the L2 with weights that are never reused, preserving L2 space for activations that are. Second, <strong>circular shared-memory double buffering</strong>: while the GPU computes on buffer A, it loads the next tile into buffer B. No synchronization stalls. The current iteration&rsquo;s compute uses operands fetched to registers in the previous iteration. Third, <strong>Stream-K parallelization</strong>: non-uniform work partitioning along the reduction dimension that minimizes idle SMs when work doesn&rsquo;t divide evenly.</p>
+
+<p>The result: near-ideal 3.87x speedup (theoretical maximum for 4-bit: 16/4 = 4x, minus group scaling overhead) sustained across batch sizes 1&ndash;32. Prior work hit ~4x only at batch_size=1 and degraded rapidly. As the batch size grows, the operation becomes compute-bound rather than memory-bound, and the advantage of smaller weights diminishes. Marlin maintains the speedup up to batch 64&ndash;128 before this crossover takes over. End-to-end in vLLM on real serving workloads: ~2.8x speedup. Not 4x, because a production serving system includes attention, KV cache management, scheduling overhead, and other components that aren&rsquo;t weight-matrix multiplies. But 2.8x on end-to-end latency is enormous for a technique that&rsquo;s invisible to the user.</p>
+
+<p>The vLLM issue tracker (<a href="https://github.com/vllm-project/vllm/issues/2268">vllm-project/vllm#2268</a>) tells the story plainly. Before Marlin, the team acknowledged: &ldquo;AWQ int4 GEMM kernel was too slow &mdash; fp16 faster than int4 in every batchsize.&rdquo; This was a known issue, not a bug. The default kernel was simply not designed for mixed-precision arithmetic. Marlin was the fix. And it came from the same IST Austria group that built GPTQ &mdash; the same researchers who understood both the math and the metal.</p>
+
+<div class="power danger">
+    <div class="power-label">The lesson</div>
+    <p>The algorithm is not the bottleneck &mdash; the execution is. AWQ&rsquo;s math is fine. GPTQ&rsquo;s math is fine. But without a kernel that can deliver the theoretical throughput of 4-bit weights, you&rsquo;re leaving performance on the table &mdash; or worse, you&rsquo;re slower than not quantizing at all. The vLLM issue tracker explicitly acknowledged this: &ldquo;AWQ int4 GEMM kernel was too slow &mdash; fp16 faster than int4 in every batchsize.&rdquo;</p>
+</div>
+
+<h3>KVQuant: The Other Memory Wall</h3>
+
+<p>There&rsquo;s one more frontier, and it targets a different bottleneck entirely. At long context lengths, the <strong>KV cache</strong> &mdash; not the model weights &mdash; dominates memory. Every token you process adds a key vector and a value vector to the cache, for every layer, for every attention head. A 7B model with a million-token context can require hundreds of GB just for cached keys and values. You&rsquo;ve quantized the weights to 4 bits. The model fits. And then the cache fills up and you&rsquo;re out of memory anyway.</p>
+
+<p><a href="https://arxiv.org/abs/2401.18079">KVQuant</a> (Hooper, Kim, et al., NeurIPS 2024) compresses the KV cache to <strong>3 bits</strong> with less than 0.1 perplexity degradation. It combines four techniques: per-channel key quantization (different scaling per channel, not per token), pre-RoPE key quantization (quantize before rotary position embedding to avoid distribution distortion), non-uniform quantization that considers sensitivity rather than just magnitude, and per-vector dense-and-sparse decomposition that explicitly preserves heavy-tailed outliers.</p>
+
+<p>The result: a 7B model holding <strong>one million tokens of context on a single A100-80GB</strong>. On 8x A100s, ten million tokens. Custom CUDA kernels achieve ~1.7x speedup over FP16 matrix-vector multiply for attention computation.</p>
+
+<p>Weight quantization shrinks the model. KV cache quantization extends the context. They&rsquo;re orthogonal &mdash; you can stack them. A GPTQ-quantized model with KVQuant cache gives you both a smaller model and a longer context window simultaneously. The weight quantization frees memory that the KV cache then fills with context. You&rsquo;re not just saving space &mdash; you&rsquo;re reallocating it from a place where precision doesn&rsquo;t matter (weight storage) to a place where capacity does (context memory).</p>
+
+<p>This bridges directly to the serving story in Part III, where context length is often the binding constraint. As models push toward million-token context windows, and users expect multi-turn conversations that accumulate thousands of tokens of history, the KV cache becomes the dominant memory consumer. Weight quantization got the model into the GPU. KV cache quantization keeps it from filling up as the conversation grows.</p>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 6: THE SPECTRUM                                                -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+
+<section id="ch6">
+<h2>06 // The Spectrum</h2>
+
+<p class="drop-cap">Quantization is not a setting you toggle. It&rsquo;s a spectrum of techniques, each targeting a different bottleneck in the compute stack. The methods in this article operate at five different levels, and a fully optimized deployment combines them.</p>
+
+<!-- ── VISUALIZATION: The Taxonomy ── -->
+<div class="viz-container">
+    <span class="diagram-label">Interactive: The Quantization Taxonomy</span>
+    <svg id="viz-taxonomy" viewBox="0 0 780 420"></svg>
+    <div class="viz-controls">
+        <button id="tax-all" class="secondary active">All Layers</button>
+        <button id="tax-weights" class="secondary">Weight Only</button>
+        <button id="tax-wa" class="secondary">W+A</button>
+        <button id="tax-train" class="secondary">Train-Time</button>
+        <button id="tax-kv" class="secondary">KV Cache</button>
+        <button id="tax-kernel" class="secondary">Kernels</button>
+    </div>
+</div>
+
+<script>
+(function() {
+    const svg = d3.select('#viz-taxonomy');
+    const W = 780, H = 420;
+
+    const layers = [
+        {
+            label: 'Train-Time Quantization',
+            color: '#aa44ff',
+            y: 30,
+            methods: [
+                { name: 'BitNet b1.58', desc: 'Ternary from scratch. 1.58 bpw. No PTQ.', bottleneck: 'Weights + Compute' }
+            ],
+            tag: 'train'
+        },
+        {
+            label: 'Post-Training Weight Quantization',
+            color: '#00ff88',
+            y: 100,
+            methods: [
+                { name: 'GPTQ', desc: 'Second-order, per-layer optimal rounding', bottleneck: 'Model size' },
+                { name: 'AWQ', desc: 'Activation-aware salient weight protection', bottleneck: 'Model size' },
+                { name: 'GGML/GGUF', desc: 'CPU-friendly, K-quant mixed precision', bottleneck: 'Model size' }
+            ],
+            tag: 'weights'
+        },
+        {
+            label: 'Weight + Activation Quantization',
+            color: '#00ddff',
+            y: 195,
+            methods: [
+                { name: 'SmoothQuant', desc: 'Migrates difficulty between W and A', bottleneck: 'Throughput' },
+                { name: 'LLM.int8()', desc: 'Mixed-precision with FP16 outliers', bottleneck: 'Throughput' }
+            ],
+            tag: 'wa'
+        },
+        {
+            label: 'KV Cache Quantization',
+            color: '#ffdd00',
+            y: 275,
+            methods: [
+                { name: 'KVQuant', desc: '3-bit cache. 1M context on 1 GPU.', bottleneck: 'Context length' }
+            ],
+            tag: 'kv'
+        },
+        {
+            label: 'Runtime Kernels',
+            color: '#ff00aa',
+            y: 335,
+            methods: [
+                { name: 'Marlin', desc: 'FP16\u00D7INT4, near-ideal 4\u00D7 speedup', bottleneck: 'Wall-clock speed' },
+                { name: 'bitnet.cpp', desc: 'Ternary-optimized CPU kernels', bottleneck: 'Wall-clock speed' }
+            ],
+            tag: 'kernel'
+        }
+    ];
+
+    let activeTag = 'all';
+
+    function draw(tag) {
+        svg.selectAll('*').remove();
+        activeTag = tag;
+
+        layers.forEach(layer => {
+            const isActive = tag === 'all' || tag === layer.tag;
+            const opacity = isActive ? 1 : 0.15;
+            const g = svg.append('g').attr('opacity', opacity);
+
+            // Layer label
+            g.append('text')
+                .attr('x', 15).attr('y', layer.y + 16)
+                .attr('fill', layer.color).attr('font-family','JetBrains Mono, monospace')
+                .attr('font-size', 11).attr('text-transform','uppercase').attr('letter-spacing','0.05em')
+                .text(layer.label);
+
+            // Methods
+            let mx = 15;
+            layer.methods.forEach((method, i) => {
+                const boxW = 230, boxH = 45;
+                const bx = 15 + i * (boxW + 10);
+                const by = layer.y + 25;
+
+                g.append('rect')
+                    .attr('x', bx).attr('y', by)
+                    .attr('width', boxW).attr('height', boxH)
+                    .attr('fill', isActive ? layer.color + '12' : '#12121a')
+                    .attr('stroke', isActive ? layer.color + '44' : '#1e1e2e')
+                    .attr('rx', 4);
+
+                g.append('text')
+                    .attr('x', bx + 10).attr('y', by + 17)
+                    .attr('fill', isActive ? '#e8e8f0' : '#6a6a7e')
+                    .attr('font-family','JetBrains Mono, monospace').attr('font-size', 11)
+                    .attr('font-weight', 600)
+                    .text(method.name);
+
+                g.append('text')
+                    .attr('x', bx + 10).attr('y', by + 33)
+                    .attr('fill', isActive ? '#6a6a7e' : '#3a3a4e')
+                    .attr('font-family','Source Serif 4, serif').attr('font-size', 10)
+                    .text(method.desc);
+            });
+
+            // Bottleneck label (right side)
+            if (layer.methods.length > 0 && isActive) {
+                const rightX = 15 + layer.methods.length * 240;
+                g.append('text')
+                    .attr('x', W - 20).attr('y', layer.y + 50)
+                    .attr('text-anchor','end')
+                    .attr('fill', layer.color).attr('opacity', 0.6)
+                    .attr('font-family','JetBrains Mono, monospace').attr('font-size', 9)
+                    .text('\u2192 ' + layer.methods[0].bottleneck);
+            }
+        });
+
+        // Stack message at bottom
+        if (tag === 'all') {
+            svg.append('text').attr('x', W/2).attr('y', H - 10).attr('text-anchor','middle')
+                .attr('fill','#6a6a7e').attr('font-family','JetBrains Mono, monospace').attr('font-size', 10)
+                .text('Stack them: AWQ weights + KVQuant cache + Marlin kernel = small model, long context, fast execution');
+        }
+    }
+
+    function setActive(id) {
+        ['tax-all','tax-weights','tax-wa','tax-train','tax-kv','tax-kernel'].forEach(b =>
+            document.getElementById(b).classList.remove('active'));
+        document.getElementById(id).classList.add('active');
+    }
+
+    draw('all');
+    document.getElementById('tax-all').addEventListener('click', () => { setActive('tax-all'); draw('all'); });
+    document.getElementById('tax-weights').addEventListener('click', () => { setActive('tax-weights'); draw('weights'); });
+    document.getElementById('tax-wa').addEventListener('click', () => { setActive('tax-wa'); draw('wa'); });
+    document.getElementById('tax-train').addEventListener('click', () => { setActive('tax-train'); draw('train'); });
+    document.getElementById('tax-kv').addEventListener('click', () => { setActive('tax-kv'); draw('kv'); });
+    document.getElementById('tax-kernel').addEventListener('click', () => { setActive('tax-kernel'); draw('kernel'); });
+})();
+</script>
+
+<p><strong>Weight-only PTQ</strong> (GPTQ, AWQ, GGML) is the most common and easiest to apply. Download a pre-quantized model from Hugging Face, run it with Ollama or LM Studio. No calibration data, no training, no expertise required. This is what 90% of local AI users encounter, and Q4_K_M is the community default.</p>
+
+<p><strong>Weight + activation quantization</strong> (SmoothQuant, LLM.int8()) enables full INT8 acceleration &mdash; both operands in INT8, unlocking INT8 tensor cores and integer GEMM kernels. This is critical for serving workloads where throughput matters more than download size. If you&rsquo;re running a single model for your own use, weight-only quantization is fine. If you&rsquo;re serving thousands of concurrent users, you need both sides quantized to hit peak hardware utilization.</p>
+
+<p><strong>Train-time quantization</strong> (BitNet) is the most radical approach: highest reward, highest cost. You get 1.58-bit weights with zero post-training quality loss, but you must train from scratch. The barrier isn&rsquo;t technical &mdash; the framework exists. It&rsquo;s economic: training a 100B model from scratch costs millions of dollars in compute.</p>
+
+<p><strong>KV cache quantization</strong> (KVQuant) is orthogonal to everything above. It targets a completely different memory pool, extending the context window rather than shrinking the model. As context lengths push toward millions of tokens, KV cache compression will become as essential as weight compression is today.</p>
+
+<p>And <strong>runtime kernels</strong> (Marlin, bitnet.cpp, ExLlama) are the execution layer that makes everything else actually fast. The most elegant quantization algorithm in the world is useless &mdash; or actively harmful &mdash; without a kernel that can deliver the theoretical throughput. This is the lesson that the AWQ/Marlin comparison hammers home: math is necessary but not sufficient. Execution is everything.</p>
+
+<p>A fully optimized serving stack combines methods from multiple layers. AWQ weights + KVQuant cache + Marlin kernel gives you a smaller model, a longer context window, and faster wall-clock execution. Each technique targets a different bottleneck. Together, they compound.</p>
+
+<p>This is the view from early 2026. The quantization field has matured from &ldquo;can we make it work at all?&rdquo; to &ldquo;how do we optimize across the full stack?&rdquo; The research frontier has shifted to training-time quantization (BitNet and its successors), sub-2-bit representations, and hardware-aware co-design where the chip architecture is built around the quantization scheme rather than the other way around. The question is no longer whether models can be compressed. It&rsquo;s how much intelligence you can pack into the fewest possible bits, on the cheapest possible hardware, at the lowest possible energy cost.</p>
+
+<h3>The Quant Ladder</h3>
+
+<p>For the practitioner choosing a quantization level, here is the full spectrum, benchmarked on Llama-3.1-8B:</p>
+
+<table>
+<thead>
+    <tr><th>Type</th><th>Bits/Weight</th><th>Size (8B model)</th><th>Use Case</th></tr>
+</thead>
+<tbody>
+    <tr><td>IQ1_S</td><td style="color:var(--red);">2.00</td><td>1.87 GiB</td><td>Extreme compression, research only</td></tr>
+    <tr><td>IQ2_XXS</td><td style="color:var(--orange);">2.38</td><td>2.23 GiB</td><td>Barely functional, needs imatrix</td></tr>
+    <tr><td>IQ3_M</td><td style="color:var(--yellow);">3.46</td><td>3.24 GiB</td><td>Usable with imatrix</td></tr>
+    <tr><td>Q3_K_M</td><td style="color:var(--yellow);">3.91</td><td>3.66 GiB</td><td>Budget deployments</td></tr>
+    <tr><td style="color:var(--green);"><strong>Q4_K_M</strong></td><td style="color:var(--green);"><strong>4.89</strong></td><td><strong>4.58 GiB</strong></td><td><strong>Community default</strong></td></tr>
+    <tr><td>Q5_K_M</td><td>5.70</td><td>5.33 GiB</td><td>Quality-conscious</td></tr>
+    <tr><td>Q6_K</td><td>6.56</td><td>6.14 GiB</td><td>Near-lossless</td></tr>
+    <tr><td>Q8_0</td><td>8.50</td><td>7.95 GiB</td><td>Effectively lossless</td></tr>
+    <tr><td>F16</td><td>16.00</td><td>14.96 GiB</td><td>Full precision baseline</td></tr>
+</tbody>
+</table>
+
+<p>The green row is where most of the local AI community lives. Q4_K_M at 4.89 bits per weight is the consensus &ldquo;best balance&rdquo; &mdash; the sweet spot where quality is within a few percent of FP16, file sizes are manageable, and inference speed is excellent. Below it, you&rsquo;re trading real quality for size. Below 3 bits, you <em>need</em> importance matrices (imatrix) or the output degrades to gibberish. Above Q4_K_M, you&rsquo;re paying for precision you probably can&rsquo;t perceive in conversation.</p>
+
+<p>The practical rule of thumb for local inference: if your model fits in VRAM at Q4_K_M, use Q4_K_M. If it doesn&rsquo;t fit, step down to Q3_K_M or IQ3_M with an imatrix &mdash; but know you&rsquo;re trading quality. If it barely fits and you want maximum quality, step up to Q5_K_M. Q8_0 is effectively lossless and useful for benchmarking or when you have memory to spare. Q6_K is the sweet spot for &ldquo;I have the memory and I care about quality.&rdquo; Below IQ2, you&rsquo;re in research territory &mdash; interesting for exploring the limits of compression, but not for production use.</p>
+
+<p>For serving deployments, the calculus is different. You care about throughput (tokens per second per dollar), not just whether the model fits. GPTQ and AWQ with Marlin kernels are the standard. SmoothQuant for W8A8 when you want maximum hardware utilization. KVQuant when context length is the binding constraint. And the emerging BitNet paradigm for dedicated hardware &mdash; once someone trains and releases a 70B+ ternary model, the economics of serving could shift dramatically.</p>
+
+<h3>What Changed</h3>
+
+<h3>What Changed</h3>
+
+<p>Zoom out. In August 2022, running a 175B-parameter model required multiple A100 GPUs and cost thousands of dollars per hour. Quantization was a niche topic that the mainstream ML community considered boring plumbing &mdash; &ldquo;nobody cares about printers.&rdquo; The most cited AI papers were about scaling laws, training techniques, and architecture innovations. Nobody was writing breathless blog posts about number formats.</p>
+
+<p>By March 2023, a single person had a 7B model running on a MacBook. The barrier between &ldquo;lab capability&rdquo; and &ldquo;your laptop&rdquo; had been shattered. By late 2023, every serious open-source model shipped with GGUF quantizations on day one. Quantization wasn&rsquo;t an afterthought &mdash; it was part of the release pipeline. By 2024, the community had standardized on Q4_K_M as the default, AWQ had won the MLSys Best Paper, Marlin had shown that kernel design matters as much as algorithm design, and KVQuant had extended the context window from thousands to millions of tokens. By 2025, Microsoft had trained a ternary model from scratch and the inference framework was ready for 100B parameters on a CPU.</p>
+
+<p>The timeline spans only 30 months. From &ldquo;can we do INT8 without breaking things?&rdquo; to &ldquo;every weight is -1, 0, or +1 and the model still works.&rdquo; From academic papers with modest ambitions to infrastructure running on millions of devices. From Tim Dettmers discovering outlier features in a lab to Georgi Gerganov&rsquo;s code powering Ollama on your phone. The revolution was quiet. It happened in C code, in quantization tables, in CUDA kernels. Nobody noticed until their laptop started talking back.</p>
+
+<p>The field moved from &ldquo;nobody cares about printers&rdquo; to &ldquo;this is THE enabling technology for running AI on consumer hardware&rdquo; in under three years. A 72B model that needed two A100s now fits on a gaming PC. A 7B model that needed a GPU now runs on a phone. A 2B ternary model fits in less memory than a photo and runs at reading speed on a CPU.</p>
+
+<p>The intelligence didn&rsquo;t change. The precision did. And it turned out the intelligence was never in the precision. It was in the patterns, the directions, the relative relationships between weights. The 14 extra bits per weight we&rsquo;d been storing? Noise. The model knew all along that it didn&rsquo;t need them. We just hadn&rsquo;t asked.</p>
+
+<div class="power zen">
+    <div class="power-label">Looking forward</div>
+    <p>A 72B model at 4 bits fits on a gaming PC. Problem solved? Only if you&rsquo;re serving one user. Put ten thousand users on the same GPU cluster and a new problem emerges: memory fragmentation, request scheduling, prefix sharing. The model fits in memory. Now you need to make it serve a crowd. Part III enters the server room.</p>
+</div>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- PAPER TIMELINE                                                         -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+
+<section id="papers">
+<h2>Paper Timeline</h2>
+
+<div class="paper-timeline">
+
+<div class="paper-entry">
+    <div class="paper-date">August 2022</div>
+    <div class="paper-title"><a href="https://arxiv.org/abs/2208.07339">LLM.int8(): 8-bit Matrix Multiplication for Transformers at Scale</a></div>
+    <div class="paper-meta">Tim Dettmers, Mike Lewis, Younes Belkada, Luke Zettlemoyer &mdash; NeurIPS 2022. Discovered emergent outlier features. Mixed-precision INT8 with zero quality loss at 175B.</div>
+</div>
+
+<div class="paper-entry">
+    <div class="paper-date">September 2022</div>
+    <div class="paper-title"><a href="https://github.com/ggerganov/ggml">ggml &mdash; Tensor Library in C</a></div>
+    <div class="paper-meta">Georgi Gerganov &mdash; Sofia, Bulgaria. Minimal C tensor library. Spawned whisper.cpp, then llama.cpp, then the local AI ecosystem.</div>
+</div>
+
+<div class="paper-entry">
+    <div class="paper-date">October 2022</div>
+    <div class="paper-title"><a href="https://arxiv.org/abs/2210.17323">GPTQ: Accurate Post-Training Quantization for Generative Pre-trained Transformers</a></div>
+    <div class="paper-meta">Elias Frantar et al., IST Austria &mdash; ICLR 2023. Hessian-based column-wise quantization. 175B to 4-bit in 4 GPU hours.</div>
+</div>
+
+<div class="paper-entry">
+    <div class="paper-date">November 2022</div>
+    <div class="paper-title"><a href="https://arxiv.org/abs/2211.10438">SmoothQuant: Accurate and Efficient Post-Training Quantization for LLMs</a></div>
+    <div class="paper-meta">Guangxuan Xiao et al., MIT Han Lab &mdash; ICML 2023. Per-channel difficulty transfer enabling W8A8 quantization.</div>
+</div>
+
+<div class="paper-entry">
+    <div class="paper-date">March 2023</div>
+    <div class="paper-title"><a href="https://github.com/ggerganov/llama.cpp">llama.cpp &mdash; First Commit</a></div>
+    <div class="paper-meta">Georgi Gerganov. 7 days after LLaMA leak. 4-bit inference on a MacBook CPU. &ldquo;I have no idea if it works correctly.&rdquo;</div>
+</div>
+
+<div class="paper-entry">
+    <div class="paper-date">June 2023</div>
+    <div class="paper-title"><a href="https://arxiv.org/abs/2306.00978">AWQ: Activation-aware Weight Quantization for LLM Compression and Acceleration</a></div>
+    <div class="paper-meta">Ji Lin et al., MIT Han Lab &mdash; MLSys 2024 Best Paper. Activation magnitude selects salient weights. 1% of weights chosen by activations recovers nearly all quality.</div>
+</div>
+
+<div class="paper-entry">
+    <div class="paper-date">January 2024</div>
+    <div class="paper-title"><a href="https://arxiv.org/abs/2401.18079">KVQuant: Towards 10 Million Context Length LLM Inference</a></div>
+    <div class="paper-meta">Hooper, Kim, et al. &mdash; NeurIPS 2024. 3-bit KV cache quantization. 1M context on a single A100.</div>
+</div>
+
+<div class="paper-entry">
+    <div class="paper-date">February 2024</div>
+    <div class="paper-title"><a href="https://arxiv.org/abs/2402.17764">The Era of 1-bit LLMs: All Large Language Models are in 1.58 Bits</a></div>
+    <div class="paper-meta">Ma et al., Microsoft Research. Ternary weights {-1, 0, +1}. Matches FP16 quality at 3B+. 71.4x energy savings.</div>
+</div>
+
+<div class="paper-entry">
+    <div class="paper-date">April 2025</div>
+    <div class="paper-title"><a href="https://huggingface.co/microsoft/bitnet-b1.58-2B-4T">BitNet b1.58 2B4T &mdash; First Open-Source Ternary LLM</a></div>
+    <div class="paper-meta">Microsoft Research. 2B params, 4T tokens. 0.4 GB memory. 29 ms/token on CPU.</div>
+</div>
+
+<div class="paper-entry">
+    <div class="paper-date">2025</div>
+    <div class="paper-title"><a href="https://arxiv.org/abs/2408.11743">MARLIN: Mixed-Precision Auto-Regressive Parallel Inference on Large Language Models</a></div>
+    <div class="paper-meta">Elias Frantar et al., IST Austria &mdash; PPoPP 2025. FP16&times;INT4 kernel. Near-ideal 3.87x speedup. 10.9x over standard AWQ kernel.</div>
+</div>
+
+<div class="paper-entry">
+    <div class="paper-date">February 2026</div>
+    <div class="paper-title"><a href="https://huggingface.co/blog/ggml-joins-hf">ggml.ai Joins Hugging Face</a></div>
+    <div class="paper-meta">Georgi Gerganov and team join HF. Projects remain 100% open-source, MIT-licensed. Full technical autonomy retained.</div>
+</div>
+
+</div>
+</section>
+
+</div><!-- .content -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- SCROLL SPY                                                             -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<script>
+(function() {
+    const sections = document.querySelectorAll('section[id]');
+    const navLinks = document.querySelectorAll('nav a');
+
+    function onScroll() {
+        let current = '';
+        sections.forEach(section => {
+            const top = section.offsetTop - 80;
+            if (window.scrollY >= top) current = section.id;
+        });
+        navLinks.forEach(link => {
+            link.style.color = '';
+            link.style.textShadow = '';
+            if (link.getAttribute('href') === '#' + current) {
+                link.style.color = '#00ff88';
+                link.style.textShadow = '0 0 12px rgba(0,255,136,0.4)';
+            }
+        });
+    }
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+})();
+</script>
+
+</body>
+</html>

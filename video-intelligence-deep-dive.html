@@ -1,0 +1,2052 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Video Intelligence &mdash; Teaching Machines to See Through Time</title>
+  <link rel="canonical" href="https://femiadeniran.com/deep-dives/video-intelligence-deep-dive.html">
+  <meta property="og:title" content="Video Intelligence — Teaching Machines to See Through Time">
+  <meta property="og:description" content="How video segmentation, OCR, and vision-language models combine to give machines temporal understanding — from mask propagation to million-token context windows.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://femiadeniran.com/deep-dives/video-intelligence-deep-dive.html">
+  <meta property="og:site_name" content="Femi Adeniran">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Video Intelligence — Teaching Machines to See Through Time">
+  <meta name="twitter:description" content="How video segmentation, OCR, and vision-language models combine to give machines temporal understanding — from mask propagation to million-token context windows.">
+  <meta name="author" content="Femi Adeniran">
+<meta name="description" content="How video segmentation, OCR, and vision-language models combine to give machines temporal understanding — from mask propagation to million-token context windows.">
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+    --white: #e8e8f0;
+}
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-padding-top: 3rem; }
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+}
+
+body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(
+        0deg, transparent, transparent 2px,
+        rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 1000;
+}
+
+nav {
+    position: fixed; top: 0; left: 0; right: 0;
+    z-index: 100;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 1.5rem;
+    display: flex; gap: 1rem; align-items: center; overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+}
+nav a { color: var(--text-dim); text-decoration: none; white-space: nowrap;
+        transition: color 0.2s, text-shadow 0.2s; padding: 0.3rem 0; }
+nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+nav .nav-title { color: var(--green); font-weight: 600; margin-right: 0.5rem;
+                 text-shadow: 0 0 10px rgba(0,255,136,0.3); flex-shrink: 0; }
+
+.content { max-width: 820px; margin: 0 auto; padding: 5rem 2rem 6rem; }
+
+.hero { text-align: center; padding: 4rem 0 5rem; border-bottom: 1px solid var(--border);
+        margin-bottom: 4rem; position: relative; }
+.hero h1 { font-family: 'JetBrains Mono', monospace; font-size: 3rem; font-weight: 600;
+           color: var(--green); text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+           margin-bottom: 0.8rem; letter-spacing: -0.02em; }
+.hero .subtitle { font-size: 1.1rem; color: var(--text-dim); font-style: italic;
+                  max-width: 620px; margin: 0 auto; }
+.blink { display: inline-block; animation: blink 1s step-end infinite; color: var(--green); }
+@keyframes blink { 50% { opacity: 0; } }
+
+.glitch { position: relative; display: inline-block; }
+.glitch::before, .glitch::after { content: attr(data-text); position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+.glitch::before { color: var(--cyan); animation: glitch-1 3s infinite linear alternate-reverse; clip-path: inset(0 0 80% 0); }
+.glitch::after { color: var(--magenta); animation: glitch-2 2.5s infinite linear alternate-reverse; clip-path: inset(80% 0 0 0); }
+@keyframes glitch-1 { 0%,90%{transform:translate(0)} 92%{transform:translate(-3px,1px)} 94%{transform:translate(3px,-1px)} 96%{transform:translate(-2px,2px)} 100%{transform:translate(0)} }
+@keyframes glitch-2 { 0%,88%{transform:translate(0)} 90%{transform:translate(2px,-1px)} 93%{transform:translate(-3px,2px)} 96%{transform:translate(1px,-2px)} 100%{transform:translate(0)} }
+
+section { margin-bottom: 5rem; padding-top: 1rem; }
+h2 { font-family: 'JetBrains Mono', monospace; font-size: 1.5rem; color: var(--green);
+     margin-bottom: 1.5rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border);
+     text-shadow: 0 0 10px rgba(0,255,136,0.15); letter-spacing: 0.02em; }
+h3 { font-size: 1.25rem; color: var(--cyan); margin: 2.5rem 0 1rem; font-weight: 600; }
+h4 { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: var(--magenta);
+     text-transform: uppercase; letter-spacing: 0.08em; margin: 2rem 0 0.8rem; }
+p { margin-bottom: 1rem; }
+a { color: var(--cyan); text-decoration: none; }
+a:hover { text-decoration: underline; }
+strong { color: var(--white); }
+
+.drop-cap::first-letter { float: left; font-family: 'JetBrains Mono', monospace; font-size: 4rem;
+     line-height: 0.8; padding: 0.1em 0.15em 0 0; color: var(--green); font-weight: 700;
+     text-shadow: 0 0 20px rgba(0,255,136,0.3); }
+
+code { font-family: 'JetBrains Mono', monospace; font-size: 0.85em; background: var(--bg-code);
+       border: 1px solid var(--border); border-radius: 3px; padding: 0.15em 0.4em; }
+pre { background: var(--bg-code); border: 1px solid var(--border); border-radius: 6px; padding: 1.2rem;
+      overflow-x: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.6;
+      margin: 1.2rem 0; position: relative; }
+pre code { background: none; border: none; padding: 0; font-size: inherit; color: var(--text); }
+
+.cm { color: var(--text-dim); } .kw { color: var(--magenta); } .ty { color: var(--cyan); }
+.st { color: var(--green); } .nm { color: var(--yellow); } .fn { color: var(--blue); } .pp { color: var(--orange); }
+.label { position: absolute; top: 0.5rem; right: 0.8rem; font-family: 'JetBrains Mono', monospace;
+         font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim); }
+
+.diagram { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;
+           padding: 1.5rem; margin: 1.5rem 0; overflow-x: auto; }
+.diagram pre { border: none; margin: 0; padding: 0; background: none; font-size: 12.5px; line-height: 1.45; }
+.diagram-label { font-family: 'JetBrains Mono', monospace; font-size: 10px; text-transform: uppercase;
+                 letter-spacing: 0.1em; color: var(--text-dim); margin-bottom: 0.8rem; display: block; }
+
+.power { border-left: 3px solid var(--green-dim); background: rgba(0,255,136,0.04);
+         padding: 0.8rem 1.2rem; margin: 1.5rem 0; border-radius: 0 6px 6px 0; }
+.power p { font-size: 0.85rem; line-height: 1.6; }
+.power.danger { border-left-color: var(--red); background: rgba(255,51,68,0.04); }
+.power.hack { border-left-color: var(--magenta); background: rgba(255,0,170,0.04); }
+.power.wild { border-left-color: var(--orange); background: rgba(255,136,0,0.04); }
+.power.zen { border-left-color: var(--cyan); background: rgba(0,221,255,0.04); }
+.power.purple { border-left-color: var(--purple); background: rgba(170,68,255,0.04); }
+.power-label { font-family: 'JetBrains Mono', monospace; font-size: 11px; text-transform: uppercase;
+               letter-spacing: 0.08em; color: var(--green); margin-bottom: 0.5rem; }
+.power.danger .power-label { color: var(--red); }
+.power.hack .power-label { color: var(--magenta); }
+.power.wild .power-label { color: var(--orange); }
+.power.zen .power-label { color: var(--cyan); }
+.power.purple .power-label { color: var(--purple); }
+
+table { width: 100%; border-collapse: collapse; margin: 1.2rem 0; font-size: 0.92rem; }
+th { font-family: 'JetBrains Mono', monospace; font-size: 11px; text-transform: uppercase;
+     letter-spacing: 0.05em; color: var(--green); text-align: left; padding: 0.6rem 0.8rem;
+     border-bottom: 2px solid var(--border); }
+td { padding: 0.5rem 0.8rem; border-bottom: 1px solid var(--border); }
+tr:hover td { background: rgba(0,255,136,0.03); }
+
+details { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; margin: 1.2rem 0; }
+summary { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: var(--green);
+          padding: 0.8rem 1.2rem; cursor: pointer; }
+details[open] summary { border-bottom: 1px solid var(--border); }
+details > div, details > p, details > pre { padding: 0.8rem 1.2rem; }
+
+.vs { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1.5rem 0; }
+.vs-col { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; padding: 1.1rem; }
+.vs-col h4 { margin-top: 0; }
+
+.mem-row { display: flex; gap: 1px; margin: 0.5rem 0; flex-wrap: wrap; }
+.mc { width: 30px; height: 22px; display: flex; align-items: center; justify-content: center;
+      font-family: 'JetBrains Mono', monospace; font-size: 9px; border-radius: 2px; }
+.mc.g { background: rgba(0,255,136,0.25); color: var(--green); }
+.mc.c { background: rgba(0,221,255,0.25); color: var(--cyan); }
+.mc.m { background: rgba(255,0,170,0.25); color: var(--magenta); }
+.mc.o { background: rgba(255,136,0,0.25); color: var(--orange); }
+.mc.r { background: rgba(255,51,68,0.25); color: var(--red); }
+.mc.y { background: rgba(255,221,0,0.25); color: var(--yellow); }
+.mc.b { background: rgba(68,136,255,0.25); color: var(--blue); }
+.mc.d { background: rgba(106,106,126,0.15); color: var(--text-dim); }
+
+.viz-container { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;
+                 padding: 1.5rem; margin: 1.5rem 0; overflow: hidden; }
+.viz-container svg { width: 100%; height: auto; display: block; }
+.viz-controls { display: flex; gap: 1.5rem; margin-top: 1rem; align-items: center; flex-wrap: wrap;
+                font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+.viz-controls label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+                      color: var(--cyan); display: block; margin-bottom: 0.3rem; }
+.viz-controls select, .viz-controls input[type="range"] { background: var(--bg-code); color: var(--text);
+     border: 1px solid var(--border); padding: 0.3rem; font-family: 'JetBrains Mono', monospace;
+     font-size: 12px; border-radius: 4px; }
+.viz-controls .val { color: var(--green); font-size: 13px; }
+.viz-controls button { background: var(--green-dim); color: var(--bg); border: none; padding: 0.4rem 1.2rem;
+     font-family: 'JetBrains Mono', monospace; font-size: 11px; border-radius: 4px; cursor: pointer;
+     text-transform: uppercase; letter-spacing: 0.05em; }
+.viz-controls button:hover { background: var(--green); }
+.viz-controls button.secondary { background: var(--border); color: var(--text); }
+
+.tabbed { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;
+          margin: 1.2rem 0; overflow: hidden; }
+.tabbed input[type="radio"] { display: none; }
+.tabbed .tab-bar { border-bottom: 1px solid var(--border); padding: 0 0.5rem; display: flex; }
+.tabbed .tab-bar label { display: inline-block; padding: 0.55rem 1.4rem; font-family: 'JetBrains Mono', monospace;
+     font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim);
+     cursor: pointer; border-bottom: 2px solid transparent; transition: color 0.2s, border-color 0.2s; }
+.tabbed .tab-bar label:hover { color: var(--green); }
+.tabbed .tab-panel { display: none; }
+.tabbed .tab-panel > pre { margin: 0; border: none; border-radius: 0; }
+.tabbed .tab-panel > .diagram { margin: 0; border: none; border-radius: 0; }
+.tabbed .tab-panel > div, .tabbed .tab-panel > p { padding: 1rem 1.4rem; }
+
+.tabbed input.t1:checked ~ .tab-bar label[for$="-t1"] { color: var(--green); border-bottom-color: var(--green); }
+.tabbed input.t2:checked ~ .tab-bar label[for$="-t2"] { color: var(--green); border-bottom-color: var(--green); }
+.tabbed input.t3:checked ~ .tab-bar label[for$="-t3"] { color: var(--green); border-bottom-color: var(--green); }
+.tabbed input.t4:checked ~ .tab-bar label[for$="-t4"] { color: var(--green); border-bottom-color: var(--green); }
+.tabbed input.t1:checked ~ .tab-panel.p1 { display: block; }
+.tabbed input.t2:checked ~ .tab-panel.p2 { display: block; }
+.tabbed input.t3:checked ~ .tab-panel.p3 { display: block; }
+.tabbed input.t4:checked ~ .tab-panel.p4 { display: block; }
+
+.act-break { text-align: center; padding: 3rem 0; margin: 3rem 0;
+             border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.act-break .act-number { font-family: 'JetBrains Mono', monospace; font-size: 11px;
+     text-transform: uppercase; letter-spacing: 0.15em; color: var(--text-dim); margin-bottom: 0.3rem; }
+.act-break .act-title { font-family: 'JetBrains Mono', monospace; font-size: 1.3rem; color: var(--green);
+     text-shadow: 0 0 20px rgba(0,255,136,0.15); margin-bottom: 0.5rem; }
+.act-break .act-subtitle { font-size: 0.95rem; color: var(--text-dim); font-style: italic; }
+
+.pipe-crumb { font-family: 'JetBrains Mono', monospace; font-size: 10px; text-transform: uppercase;
+     letter-spacing: 0.1em; color: var(--text-dim); margin-bottom: 0.8rem; padding: 0.4rem 0.8rem;
+     border: 1px solid var(--border); border-radius: 4px; display: inline-block; }
+.pipe-crumb .stage { opacity: 0.35; }
+.pipe-crumb .stage.active { opacity: 1; text-shadow: 0 0 8px currentColor; }
+
+/* Canvas demo containers */
+.js-demo { background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;
+           padding: 1rem; margin: 1.5rem 0; }
+.js-demo canvas { display: block; border-radius: 4px; cursor: pointer; }
+.js-demo .demo-readout { font-family: 'JetBrains Mono', monospace; font-size: 11px;
+     color: var(--text-dim); margin-top: 0.5rem; min-height: 1.4em; }
+
+@media (max-width: 700px) {
+    .hero h1 { font-size: 2rem; }
+    .vs { grid-template-columns: 1fr; }
+    nav { font-size: 9px; gap: 0.7rem; }
+    body { font-size: 16px; }
+    .content { padding: 3rem 0.8rem 4rem; }
+    pre { font-size: 10.5px; padding: 0.7rem; }
+    .diagram pre { font-size: 10.5px; }
+    .diagram { padding: 1rem; }
+    .tabbed .tab-bar { flex-wrap: wrap; gap: 0; }
+    .tabbed .tab-bar label { padding: 0.4rem 0.7rem; font-size: 9px; letter-spacing: 0.05em; }
+    .power { padding: 0.6rem 0.8rem; }
+    .viz-controls { flex-wrap: wrap; gap: 0.5rem; }
+    h2 { font-size: 1.3rem; }
+    h3 { font-size: 1.1rem; }
+}
+
+/* Glossary callout for term definitions */
+.gloss { border-left: 3px solid var(--yellow); background: rgba(255,221,0,0.04);
+         padding: 0.6rem 1.1rem; margin: 1rem 0; border-radius: 0 4px 4px 0; }
+.gloss .gloss-term { font-family: 'JetBrains Mono', monospace; font-size: 12px;
+                     text-transform: uppercase; letter-spacing: 0.06em; color: var(--yellow);
+                     margin-bottom: 0.3rem; }
+.gloss p { font-size: 0.88rem; margin-bottom: 0; line-height: 1.6; }
+
+/* Chapter thesis subtitle */
+.ch-thesis { font-size: 1rem; color: var(--text-dim); font-style: italic;
+             margin-bottom: 1.5rem; line-height: 1.6; }
+</style>
+</head>
+<body>
+
+<nav>
+    <span class="nav-title">&gt;_ VIDEO INTELLIGENCE</span>
+    <a href="#ch1">the frame problem</a>
+    <a href="#ch2">masks in motion</a>
+    <a href="#ch3">memory bank</a>
+    <a href="#ch4">sam 3</a>
+    <a href="#ch5">moving text</a>
+    <a href="#ch6">ocr arsenal</a>
+    <a href="#ch7">token wall</a>
+    <a href="#ch8">vlms watch</a>
+    <a href="#ch9">grounded</a>
+    <a href="#ch10">full pipeline</a>
+</nav>
+
+<div class="content">
+
+<div class="hero">
+    <h1><span class="glitch" data-text="VIDEO INTELLIGENCE">VIDEO INTELLIGENCE</span></h1>
+    <div class="subtitle">
+        Thirty frozen images per second. Your brain sees motion. The machine sees thirty strangers.<span class="blink">_</span>
+    </div>
+    <div style="margin-top:1.2rem; font-family:'JetBrains Mono',monospace; font-size:11px;
+                color:var(--text-dim); text-transform:uppercase; letter-spacing:0.1em;">
+        Segmentation &middot; OCR &middot; Vision-Language Models
+    </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 1 — THE FRAME PROBLEM                                   -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch1">
+<h2>// 01 &mdash; The Frame Problem</h2>
+
+<div class="pipe-crumb">
+    <span class="stage active" style="color:var(--green)">SEGMENT</span> &rarr;
+    <span class="stage" style="color:var(--yellow)">TRACK</span> &rarr;
+    <span class="stage" style="color:var(--magenta)">DETECT</span> &rarr;
+    <span class="stage" style="color:var(--orange)">READ</span> &rarr;
+    <span class="stage" style="color:var(--cyan)">UNDERSTAND</span> &rarr;
+    <span class="stage" style="color:var(--purple)">GROUND</span>
+</div>
+
+<p class="ch-thesis">Thirty images per second. Your brain sees one continuous story. The machine sees thirty strangers. The gap between them is the entire problem.<span class="blink">_</span></p>
+
+<p class="drop-cap">A child watches a dog run behind a tree. She waits. The dog appears on the other side. She is not surprised. She has a model of the world that persists through occlusion &mdash; she knows a disappearing dog is not a vanishing dog. She is four years old, and she solves the hardest open problem in computer vision before breakfast.</p>
+
+<p>Machines cannot do this. Feed a state-of-the-art image classifier every frame of that video and it will label each one independently: <em>dog, tree, grass, tree, grass, dog</em>. It does not know the dog in frame 47 is the same dog from frame 12. Every frame is a new universe. No memory. No continuity. No time.</p>
+
+<p>The flipbook below makes this visceral. Click the frames to &ldquo;play&rdquo; the sequence &mdash; your eye interpolates motion from the colored shapes. Now look at any single frame. Just rectangles. The motion is in your head, not in the data:</p>
+
+<!-- FLIPBOOK CANVAS DEMO -->
+<div class="js-demo">
+    <canvas id="flipbook-canvas" width="780" height="200"></canvas>
+    <div class="demo-readout" id="flipbook-readout">click a frame, or drag across to flip through &mdash; motion only exists between frames</div>
+</div>
+
+<script>
+(function() {
+    var c = document.getElementById('flipbook-canvas');
+    if (!c) return;
+    var ctx = c.getContext('2d');
+    var W = 780, H = 200;
+    var N = 20, fw = 34, fh = 120, gap = 5;
+    var startX = 5, startY = 20;
+    var activeFrame = -1;
+    var hue = 200;
+
+    function objPos(i) {
+        // Object moves in a sine arc, disappears behind occluder at frames 8-11
+        var x = 4 + (fw - 8) * (i / (N - 1));
+        var y = fh/2 + Math.sin(i * 0.4) * 25;
+        var occluded = (i >= 8 && i <= 11);
+        return { x: x, y: y, occ: occluded };
+    }
+
+    function draw() {
+        ctx.fillStyle = '#0e0e16';
+        ctx.fillRect(0, 0, W, H);
+
+        var mono = '"JetBrains Mono", monospace';
+
+        for (var i = 0; i < N; i++) {
+            var x = startX + i * (fw + gap);
+            var isActive = (i === activeFrame);
+
+            // Frame border
+            ctx.fillStyle = isActive ? '#1a1a2e' : '#12121a';
+            ctx.fillRect(x, startY, fw, fh);
+            ctx.strokeStyle = isActive ? '#00ff88' : '#1e1e2e';
+            ctx.lineWidth = isActive ? 2 : 1;
+            ctx.strokeRect(x, startY, fw, fh);
+
+            // Ground
+            ctx.fillStyle = '#1a2a1a';
+            ctx.fillRect(x, startY + fh - 15, fw, 15);
+
+            // Occluder (tree)
+            ctx.fillStyle = '#2a1a1a';
+            ctx.fillRect(x + fw/2 - 4, startY + fh/2 - 25, 8, 50);
+            ctx.fillStyle = '#1a3a1a';
+            ctx.beginPath();
+            ctx.arc(x + fw/2, startY + fh/2 - 28, 12, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Object (dog = colored circle)
+            var pos = objPos(i);
+            if (!pos.occ) {
+                ctx.fillStyle = isActive ? '#00ff88' : '#00aa55';
+                ctx.shadowColor = isActive ? '#00ff88' : 'transparent';
+                ctx.shadowBlur = isActive ? 8 : 0;
+                ctx.beginPath();
+                ctx.arc(x + pos.x, startY + pos.y, 6, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                // Tail
+                ctx.strokeStyle = isActive ? '#00ff88' : '#00aa55';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(x + pos.x - 5, startY + pos.y);
+                ctx.lineTo(x + pos.x - 10, startY + pos.y - 5 + Math.sin(i * 0.8) * 3);
+                ctx.stroke();
+            }
+
+            // Frame number
+            ctx.font = '8px ' + mono;
+            ctx.fillStyle = isActive ? '#00ff88' : '#3a3a4e';
+            ctx.textAlign = 'center';
+            ctx.fillText(i, x + fw/2, startY + fh + 12);
+        }
+
+        // Active frame highlight info
+        if (activeFrame >= 0) {
+            var pos = objPos(activeFrame);
+            var label = pos.occ ? 'OCCLUDED — object not visible' : 'object at (' + pos.x.toFixed(0) + ', ' + pos.y.toFixed(0) + ')';
+            ctx.font = '11px ' + mono;
+            ctx.fillStyle = pos.occ ? '#ff3344' : '#00ff88';
+            ctx.textAlign = 'left';
+            ctx.fillText('frame ' + activeFrame + ': ' + label, startX, H - 10);
+
+            // Per-frame classifier label (no continuity)
+            ctx.fillStyle = '#6a6a7e';
+            ctx.textAlign = 'right';
+            var classifier = pos.occ ? '"tree, grass"' : '"circle, tree, grass"';
+            ctx.fillText('classifier sees: ' + classifier + ' — no identity, no history', W - 10, H - 10);
+        }
+    }
+
+    draw();
+
+    function frameFromX(px) {
+        var rect = c.getBoundingClientRect();
+        var mx = (px - rect.left) * (W / rect.width);
+        var idx = Math.floor((mx - startX) / (fw + gap));
+        return (idx >= 0 && idx < N) ? idx : -1;
+    }
+
+    var dragging = false;
+    c.addEventListener('mousedown', function(e) {
+        dragging = true;
+        activeFrame = frameFromX(e.clientX);
+        draw();
+        var pos = objPos(Math.max(0, activeFrame));
+        document.getElementById('flipbook-readout').textContent = pos.occ
+            ? 'frame ' + activeFrame + ': behind the tree — a classifier sees nothing. You know the dog is still there.'
+            : 'frame ' + activeFrame + ': the dog is at position ' + pos.x.toFixed(0) + ' — but the classifier has no memory of frame ' + Math.max(0, activeFrame - 1);
+    });
+    c.addEventListener('mousemove', function(e) {
+        if (!dragging) return;
+        var f = frameFromX(e.clientX);
+        if (f >= 0 && f !== activeFrame) {
+            activeFrame = f;
+            draw();
+            var pos = objPos(activeFrame);
+            document.getElementById('flipbook-readout').textContent = pos.occ
+                ? 'frame ' + activeFrame + ': occluded — your brain waits. The classifier panics.'
+                : 'frame ' + activeFrame + ': dog visible — you see continuity. The model sees a brand-new green circle.';
+        }
+    });
+    c.addEventListener('mouseup', function() { dragging = false; });
+    c.addEventListener('mouseleave', function() { dragging = false; });
+})();
+</script>
+
+<p>Drag across those frames fast enough and you see a green dot running, ducking behind a tree, emerging on the other side. Stop on any single frame and the dot has no past, no trajectory, no identity. <strong>That gap &mdash; between thirty frozen images and one continuous scene &mdash; is the entire problem.</strong></p>
+
+<p>Three capabilities bridge it:</p>
+
+<p><strong>Video segmentation</strong> gives you pixel-level masks that persist through time. Not &ldquo;there is a person&rdquo; but &ldquo;this is Person #3, the same one from 40 seconds ago, and here is her exact silhouette at every frame in between.&rdquo;</p>
+
+<p><strong>Video OCR</strong> reads text that moves, blurs, rotates, and compresses. A license plate crossing 200 frames. A ticker scrolling across a broadcast. Subtitle extraction from a language you don&rsquo;t speak.</p>
+
+<p><strong>Vision-language models</strong> connect sight to speech. &ldquo;What happened between minute 3 and minute 7?&rdquo; &mdash; answered not from a transcript, but from watching the video.</p>
+
+<p>Three questions follow: How do you keep a mask alive across 10,000 frames? How do you read the text that moves with those objects? And how do you ask a language model to watch the whole thing and tell you what happened? Start with masks &mdash; because everything that follows collapses if the mask is wrong.</p>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 2 — MASKS IN MOTION                                     -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch2">
+<h2>// 02 &mdash; Masks in Motion</h2>
+
+<div class="pipe-crumb">
+    <span class="stage active" style="color:var(--green)">SEGMENT</span> &rarr;
+    <span class="stage" style="color:var(--yellow)">TRACK</span> &rarr;
+    <span class="stage" style="color:var(--magenta)">DETECT</span> &rarr;
+    <span class="stage" style="color:var(--orange)">READ</span> &rarr;
+    <span class="stage" style="color:var(--cyan)">UNDERSTAND</span> &rarr;
+    <span class="stage" style="color:var(--purple)">GROUND</span>
+</div>
+
+<p class="ch-thesis">A perfect mask on frame 0. A compounding disaster by frame 500. Understanding why tells you everything about what has to be built.<span class="blink">_</span></p>
+
+<p class="drop-cap">Image segmentation labels every pixel in a photograph. Solved. Then you press <em>play</em>, and everything breaks.</p>
+
+<p>Think of it as a stencil. You cut a perfect silhouette of a person from cardboard &mdash; pixel-precise, every curve of their outline. You hold it over the next frame. The person shifted two pixels to the right. Raised an arm. The stencil doesn&rsquo;t fit. You re-cut it. By frame 500, after 500 re-cuts, each slightly wrong, errors have compounded into a silhouette that fits someone else entirely.</p>
+
+<p>This is the mask propagation problem. And it gets worse in three ways:</p>
+
+<div class="gloss">
+    <div class="gloss-term">IoU &mdash; Intersection over Union</div>
+    <p>The standard mask quality metric. Draw both the predicted mask and the ground-truth mask; divide the overlapping area by the total area covered by either. Perfect prediction&nbsp;=&nbsp;1.0. No overlap&nbsp;=&nbsp;0. Above 0.5 means the prediction covers the right region; above 0.8 is production-quality.</p>
+</div>
+
+<div class="gloss">
+    <div class="gloss-term">J&amp;F &mdash; Jaccard &amp; F-measure</div>
+    <p><strong>J (Jaccard / IoU):</strong> region accuracy &mdash; how well the mask pixels overlap the ground truth.
+    <strong>F:</strong> contour accuracy &mdash; how well the mask edges follow the object boundary.
+    J&amp;F is their average, reported on a 0&ndash;100 scale. Random guessing: ~5&ndash;10. Pre-2019 CNN baselines: ~50&ndash;60. 2024 SOTA: ~86&ndash;92. Human consistency: ~95+. These numbers reappear in every benchmark table in this article.</p>
+</div>
+
+<div class="tabbed">
+    <input type="radio" name="seg-types" id="seg-types-t1" class="t1" checked>
+    <input type="radio" name="seg-types" id="seg-types-t2" class="t2">
+    <input type="radio" name="seg-types" id="seg-types-t3" class="t3">
+    <div class="tab-bar">
+        <label for="seg-types-t1">Semantic</label>
+        <label for="seg-types-t2">Instance</label>
+        <label for="seg-types-t3">Panoptic</label>
+    </div>
+    <div class="tab-panel p1">
+        <div>
+            <h4 style="margin-top:0;">Semantic &mdash; class only</h4>
+            <p>Every pixel gets a label: <span style="color:var(--green)">road</span>, <span style="color:var(--cyan)">sky</span>, <span style="color:var(--magenta)">person</span>. No individual identity. Two people are one magenta blob. Easiest to extend to video &mdash; labels just need to stay consistent across frames.</p>
+        </div>
+    </div>
+    <div class="tab-panel p2">
+        <div>
+            <h4 style="margin-top:0;">Instance &mdash; class + identity</h4>
+            <p>Every pixel gets a label <em>and</em> an ID: <span style="color:var(--magenta)">Person #1</span>, <span style="color:var(--cyan)">Person #2</span>. In video, this means maintaining identity through occlusion, appearance change, and camera motion. Person #2 must remain Person #2 for the entire clip. This is the hard problem.</p>
+        </div>
+    </div>
+    <div class="tab-panel p3">
+        <div>
+            <h4 style="margin-top:0;">Panoptic &mdash; everything at once</h4>
+            <p>Background <em>stuff</em> (road, sky) gets semantic labels. Foreground <em>things</em> (cars, people) get instance IDs. All of it, consistently through time. The 2024 PVUW winner: <span style="color:var(--yellow)">58.26 VPQ</span> on VIPSeg. LSVOS 2025 pushed MOSE to <span style="color:var(--green)">86.37 J&amp;F</span>.</p>
+        </div>
+    </div>
+</div>
+
+<p style="font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--yellow); margin-bottom:0.4rem;">
+    <strong>Predict first:</strong> at which frame does identity first break (IoU&nbsp;&lt;&nbsp;0.5)?
+    <label style="cursor:pointer; margin-left:0.5rem;"><input type="radio" name="stencil-predict" value="3" style="accent-color:var(--yellow);"> F3</label>
+    <label style="cursor:pointer;"><input type="radio" name="stencil-predict" value="6" style="accent-color:var(--yellow);"> F6</label>
+    <label style="cursor:pointer;"><input type="radio" name="stencil-predict" value="9" style="accent-color:var(--yellow);"> F9</label>
+    <label style="cursor:pointer;"><input type="radio" name="stencil-predict" value="12" style="accent-color:var(--yellow);"> F12</label>
+</p>
+
+<p>The canvas below lets you <em>feel</em> the stencil problem. A shape moves across frames. The green outline is the mask from the previous frame. Watch it lag, mis-fit, and recover. Click any frame to see the error accumulate:</p>
+
+<!-- STENCIL CUTTER CANVAS DEMO -->
+<div class="js-demo">
+    <canvas id="stencil-canvas" width="780" height="220"></canvas>
+    <div class="demo-readout" id="stencil-readout">click frames to see the stencil (green outline) vs. the actual object (filled) &mdash; error accumulates over time</div>
+</div>
+
+<script>
+(function() {
+    var c = document.getElementById('stencil-canvas');
+    if (!c) return;
+    var ctx = c.getContext('2d');
+    var W = 780, H = 220;
+    var N = 16, fw = 44, fh = 140, gap = 4;
+    var startX = 4, startY = 10;
+    var activeFrame = -1;
+
+    // Object shape: moves right, changes size/rotation
+    function objState(i) {
+        var cx = 12 + (fw - 24) * Math.sin(i * 0.22);
+        var cy = fh/2 + Math.sin(i * 0.3) * 15;
+        var r = 10 + Math.sin(i * 0.15) * 3;
+        var rot = i * 0.12;
+        var occ = (i >= 7 && i <= 9);
+        return { cx: cx, cy: cy, r: r, rot: rot, occ: occ };
+    }
+
+    // Seeded PRNG for reproducible stencil drift (every reader sees identical behavior)
+    function seededRand(seed) {
+        var x = Math.sin(seed + 1) * 10000;
+        return x - Math.floor(x);
+    }
+
+    // The "stencil" lags by one frame with deterministic drift
+    function stencilState(i) {
+        if (i === 0) return objState(0);
+        var prev = objState(i - 1);
+        var drift = Math.min(i * 0.4, 6);
+        return {
+            cx: prev.cx + (seededRand(i * 3)     - 0.5) * drift * 0.3,
+            cy: prev.cy + (seededRand(i * 3 + 1) - 0.5) * drift * 0.3,
+            r:  prev.r  + (seededRand(i * 3 + 2) - 0.5) * drift * 0.2,
+            rot: prev.rot,
+            occ: prev.occ
+        };
+    }
+
+    // Cache stencil states for consistent display
+    var stencils = [];
+    for (var i = 0; i < N; i++) stencils[i] = stencilState(i);
+
+    function drawShape(x, y, state, fillStyle, strokeStyle, lineW) {
+        ctx.save();
+        ctx.translate(x + state.cx, y + state.cy);
+        ctx.rotate(state.rot);
+        if (fillStyle) {
+            ctx.fillStyle = fillStyle;
+            ctx.beginPath();
+            // Rounded rectangle-ish shape (person silhouette simplified)
+            ctx.ellipse(0, -state.r * 0.3, state.r * 0.6, state.r, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(0, -state.r * 1.1, state.r * 0.4, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        if (strokeStyle) {
+            ctx.strokeStyle = strokeStyle;
+            ctx.lineWidth = lineW || 1.5;
+            ctx.setLineDash([3, 2]);
+            ctx.beginPath();
+            ctx.ellipse(0, -state.r * 0.3, state.r * 0.6, state.r, 0, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(0, -state.r * 1.1, state.r * 0.4, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+        ctx.restore();
+    }
+
+    function draw() {
+        ctx.fillStyle = '#0e0e16';
+        ctx.fillRect(0, 0, W, H);
+        var mono = '"JetBrains Mono", monospace';
+
+        for (var i = 0; i < N; i++) {
+            var x = startX + i * (fw + gap);
+            var isActive = (i === activeFrame);
+            var obj = objState(i);
+            var sten = stencils[i];
+
+            // Frame bg
+            ctx.fillStyle = isActive ? '#1a1a2e' : '#12121a';
+            ctx.fillRect(x, startY, fw, fh);
+            ctx.strokeStyle = isActive ? '#00ff88' : '#1e1e2e';
+            ctx.lineWidth = isActive ? 2 : 1;
+            ctx.strokeRect(x, startY, fw, fh);
+
+            if (!obj.occ) {
+                // Stencil (previous frame's mask — green dashed outline)
+                if (i > 0) drawShape(x, startY, sten, null, '#00ff8866', 1.5);
+                // Actual object (filled)
+                drawShape(x, startY, obj, isActive ? '#00ddff' : '#00ddff88', null);
+            } else {
+                // Occluded — show red X
+                ctx.strokeStyle = '#ff334466';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(x + 10, startY + fh/2 - 10);
+                ctx.lineTo(x + fw - 10, startY + fh/2 + 10);
+                ctx.moveTo(x + fw - 10, startY + fh/2 - 10);
+                ctx.lineTo(x + 10, startY + fh/2 + 10);
+                ctx.stroke();
+            }
+
+            // IoU bar (overlap quality)
+            if (!obj.occ && i > 0) {
+                var dx = Math.abs(obj.cx - sten.cx);
+                var dy = Math.abs(obj.cy - sten.cy);
+                var dr = Math.abs(obj.r - sten.r);
+                var iou = Math.max(0, 1 - (dx + dy + dr * 3) / 20);
+                var barW = (fw - 4) * iou;
+                var barColor = iou > 0.8 ? '#00ff88' : iou > 0.5 ? '#ffdd00' : '#ff3344';
+                ctx.fillStyle = barColor + '66';
+                ctx.fillRect(x + 2, startY + fh + 3, barW, 4);
+                ctx.strokeStyle = '#1e1e2e';
+                ctx.strokeRect(x + 2, startY + fh + 3, fw - 4, 4);
+            }
+
+            // Frame number
+            ctx.font = '8px ' + mono;
+            ctx.fillStyle = isActive ? '#00ff88' : '#3a3a4e';
+            ctx.textAlign = 'center';
+            ctx.fillText(i, x + fw/2, startY + fh + 16);
+        }
+
+        // Legend
+        ctx.font = '9px ' + mono;
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#00ddff'; ctx.fillText('\u25CF actual object', 10, H - 8);
+        ctx.fillStyle = '#00ff88'; ctx.fillText('--- previous stencil', 140, H - 8);
+        ctx.fillStyle = '#6a6a7e'; ctx.fillText('\u2581 IoU quality', 300, H - 8);
+        ctx.fillStyle = '#ff3344'; ctx.fillText('\u2717 occluded', 420, H - 8);
+    }
+
+    draw();
+
+    c.addEventListener('click', function(e) {
+        var rect = c.getBoundingClientRect();
+        var mx = (e.clientX - rect.left) * (W / rect.width);
+        var idx = Math.floor((mx - startX) / (fw + gap));
+        if (idx >= 0 && idx < N) {
+            activeFrame = idx;
+            draw();
+            var obj = objState(idx);
+            var sten = stencils[idx];
+            var readout = document.getElementById('stencil-readout');
+            if (obj.occ) {
+                readout.textContent = 'frame ' + idx + ': OCCLUDED — the stencil has nothing to match. This is where identity is lost.';
+            } else if (idx === 0) {
+                readout.textContent = 'frame 0: initial mask — perfect fit. This is as good as it gets.';
+            } else {
+                var dx = Math.abs(obj.cx - sten.cx) + Math.abs(obj.cy - sten.cy);
+                readout.textContent = 'frame ' + idx + ': stencil drift = ' + dx.toFixed(1) + 'px — ' +
+                    (dx < 3 ? 'good match' : dx < 8 ? 'drift accumulating' : 'identity at risk');
+            }
+        }
+    });
+})();
+</script>
+
+<p>The IoU bars below each frame tell the story. Frame 0: perfect. Frame 6: still good. Frame 12: the stencil has drifted far enough that it could be matching the wrong person. One bad re-cut and the track is gone.</p>
+
+<p>Solving this requires memory. Not &ldquo;what did the last frame look like&rdquo; but &ldquo;what has this object looked like over hundreds of frames, and which of those memories still matter?&rdquo;</p>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 3 — THE MEMORY BANK (SETPIECE)                          -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch3">
+<h2>// 03 &mdash; The Memory Bank</h2>
+
+<div class="pipe-crumb">
+    <span class="stage active" style="color:var(--green)">SEGMENT</span> &rarr;
+    <span class="stage active" style="color:var(--yellow)">TRACK</span> &rarr;
+    <span class="stage" style="color:var(--magenta)">DETECT</span> &rarr;
+    <span class="stage" style="color:var(--orange)">READ</span> &rarr;
+    <span class="stage" style="color:var(--cyan)">UNDERSTAND</span> &rarr;
+    <span class="stage" style="color:var(--purple)">GROUND</span>
+</div>
+
+<div class="gloss">
+    <div class="gloss-term">Three terms that matter in this chapter</div>
+    <p><strong>ConvLSTM:</strong> a type of recurrent network that applies convolution at each time step. It processes frames in sequence, updating a single hidden vector. The vector can only grow so large &mdash; information about older frames gets progressively overwritten.<br>
+    <strong>GRU hidden state:</strong> a compact &ldquo;summary&rdquo; vector a recurrent network carries forward. It has no index &mdash; you can&rsquo;t reach back and ask &ldquo;what was in state 47?&rdquo;<br>
+    <strong>Key-value pair:</strong> like a dictionary entry. The &ldquo;key&rdquo; is a compact descriptor (what this frame looked like). The &ldquo;value&rdquo; is the full feature representation. A query from the current frame can look up any past key and retrieve its value directly &mdash; no sequential scan required.</p>
+</div>
+
+<p class="ch-thesis">Memory is not storage. The guard who takes too many notes is as lost as the one who takes none. XMem found the right balance &mdash; and it changed the field.<span class="blink">_</span></p>
+
+<p class="drop-cap">Before 2019, video segmentation used recurrent networks. A ConvLSTM compressed everything the model had seen into a single vector. By frame 200, the vector had drifted so far from reality that the model was segmenting ghosts.</p>
+
+<p>Then Space-Time Memory Networks arrived (Oh et al., ICCV 2019). The insight: don&rsquo;t compress &mdash; <strong>remember</strong>. Store every past frame as an explicit key-value pair. Let the current frame query the memory like a database lookup. Frame 300 can directly access frame 1 without passing through 299 intermediate states.</p>
+
+<p>It worked beautifully. For about 500 frames. Then GPU memory exploded.</p>
+
+<p>XMem&rsquo;s answer came from psychology. Imagine a security guard watching 16 camera feeds. Three kinds of memory keep her effective:</p>
+
+<p><strong style="color:var(--magenta)">Sensory memory</strong> is what&rsquo;s on screen right now. Everything, all at once, gone the moment the next frame arrives. A GRU hidden state, updated every single frame.</p>
+
+<p><strong style="color:var(--cyan)">Working memory</strong> is the notepad where she jots &ldquo;red jacket guy entered at 2:14 PM.&rdquo; A handful of recent, high-detail key-value pairs, stored every <em>r</em> frames. Capacity: T<sub>max</sub> slots.</p>
+
+<p><strong style="color:var(--green)">Long-term memory</strong> is experience: &ldquo;that delivery driver comes every Tuesday.&rdquo; Compressed, low-detail, but persistent across the entire shift. When working memory fills up, a <em>potentiation</em> algorithm consolidates the most informative entries into long-term storage. Everything else is forgotten.</p>
+
+<p style="font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--yellow); margin-bottom:0.4rem;">
+    <strong>Predict first:</strong> with r=2 and T<sub>max</sub>=3, how many consolidations fire over 80 frames?
+    <label style="cursor:pointer; margin-left:0.5rem;"><input type="radio" name="mem-predict" value="low" style="accent-color:var(--yellow);"> 2&ndash;4</label>
+    <label style="cursor:pointer;"><input type="radio" name="mem-predict" value="mid" style="accent-color:var(--yellow);"> 5&ndash;9</label>
+    <label style="cursor:pointer;"><input type="radio" name="mem-predict" value="high" style="accent-color:var(--yellow);"> 10+</label>
+</p>
+
+<p>The interactive below is that security station. Frames arrive from the camera feed. Watch the notepad fill, the consolidation fire, and the logbook grow. Drag the sliders to control how often the guard takes notes (r) and how big her notepad is (T<sub>max</sub>):</p>
+
+<!-- SETPIECE: SECURITY CAMERA MEMORY STATION -->
+<div class="js-demo" style="padding:0;">
+    <canvas id="memory-canvas" width="780" height="420"></canvas>
+    <div style="padding: 0.5rem 1rem; display:flex; gap:1.5rem; align-items:center; flex-wrap:wrap;
+                font-family:'JetBrains Mono',monospace; font-size:12px; border-top:1px solid var(--border);">
+        <div>
+            <label style="font-size:10px; text-transform:uppercase; letter-spacing:0.08em; color:var(--cyan); display:block; margin-bottom:2px;">Note every (r)</label>
+            <input type="range" id="mem-r" min="2" max="8" value="4" style="width:80px; background:var(--bg-code);"> <span id="mem-r-val" style="color:var(--green)">4</span> frames
+        </div>
+        <div>
+            <label style="font-size:10px; text-transform:uppercase; letter-spacing:0.08em; color:var(--cyan); display:block; margin-bottom:2px;">Notepad size (T<sub>max</sub>)</label>
+            <input type="range" id="mem-tmax" min="3" max="8" value="5" style="width:80px; background:var(--bg-code);"> <span id="mem-tmax-val" style="color:var(--green)">5</span> slots
+        </div>
+        <button id="mem-play" style="background:var(--green-dim); color:var(--bg); border:none; padding:0.4rem 1.2rem;
+                font-family:'JetBrains Mono',monospace; font-size:11px; border-radius:4px; cursor:pointer;
+                text-transform:uppercase; letter-spacing:0.05em;">Run</button>
+        <button id="mem-reset" style="background:var(--border); color:var(--text); border:none; padding:0.4rem 1.2rem;
+                font-family:'JetBrains Mono',monospace; font-size:11px; border-radius:4px; cursor:pointer;
+                text-transform:uppercase; letter-spacing:0.05em;">Reset</button>
+        <span id="mem-status" style="color:var(--text-dim); font-size:11px;"></span>
+    </div>
+</div>
+
+<script>
+(function() {
+    var c = document.getElementById('memory-canvas');
+    if (!c) return;
+    var ctx = c.getContext('2d');
+    var W = 780, H = 420;
+    var mono = '"JetBrains Mono", monospace';
+
+    var r = 4, tmax = 5;
+    var frame = 0, running = false, animId = null;
+    var sensory = -1;
+    var working = [];
+    var longterm = [];
+    var ltMax = 3;
+    var consolidations = 0;
+    var consolidateFlash = 0;
+
+    var colors = ['#00ddff','#ff00aa','#ff8800','#00ff88','#ffdd00','#4488ff','#aa44ff','#ff3344',
+                  '#55ffaa','#ff55cc','#ffaa33','#33aaff'];
+
+    function fColor(i) { return colors[i % colors.length]; }
+
+    function reset() {
+        frame = 0; sensory = -1; working = []; longterm = []; consolidations = 0; consolidateFlash = 0;
+    }
+
+    function draw() {
+        ctx.fillStyle = '#0e0e16';
+        ctx.fillRect(0, 0, W, H);
+
+        // ── CAMERA FEED (top strip) ──
+        ctx.fillStyle = '#6a6a7e';
+        ctx.font = '9px ' + mono;
+        ctx.textAlign = 'left';
+        ctx.fillText('CAMERA FEED', 10, 14);
+        var feedY = 22, feedH = 45, feedW = 28, feedGap = 2;
+        var maxShow = Math.min(frame, 26);
+        for (var i = 0; i < maxShow; i++) {
+            var idx = frame <= 26 ? i : frame - 26 + i;
+            var x = 10 + i * (feedW + feedGap);
+            var isCurrent = (idx === frame - 1);
+            ctx.fillStyle = fColor(idx);
+            ctx.globalAlpha = 0.15 + (i / 26) * 0.55;
+            ctx.fillRect(x, feedY, feedW, feedH);
+            ctx.globalAlpha = 1;
+            if (isCurrent) {
+                ctx.strokeStyle = '#00ff88';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x, feedY, feedW, feedH);
+            }
+            ctx.fillStyle = '#0a0a0f';
+            ctx.font = '7px ' + mono;
+            ctx.textAlign = 'center';
+            ctx.fillText(idx, x + feedW/2, feedY + feedH/2 + 2);
+        }
+
+        // ── SENSORY MEMORY (single slot, pulsing) ──
+        var secY = 85;
+        ctx.fillStyle = '#ff00aa';
+        ctx.font = '9px ' + mono;
+        ctx.textAlign = 'left';
+        ctx.fillText('SENSORY MEMORY — what the guard sees right now', 10, secY);
+
+        var sX = 10, sY = secY + 8, sW = 120, sH = 40;
+        ctx.fillStyle = sensory >= 0 ? '#ff00aa12' : '#12121a';
+        ctx.strokeStyle = sensory >= 0 ? '#ff00aa55' : '#1e1e2e';
+        ctx.lineWidth = sensory >= 0 ? 2 : 1;
+        ctx.beginPath(); ctx.roundRect(sX, sY, sW, sH, 4); ctx.fill(); ctx.stroke();
+
+        if (sensory >= 0) {
+            // Pulsing glow
+            var pulse = Math.sin(Date.now() * 0.005) * 0.3 + 0.7;
+            ctx.fillStyle = 'rgba(255,0,170,' + (pulse * 0.15) + ')';
+            ctx.beginPath(); ctx.roundRect(sX, sY, sW, sH, 4); ctx.fill();
+
+            ctx.fillStyle = '#ff00aa';
+            ctx.font = '11px ' + mono;
+            ctx.textAlign = 'center';
+            ctx.fillText('Frame ' + sensory, sX + sW/2, sY + sH/2 + 4);
+        }
+
+        ctx.fillStyle = '#3a3a4e';
+        ctx.font = '8px ' + mono;
+        ctx.textAlign = 'left';
+        ctx.fillText('updates EVERY frame — gone instantly', sX + sW + 12, sY + sH/2 + 3);
+
+        // ── WORKING MEMORY (notepad) ──
+        var wSecY = 155;
+        ctx.fillStyle = '#00ddff';
+        ctx.font = '9px ' + mono;
+        ctx.textAlign = 'left';
+        ctx.fillText('WORKING MEMORY — the guard\'s notepad', 10, wSecY);
+
+        var wY = wSecY + 8, wSlotW = Math.min(130, (W - 20 - (tmax - 1) * 6) / tmax), wSlotH = 55, wGap = 6;
+        for (var i = 0; i < tmax; i++) {
+            var x = 10 + i * (wSlotW + wGap);
+            var filled = i < working.length;
+
+            // Notepad page look
+            ctx.fillStyle = filled ? '#00ddff0c' : '#0e0e16';
+            ctx.strokeStyle = filled ? '#00ddff44' : '#1e1e2e';
+            ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.roundRect(x, wY, wSlotW, wSlotH, 3); ctx.fill(); ctx.stroke();
+
+            // Lines (notepad effect)
+            ctx.strokeStyle = '#1a1a2a';
+            for (var line = 0; line < 3; line++) {
+                var ly = wY + 16 + line * 12;
+                ctx.beginPath(); ctx.moveTo(x + 6, ly); ctx.lineTo(x + wSlotW - 6, ly); ctx.stroke();
+            }
+
+            if (filled) {
+                ctx.fillStyle = '#00ddff';
+                ctx.font = '10px ' + mono;
+                ctx.textAlign = 'center';
+                ctx.fillText('F' + working[i], x + wSlotW/2, wY + 18);
+                ctx.fillStyle = '#00ddff66';
+                ctx.font = '7px ' + mono;
+                ctx.fillText('key-value pair', x + wSlotW/2, wY + 32);
+                ctx.fillText('high detail', x + wSlotW/2, wY + 44);
+            } else {
+                ctx.fillStyle = '#2a2a3e';
+                ctx.font = '9px ' + mono;
+                ctx.textAlign = 'center';
+                ctx.fillText('empty', x + wSlotW/2, wY + wSlotH/2 + 3);
+            }
+        }
+
+        // Fill bar
+        var fillPct = working.length / tmax;
+        var fillColor = fillPct >= 1.0 ? '#ff3344' : fillPct > 0.7 ? '#ffdd00' : '#00ddff';
+        ctx.fillStyle = '#3a3a4e';
+        ctx.font = '8px ' + mono;
+        ctx.textAlign = 'left';
+        var fillLabel = 'fill: ' + (fillPct * 100).toFixed(0) + '%';
+        if (fillPct >= 1.0) fillLabel += ' — FULL! consolidation triggered';
+        fillLabel += '  |  notes every ' + r + ' frames';
+        ctx.fillStyle = fillColor;
+        ctx.fillText(fillLabel, 10, wY + wSlotH + 14);
+
+        // Consolidation flash
+        if (consolidateFlash > 0) {
+            ctx.fillStyle = 'rgba(0,255,136,' + (consolidateFlash / 30 * 0.08) + ')';
+            ctx.fillRect(0, wSecY - 5, W, wSlotH + 40);
+            consolidateFlash--;
+        }
+
+        // ── LONG-TERM MEMORY (logbook) ──
+        var lSecY = 280;
+        ctx.fillStyle = '#00ff88';
+        ctx.font = '9px ' + mono;
+        ctx.textAlign = 'left';
+        ctx.fillText('LONG-TERM MEMORY — the logbook', 10, lSecY);
+
+        var lY = lSecY + 8, lSlotW = 220, lSlotH = 50, lGap = 8;
+        for (var i = 0; i < ltMax; i++) {
+            var x = 10 + i * (lSlotW + lGap);
+            var filled = i < longterm.length;
+
+            // Book/ledger look
+            ctx.fillStyle = filled ? '#00ff880c' : '#0e0e16';
+            ctx.strokeStyle = filled ? '#00ff8844' : '#1e1e2e';
+            ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.roundRect(x, lY, lSlotW, lSlotH, 3); ctx.fill(); ctx.stroke();
+
+            // Spine
+            ctx.fillStyle = filled ? '#00ff8833' : '#1a1a2a';
+            ctx.fillRect(x, lY, 4, lSlotH);
+
+            if (filled) {
+                var lt = longterm[i];
+                ctx.fillStyle = '#00ff88';
+                ctx.font = '9px ' + mono;
+                ctx.textAlign = 'left';
+                ctx.fillText('Consolidated: F' + lt.join(', F'), x + 10, lY + 18);
+                ctx.fillStyle = '#00ff8866';
+                ctx.font = '7px ' + mono;
+                ctx.fillText('compressed representation', x + 10, lY + 32);
+                ctx.fillText('survives indefinitely', x + 10, lY + 42);
+            } else {
+                ctx.fillStyle = '#2a2a3e';
+                ctx.font = '9px ' + mono;
+                ctx.textAlign = 'center';
+                ctx.fillText('empty', x + lSlotW/2, lY + lSlotH/2 + 3);
+            }
+        }
+
+        ctx.fillStyle = '#3a3a4e';
+        ctx.font = '8px ' + mono;
+        ctx.textAlign = 'left';
+        ctx.fillText('consolidations: ' + consolidations + '  |  bounded to ' + ltMax + ' volumes  |  GPU memory: BOUNDED', 10, lY + lSlotH + 14);
+
+        // ── FLOW ARROWS ──
+        if (frame > 0) {
+            // Feed → Sensory
+            drawArrow(ctx, 10 + Math.min(frame - 1, 25) * 30 + 14, feedY + feedH + 2, sX + sW/2, sY - 2, '#ff00aa44');
+            // Sensory → Working (every r)
+            if (working.length > 0) drawArrow(ctx, sX + sW/2, sY + sH + 2, 10 + (working.length - 1) * (wSlotW + wGap) + wSlotW/2, wY - 2, '#00ddff33');
+            // Working → Longterm
+            if (longterm.length > 0) drawArrow(ctx, 10 + tmax * (wSlotW + wGap) / 2, wY + wSlotH + 20, 10 + (longterm.length - 1) * (lSlotW + lGap) + lSlotW/2, lY - 2, '#00ff8833');
+        }
+
+        // ── STATS ──
+        ctx.fillStyle = '#6a6a7e';
+        ctx.font = '10px ' + mono;
+        ctx.textAlign = 'right';
+        ctx.fillText('frame: ' + Math.max(0, frame - 1), W - 10, H - 8);
+    }
+
+    function drawArrow(ctx, x1, y1, x2, y2, color) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+
+    draw();
+
+    function step() {
+        frame++;
+        sensory = frame - 1;
+
+        if ((frame - 1) % r === 0 && frame > 1) {
+            working.push(frame - 1);
+        }
+
+        if (working.length > tmax) {
+            var toConsolidate = working.filter(function(_, i) { return i % 2 === 0; });
+            if (longterm.length < ltMax) {
+                longterm.push(toConsolidate);
+            } else {
+                longterm.shift();
+                longterm.push(toConsolidate);
+            }
+            working = working.filter(function(_, i) { return i % 2 !== 0; });
+            consolidations++;
+            consolidateFlash = 30;
+        }
+
+        draw();
+        document.getElementById('mem-status').textContent = 'frame ' + (frame - 1) +
+            ' | notepad: ' + working.length + '/' + tmax +
+            ' | logbook: ' + longterm.length + '/' + ltMax;
+    }
+
+    document.getElementById('mem-play').addEventListener('click', function() {
+        if (running) { clearInterval(animId); running = false; this.textContent = 'Run'; return; }
+        running = true; this.textContent = 'Pause';
+        animId = setInterval(function() {
+            step();
+            if (frame >= 80) { clearInterval(animId); running = false;
+                document.getElementById('mem-play').textContent = 'Run';
+                document.getElementById('mem-status').textContent = 'done — 80 frames, ' + consolidations + ' consolidations, GPU memory never exceeded ' + (tmax + ltMax + 1) + ' slots'; }
+        }, 200);
+    });
+    document.getElementById('mem-reset').addEventListener('click', function() {
+        if (animId) clearInterval(animId); running = false;
+        document.getElementById('mem-play').textContent = 'Run';
+        document.getElementById('mem-status').textContent = '';
+        reset(); draw();
+    });
+    document.getElementById('mem-r').addEventListener('input', function() {
+        r = +this.value; document.getElementById('mem-r-val').textContent = r;
+    });
+    document.getElementById('mem-tmax').addEventListener('input', function() {
+        tmax = +this.value; document.getElementById('mem-tmax-val').textContent = tmax;
+    });
+})();
+</script>
+
+<p>Set <strong>r</strong> to 2 and the notepad fills fast. Set <strong>T<sub>max</sub></strong> to 3 and consolidation fires every few seconds. Set r to 8 with T<sub>max</sub> at 8 and the guard barely needs to consolidate &mdash; but she&rsquo;s also checking less frequently, so fast-moving objects might slip between notes.</p>
+
+<p>That tradeoff &mdash; <strong>temporal resolution versus memory budget</strong> &mdash; is the central tension of every video segmentation system since 2019. XMem (ECCV 2022) processes 10,000-frame videos on a single GPU. STM crashes at 500. Cutie (CVPR 2024) added top-down object queries that prevent the guard from confusing two people in similar jackets &mdash; +8.7 J&amp;F on the hard MOSE benchmark.</p>
+
+<div class="power">
+    <div class="power-label">Trivia: Why STM crashed at 500 frames</div>
+    <p>The math: a 240&times;160 feature map at 512 channels per frame &times; 500 frames = <strong>9.6 GB</strong> just for the memory bank, before any computation. Every new frame added another 20&nbsp;MB of key-value pairs with no eviction policy. XMem bounded this to ~1&nbsp;GB regardless of video length by the consolidation mechanism the interactive demonstrates. The guard&rsquo;s notepad has a fixed number of pages &mdash; that constraint is the entire innovation.</p>
+</div>
+
+<p>But the biggest leap didn&rsquo;t come from a better memory. It came from a model that learned to speak.</p>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 4 — SAM 3                                               -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch4">
+<h2>// 04 &mdash; SAM 3</h2>
+
+<div class="pipe-crumb">
+    <span class="stage active" style="color:var(--green)">SEGMENT</span> &rarr;
+    <span class="stage active" style="color:var(--yellow)">TRACK</span> &rarr;
+    <span class="stage" style="color:var(--magenta)">DETECT</span> &rarr;
+    <span class="stage" style="color:var(--orange)">READ</span> &rarr;
+    <span class="stage" style="color:var(--cyan)">UNDERSTAND</span> &rarr;
+    <span class="stage" style="color:var(--purple)">GROUND</span>
+</div>
+
+<p class="ch-thesis">SAM 2 needed a click. SAM 3 needs a sentence. One change collapses three separate models into one.<span class="blink">_</span></p>
+
+<p class="drop-cap">SAM changed image segmentation in 2023. Click anywhere, get a mask. SAM 2 did it for video in 2024. Click once, track through occlusion, at 44 FPS. But both had a limitation: you had to <em>point</em> at the thing you wanted. You needed to know where it was before the model could help you find it.</p>
+
+<p>SAM 3 accepts text. &ldquo;Yellow school bus.&rdquo; &ldquo;The person holding a coffee cup.&rdquo; No click required. The model finds it, segments it, and tracks it through the entire video. Detection, segmentation, and tracking &mdash; unified.</p>
+
+<div class="tabbed">
+    <input type="radio" name="sam3" id="sam3-t1" class="t1" checked>
+    <input type="radio" name="sam3" id="sam3-t2" class="t2">
+    <input type="radio" name="sam3" id="sam3-t3" class="t3">
+    <input type="radio" name="sam3" id="sam3-t4" class="t4">
+    <div class="tab-bar">
+        <label for="sam3-t1">Intuition</label>
+        <label for="sam3-t2">Architecture</label>
+        <label for="sam3-t3">Numbers</label>
+        <label for="sam3-t4">Trivia</label>
+    </div>
+    <div class="tab-panel p1">
+        <div>
+            <p>SAM 1 was a magnifying glass &mdash; you point, it shows you what&rsquo;s there. SAM 2 was a magnifying glass on a track &mdash; you point once, it follows. SAM 3 is a search dog. You say &ldquo;find the yellow bus&rdquo; and it goes. No pointing. No coordinates. Just language.</p>
+            <p>The leap is not incremental. It collapses the Grounding DINO + SAM 2 pipeline into a single forward pass. Previously you needed one model to understand the text (&ldquo;yellow school bus&rdquo;), another to find it in the image, and a third to segment and track it. SAM 3 does all three.</p>
+        </div>
+    </div>
+    <div class="tab-panel p2">
+        <div>
+            <h4 style="margin-top:0;">From SAM 2 to SAM 3</h4>
+            <p><strong>Image encoder:</strong> Hiera (hierarchical ViT), same as SAM 2 but larger variants.</p>
+            <p><strong>Text encoder:</strong> new &mdash; accepts open-vocabulary noun phrases. Trained on SA-Co dataset: 214K unique phrases across 126K images and videos (50&times; more concepts than COCO/LVIS).</p>
+            <p><strong>Memory bank:</strong> inherited from SAM 2 &mdash; FIFO frame memory + object pointer memory.</p>
+            <p><strong>Occlusion head:</strong> inherited &mdash; suppresses mask when target is hidden, continues writing to memory.</p>
+            <p><strong>SAM 3.1 (March 2026):</strong> Object Multiplexing &mdash; processes up to 16 objects simultaneously in a single forward pass. 7&times; faster inference at high object counts. 32 FPS on a single H100 for medium-density scenes.</p>
+        </div>
+    </div>
+    <div class="tab-panel p3">
+        <div>
+            <table>
+                <tr><th>System</th><th>DAVIS J&amp;F</th><th>MOSE J&amp;F</th><th>Speed</th><th>VRAM</th><th>Text Prompt</th></tr>
+                <tr><td>SAM 2-L (2024)</td><td>91.6</td><td>77.2</td><td>~30 fps (A100)</td><td>~7 GB</td><td style="color:var(--red)">No</td></tr>
+                <tr><td style="color:var(--green)">SAM 3 (Nov 2025)</td><td style="color:var(--green)">&mdash;</td><td>&mdash;</td><td>~30 fps</td><td>~9 GB</td><td style="color:var(--green)">Yes</td></tr>
+                <tr><td style="color:var(--green)">SAM 3.1 (Mar 2026)</td><td>&mdash;</td><td>&mdash;</td><td style="color:var(--green)">32 fps (16 obj)</td><td>~12 GB</td><td style="color:var(--green)">Yes</td></tr>
+                <tr><td>EfficientSAM3</td><td>~85</td><td>~68</td><td>45 fps</td><td style="color:var(--green)">~3 GB</td><td style="color:var(--green)">Yes</td></tr>
+                <tr><td>CGFSeg (LSVOS &rsquo;25)</td><td>&mdash;</td><td style="color:var(--green)">86.37</td><td>&mdash;</td><td>&mdash;</td><td>No</td></tr>
+                <tr><td>EdgeTAM (mobile)</td><td>87.7</td><td>70.0</td><td style="color:var(--cyan)">16 fps (iPhone)</td><td>&lt;1 GB</td><td>No</td></tr>
+            </table>
+            <p style="margin-top:0.8rem;">Training data: <strong>SA-Co dataset</strong> &mdash; 214K unique concepts, 126K images/videos. 2&times; accuracy gain over prior systems on concept-level segmentation.</p>
+            <p>Edge: <strong>EdgeTAM</strong> (CVPR 2025) runs SAM 2 at 16 FPS on iPhone 15 Pro Max. <strong>EfficientSAM3</strong> (Nov 2025) distills SAM 3 down to MobileCLIP-scale text encoders (87.96% smaller). <strong>PicoSAM2</strong> runs on Sony&rsquo;s IMX500 vision sensor at 2.5ms latency.</p>
+            <p style="color:var(--green); font-size:0.85rem;"><strong>Consumer GPU note:</strong> EfficientSAM3 runs on an RTX 3060 12GB with text prompting. SAM 3.1 at 16 objects requires A100/H100. SAM 2-L fits on an RTX 4090 (24GB) comfortably.</p>
+        </div>
+    </div>
+    <div class="tab-panel p4">
+        <div>
+            <h4 style="margin-top:0;">The SA-Co Dataset&rsquo;s Strange Decision</h4>
+            <p>Meta built SA-Co &mdash; SAM 3&rsquo;s training dataset &mdash; entirely from <strong>licensed video sources</strong>. No internet-scraped images. The 214K unique concept phrases were enumerated not by human annotators but by a GPT-4-class language model parsing object descriptions from video captions.</p>
+            <p>The result: SAM 3 can segment &ldquo;the device that converts motion to electricity&rdquo; (a generator) but struggles with culturally specific objects not well-represented in licensed stock footage. The bet was that licensed video gives better spatial diversity than web scraping &mdash; and the benchmark numbers suggest it paid off.</p>
+        </div>
+    </div>
+</div>
+
+<p>You have masks. Identity. Temporal persistence. Text-based prompting. The architecture that will connect language to segmentation at a fundamental level is still two chapters away. First, you need to understand what language models see when they watch video &mdash; and why even a million-token context window is not enough.</p>
+
+<p>The segmentation pipeline now tracks objects with the same key-value memory architecture that gives XMem its bounded-GPU guarantee. The OCR pipeline uses the same structural idea differently: each character across multiple frames is a vote to be aggregated. Both tracking problems &mdash; visual identity across frames, textual identity across frames &mdash; share the same underlying solution. Now the question shifts: what are the best tools for the text side of that problem?</p>
+</section>
+
+
+<div class="act-break">
+    <div class="act-number">Act II</div>
+    <div class="act-title">Reading</div>
+    <div class="act-subtitle">You can see the objects. Now learn to read the words written on them.</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 5 — MOVING TEXT                                         -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch5">
+<h2>// 05 &mdash; Moving Text</h2>
+
+<div class="pipe-crumb">
+    <span class="stage" style="color:var(--green)">SEGMENT</span> &rarr;
+    <span class="stage" style="color:var(--yellow)">TRACK</span> &rarr;
+    <span class="stage active" style="color:var(--magenta)">DETECT</span> &rarr;
+    <span class="stage active" style="color:var(--orange)">READ</span> &rarr;
+    <span class="stage" style="color:var(--cyan)">UNDERSTAND</span> &rarr;
+    <span class="stage" style="color:var(--purple)">GROUND</span>
+</div>
+
+<p class="ch-thesis">OCR on a photograph: solved. OCR on video: different. Video gives you something no image can &mdash; multiple attempts at the same text.<span class="blink">_</span></p>
+
+<p class="drop-cap">OCR on a photograph is a solved problem. Tesseract reads a clean page at 99%. But OCR on video is a different animal. The text moves. The camera shakes. H.264 smears character edges into blocking artifacts. A license plate perfectly legible in frame 47 is a motion-blurred streak in frame 48.</p>
+
+<p>And yet video gives you something no single image can: <strong>multiple attempts at the same text</strong>.</p>
+
+<p>Think of it as a police lineup with multiple witnesses. One witness says the license plate started with &ldquo;A8C.&rdquo; Another says &ldquo;ABC.&rdquo; A third is sure it was &ldquo;ABC.&rdquo; You weight by confidence and the truth emerges. Each frame is a witness. Temporal redundancy is the gift.</p>
+
+<div class="diagram">
+<div class="diagram-label">Video OCR pipeline</div>
+<pre>
+<span style="color:#ff00aa">DETECT</span>           <span style="color:#ffdd00">TRACK</span>            <span style="color:#00ddff">RECOGNIZE</span>         <span style="color:#00ff88">AGGREGATE</span>
+&boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;  &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;  &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;  &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;
+&boxv; CRAFT/DBNet  &boxv;→&boxv; IoU match /  &boxv;→&boxv; CRNN/SVTR/    &boxv;→&boxv; Confidence   &boxv;
+&boxv; Find text    &boxv;  &boxv; SORT track   &boxv;  &boxv; GOT-OCR read  &boxv;  &boxv; voting +     &boxv;
+&boxv; bounding     &boxv;  &boxv; across       &boxv;  &boxv; characters    &boxv;  &boxv; temporal     &boxv;
+&boxv; boxes        &boxv;  &boxv; frames       &boxv;  &boxv; per crop      &boxv;  &boxv; dedup        &boxv;
+&boxur;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxul;  &boxur;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxul;  &boxur;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxul;  &boxur;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxul;
+</pre>
+</div>
+
+<p>The canvas below is that lineup. Eight frames of a license plate. Each frame&rsquo;s OCR reading has errors &mdash; motion blur confuses B/8, I/1, Z/2. Drag the sliders to see what happens when you have fewer witnesses or worse conditions, then click &ldquo;Vote&rdquo;:</p>
+
+<div class="viz-container" style="padding:0;">
+    <div style="padding: 1rem 1.5rem 0;">
+        <svg id="viz-ocr" viewBox="0 0 780 320" style="width:100%; height:auto; display:block;" role="img">
+            <title>OCR temporal confidence voting across frames of a license plate</title>
+        </svg>
+    </div>
+    <div class="viz-controls" style="padding: 0.8rem 1.5rem;">
+        <div>
+            <label>Frames visible</label>
+            <input type="range" id="viz-ocr-frames" min="2" max="8" value="8" style="width:80px;">
+            <span class="val" id="viz-ocr-frames-val">8</span>
+        </div>
+        <div>
+            <label>Motion blur</label>
+            <input type="range" id="viz-ocr-blur" min="0" max="80" value="10" style="width:80px;">
+            <span class="val" id="viz-ocr-blur-val">10%</span>
+        </div>
+        <button id="viz-ocr-vote">Run Voting</button>
+        <button id="viz-ocr-reset" class="secondary">Reset</button>
+        <span id="viz-ocr-status" style="color: var(--text-dim); font-size: 11px;"></span>
+    </div>
+</div>
+
+<script>
+(function() {
+    var svg = d3.select('#viz-ocr');
+    var truth = 'ABC 1234';
+    // Confusion map: which chars get swapped under blur
+    var confusions = { 'B': '8', '8': 'B', '1': 'I', 'I': '1', 'Z': '2', '2': 'Z', '3': '8', 'A': '4', 'C': 'G' };
+    var voted = false;
+
+    // Seeded PRNG for reproducible readings
+    function srand(s) { var x = Math.sin(s + 1.7) * 10000; return x - Math.floor(x); }
+
+    // Generate readings based on visible frames and blur percentage
+    function generateReadings(nFrames, blurPct) {
+        var out = [];
+        for (var fi = 0; fi < nFrames; fi++) {
+            var text = '', conf = [];
+            for (var ci = 0; ci < 8; ci++) {
+                var baseConf = 0.85 + srand(fi * 11 + ci * 3) * 0.14;
+                // Apply blur degradation
+                var blurDrop = (blurPct / 100) * (0.3 + srand(fi * 7 + ci * 5 + 99) * 0.4);
+                var c = Math.max(0.15, baseConf - blurDrop);
+                // Character confusion when confidence drops
+                var ch = truth[ci];
+                if (c < 0.6 && confusions[ch] && srand(fi * 13 + ci * 9 + 42) < 0.65) {
+                    ch = confusions[ch];
+                } else if (c < 0.45 && confusions[ch]) {
+                    ch = confusions[ch];
+                }
+                text += ch;
+                conf.push(c);
+            }
+            out.push({ text: text, conf: conf });
+        }
+        return out;
+    }
+
+    function confColor(c) {
+        if (c > 0.9) return '#00ff88';
+        if (c > 0.7) return '#00ddff';
+        if (c > 0.5) return '#ffdd00';
+        return '#ff3344';
+    }
+
+    function draw() {
+        svg.selectAll('*').remove();
+        var nFrames = +document.getElementById('viz-ocr-frames').value;
+        var blurPct = +document.getElementById('viz-ocr-blur').value;
+        var readings = generateReadings(nFrames, blurPct);
+
+        var charW = 55, charH = 26, fGap = 3, startX = 90, startY = 28;
+
+        for (var c = 0; c < 8; c++) {
+            svg.append('text').attr('x', startX + c * charW + charW/2).attr('y', startY - 8)
+                .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
+                .attr('font-size', '9px').attr('text-anchor', 'middle').text('Char ' + (c + 1));
+        }
+
+        readings.forEach(function(r, fi) {
+            var y = startY + fi * (charH + fGap);
+            svg.append('text').attr('x', 60).attr('y', y + charH/2 + 3)
+                .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
+                .attr('font-size', '9px').attr('text-anchor', 'end').text('F' + fi);
+
+            r.text.split('').forEach(function(ch, ci) {
+                var x = startX + ci * charW;
+                var isCorrect = ch === truth[ci];
+                svg.append('rect').attr('x', x).attr('y', y).attr('width', charW - 4).attr('height', charH)
+                    .attr('rx', 3).attr('fill', isCorrect ? '#12121a' : '#ff334418')
+                    .attr('stroke', isCorrect ? '#1e1e2e' : '#ff334466');
+                svg.append('text').attr('x', x + (charW - 4)/2).attr('y', y + charH/2 - 2)
+                    .attr('fill', isCorrect ? '#c8c8d4' : '#ff3344')
+                    .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', '13px')
+                    .attr('text-anchor', 'middle').attr('font-weight', '600').text(ch);
+                svg.append('rect').attr('x', x + 2).attr('y', y + charH - 5)
+                    .attr('width', (charW - 8) * r.conf[ci]).attr('height', 3).attr('rx', 1)
+                    .attr('fill', confColor(r.conf[ci])).attr('opacity', 0.7);
+            });
+        });
+
+        if (voted) {
+            var vy = startY + readings.length * (charH + fGap) + 14;
+            svg.append('text').attr('x', 60).attr('y', vy + charH/2 + 3)
+                .attr('fill', '#00ff88').attr('font-family', 'JetBrains Mono, monospace')
+                .attr('font-size', '9px').attr('text-anchor', 'end').attr('font-weight', '600').text('VOTED');
+            var resolved = 0;
+            for (var ci = 0; ci < 8; ci++) {
+                var x = startX + ci * charW;
+                // Weighted vote: accumulate confidence per character
+                var votes = {};
+                readings.forEach(function(r) {
+                    var ch = r.text[ci];
+                    votes[ch] = (votes[ch] || 0) + r.conf[ci];
+                });
+                var bestChar = '', bestScore = 0, totalScore = 0;
+                for (var ch in votes) {
+                    totalScore += votes[ch];
+                    if (votes[ch] > bestScore) { bestScore = votes[ch]; bestChar = ch; }
+                }
+                var ratio = bestScore / totalScore;
+                var isResolved = ratio > 0.55;
+                if (isResolved) resolved++;
+
+                var fillColor = isResolved ? (bestChar === truth[ci] ? '#00ff8815' : '#ff334418') : '#ffdd0015';
+                var strokeColor = isResolved ? (bestChar === truth[ci] ? '#00ff8855' : '#ff334466') : '#ffdd0066';
+                var textColor = isResolved ? (bestChar === truth[ci] ? '#00ff88' : '#ff3344') : '#ffdd00';
+
+                svg.append('rect').attr('x', x).attr('y', vy).attr('width', charW - 4).attr('height', charH + 4)
+                    .attr('rx', 3).attr('fill', fillColor).attr('stroke', strokeColor).attr('stroke-width', 2);
+                svg.append('text').attr('x', x + (charW - 4)/2).attr('y', vy + charH/2 + 4)
+                    .attr('fill', textColor).attr('font-family', 'JetBrains Mono, monospace')
+                    .attr('font-size', '16px').attr('text-anchor', 'middle').attr('font-weight', '700')
+                    .text(isResolved ? bestChar : '?');
+                if (!isResolved) {
+                    svg.append('text').attr('x', x + (charW - 4)/2).attr('y', vy + charH + 14)
+                        .attr('fill', '#ffdd00').attr('font-family', 'JetBrains Mono, monospace')
+                        .attr('font-size', '8px').attr('text-anchor', 'middle')
+                        .text(Math.round(ratio * 100) + '%');
+                }
+            }
+            var pct = Math.round(resolved / 8 * 100);
+            var statusMsg = nFrames + ' witness' + (nFrames > 1 ? 'es' : '') + ', ' + resolved + '/8 characters resolved';
+            if (resolved < 8) statusMsg += ' — ' + (8 - resolved) + ' ambiguous (yellow). Add more frames or reduce blur.';
+            else statusMsg += ' — every position resolved correctly';
+            d3.select('#viz-ocr-status').text(statusMsg);
+        }
+    }
+    draw();
+    d3.select('#viz-ocr-frames').on('input', function() {
+        document.getElementById('viz-ocr-frames-val').textContent = this.value;
+        voted = false; draw(); d3.select('#viz-ocr-status').text('');
+    });
+    d3.select('#viz-ocr-blur').on('input', function() {
+        document.getElementById('viz-ocr-blur-val').textContent = this.value + '%';
+        voted = false; draw(); d3.select('#viz-ocr-status').text('');
+    });
+    d3.select('#viz-ocr-vote').on('click', function() { voted = true; draw(); });
+    d3.select('#viz-ocr-reset').on('click', function() { voted = false; draw(); d3.select('#viz-ocr-status').text(''); });
+})();
+</script>
+
+<div class="power">
+    <div class="power-label">Trivia: Why license plates failed in the UK until 2019</div>
+    <p>UK plates use a modified <strong>Charles Wright</strong> font designed specifically to defeat automatic plate readers. The font introduces deliberate ambiguities between 0/O and 1/I that human readers resolve from context (&ldquo;a plate number won&rsquo;t start with OO&rdquo;). Neural OCR eventually beat it not by learning the font &mdash; but by voting across enough frames that even ambiguous glyphs resolved. The temporal redundancy of video broke a 30-year font-based defense.</p>
+</div>
+
+<p>Confidence voting works because video gives you redundancy. Eight frames, eight witnesses, one truth. But voting only recovers the text &mdash; it doesn&rsquo;t tell you which OCR engine to vote <em>with</em>, how to handle math formulas, or what to do when one frame shows vertical Japanese and the next shows handwritten English. The tool you reach for depends on what you&rsquo;re trying to read.</p>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 6 — THE OCR ARSENAL                                     -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch6">
+<h2>// 06 &mdash; The OCR Arsenal</h2>
+
+<div class="pipe-crumb">
+    <span class="stage" style="color:var(--green)">SEGMENT</span> &rarr;
+    <span class="stage" style="color:var(--yellow)">TRACK</span> &rarr;
+    <span class="stage active" style="color:var(--magenta)">DETECT</span> &rarr;
+    <span class="stage active" style="color:var(--orange)">READ</span> &rarr;
+    <span class="stage" style="color:var(--cyan)">UNDERSTAND</span> &rarr;
+    <span class="stage" style="color:var(--purple)">GROUND</span>
+</div>
+
+<p class="ch-thesis">Four systems, four different bets on how to read. Which one survives temporal aggregation?<span class="blink">_</span></p>
+
+<p class="drop-cap">Confidence voting solved the temporal problem. Now the question is which reader to vote with.</p>
+
+<p>The OCR pipeline from Ch.&nbsp;5 has a RECOGNIZE stage with a blank inside: CRNN? SVTR? GOT-OCR? It depends on what the text looks like. A license plate is not a math formula. A subtitle ticker is not a handwritten receipt. Four systems made different bets on how to fill that blank &mdash; and one of them integrates temporal aggregation directly.</p>
+
+<div class="tabbed">
+    <input type="radio" name="ocr-sys" id="ocr-sys-t1" class="t1" checked>
+    <input type="radio" name="ocr-sys" id="ocr-sys-t2" class="t2">
+    <input type="radio" name="ocr-sys" id="ocr-sys-t3" class="t3">
+    <div class="tab-bar">
+        <label for="ocr-sys-t1">Intuition</label>
+        <label for="ocr-sys-t2">Architecture</label>
+        <label for="ocr-sys-t3">Trivia</label>
+    </div>
+    <div class="tab-panel p1">
+        <div>
+            <h4 style="margin-top:0;">Four Bets</h4>
+            <p>Every production OCR system places a bet on how reading should work:</p>
+            <p><strong style="color:var(--cyan)">PaddleOCR (PP-OCRv5):</strong> the <em>assembly line</em>. Detect text regions, then recognize characters in each region. Two specialized models, each optimized for its stage. 370+ chars/sec on CPU. The temporal-aggregation upgrade (PaddleOCR-VL 1.5) bolts a 0.9B VLM onto the pipeline for end-to-end document understanding.</p>
+            <p><strong style="color:var(--orange)">GOT-OCR 2.0:</strong> the <em>polyglot</em>. One 580M model reads everything &mdash; plain text, math formulas, molecular formulas, tables, charts, sheet music. No pipeline stages, no separate detector. The bet: a single end-to-end model is better than a two-stage pipeline if the model is good enough.</p>
+            <p><strong style="color:var(--yellow)">EasyOCR:</strong> the <em>baseline</em>. CRAFT detects character-level regions, CRNN recognizes them. Simple, deployable, 80+ languages. No temporal integration &mdash; frame-by-frame only. The system you start with before you know what you need.</p>
+            <p><strong style="color:var(--purple)">TrOCR:</strong> the <em>specialist</em>. Recognition only (no detection). SOTA on handwriting and receipts. Must be paired with a separate detector. The field has moved past single-task transformers toward unified VLM-based systems, but TrOCR remains unmatched on its niche.</p>
+            <p style="color:var(--text-dim); font-style:italic;">Question: which of these was designed to aggregate across video frames? Answer: none of the four, originally. Only PaddleOCR-VL 1.5 (2026) integrates temporal context natively. For the others, you need the voting pipeline from Ch.&nbsp;5.</p>
+        </div>
+    </div>
+    <div class="tab-panel p2">
+        <div>
+            <h4 style="margin-top:0;">Side-by-Side</h4>
+            <table>
+                <tr><th>System</th><th>Detection</th><th>Recognition</th><th>Languages</th><th>Temporal?</th><th>Speed</th><th>Params</th></tr>
+                <tr><td style="color:var(--cyan)">PP-OCRv5</td><td>LK-PAN + DSR</td><td>SVTR + HGNet</td><td>106</td><td style="color:var(--yellow)">Via VL 1.5</td><td>370 char/s CPU</td><td>~0.07B</td></tr>
+                <tr><td style="color:var(--orange)">GOT-OCR 2.0</td><td>End-to-end</td><td>End-to-end</td><td>Multi</td><td style="color:var(--red)">No</td><td>~200 char/s GPU</td><td>0.58B</td></tr>
+                <tr><td style="color:var(--yellow)">EasyOCR</td><td>CRAFT</td><td>CRNN + CTC</td><td>80+</td><td style="color:var(--red)">No</td><td>~150 char/s GPU</td><td>~0.05B</td></tr>
+                <tr><td style="color:var(--purple)">TrOCR</td><td>External</td><td>BEiT + RoBERTa</td><td>Limited</td><td style="color:var(--red)">No</td><td>~100 char/s GPU</td><td>~0.33B</td></tr>
+            </table>
+            <p style="font-size:0.85rem; color:var(--text-dim); margin-top:0.8rem;"><strong>NaViT encoder</strong> (in PaddleOCR-VL 1.5): a vision transformer that handles variable-resolution inputs natively without resizing. <strong>BEiT</strong>: BERT-style pre-training for image patches. <strong>RoBERTa</strong>: an optimized BERT variant used as TrOCR&rsquo;s text decoder. <strong>CTC</strong> (Connectionist Temporal Classification): a loss function that maps unsegmented feature sequences to character strings, originally designed for speech recognition.</p>
+        </div>
+    </div>
+    <div class="tab-panel p3">
+        <div>
+            <h4 style="margin-top:0;">CTC Was Designed for Speech, Not Text</h4>
+            <p>CRNN&rsquo;s secret weapon &mdash; CTC loss &mdash; was invented for speech recognition (Graves et al., 2006). It handles variable-length outputs without needing character-aligned training data. This turns out to be exactly why it works so well on license plates: the character widths vary, the spacing is irregular, and CTC doesn&rsquo;t care. It maps the whole feature sequence to a string without knowing where one character ends and another begins.</p>
+            <h4>Visual Rhythm</h4>
+            <p>A 2025 ALPR technique: compress the entire video to a single <strong>Visual Rhythm</strong> image &mdash; take one horizontal line of pixels from the plate region across all frames and stack them vertically. Run OCR <em>once</em> on the composite. No tracking. No per-frame detection. One pass. Accuracy improves because the stacking averages out per-frame noise. It&rsquo;s confidence voting without the voting &mdash; the compression does it geometrically.</p>
+        </div>
+    </div>
+</div>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 7 — THE TOKEN WALL                                      -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch7">
+<h2>// 07 &mdash; The Token Wall</h2>
+
+<div class="pipe-crumb">
+    <span class="stage" style="color:var(--green)">SEGMENT</span> &rarr;
+    <span class="stage" style="color:var(--yellow)">TRACK</span> &rarr;
+    <span class="stage" style="color:var(--magenta)">DETECT</span> &rarr;
+    <span class="stage" style="color:var(--orange)">READ</span> &rarr;
+    <span class="stage active" style="color:var(--cyan)">UNDERSTAND</span> &rarr;
+    <span class="stage" style="color:var(--purple)">GROUND</span>
+</div>
+
+<div class="gloss">
+    <div class="gloss-term">How an image becomes tokens</div>
+    <p>A Vision Transformer (ViT) chops an image into a grid of small patches &mdash; say, a 336&times;336 image into a 24&times;24 grid of 14px patches &mdash; giving 576 patches. Each patch is converted to a fixed-size vector. That vector is a <em>token</em>. CLIP ViT-L at 336px resolution produces exactly 576 tokens per frame. These visual tokens are what the language model reads. More resolution = more patches = finer spatial detail, but exponentially more context window usage.</p>
+</div>
+
+<p class="ch-thesis">One minute of video. One million tokens. The context window is a suitcase. Every VLM is a packing strategy.<span class="blink">_</span></p>
+
+<p class="drop-cap">One minute of video at 30 fps. 1,800 frames. A CLIP ViT-L at 336px produces 576 tokens per frame. Multiply: <strong>1,036,800 tokens</strong>. For one minute. No context window holds that.</p>
+
+<p>Think of it as packing a suitcase for a trip. The suitcase is your context window. The clothes are frames. You can either bring fewer outfits (sample fewer frames), fold tighter (compress tokens per frame), or buy a bigger suitcase (expand context). Every VLM is a packing strategy.</p>
+
+<p>Drag the sliders below. Watch the suitcase overflow:</p>
+
+<!-- TOKEN BUDGET CALCULATOR -->
+<div class="viz-container" style="padding:0;">
+    <div style="padding: 1rem 1.5rem 0;">
+        <svg id="viz-tokens" viewBox="0 0 780 240" style="width:100%; height:auto; display:block;" role="img">
+            <title>Token budget calculator</title>
+        </svg>
+    </div>
+    <div class="viz-controls" style="padding: 0.8rem 1.5rem;">
+        <div>
+            <label>Duration</label>
+            <input type="range" id="viz-tok-dur" min="10" max="3600" value="60" style="width:110px;">
+            <span class="val" id="viz-tok-dur-val">60s</span>
+        </div>
+        <div>
+            <label>FPS</label>
+            <input type="range" id="viz-tok-fps" min="1" max="30" value="1" style="width:90px;">
+            <span class="val" id="viz-tok-fps-val">1</span>
+        </div>
+        <div>
+            <label>Resolution</label>
+            <select id="viz-tok-res">
+                <option value="66">Low (66 tok/f)</option>
+                <option value="258" selected>Medium (258 tok/f)</option>
+                <option value="576">High (576 tok/f)</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    var svg = d3.select('#viz-tokens');
+    var contexts = [
+        { name: '4K', tokens: 4096, color: '#ff3344' },
+        { name: '8K', tokens: 8192, color: '#ff8800' },
+        { name: '32K', tokens: 32768, color: '#ffdd00' },
+        { name: '128K', tokens: 131072, color: '#00ddff' },
+        { name: '1M', tokens: 1048576, color: '#00ff88' },
+    ];
+    function fmt(n) { return n >= 1e6 ? (n/1e6).toFixed(1)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'K' : ''+n; }
+    function fmtDur(s) { return s >= 3600 ? (s/3600).toFixed(1)+'h' : s >= 60 ? (s/60).toFixed(1)+'m' : s+'s'; }
+
+    function update() {
+        var dur = +document.getElementById('viz-tok-dur').value;
+        var fps = +document.getElementById('viz-tok-fps').value;
+        var tpf = +document.getElementById('viz-tok-res').value;
+        document.getElementById('viz-tok-dur-val').textContent = fmtDur(dur);
+        document.getElementById('viz-tok-fps-val').textContent = fps;
+        var totalFrames = dur * fps, totalTokens = totalFrames * tpf;
+        var geminiFlashCost = (totalTokens / 1e6) * 0.30;
+        var geminiProCost = (totalTokens / 1e6) * 1.25;
+        var gptCost = (totalTokens / 1e6) * 2.50;
+
+        svg.selectAll('*').remove();
+
+        var stats = [
+            { label: 'FRAMES', value: fmt(totalFrames), color: '#c8c8d4' },
+            { label: '\u00d7 TOK/FRAME', value: ''+tpf, color: '#c8c8d4' },
+            { label: '= TOTAL TOKENS', value: fmt(totalTokens), color: totalTokens > 1048576 ? '#ff3344' : '#00ff88' },
+        ];
+        stats.forEach(function(s, i) {
+            var x = 20 + i * 250;
+            svg.append('text').attr('x', x).attr('y', 20).attr('fill', '#6a6a7e')
+                .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', '9px').attr('letter-spacing', '0.08em').text(s.label);
+            svg.append('text').attr('x', x).attr('y', 42).attr('fill', s.color)
+                .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', '18px').attr('font-weight', '600').text(s.value);
+        });
+
+        var barY = 64, barH = 20, barMaxW = 700, maxCtx = 1048576;
+        var logScale = d3.scaleLog().domain([1, maxCtx * 1.5]).range([0, barMaxW]);
+        svg.append('text').attr('x', 20).attr('y', barY - 4).attr('fill', '#6a6a7e')
+            .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', '9px').attr('letter-spacing', '0.08em').text('CONTEXT WINDOWS');
+
+        contexts.forEach(function(ctx, i) {
+            var y = barY + 4 + i * (barH + 5), w = logScale(ctx.tokens), fits = totalTokens <= ctx.tokens;
+            svg.append('rect').attr('x', 55).attr('y', y).attr('width', w).attr('height', barH).attr('rx', 3)
+                .attr('fill', fits ? ctx.color + '22' : '#12121a').attr('stroke', fits ? ctx.color + '66' : '#1e1e2e');
+            svg.append('text').attr('x', 20).attr('y', y + barH/2 + 3).attr('fill', fits ? ctx.color : '#2a2a4a')
+                .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', '10px').text(ctx.name);
+            if (fits) svg.append('text').attr('x', 55 + w + 8).attr('y', y + barH/2 + 3).attr('fill', ctx.color)
+                .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', '9px').text('\u2713 ' + (totalTokens/ctx.tokens*100).toFixed(0) + '% used');
+        });
+
+        var tokLine = logScale(Math.min(totalTokens, maxCtx * 1.4));
+        svg.append('line').attr('x1', 55 + tokLine).attr('y1', barY).attr('x2', 55 + tokLine)
+            .attr('y2', barY + 4 + contexts.length * (barH + 5)).attr('stroke', totalTokens > maxCtx ? '#ff3344' : '#00ff88')
+            .attr('stroke-width', 2).attr('stroke-dasharray', '4,3');
+
+        // Cost row
+        var costY = 210;
+        svg.append('text').attr('x', 20).attr('y', costY).attr('fill', '#6a6a7e')
+            .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', '10px').text('INPUT COST:');
+        var localCost = (totalTokens / 1e6) * 0.002;
+        svg.append('text').attr('x', 130).attr('y', costY).attr('fill', '#ffdd00')
+            .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', '10px').text('Gemini Flash: $' + geminiFlashCost.toFixed(3));
+        svg.append('text').attr('x', 340).attr('y', costY).attr('fill', '#00ddff')
+            .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', '10px').text('Gemini Pro: $' + geminiProCost.toFixed(3));
+        svg.append('text').attr('x', 540).attr('y', costY).attr('fill', '#00ff88')
+            .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', '10px').text('RTX 4090 (local): $' + localCost.toFixed(4));
+
+        // Consequence row
+        var consY = 232;
+        var fitCtx = 131072; // 128K as base reference
+        var fitsAt = Math.floor(fitCtx / tpf); // frames that fit in 128K
+        var fitDur = fitsAt / fps;
+        var neededFps = Math.max(0.1, fitCtx / (dur * tpf));
+        svg.append('text').attr('x', 20).attr('y', consY).attr('fill', totalTokens > fitCtx ? '#ff8800' : '#00ff88')
+            .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', '9px')
+            .text(totalTokens <= fitCtx ?
+                'FITS in 128K \u2014 no compression needed' :
+                'CONSEQUENCE: 128K holds ' + fmtDur(Math.round(fitDur)) + ' at current settings. To fit ' + fmtDur(dur) + ': sample at ' + neededFps.toFixed(1) + ' fps (loses events <' + (1/neededFps).toFixed(1) + 's)');
+    }
+    update();
+    ['viz-tok-dur', 'viz-tok-fps'].forEach(function(id) { document.getElementById(id).addEventListener('input', update); });
+    document.getElementById('viz-tok-res').addEventListener('change', update);
+})();
+</script>
+
+<p>Set duration to 1 hour, FPS to 30, resolution to high. <span style="color:var(--red)">62 million tokens</span> &mdash; sixty times the largest available context window. The suitcase doesn&rsquo;t just overflow; it explodes. Every video VLM is a compression algorithm. There are four kinds of algorithm, and each trades accuracy for capacity in a different way:</p>
+
+<table>
+    <tr><th>Strategy</th><th>How</th><th>Accuracy Cost</th></tr>
+    <tr><td style="color:var(--cyan)">Uniform FPS</td><td>Sample at fixed interval (1fps)</td><td>Misses any event faster than 1 second</td></tr>
+    <tr><td style="color:var(--green)">T* (Stanford)</td><td>Content-aware frame selection</td><td>+4.8% on Video-QA vs. uniform at same budget</td></tr>
+    <tr><td style="color:var(--orange)">SlowFast</td><td>Few frames full-res + many compressed</td><td>15&ndash;25% more compute; balances spatial &amp; motion</td></tr>
+    <tr><td style="color:var(--magenta)">PVC (CVPR 2025)</td><td>Share static-background tokens, keep changes</td><td>Background-heavy video only; fails on fast cuts</td></tr>
+</table>
+
+<h3>Running Locally</h3>
+
+<p>Every cost number above assumes cloud APIs or data-center GPUs. But most of this pipeline runs on hardware you can buy for $500&ndash;$2,500:</p>
+
+<table>
+    <tr><th>GPU</th><th>VRAM</th><th>What Fits</th><th>Cloud Equivalent</th></tr>
+    <tr><td style="color:var(--yellow)">RTX 4060 Ti</td><td>16 GB</td><td>EfficientSAM3, PaddleOCR-VL 1.5, Qwen3-VL-2B int8</td><td>~$0.12/hr</td></tr>
+    <tr><td style="color:var(--green)">RTX 4090</td><td>24 GB</td><td>Qwen3-VL-7B fp16, LLaVA-OV-1.5-7B, SAM 3.1 + PaddleOCR</td><td>~$0.30/hr</td></tr>
+    <tr><td style="color:var(--cyan)">2&times; RTX 3090</td><td>48 GB</td><td>Qwen3-VL-32B int4, InternVL3-38B</td><td>~$0.60/hr</td></tr>
+    <tr><td style="color:var(--purple)">A100 80GB</td><td>80 GB</td><td>SAM 3.1 full + Qwen3-VL-72B int4</td><td>~$1.50/hr</td></tr>
+</table>
+
+<div class="power hack">
+    <div class="power-label">Quantization &mdash; four levels</div>
+    <p><strong>fp16:</strong> half precision, full accuracy, 2 bytes/weight. A 7B model = ~14 GB VRAM.<br>
+    <strong>int8 (GPTQ/AWQ):</strong> 1 byte/weight, &lt;1% accuracy drop on video tasks. 7B = ~7 GB.<br>
+    <strong>int4 (GGUF/GPTQ):</strong> 0.5 bytes/weight, 2&ndash;4% accuracy drop. 7B = ~3.5 GB. Fits on an RTX 4060.<br>
+    <strong>2-bit (aggressive GPTQ):</strong> ~1.75 GB for 7B, 8&ndash;15% accuracy drop. Useful for exploration only.</p>
+</div>
+
+<div class="power zen">
+    <div class="power-label">Local inference toolchain (2026)</div>
+    <p><strong>llama.cpp:</strong> GGUF format, CPU+GPU hybrid. Best for 16 GB cards (offload overflow to RAM). Supports multimodal VLMs including Qwen-VL and LLaVA variants.<br>
+    <strong>ollama:</strong> one-command deployment, GGUF models. Good for PaddleOCR-VL and smaller Qwen3-VL. <code>ollama run qwen3-vl:7b</code> and you&rsquo;re running.<br>
+    <strong>vLLM:</strong> PagedAttention, highest throughput, requires 24 GB+. The production choice for RTX 4090 and above.<br>
+    <strong>ExLlamaV2:</strong> fastest inference on consumer GPUs, GPTQ-optimized. Excellent for Qwen3-VL-7B at 40+ tok/s.</p>
+</div>
+</section>
+
+
+<div class="act-break">
+    <div class="act-number">Act III</div>
+    <div class="act-title">Convergence</div>
+    <div class="act-subtitle">Segmentation sees. OCR reads. Now the language models learn to do both.</div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 8 — HOW VLMS WATCH                                      -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch8">
+<h2>// 08 &mdash; How VLMs Watch</h2>
+
+<div class="pipe-crumb">
+    <span class="stage" style="color:var(--green)">SEGMENT</span> &rarr;
+    <span class="stage" style="color:var(--yellow)">TRACK</span> &rarr;
+    <span class="stage" style="color:var(--magenta)">DETECT</span> &rarr;
+    <span class="stage" style="color:var(--orange)">READ</span> &rarr;
+    <span class="stage active" style="color:var(--cyan)">UNDERSTAND</span> &rarr;
+    <span class="stage" style="color:var(--purple)">GROUND</span>
+</div>
+
+<p class="ch-thesis">The context window holds the tokens. It does not hold the understanding. Long context &ne; long memory.<span class="blink">_</span></p>
+
+<p class="drop-cap">Three people are watching the same two-hour film. One speed-reads the whole thing but misses details. One annotates every frame with colored bookmarks that encode <em>where and when</em>. One has a photographic memory and just ingests the entire reel. Three architectures. Three bets on the same wall.</p>
+
+<div class="tabbed">
+    <input type="radio" name="vlm-arch" id="vlm-arch-t1" class="t1" checked>
+    <input type="radio" name="vlm-arch" id="vlm-arch-t2" class="t2">
+    <input type="radio" name="vlm-arch" id="vlm-arch-t3" class="t3">
+    <div class="tab-bar">
+        <label for="vlm-arch-t1">Intuition</label>
+        <label for="vlm-arch-t2">Architecture</label>
+        <label for="vlm-arch-t3">Trivia</label>
+    </div>
+    <div class="tab-panel p1">
+        <div>
+            <h4 style="margin-top:0;">Three People, Three Strategies</h4>
+            <p>Map each person from the drop-cap to a real architecture:</p>
+            <p><strong style="color:var(--cyan)">The Speed-Reader = Gemini 2.5 Flash.</strong> Ingests the native video stream, processes at $0.30/M tokens. Fast, cheap, covers the whole film. Misses subtle details in dense scenes because it skims.</p>
+            <p><strong style="color:var(--orange)">The Annotator = Qwen3-VL.</strong> Encodes every frame with three-axis bookmarks &mdash; <em>when</em> (temporal), <em>where vertically</em> (height), <em>where horizontally</em> (width) &mdash; using MRoPE (Multimodal Rotary Position Embedding). Can pinpoint events to the second in a 2-hour video. 99.5% accuracy on inserted-frame detection. The most precise, but the most compute-hungry per frame.</p>
+            <p><strong style="color:var(--green)">The Photographic Memory = Gemini 2.5 Pro.</strong> 1M token context window. Native video stream + audio. Holds ~55 minutes in a single call. SOTA at 85.2% Video-MME. The biggest suitcase &mdash; but even it can&rsquo;t hold a 2-hour film at full resolution.</p>
+            <p style="color:var(--text-dim); font-style:italic;">Fourth player: <strong>GPT-5</strong> &mdash; the Multimodal Reasoner. Still frame-based (no native video stream). Best on shorter clips (&lt;5 min). ~84% Video-MME. Most expensive at ~$0.065/min.</p>
+        </div>
+    </div>
+    <div class="tab-panel p2">
+        <div>
+            <h4 style="margin-top:0;">Closed-Source</h4>
+            <table>
+                <tr><th>Model</th><th>Context</th><th>Input Mode</th><th>Video-MME v1</th><th>$/M tokens</th></tr>
+                <tr><td style="color:var(--green)">Gemini 2.5 Pro</td><td>1M</td><td>Native video + audio</td><td style="color:var(--green)">85.2%</td><td>$1.25&ndash;$2.50</td></tr>
+                <tr><td style="color:var(--cyan)">Gemini 2.5 Flash</td><td>1M</td><td>Native video + audio</td><td>~78%</td><td style="color:var(--green)">$0.30</td></tr>
+                <tr><td style="color:var(--purple)">GPT-5</td><td>1M+</td><td>Frame extraction</td><td>~84%</td><td>$2.50</td></tr>
+            </table>
+            <h4 style="margin-top:1.2rem;">Open-Source</h4>
+            <table>
+                <tr><th>Model</th><th>Context</th><th>Video-MME</th><th>Min VRAM (int4)</th><th>Runs On</th></tr>
+                <tr><td style="color:var(--orange)">Qwen3-VL-7B</td><td>256K</td><td>~74</td><td style="color:var(--green)">~4 GB</td><td style="color:var(--green)">RTX 4060 Ti</td></tr>
+                <tr><td style="color:var(--orange)">Qwen3-VL-72B</td><td>256K&rarr;1M</td><td>~82</td><td>~40 GB</td><td>2&times; RTX 4090</td></tr>
+                <tr><td style="color:var(--cyan)">InternVL3-78B</td><td>256K</td><td>72.7</td><td>~40 GB</td><td>2&times; RTX 4090 / A100</td></tr>
+                <tr><td style="color:var(--yellow)">LLaVA-OneVision-1.5-7B</td><td>128K</td><td>&mdash;</td><td style="color:var(--green)">~4 GB</td><td style="color:var(--green)">RTX 4060 Ti</td></tr>
+                <tr><td style="color:var(--orange)">Qwen3-VL-235B (MoE)</td><td>256K&rarr;1M</td><td>25.0*</td><td>~120 GB</td><td>Multi-GPU / cloud</td></tr>
+            </table>
+            <p style="font-size:0.8rem; color:var(--text-dim);">* Video-MME-v2 Non-Linear Score (much harder than original). Dense Qwen3-VL variants: 2B, 4B, 8B, 32B. MoE: 30B-A3B, 235B-A22B.</p>
+            <div class="power hack" style="margin-top:0.8rem;">
+                <div class="power-label">The consumer sweet spot (2026)</div>
+                <p><strong>Qwen3-VL-7B int4</strong> on an RTX 4060 Ti (16 GB). At 1fps it processes a 30-minute video in ~12 minutes. Video-MME accuracy ~73% &mdash; 12 points behind Gemini 2.5 Pro, zero API cost. For most use cases (content moderation, video search, accessibility captions), that 12-point gap doesn&rsquo;t matter.</p>
+            </div>
+            <p><strong>MRoPE explained:</strong> standard position encoding gives each token one number (position 1, 2, 3&hellip;). MRoPE gives each token three independent coordinates &mdash; temporal (which second), height (row in frame), width (column in frame). The axes are encoded separately using rotary embeddings, so the model can distinguish &ldquo;same place, different time&rdquo; from &ldquo;different place, same time.&rdquo;</p>
+        </div>
+    </div>
+    <div class="tab-panel p3">
+        <div>
+            <h4 style="margin-top:0;">Why 85% Is Not As Good As It Sounds</h4>
+            <p><strong>Video-MME v1</strong> (2024) was saturating. Multiple-choice format, limited question diversity, 25% random-guess baseline. When Gemini 2.5 Pro hit 85.2%, it was within spitting distance of human performance on the easy questions.</p>
+            <p><strong>Video-MME-v2</strong> (April 2026) changed the game: 3,300+ hours of human annotation, tri-level progressive hierarchy, and <em>Non-Linear Scoring</em> that penalizes random guessing. On this benchmark, Gemini 3 Pro leads at 49.4 NL &mdash; far from human expert performance. The old benchmark said &ldquo;almost there.&rdquo; The new one says &ldquo;nowhere close.&rdquo;</p>
+            <p>The <strong>14.8% long-video accuracy drop</strong> is the other sobering number. Even Gemini 2.5 Pro degrades from short to long videos. The context window holds the tokens, but the attention mechanism dilutes relevant information over a million positions. Long context &ne; long understanding.</p>
+        </div>
+    </div>
+</div>
+
+<h3>The Benchmark Gauntlet</h3>
+
+<table>
+    <tr><th>Model</th><th>Video-MME v1</th><th>Video-MME v2 (NL)</th><th>Input Mode</th><th>Cost/Min</th></tr>
+    <tr><td style="color:var(--cyan)">Gemini 2.5 Pro</td><td style="color:var(--green)">85.2%</td><td>49.4</td><td>Native video</td><td style="color:var(--green)">~$0.005</td></tr>
+    <tr><td style="color:var(--purple)">GPT-5</td><td>~84%</td><td>&mdash;</td><td>Frame extraction</td><td>~$0.065</td></tr>
+    <tr><td style="color:var(--orange)">Qwen3-VL 235B</td><td>&mdash;</td><td>25.0</td><td>MRoPE frames</td><td>Open source</td></tr>
+    <tr><td style="color:var(--yellow)">Gemini 3 Pro</td><td>&mdash;</td><td style="color:var(--green)">49.4</td><td>Native video</td><td>&mdash;</td></tr>
+</table>
+<p style="font-size:0.82rem; color:var(--text-dim);"><strong>Video-MME-v2</strong> (April 2026): 3,300+ human-annotation hours, tri-level progressive hierarchy, Non-Linear Scoring that penalizes random guessing. The old benchmark was saturating. This one isn&rsquo;t. Gemini 3 Pro leads at 49.4 NL &mdash; far from human expert performance.</p>
+
+<div class="power zen">
+    <div class="power-label">What attention does, in one sentence</div>
+    <p>For each token, attention computes a weighted average of every other token in the context window &mdash; weighting by relevance. The cost is quadratic: 1M tokens means 1 trillion relevance scores. Worse, because all weights sum to 1, relevant tokens get diluted as the window grows. Finding the right needle in a million-token haystack is the fundamental bottleneck.</p>
+</div>
+
+<div class="power">
+    <div class="power-label">The long-video drop</div>
+    <p>Even Gemini 2.5 Pro shows a <strong>14.8% accuracy drop</strong> from short to long videos. The context window holds the tokens. The attention mechanism struggles to find the right needle in a million-token haystack. Long context &ne; long understanding.</p>
+</div>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 9 — GROUNDED UNDERSTANDING                              -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch9">
+<h2>// 09 &mdash; Grounded Understanding</h2>
+
+<div class="pipe-crumb">
+    <span class="stage" style="color:var(--green)">SEGMENT</span> &rarr;
+    <span class="stage" style="color:var(--yellow)">TRACK</span> &rarr;
+    <span class="stage" style="color:var(--magenta)">DETECT</span> &rarr;
+    <span class="stage" style="color:var(--orange)">READ</span> &rarr;
+    <span class="stage" style="color:var(--cyan)">UNDERSTAND</span> &rarr;
+    <span class="stage active" style="color:var(--purple)">GROUND</span>
+</div>
+
+<p class="ch-thesis">A segmentation model cannot reason. A language model cannot draw a mask. LISA does both with one token.<span class="blink">_</span></p>
+
+<p class="drop-cap">&ldquo;Segment the thing that makes noise when the wind blows.&rdquo; No bounding box. No class label. Just a sentence that requires reasoning. A segmentation model cannot do this &mdash; it doesn&rsquo;t know what makes noise. A VLM cannot do this &mdash; it reasons but cannot draw a mask. LISA does both.</p>
+
+<h3>LISA: The &lt;SEG&gt; Token</h3>
+
+<div class="gloss">
+    <div class="gloss-term">What is a &ldquo;hidden embedding&rdquo;?</div>
+    <p>Inside a transformer, every token becomes a vector at each layer. These intermediate vectors are called <em>hidden states</em> or <em>hidden embeddings</em>. For the <code>&lt;SEG&gt;</code> token, the final hidden embedding encodes everything the model &ldquo;understood&rdquo; about what should be segmented. It is not text &mdash; it is a ~4096-dimensional float vector rich in geometric and semantic meaning. LISA routes this vector to a SAM decoder that was trained to turn it into a pixel mask.</p>
+</div>
+
+<p>LISA (CVPR 2024 Oral) adds one token to the LLM vocabulary: <code>&lt;SEG&gt;</code>. When the model generates it, the token&rsquo;s hidden embedding is fed to a SAM-style mask decoder. Language reasoning in, pixel mask out. One forward pass.</p>
+
+<div class="diagram">
+<div class="diagram-label">LISA architecture</div>
+<pre>
+<span style="color:#00ddff">"Segment the thing that makes noise in the wind"</span>
+
+  <span style="color:#4488ff">Visual Encoder</span> + <span style="color:#aa44ff">LLM</span>  ──▶  "It is the wind chime <span style="color:#00ff88">&lt;SEG&gt;</span>"
+                                              &boxv;
+                                 extract <span style="color:#00ff88">&lt;SEG&gt;</span> embedding
+                                              &boxv;
+                                    <span style="color:#ff00aa">SAM Mask Decoder</span>  ──▶  pixel mask
+</pre>
+</div>
+
+<p>Click a query below to watch the forward pass step through:</p>
+
+<!-- LISA STEP-THROUGH INTERACTIVE -->
+<div class="js-demo" style="padding:0;">
+    <canvas id="lisa-canvas" width="780" height="180"></canvas>
+    <div style="padding: 0.4rem 1rem; border-top: 1px solid var(--border); display:flex; gap:0.8rem; flex-wrap:wrap; align-items:center;">
+        <span style="font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.08em;">Query:</span>
+        <button class="lisa-q" data-q="the wind chime" data-shape="chime" style="background:var(--border);color:var(--text);border:none;padding:0.3rem 0.8rem;font-family:'JetBrains Mono',monospace;font-size:10px;border-radius:3px;cursor:pointer;">&ldquo;the wind chime&rdquo;</button>
+        <button class="lisa-q" data-q="person holding coffee" data-shape="person" style="background:var(--border);color:var(--text);border:none;padding:0.3rem 0.8rem;font-family:'JetBrains Mono',monospace;font-size:10px;border-radius:3px;cursor:pointer;">&ldquo;person holding coffee&rdquo;</button>
+        <button class="lisa-q" data-q="the dangerous object" data-shape="knife" style="background:var(--border);color:var(--text);border:none;padding:0.3rem 0.8rem;font-family:'JetBrains Mono',monospace;font-size:10px;border-radius:3px;cursor:pointer;">&ldquo;the dangerous object&rdquo;</button>
+        <span id="lisa-readout" style="font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--text-dim); margin-left:auto;"></span>
+    </div>
+</div>
+
+<script>
+(function() {
+    var c = document.getElementById('lisa-canvas'), ctx = c.getContext('2d');
+    var W = c.width, H = c.height;
+    var stages = ['Visual\nEncoder', 'LLM\nDecode', '<SEG>\nToken', 'SAM\nDecoder', 'Pixel\nMask'];
+    var colors = ['#4488ff', '#aa44ff', '#00ff88', '#ff00aa', '#00ff88'];
+    var stageW = 120, stageH = 50, gap = 18, startX = 40, startY = 30;
+    var activeStage = -1, currentQuery = '', currentShape = '', animTimer = null;
+
+    var responses = {
+        'the wind chime': ['It','is','the','wind','chime'],
+        'person holding coffee': ['The','person','holding','the','coffee'],
+        'the dangerous object': ['It','is','the','knife','on','table']
+    };
+    var shapes = {
+        'chime': function(cx, cy) { ctx.beginPath(); ctx.moveTo(cx, cy-20); ctx.lineTo(cx-8, cy+15);
+            ctx.lineTo(cx+8, cy+15); ctx.closePath(); ctx.moveTo(cx-5,cy+18); ctx.lineTo(cx-5,cy+25);
+            ctx.moveTo(cx+5,cy+18); ctx.lineTo(cx+5,cy+25); ctx.stroke(); },
+        'person': function(cx, cy) { ctx.beginPath(); ctx.arc(cx, cy-12, 8, 0, Math.PI*2); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(cx, cy-4); ctx.lineTo(cx, cy+12); ctx.moveTo(cx-10,cy+3);
+            ctx.lineTo(cx+10,cy+3); ctx.moveTo(cx, cy+12); ctx.lineTo(cx-8, cy+22);
+            ctx.moveTo(cx, cy+12); ctx.lineTo(cx+8, cy+22); ctx.stroke(); },
+        'knife': function(cx, cy) { ctx.beginPath(); ctx.moveTo(cx-18, cy); ctx.lineTo(cx+10, cy);
+            ctx.lineTo(cx+18, cy-4); ctx.lineTo(cx+10, cy); ctx.lineTo(cx+10, cy+2);
+            ctx.lineTo(cx-18, cy+2); ctx.closePath(); ctx.stroke(); }
+    };
+
+    function drawBase() {
+        ctx.clearRect(0, 0, W, H);
+        // Draw stage boxes
+        for (var i = 0; i < 5; i++) {
+            var x = startX + i * (stageW + gap), y = startY;
+            var isActive = i <= activeStage;
+            ctx.strokeStyle = isActive ? colors[i] : '#2a2a4a';
+            ctx.lineWidth = isActive ? 2 : 1;
+            ctx.strokeRect(x, y, stageW, stageH);
+            if (isActive) {
+                ctx.fillStyle = colors[i] + '15';
+                ctx.fillRect(x, y, stageW, stageH);
+            }
+            // Label
+            ctx.fillStyle = isActive ? colors[i] : '#4a4a5e';
+            ctx.font = '11px JetBrains Mono, monospace';
+            ctx.textAlign = 'center';
+            var lines = stages[i].split('\n');
+            ctx.fillText(lines[0], x + stageW/2, y + stageH/2 - 4);
+            if (lines[1]) ctx.fillText(lines[1], x + stageW/2, y + stageH/2 + 10);
+            // Arrow
+            if (i < 4) {
+                var ax = x + stageW + 2, ay = y + stageH/2;
+                ctx.strokeStyle = (i < activeStage) ? '#444' : '#222';
+                ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(ax + gap - 4, ay); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(ax + gap - 8, ay - 3); ctx.lineTo(ax + gap - 4, ay);
+                ctx.lineTo(ax + gap - 8, ay + 3); ctx.stroke();
+            }
+        }
+    }
+
+    function drawTokens(words, upTo) {
+        var tx = startX + (stageW + gap) + 5, ty = startY + stageH + 18;
+        ctx.font = '12px JetBrains Mono, monospace';
+        ctx.textAlign = 'left';
+        var cx = tx;
+        for (var i = 0; i <= Math.min(upTo, words.length - 1); i++) {
+            ctx.fillStyle = '#aa44ff';
+            ctx.fillText(words[i], cx, ty);
+            cx += ctx.measureText(words[i]).width + 6;
+        }
+        if (upTo >= words.length) {
+            ctx.fillStyle = '#00ff88';
+            ctx.font = 'bold 12px JetBrains Mono, monospace';
+            ctx.fillText('<SEG>', cx, ty);
+        }
+    }
+
+    function drawMask() {
+        var mx = startX + 4 * (stageW + gap) + stageW/2, my = startY + stageH + 28;
+        ctx.strokeStyle = '#00ff88';
+        ctx.lineWidth = 2;
+        if (shapes[currentShape]) shapes[currentShape](mx, my);
+        ctx.font = '9px JetBrains Mono, monospace';
+        ctx.fillStyle = '#00ff88';
+        ctx.textAlign = 'center';
+        ctx.fillText('mask output', mx, my + 35);
+    }
+
+    function animate(query, shape) {
+        if (animTimer) clearInterval(animTimer);
+        currentQuery = query; currentShape = shape;
+        activeStage = -1;
+        var words = responses[query] || ['...'];
+        var wordIdx = -1;
+        var totalSteps = 1 + words.length + 1 + 1 + 1; // encoder + words + seg + decoder + mask
+        var step = 0;
+        document.getElementById('lisa-readout').textContent = 'encoding...';
+
+        animTimer = setInterval(function() {
+            if (step === 0) { activeStage = 0; drawBase(); document.getElementById('lisa-readout').textContent = '576 visual tokens extracted'; }
+            else if (step <= words.length) { activeStage = 1; drawBase(); drawTokens(words, step - 1);
+                document.getElementById('lisa-readout').textContent = 'decoding: ' + words.slice(0, step).join(' '); }
+            else if (step === words.length + 1) { activeStage = 2; drawBase(); drawTokens(words, words.length);
+                document.getElementById('lisa-readout').textContent = '<SEG> emitted \u2014 extracting 4096-dim embedding'; }
+            else if (step === words.length + 2) { activeStage = 3; drawBase(); drawTokens(words, words.length);
+                document.getElementById('lisa-readout').textContent = 'SAM decoder: embedding \u2192 pixel mask'; }
+            else if (step === words.length + 3) { activeStage = 4; drawBase(); drawTokens(words, words.length); drawMask();
+                document.getElementById('lisa-readout').textContent = 'done \u2014 1 forward pass, 0 bounding boxes'; clearInterval(animTimer); }
+            step++;
+        }, 400);
+    }
+
+    drawBase();
+    document.querySelectorAll('.lisa-q').forEach(function(btn) {
+        btn.addEventListener('click', function() { animate(this.dataset.q, this.dataset.shape); });
+    });
+})();
+</script>
+
+<p>The elegance is in what it doesn&rsquo;t need. No bounding box. No class vocabulary. No multi-stage pipeline. The LLM reasons, emits <code>&lt;SEG&gt;</code>, the decoder draws. <strong>GLaMM</strong> (CVPR 2024) extended this to grounded conversations &mdash; every object mentioned in text gets its own mask. &ldquo;One Token to Seg Them All&rdquo; (NeurIPS 2024) extended it to video.</p>
+
+<p>Meanwhile, SAM 3 made the opposite move: instead of teaching a language model to segment, it taught a segmentation model to understand language. The <code>&lt;SEG&gt;</code> token and SAM 3&rsquo;s text encoder are converging from opposite directions toward the same destination: <strong>models that see, speak, and point simultaneously</strong>.</p>
+
+<div class="power wild">
+    <div class="power-label">AUSM &mdash; Autoregressive Video Segmentation (CVPR 2026)</div>
+    <p>NVIDIA&rsquo;s AUSM recasts video segmentation as sequential mask prediction &mdash; language-model style, token by token. Built on state-space models (a class of sequence models with fixed-size hidden states, like Mamba) with a spatial state that scales to arbitrary-length video streams. A single architecture for both prompted and unprompted segmentation. 2.5&times; faster training. If LISA taught a language model to segment, AUSM taught a segmentation model to think like a language model. The convergence is coming from both directions.</p>
+</div>
+
+<div class="power zen">
+    <div class="power-label">The convergence thesis</div>
+    <p>Five years ago, segmentation and language were separate fields with separate conferences. LISA, GLaMM, SAM 3, AUSM &mdash; the boundaries are dissolving. The language model <em>is</em> the segmentation model, because understanding what to segment requires understanding language, and expressing what you found requires generating it. The frame problem was never about pixels. It was about meaning.</p>
+</div>
+
+<div class="power">
+    <div class="power-label">Trivia: LISA trained on 239 images</div>
+    <p>Not 239 thousand. <strong>239.</strong> The full ReasonSeg training set contains 239 image-instruction pairs for the complex reasoning category. LISA achieves SOTA on complex reasoning segmentation from 239 examples because the SAM decoder was already pre-trained on 11 million masks &mdash; the LLM only has to learn <em>when</em> to emit <code>&lt;SEG&gt;</code>, not <em>how</em> to draw. The heaviest lifting was already done. The <code>&lt;SEG&gt;</code> token is a thin bridge between two pre-trained giants.</p>
+</div>
+</section>
+
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- CHAPTER 10 — THE FULL PIPELINE                                  -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<section id="ch10">
+<h2>// 10 &mdash; The Full Pipeline</h2>
+
+<div class="pipe-crumb">
+    <span class="stage active" style="color:var(--green)">SEGMENT</span> &rarr;
+    <span class="stage active" style="color:var(--yellow)">TRACK</span> &rarr;
+    <span class="stage active" style="color:var(--magenta)">DETECT</span> &rarr;
+    <span class="stage active" style="color:var(--orange)">READ</span> &rarr;
+    <span class="stage active" style="color:var(--cyan)">UNDERSTAND</span> &rarr;
+    <span class="stage active" style="color:var(--purple)">GROUND</span>
+    &nbsp; <span style="color:var(--green)">&larr; everything wired</span>
+</div>
+
+<p class="ch-thesis">The systems are built. The pipeline is wired. The question is no longer whether &mdash; it&rsquo;s how much, on what hardware, at what cost.<span class="blink">_</span></p>
+
+<p class="drop-cap">Wired together, these systems stop being research projects and become engineering problems. The VLM understands the scene. The segmentation model isolates objects. The OCR reads their labels. The question is no longer &ldquo;can we?&rdquo; but &ldquo;how much?&rdquo;</p>
+
+<h3>Video-RAG: Index Once, Query Forever</h3>
+
+<div class="diagram">
+<div class="diagram-label">Video-RAG architecture (2026 production pattern)</div>
+<pre>
+<span style="color:#ff8800">OFFLINE INDEXING</span>                          <span style="color:#00ddff">ONLINE QUERY</span>
+&boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;          &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;
+&boxv; 1. OCR + ASR per frame  &boxv;          &boxv; 1. User query          &boxv;
+&boxv; 2. VLM captions @ 1fps &boxv;          &boxv; 2. Retrieve timestamped &boxv;
+&boxv; 3. SAM 3 object detect  &boxv;          &boxv;    segments from vector &boxv;
+&boxv; 4. Embed &rarr; vector store &boxv;          &boxv;    store                &boxv;
+&boxur;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxul;          &boxv; 3. Re-fetch video      &boxv;
+         &boxv;                              &boxv;    segments as context   &boxv;
+    &boxdr;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxdl;                        &boxv; 4. VLM answers          &boxv;
+    &boxv; <span style="color:#ffdd00">Vector</span>  &boxv;──────────────▶&boxur;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxul;
+    &boxv; <span style="color:#ffdd00">Store</span>   &boxv;
+    &boxur;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxh;&boxul;
+</pre>
+</div>
+
+<p>Index the video once. Query it infinitely. The indexing pass runs OCR, ASR, VLM captioning, and SAM 3 object detection &mdash; everything goes into a vector store with timestamps. At query time, retrieve the relevant segments and run VLM inference only on those. Cost per query drops from dollars to cents.</p>
+
+<h3>The Compute Wall (2026 Numbers)</h3>
+
+<p>Processing 1 hour of video (108,000 frames at 30fps):</p>
+
+<table>
+    <tr><th>System</th><th>Hardware</th><th>Time</th><th>Cost</th></tr>
+    <tr><td style="color:var(--green)">SAM 3.1 (16 objects)</td><td>1&times; H100</td><td>~56 min (32fps)</td><td>~$1.40 (spot $1.49/hr)</td></tr>
+    <tr><td style="color:var(--orange)">PaddleOCR v5 (GPU)</td><td>Shared GPU</td><td>5&ndash;15ms/frame</td><td>Marginal</td></tr>
+    <tr><td style="color:var(--yellow)">Gemini 2.5 Flash @ 1fps</td><td>API</td><td>API latency</td><td style="color:var(--green)">~$0.05</td></tr>
+    <tr><td style="color:var(--cyan)">Gemini 2.5 Pro @ 1fps</td><td>API</td><td>API latency</td><td>~$0.19</td></tr>
+    <tr><td style="color:var(--purple)">GPT-4o @ 2fps</td><td>API</td><td>~19 API calls</td><td>~$4.60</td></tr>
+    <tr style="border-top: 2px solid var(--border);">
+        <td style="color:var(--green)"><strong>Full pipeline (Flash)</strong></td>
+        <td>H100 + API</td>
+        <td>~1 hour</td>
+        <td style="color:var(--green)"><strong>~$1.50</strong></td>
+    </tr>
+    <tr style="border-top: 1px dashed var(--border);">
+        <td colspan="4" style="color:var(--yellow); font-size:0.8rem; text-transform:uppercase; letter-spacing:0.08em; padding-top:0.6rem;">Local / Consumer GPU</td>
+    </tr>
+    <tr><td style="color:var(--yellow)">EfficientSAM3 + PaddleOCR</td><td>RTX 4090</td><td>~2.5 hr</td><td style="color:var(--green)">~$0.06 amortized</td></tr>
+    <tr><td style="color:var(--yellow)">Qwen3-VL-7B int4 @ 1fps</td><td>RTX 4090</td><td>~4 hr</td><td style="color:var(--green)">~$0.08 amortized</td></tr>
+    <tr style="border-top: 2px solid var(--border);">
+        <td style="color:var(--yellow)"><strong>Full local pipeline</strong></td>
+        <td>RTX 4090</td>
+        <td>~6&ndash;8 hr</td>
+        <td style="color:var(--yellow)"><strong>~$0.15</strong></td>
+    </tr>
+</table>
+
+<p><strong>$1.50 per hour of video</strong> in the cloud. <strong>$0.15</strong> on a consumer GPU you already own. Two years ago, the VLM alone cost 10&times; the cloud price. Gemini 2.5 Flash at $0.30/M tokens changed the economics overnight. H100 spot pricing fell 40&ndash;50% from 2024 peaks. The L40S (48GB, $0.72/hr spot) has become the cloud inference sweet spot.</p>
+
+<p style="font-size:0.88rem; color:var(--text-dim);">The <strong>cloud/local breakpoint:</strong> at 10+ hours of video per day, an RTX 4090 ($2,500 in 2026) pays for itself in 4&ndash;6 months versus Gemini Flash pricing. Below 10 hours/day, the API wins on operational simplicity. Above 100 hours/day, H100 spot beats both. Privacy-sensitive use cases (medical, legal, surveillance) favor local regardless of volume.</p>
+
+<h3>The Horizon</h3>
+
+<p>The child watching the dog run behind the tree still does it better. She has a world model no architecture reproduces. But the machines are getting close. SAM 3 tracks through occlusion using language. Qwen3-VL watches 2-hour videos with second-level precision. LISA draws a mask around &ldquo;the thing that makes noise in the wind.&rdquo; AUSM treats segmentation as autoregressive prediction &mdash; the same paradigm that unlocked language.</p>
+
+<p>The frame problem &mdash; that gap between thirty frozen images and one continuous understanding &mdash; has not been solved. But the gap is narrower than it has ever been. The machines still lose identity when lighting changes. They still miss the license plate at motion-blur frame 48. They still drop 15% accuracy in the final 30 minutes of a long video. Each limitation is a research paper waiting to happen. And for the first time, the systems that see, the systems that read, and the systems that reason are becoming the same system.</p>
+
+<p style="font-family:'JetBrains Mono',monospace; font-size:0.85rem; color:var(--text-dim); margin-top:2rem; text-align:center;">
+    The map is drawn. The pipeline is wired. What you build on top of it is the next chapter.
+    <span class="blink" style="color:var(--green);">_</span>
+</p>
+</section>
+
+
+<details>
+    <summary>References &amp; Papers</summary>
+    <div style="font-size: 0.82rem; line-height: 1.7; columns: 2; column-gap: 2rem;">
+        <p><strong>Video Segmentation</strong></p>
+        <p>STM: Oh et al., ICCV 2019. arXiv 1904.00607</p>
+        <p>XMem: Cheng &amp; Schwing, ECCV 2022. arXiv 2207.07115</p>
+        <p>Cutie: Cheng et al., CVPR 2024. arXiv 2310.12982</p>
+        <p>SAM 2: Ravi et al., Meta AI 2024. arXiv 2408.00714</p>
+        <p>SAM 3: Meta AI, Nov 2025. arXiv 2511.16719</p>
+        <p>SAM 3.1: Meta AI, Mar 2026</p>
+        <p>EdgeTAM: CVPR 2025. arXiv 2501.07256</p>
+        <p>EfficientSAM3: Nov 2025. arXiv 2511.15833</p>
+        <p>AUSM: NVIDIA, CVPR 2026. arXiv 2508.19242</p>
+        <p>DEVA: Cheng et al., ICCV 2023. arXiv 2309.03903</p>
+        <p>LSVOS 2025: arXiv 2510.11063</p>
+
+        <p style="margin-top:1rem;"><strong>Video OCR</strong></p>
+        <p>PP-OCRv5: May 2025. arXiv 2507.05595</p>
+        <p>GOT-OCR 2.0: Sept 2024. arXiv 2409.01704</p>
+        <p>TrOCR: Li et al., AAAI 2023. arXiv 2109.10282</p>
+        <p>CRAFT: Kim et al., CVPR 2019</p>
+        <p>ALPR Visual Rhythm: arXiv 2501.04750</p>
+
+        <p style="margin-top:1rem;"><strong>Vision-Language Models</strong></p>
+        <p>Gemini 2.5 Pro: Google, June 2025</p>
+        <p>Qwen3-VL: Alibaba, Nov 2025. arXiv 2511.21631</p>
+        <p>InternVL3: Apr 2025. arXiv 2504.10479</p>
+        <p>LLaVA-OneVision-1.5: Sept 2025. arXiv 2509.23661</p>
+        <p>Video-MME: CVPR 2025. arXiv 2405.21075</p>
+        <p>Video-MME-v2: Apr 2026. arXiv 2604.05015</p>
+        <p>LISA: CVPR 2024. arXiv 2308.00692</p>
+        <p>GLaMM: CVPR 2024. arXiv 2311.03356</p>
+        <p>DINO-X: Nov 2024. arXiv 2411.14347</p>
+        <p>One Token to Seg Them All: NeurIPS 2024</p>
+    </div>
+</details>
+
+</div>
+</body>
+</html>

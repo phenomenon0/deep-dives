@@ -1,0 +1,1345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DeepSeek-R1 — A Systems Event</title>
+  <link rel="canonical" href="https://femiadeniran.com/deep-dives/deepseek-r1-deep-dive.html">
+  <meta property="og:title" content="DeepSeek-R1 — A Systems Event">
+  <meta property="og:description" content="A cinematic technical deep dive into DeepSeek-R1: the model, the market shock, the infrastructure implications, and the geopolitical aftershocks.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://femiadeniran.com/deep-dives/deepseek-r1-deep-dive.html">
+  <meta property="og:site_name" content="Femi Adeniran">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="DeepSeek-R1 — A Systems Event">
+  <meta name="twitter:description" content="A cinematic technical deep dive into DeepSeek-R1: the model, the market shock, the infrastructure implications, and the geopolitical aftershocks.">
+  <meta name="author" content="Femi Adeniran">
+  <meta
+    name="description"
+    content="A cinematic technical deep dive into DeepSeek-R1: the model, the market shock, the infrastructure implications, and the geopolitical aftershocks."
+  >
+  <link
+    href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+    rel="stylesheet"
+  >
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --bg-card: #12121a;
+      --bg-code: #0e0e16;
+      --border: #1e1e2e;
+      --border-glow: #2a2a4a;
+      --text: #c8c8d4;
+      --text-dim: #6a6a7e;
+      --white: #e8e8f0;
+      --green: #00ff88;
+      --green-dim: #00aa55;
+      --cyan: #00ddff;
+      --magenta: #ff00aa;
+      --orange: #ff8800;
+      --red: #ff3344;
+      --yellow: #ffdd00;
+      --blue: #4488ff;
+      --purple: #aa44ff;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; scroll-padding-top: 3rem; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Source Serif 4", Georgia, serif;
+      font-size: 18px;
+      line-height: 1.7;
+      overflow-x: hidden;
+    }
+
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0, 0, 0, 0.03) 2px,
+        rgba(0, 0, 0, 0.03) 4px
+      );
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 1000;
+      background: rgba(10, 10, 15, 0.92);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      padding: 0.5rem 1.5rem;
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      overflow-x: auto;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      white-space: nowrap;
+    }
+
+    nav a {
+      color: var(--text-dim);
+      text-decoration: none;
+      transition: color 0.2s, text-shadow 0.2s;
+      padding: 0.3rem 0;
+    }
+
+    nav a:hover {
+      color: var(--green);
+      text-shadow: 0 0 8px rgba(0, 255, 136, 0.3);
+    }
+
+    .nav-title {
+      color: var(--green);
+      font-weight: 600;
+      margin-right: 0.5rem;
+      text-shadow: 0 0 10px rgba(0, 255, 136, 0.25);
+      flex-shrink: 0;
+    }
+
+    .content {
+      max-width: 820px;
+      margin: 0 auto;
+      padding: 5rem 2rem 6rem;
+    }
+
+    .hero {
+      text-align: center;
+      padding: 4rem 0 5rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 4rem;
+    }
+
+    .hero h1 {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 3rem;
+      font-weight: 600;
+      color: var(--green);
+      text-shadow: 0 0 30px rgba(0, 255, 136, 0.2), 0 0 60px rgba(0, 255, 136, 0.1);
+      margin-bottom: 0.8rem;
+      letter-spacing: -0.02em;
+    }
+
+    .subtitle {
+      font-size: 1.1rem;
+      color: var(--text-dim);
+      font-style: italic;
+      max-width: 680px;
+      margin: 0 auto;
+    }
+
+    .series-kicker {
+      margin-top: 1.2rem;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .glitch {
+      position: relative;
+      display: inline-block;
+    }
+
+    .glitch::before,
+    .glitch::after {
+      content: attr(data-text);
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    .glitch::before {
+      color: var(--cyan);
+      animation: glitch-1 3s infinite linear alternate-reverse;
+      clip-path: inset(0 0 80% 0);
+    }
+
+    .glitch::after {
+      color: var(--magenta);
+      animation: glitch-2 2.5s infinite linear alternate-reverse;
+      clip-path: inset(80% 0 0 0);
+    }
+
+    .blink {
+      display: inline-block;
+      animation: blink 1s step-end infinite;
+      color: var(--green);
+    }
+
+    @keyframes blink {
+      50% { opacity: 0; }
+    }
+
+    @keyframes glitch-1 {
+      0%, 90% { transform: translate(0); }
+      92% { transform: translate(-3px, 1px); }
+      94% { transform: translate(3px, -1px); }
+      96% { transform: translate(-2px, 2px); }
+      100% { transform: translate(0); }
+    }
+
+    @keyframes glitch-2 {
+      0%, 88% { transform: translate(0); }
+      90% { transform: translate(2px, -1px); }
+      93% { transform: translate(-3px, 2px); }
+      96% { transform: translate(1px, -2px); }
+      100% { transform: translate(0); }
+    }
+
+    section {
+      margin-bottom: 5rem;
+      padding-top: 1rem;
+    }
+
+    h2 {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 1.5rem;
+      color: var(--green);
+      margin-bottom: 1.5rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border);
+      text-shadow: 0 0 10px rgba(0, 255, 136, 0.15);
+      letter-spacing: 0.02em;
+    }
+
+    h3 {
+      font-size: 1.25rem;
+      color: var(--cyan);
+      margin: 2.5rem 0 1rem;
+      font-weight: 600;
+    }
+
+    h4 {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.85rem;
+      color: var(--magenta);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin: 2rem 0 0.8rem;
+    }
+
+    p { margin-bottom: 1rem; }
+    strong { color: var(--white); }
+    em { color: var(--white); }
+    a { color: var(--cyan); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .drop-cap::first-letter {
+      float: left;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 4rem;
+      line-height: 0.8;
+      padding: 0.1em 0.15em 0 0;
+      color: var(--green);
+      font-weight: 700;
+      text-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+    }
+
+    code {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.85em;
+      background: var(--bg-code);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      padding: 0.15em 0.4em;
+    }
+
+    pre {
+      position: relative;
+      background: var(--bg-code);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1.2rem;
+      overflow-x: auto;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 13px;
+      line-height: 1.55;
+      margin: 1.2rem 0;
+    }
+
+    pre code {
+      background: none;
+      border: none;
+      padding: 0;
+      font-size: inherit;
+      color: var(--text);
+    }
+
+    .label {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.8rem;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-dim);
+    }
+
+    .cm { color: var(--text-dim); }
+    .kw { color: var(--magenta); }
+    .ty { color: var(--cyan); }
+    .st { color: var(--green); }
+    .nm { color: var(--yellow); }
+    .fn { color: var(--blue); }
+    .pp { color: var(--orange); }
+
+    .diagram {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1.5rem;
+      margin: 1.5rem 0;
+      overflow-x: auto;
+    }
+
+    .diagram-label {
+      display: block;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-dim);
+      margin-bottom: 0.8rem;
+    }
+
+    .diagram pre {
+      border: none;
+      margin: 0;
+      padding: 0;
+      background: none;
+      font-size: 12.5px;
+      line-height: 1.45;
+    }
+
+    .power {
+      border-left: 3px solid var(--green-dim);
+      background: rgba(0, 255, 136, 0.04);
+      padding: 1rem 1.2rem;
+      margin: 1.5rem 0;
+      border-radius: 0 6px 6px 0;
+    }
+
+    .power.danger {
+      border-left-color: var(--red);
+      background: rgba(255, 51, 68, 0.04);
+    }
+
+    .power.wild {
+      border-left-color: var(--orange);
+      background: rgba(255, 136, 0, 0.04);
+    }
+
+    .power-label {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--green);
+      margin-bottom: 0.5rem;
+    }
+
+    .power.danger .power-label { color: var(--red); }
+    .power.wild .power-label { color: var(--orange); }
+
+    .vs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin: 1.5rem 0;
+    }
+
+    .vs-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1rem 1.1rem;
+    }
+
+    .vs-card h4 {
+      margin-top: 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.2rem 0;
+      font-size: 0.92rem;
+    }
+
+    th {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--green);
+      text-align: left;
+      padding: 0.6rem 0.8rem;
+      border-bottom: 2px solid var(--border);
+    }
+
+    td {
+      padding: 0.5rem 0.8rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+
+    tr:hover td {
+      background: rgba(0, 255, 136, 0.03);
+    }
+
+    details {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin: 1.2rem 0;
+    }
+
+    summary {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.85rem;
+      color: var(--green);
+      padding: 0.8rem 1.2rem;
+      cursor: pointer;
+    }
+
+    details[open] summary {
+      border-bottom: 1px solid var(--border);
+    }
+
+    details > div {
+      padding: 1rem 1.2rem;
+    }
+
+    .chapter-status {
+      color: var(--text-dim);
+      font-style: italic;
+    }
+
+    .small-note {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 11px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    @media (max-width: 700px) {
+      body { font-size: 16px; }
+      nav { font-size: 9px; gap: 0.7rem; }
+      .content { padding: 3rem 0.8rem 4rem; }
+      .hero h1 { font-size: 2rem; }
+      .vs { grid-template-columns: 1fr; }
+      .diagram { padding: 1rem; }
+      .power { padding: 0.6rem 0.8rem; }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <span class="nav-title">&gt;_ DEEPSEEK-R1</span>
+    <a href="#ch1">Red Monday</a>
+    <a href="#ch2">The Fund</a>
+    <a href="#ch3">The Base</a>
+    <a href="#ch4">RL</a>
+    <a href="#ch5">Distillation</a>
+    <a href="#ch6">Serving</a>
+    <a href="#ch7">Security</a>
+    <a href="#ch8">Markets</a>
+    <a href="#ch9">Pacific</a>
+    <a href="#sources">Sources</a>
+  </nav>
+
+  <div class="content">
+    <div class="hero">
+      <h1><span class="glitch" data-text="DEEPSEEK-R1">DEEPSEEK-R1</span></h1>
+      <div class="subtitle">
+        Sparse base model. RL-heavy post-training. Distillation. Hyperscaler absorption. Regulatory backlash.<br>
+        DeepSeek-R1 was not just a model release. It was a full-stack stress test for how modern AI actually works.<span class="blink">_</span>
+      </div>
+      <div class="series-kicker">Draft Status: Full Draft Written</div>
+    </div>
+
+    <section id="ch1">
+      <h2>01 // Red Monday</h2>
+      <p class="drop-cap">
+        On <strong>Monday, January 27, 2025</strong>, the terminals went red before most of the industry had finished reading the paper. Semiconductor names buckled. Data-center trades took shrapnel. Utilities that had been lifted by the promise of endless AI power demand rolled over with them. Somewhere between the first coffee on a Manhattan trading desk and the first morning standup in Seattle, DeepSeek-R1 stopped being a model release and became a systems event.
+      </p>
+
+      <p>
+        Read that sentence carefully: <em>systems event</em>. This essay is not really about a stock selloff. The selloff is just the visible edge. The actual object is a stack: a sparse frontier base model, an RL-heavy reasoning pipeline, a distillation strategy that spread the capability outward, a cloud layer that operationalized it, and a policy layer that treated the hosted service as a geopolitical risk. Markets only noticed because all of that arrived at once.
+      </p>
+
+      <div class="diagram">
+        <span class="diagram-label">What Actually Hit The World</span>
+        <table>
+          <thead>
+            <tr>
+              <th>Layer</th>
+              <th>What DeepSeek Introduced</th>
+              <th>Why It Shocked People</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Model Substrate</td>
+              <td>DeepSeek-V3-Base: sparse MoE, MLA, long context, FP8-aware training.</td>
+              <td>Suggested that frontier capability could be built with sharper engineering, not just brute-force density.</td>
+            </tr>
+            <tr>
+              <td>Post-Training</td>
+              <td>R1-Zero and R1: reinforcement learning used aggressively to induce reasoning behavior.</td>
+              <td>Shifted attention from pretraining scale to post-training leverage.</td>
+            </tr>
+            <tr>
+              <td>Distribution</td>
+              <td>Open-weight release plus distilled dense models.</td>
+              <td>Made the breakthrough easier to copy and harder to contain.</td>
+            </tr>
+            <tr>
+              <td>Operations</td>
+              <td>Fast Azure and AWS adoption.</td>
+              <td>Turned the result from paper drama into a real workload.</td>
+            </tr>
+            <tr>
+              <td>Politics</td>
+              <td>Privacy reviews, app blocks, government-device bans.</td>
+              <td>Split the market between open technical enthusiasm and service-level distrust.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Markets do not wait for technical consensus. They front-run narratives. What hit the tape that morning was not a clean audit of DeepSeek's methods. It was a fear signal: a Chinese lab had shipped an open-weight reasoning model that looked competitive with the best Western systems, arrived under export-control pressure, and carried an efficiency story sharp enough to threaten two years of assumptions about how expensive frontier AI had to be.
+      </p>
+
+      <div class="diagram">
+        <span class="diagram-label">The First Week</span>
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Event</th>
+              <th>Why It Mattered</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Jan 20, 2025</strong></td>
+              <td>DeepSeek-R1 public release timing cited in early policy and market coverage.</td>
+              <td>The model enters circulation as an open-weight reasoning system rather than a closed demo.</td>
+            </tr>
+            <tr>
+              <td><strong>Jan 22, 2025</strong></td>
+              <td>The DeepSeek-R1 paper appears as <code>arXiv:2501.12948</code>.</td>
+              <td>The lab claims a new RL-heavy route to strong reasoning, including R1-Zero and a multi-stage R1 pipeline.</td>
+            </tr>
+            <tr>
+              <td><strong>Jan 27, 2025</strong></td>
+              <td>DeepSeek overtakes ChatGPT in Apple App Store downloads in the U.S.; tech stocks sell off.</td>
+              <td>The story jumps from ML Twitter and research circles into consumer demand and public markets.</td>
+            </tr>
+            <tr>
+              <td><strong>Jan 29, 2025</strong></td>
+              <td>Microsoft puts R1 onto Azure AI Foundry and GitHub.</td>
+              <td>The hyperscalers signal that whatever the geopolitical discomfort, the workload is too important to ignore.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        Reuters reported that <strong>Nvidia lost about $593 billion in market value in one day</strong>, the largest one-day destruction of market capitalization Wall Street had ever recorded for a single company. That number matters, but not for the melodrama. It matters because it reveals what investors thought they were holding. They were not just long Nvidia. They were long a theory: that frontier AI progress would remain chained to giant closed labs, giant training budgets, giant power contracts, and giant chip orders.
+      </p>
+
+      <p>
+        DeepSeek attacked the weakest point in that theory. Not by proving that compute no longer mattered. Not by making datacenters obsolete. But by suggesting that <em>algorithmic leverage had been underpriced</em>. If you could get near-frontier reasoning behavior from a model family built under tighter hardware constraints, and if you could release the result openly enough for the rest of the market to route around you, then the value chain looked different. Less mystique in training. More pressure on inference. More pressure on distribution. More pressure on every premium attached to closed access.
+      </p>
+
+      <div class="vs">
+        <div class="vs-card">
+          <h4>What DeepSeek Actually Claimed</h4>
+          <p>
+            A strong open reasoning model, built on DeepSeek-V3-Base, with reinforcement learning doing much of the post-training lift; a paper published on <strong>January 22, 2025</strong>; and pricing claims that made the system look drastically cheaper to use than leading proprietary reasoning models.
+          </p>
+        </div>
+        <div class="vs-card">
+          <h4>What Wall Street Heard</h4>
+          <p>
+            The moat might be narrower than advertised. Maybe the next jump in AI would not come only from bigger capex, but from better recipes, better sparsity, better post-training, and open distribution moving faster than incumbents expected.
+          </p>
+        </div>
+      </div>
+
+      <div class="power wild">
+        <div class="power-label">The Misread That Mattered</div>
+        <p>
+          The number that detonated dashboards was the reported sub-<code>$6M</code> DeepSeek-V3 training figure. In the market's mouth, that rapidly became a myth: that DeepSeek-R1 itself had appeared almost for free. The nuance is important. The reaction is even more important. Markets were not auditing a cost model. They were repricing the possibility that Western AI capex assumptions were too blunt.
+        </p>
+      </div>
+
+      <div class="power">
+        <div class="power-label">Deep Dive Rule</div>
+        <p>
+          Keep the layers separate. <strong>V3</strong> is the architecture and training-economics story. <strong>R1</strong> is the post-training reasoning story. <strong>Distills</strong> are the diffusion story. <strong>Azure and AWS</strong> are the operational story. The market reaction only makes sense when those layers are read together.
+        </p>
+      </div>
+
+      <p>
+        There was a second layer to the shock. The model did not emerge from a familiar American arc of venture funding, hyperscaler partnerships, and carefully managed API scarcity. It came out of Hangzhou, out of a lab tied to a quantitative hedge-fund lineage, under the shadow of export controls designed to make exactly this kind of surprise less likely. For two years, Washington and Silicon Valley had trained themselves to think in terms of exclusion: deny the best chips, raise the barrier, widen the lead. DeepSeek made the exclusion look permeable.
+      </p>
+
+      <p>
+        That is why the selloff did not stop at chatbots. If the new bottleneck was no longer just training scale, then the blast radius extended outward to the companies selling the physical scaffolding of the old story: chips, networking, cooling, power, construction, and every balance-sheet narrative built on the assumption that frontier capability would remain ruinously expensive and tightly centralized.
+      </p>
+
+      <p>
+        This was the first real lesson of DeepSeek-R1. The model did not need to kill the infrastructure thesis to wound it. It only had to introduce uncertainty into its margins. Once that happened, capital did the rest.
+      </p>
+
+      <p>
+        But panic is a poor historian. To understand why this release hit so hard, you have to go backward, away from the trading floor and into the organization that built it: not a garage startup, not a university lab, but something colder, more disciplined, and far more revealing about where the next wave of AI competition would come from.
+      </p>
+    </section>
+
+    <section id="ch2">
+      <h2>02 // The Fund, The Lab, The Constraint</h2>
+      <p class="drop-cap">
+        DeepSeek did not come out of the usual American mythology of AI: Stanford corridors, founder houses, venture rounds, and a carefully rationed API. It came out of <strong>High-Flyer</strong>, a quantitative hedge fund built to treat markets as signal extraction problems and compute as an instrument, not a mascot. That origin matters. A quant shop does not romanticize scale. It asks what the machine can do, where the bottleneck is, and whether the edge is structural or temporary.
+      </p>
+
+      <p>
+        Reuters reported that High-Flyer had built a <strong>100 billion yuan</strong> portfolio using AI models in its investment machinery before deciding in <strong>2023</strong> to redirect itself toward the frontier. In the firm's own language, it would concentrate its resources on pursuing AGI and spin up an independent research group. That group became DeepSeek. The transition is easy to narrate as ambition. It is better understood as capital migration from one prediction engine to another.
+      </p>
+
+      <p>
+        This is where Liang Wenfeng's profile becomes more useful than the usual founder biography. He was not an evangelist selling intelligence as a platform dream. He was running an organization that had already spent years building systems in which milliseconds, throughput, and statistical edge had cash value. By the time the rest of the world met DeepSeek in January 2025, High-Flyer had already spent years training itself to think like an infrastructure operator.
+      </p>
+
+      <div class="diagram">
+        <span class="diagram-label">Why The Hedge-Fund Origin Matters</span>
+        <div class="vs">
+          <div class="vs-card">
+            <h4>Silicon Valley Default</h4>
+            <p>
+              Raise capital, buy time, buy talent, buy compute, protect access, then convert model advantage into platform rent.
+            </p>
+          </div>
+          <div class="vs-card">
+            <h4>High-Flyer Logic</h4>
+            <p>
+              Build internal systems, measure edge aggressively, treat compute like a constrained production asset, and ask whether better methods can substitute for bigger budgets.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <p>
+        The hardware story makes the discipline visible. Reuters' review of High-Flyer's sites and WeChat posts found that it had already built two large A100-based supercomputing clusters before the export regime tightened: one with <strong>1,100 A100s</strong> in 2020, and another with roughly <strong>10,000 A100s</strong> a year later. Those clusters were not improvised after the fact to support a sudden chatbot boom. They were evidence that the firm had been laying runway for years.
+      </p>
+
+      <p>
+        Then Washington changed the terrain. In <strong>2022</strong>, the United States moved to cut China off from Nvidia's most advanced AI chips, including the A100 and H100. Nvidia's answer was the <strong>H800</strong>, a China-compliant derivative of the H100. Reuters reported in March 2023 that the H800 existed specifically to remain legal for export while shaving down critical capabilities such as chip-to-chip bandwidth. The important point is not the SKU. The important point is the strategic geometry: Chinese labs could still compute, but they had to compute inside a narrower box.
+      </p>
+
+      <div class="power">
+        <div class="power-label">Constraint As Design Pressure</div>
+        <p>
+          DeepSeek's later efficiency claims landed so hard because they fit the structure of the problem. If your access to top-end hardware is politically constrained, then better sparsity, better kernels, better post-training, and cleaner systems design stop being academic elegance. They become survival strategy.
+        </p>
+      </div>
+
+      <p>
+        Reuters also captured the clearest line on the company's psychology. Asked in 2024 whether High-Flyer planned to separate DeepSeek and take it public, Liang reportedly said the real problem was not money. It was the embargo on high-end chips. That is a revealing sentence. Most frontier labs in 2024 talked like capital was oxygen. DeepSeek talked as though silicon, interconnect, and policy friction were the real atmosphere.
+      </p>
+
+      <p>
+        This is the first place where DeepSeek begins to look less like a miracle and more like a consequence. A fund that already believed in machine-led decision making. A founder willing to spend early on clusters before controls tightened. A lab born after the door had already begun to close. Put those together and you do not get a casual competitor to OpenAI. You get an organization with strong incentives to search for leverage wherever brute-force abundance is no longer available.
+      </p>
+
+      <p>
+        That leverage would eventually show up in three layers at once: model architecture, post-training method, and release strategy. But the first layer comes before the headlines. Under the reasoning behavior, under the market panic, there is still a machine. And the machine DeepSeek chose was not dense, not simple, and not designed for the old economics of scale.
+      </p>
+    </section>
+
+    <section id="ch3">
+      <h2>03 // The Base Model Under The Mask</h2>
+      <p class="drop-cap">
+        DeepSeek-R1 was never a blank-slate miracle. It was a machine built on top of another machine, and that earlier machine mattered. Under the headlines, under the market panic, under the argument about whether the model was cheap or dangerous or overrated, there was <strong>DeepSeek-V3-Base</strong>: a <strong>671B-parameter</strong> sparse system with only <strong>37B parameters active per token</strong>, designed to make scale behave more like engineering than excess.
+      </p>
+
+      <p>
+        That detail changes the story. Dense models grow by brute force. They get wider, heavier, and more expensive in lockstep with capability. DeepSeek-V3 took a different route. The official technical report, published on <strong>December 27, 2024</strong>, describes a Mixture-of-Experts architecture built around <strong>Multi-head Latent Attention</strong>, <strong>DeepSeekMoE</strong>, <strong>auxiliary-loss-free load balancing</strong>, and a <strong>multi-token prediction</strong> objective. The point was not just to make the model bigger. It was to make the model cheaper to move through the world.
+      </p>
+
+      <h3>One Token Through The Substrate</h3>
+
+      <pre><span class="label">Conceptual Layer Sketch</span><code><span class="cm"># One decode step inside a DeepSeek-V3-style stack</span>
+x_t
+  -&gt; <span class="fn">MLA</span>(x_t, cached_latents)          <span class="cm"># attention with compressed KV state</span>
+  -&gt; <span class="fn">router</span>(x_t)                    <span class="cm"># score experts for this token</span>
+  -&gt; <span class="fn">top_k</span>(experts, gates)          <span class="cm"># only a small subset activates</span>
+  -&gt; <span class="fn">sum</span>(gate_i * expert_i(x_t))    <span class="cm"># sparse FFN compute</span>
+  -&gt; residual + norm
+  -&gt; logits
+
+<span class="cm">The full model is huge. The active path per token is narrow.</span></code></pre>
+
+      <div class="diagram">
+        <span class="diagram-label">Dense vs Sparse Cost Shape</span>
+        <pre><code><span class="pp">Dense model</span>
+weights resident:   [############################################]
+weights used/token: [############################################]
+
+<span class="pp">DeepSeek-V3-style MoE</span>
+weights resident:   [############################################]
+weights used/token: [#### shared blocks ####][## selected experts ##]
+
+<span class="cm">37B active/token does NOT mean 37B total memory footprint.</span>
+<span class="cm">It means the compute path is sparse while the model body remains large.</span></code></pre>
+      </div>
+
+      <div class="diagram">
+        <span class="diagram-label">DeepSeek-V3-Base By The Numbers</span>
+        <table>
+          <thead>
+            <tr>
+              <th>Property</th>
+              <th>Value</th>
+              <th>Why It Matters</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Total Parameters</td>
+              <td><strong>671B</strong></td>
+              <td>Signals frontier-class scale, but not dense-everywhere compute cost.</td>
+            </tr>
+            <tr>
+              <td>Activated Per Token</td>
+              <td><strong>37B</strong></td>
+              <td>Sparse activation changes the inference and training economics.</td>
+            </tr>
+            <tr>
+              <td>Pretraining Tokens</td>
+              <td><strong>14.8T</strong></td>
+              <td>The base is not a lightweight toy; it is a full-scale foundation model.</td>
+            </tr>
+            <tr>
+              <td>Total Training</td>
+              <td><strong>2.788M H800 GPU hours</strong></td>
+              <td>The market-shaping cost figure comes from a specific training run, not the whole company story.</td>
+            </tr>
+            <tr>
+              <td>Context Length</td>
+              <td><strong>128K</strong></td>
+              <td>Long context pushes the model closer to infrastructure and away from demo behavior.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        The result is a model that behaves like a fortress with a narrow set of lit corridors. The full structure is enormous, but every token only lights up a fraction of it. That is why the base model is so important to the R1 story. Reasoning improvements do not land in empty space. They land in a model already engineered for sparsity, bandwidth discipline, and long-context use. DeepSeek-V3-Base is not merely the stage for R1. It is the reason R1 could be staged at all.
+      </p>
+
+      <h3>Why MLA Matters</h3>
+
+      <p>
+        The most underrated piece of the V3 substrate is not the expert count. It is <strong>attention-state economics</strong>. Long context is never just a benchmark feature. It is a memory bill. Standard attention wants you to cache key and value state for every token, every layer, every active head. If you want long context and concurrent users, the cache becomes one of the main things you are really serving.
+      </p>
+
+      <pre><span class="label">Cache Budget Intuition</span><code><span class="cm"># Rough shape, not paper-exact constants</span>
+KV bytes
+  ~= batch * context * kv_heads * head_dim * layers * 2 * bytes_per_elem
+
+<span class="cm">If context doubles, cache roughly doubles.</span>
+<span class="cm">If active users double, cache roughly doubles again.</span>
+
+<span class="pp">MLA changes this game by compressing what must stay resident.</span></code></pre>
+
+      <p>
+        The technical report is blunt about the economics. DeepSeek-V3 was trained on <strong>14.8T tokens</strong>, and the repository states that the full training run used <strong>2.788M H800 GPU hours</strong>, with <strong>2.664M</strong> of those hours spent in pretraining. The paper also emphasizes that the training process remained stable, with no irrecoverable loss spikes and no rollbacks. That stability matters more than it sounds like it should. Instability is not just a training inconvenience. It is how large models bleed time, money, and confidence. DeepSeek was trying to prove that scale did not have to be synonymous with chaos.
+      </p>
+
+      <p>
+        The architecture choices are doing the real work here. MLA reduces the memory burden of attention. DeepSeekMoE reduces the number of parameters that actually have to activate for each token. FP8 mixed-precision training reduces the price of moving numbers through the system without fully sacrificing quality. Multi-token prediction adds another path to throughput and inference acceleration. Taken together, the design says something clear: the bottleneck is not how many parameters you can buy, but how well you can spend the ones you already have.
+      </p>
+
+      <p>
+        That is the hidden prehistory of R1. You cannot understand the reasoning model until you understand the substrate it inherited. R1 did not arrive to teach a dense model how to think. It arrived to post-train a sparse one that had already been shaped by the constraints of large-scale systems design. If the market later heard DeepSeek as a cost story, the base model is where that story became physically plausible.
+      </p>
+
+      <div class="power">
+        <div class="power-label">The Critical Separation</div>
+        <p>
+          <strong>DeepSeek-V3</strong> is the base-model and training-economics story. <strong>DeepSeek-R1</strong> is the post-training and reasoning story layered on top. If you blur those together, the whole analysis gets sloppy.
+        </p>
+      </div>
+
+      <p>
+        The other reason V3 matters is context length. The official model materials place both DeepSeek-V3-Base and DeepSeek-R1 at <strong>128K context</strong>. That sounds like a benchmark number until you remember what a context window actually is in production: memory pressure, cache pressure, scheduling pressure, and a way for the model to accumulate more of the world before answering. A base model that can hold long context without collapsing is already closer to infrastructure than demoware.
+      </p>
+
+      <p>
+        This is why the narrative mistake around DeepSeek is so common. People hear R1 and think the breakthrough is only in reinforcement learning. But the base model already had the architecture of a system built to survive contact with reality: sparse activation, efficient attention, long context, and a training stack tuned to minimize waste. R1 was the reasoning layer. V3-Base was the reason there was enough room to build it.
+      </p>
+
+      <p>
+        The mask, in other words, is not a disguise. It is the machine underneath the machine. And once you see that, the next question becomes unavoidable: how do you make a model like this not just competent, but reflective, self-correcting, and willing to spend more tokens thinking before it speaks?
+      </p>
+    </section>
+
+    <section id="ch4">
+      <h2>04 // Teaching It To Think Longer</h2>
+      <p class="drop-cap">
+        DeepSeek-R1 is the chapter where the lab stops asking for polished answers and starts asking for better thought. The method is not gentle. It is reinforcement learning pushed hard enough to make a language model discover reasoning behavior on its own, then disciplined enough to keep that behavior usable.
+      </p>
+
+      <p>
+        The official README draws the line cleanly. <strong>R1-Zero</strong> is the first pass: large-scale RL applied directly to the base model, with <strong>no supervised fine-tuning as a preliminary step</strong>. That is the bold move. The model is not taught to imitate a reasoning style first. It is given a reward signal and pushed into the search space until better reasoning behaviors begin to appear. The paper says those behaviors include <strong>self-verification</strong>, <strong>reflection</strong>, and long chains of deliberate reasoning.
+      </p>
+
+      <h3>The Loop</h3>
+
+      <pre><span class="label">Simplified GRPO-Style Sketch</span><code><span class="cm"># Conceptual sketch, not official code</span>
+<span class="kw">for</span> prompt <span class="kw">in</span> reasoning_tasks:
+    samples = [model.rollout(prompt) <span class="kw">for</span> _ <span class="kw">in</span> range(G)]
+    rewards = [
+        format_reward(s) +
+        correctness_reward(s) +
+        reasoning_quality_reward(s)
+        <span class="kw">for</span> s <span class="kw">in</span> samples
+    ]
+    advantages = normalize_within_group(rewards)
+    policy = update(policy, samples, advantages)
+
+<span class="cm">The key move is not “memorize the answer.”</span>
+<span class="cm">It is “reward the trajectory that gets there better.”</span></code></pre>
+
+      <div class="diagram">
+        <span class="diagram-label">The R1 Training Arc</span>
+        <table>
+          <thead>
+            <tr>
+              <th>Stage</th>
+              <th>Purpose</th>
+              <th>Observed Effect</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>R1-Zero</strong></td>
+              <td>Pure large-scale RL on DeepSeek-V3-Base.</td>
+              <td>Reasoning behaviors emerge without an SFT warm start.</td>
+            </tr>
+            <tr>
+              <td><strong>Cold-Start Data</strong></td>
+              <td>Introduce cleaner, more legible reasoning examples.</td>
+              <td>Improves readability and reduces degenerate output patterns.</td>
+            </tr>
+            <tr>
+              <td><strong>RL Stage Two</strong></td>
+              <td>Push capability after initial scaffolding.</td>
+              <td>Strengthens reasoning performance on hard tasks.</td>
+            </tr>
+            <tr>
+              <td><strong>SFT / Alignment Passes</strong></td>
+              <td>Make the model more usable for humans and downstream distillation.</td>
+              <td>Turns raw reasoning into something that can ship.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="diagram">
+        <span class="diagram-label">What Broke In R1-Zero</span>
+        <pre><code><span class="pp">Observed upside</span>
+- longer deliberate traces
+- self-checking behavior
+- reflection before answer
+
+<span class="pp">Observed pathologies</span>
+- repetition loops
+- poor readability
+- language mixing
+
+<span class="cm">Raw RL found a reasoning policy, but not a shippable personality.</span></code></pre>
+      </div>
+
+      <p>
+        That discovery is the heart of the story. R1-Zero showed that reasoning is not just something a model learns from annotated examples. Under the right reward pressure, it can emerge as a strategy. But the paper is also careful about the failure modes. R1-Zero can fall into <strong>endless repetition</strong>, <strong>poor readability</strong>, and <strong>language mixing</strong>. That is not a footnote. That is the price of letting the model invent its own internal habits before you clean them up.
+      </p>
+
+      <p>
+        So DeepSeek adds structure. The final <strong>DeepSeek-R1</strong> pipeline introduces <strong>cold-start data</strong>, then <strong>two RL stages</strong> and <strong>two SFT stages</strong>. In other words: first let the model discover useful reasoning patterns, then steer those patterns into something the outside world can actually use. The architecture is not RL all the way down. It is a controlled descent into better thinking, followed by a recovery pass that makes the thinking legible again.
+      </p>
+
+      <div class="vs">
+        <div class="vs-card">
+          <h4>Old Frontier Intuition</h4>
+          <p>
+            Better reasoning comes mainly from larger pretraining corpora, more supervised examples, and bigger closed-lab budgets.
+          </p>
+        </div>
+        <div class="vs-card">
+          <h4>What R1 Suggested</h4>
+          <p>
+            Post-training can move the frontier harder than many people expected, and RL can extract more reasoning behavior from an already-strong base model than the old consensus allowed.
+          </p>
+        </div>
+      </div>
+
+      <p>
+        That distinction matters because it explains why the model landed so hard in the industry. The headline was not simply that DeepSeek had a good benchmark number. It was that the lab had shown a repeatable method for turning a base model into a reasoning model without depending entirely on the old recipe of supervised instruction data. In the language of the field, this was a post-training breakthrough. In the language of the market, it was a threat to the assumption that frontier capability always requires frontier-style spending.
+      </p>
+
+      <p>
+        The paper's framing is unusually direct about the scope of the result. DeepSeek says R1 achieves performance comparable to OpenAI-o1 across math, code, and reasoning tasks, and the README says the distilled Qwen and Llama variants were released to support the research community. But the more important claim is more surgical: the model learned to reason in a way that could be observed, studied, and then compressed into smaller checkpoints.
+      </p>
+
+      <p>
+        This is where the technical depth turns into industrial consequence. If reasoning can be shaped through RL, then the bottleneck shifts. You care less about brute-force scale alone and more about reward design, data flow, verification, and the ability to keep the model from drifting into degenerate habits. The model does not merely answer. It spends tokens investigating itself.
+      </p>
+
+      <div class="power wild">
+        <div class="power-label">What Changed</div>
+        <p>
+          DeepSeek did not prove that supervised data was obsolete. It proved that the industry had probably undervalued post-training and RL as frontier-shaping tools.
+        </p>
+      </div>
+
+      <p>
+        That is the cinematic part, if you want it: a machine that begins by being rewarded for persistence, then learns reflection, then learns to stop embarrassing itself long enough to ship. But the technical version is sharper. DeepSeek-R1 demonstrates that a reasoning policy can be induced from a sparse base model through RL, then stabilized through a multi-stage post-training pipeline. That is the lever. Everything else is a consequence.
+      </p>
+
+      <p>
+        It also explains why the model became larger than the lab that made it. Once the method is public, the intellectual center of gravity moves. Others can copy the behavior, distill the pattern, and adapt the recipe to smaller dense backbones. The breakthrough stops being a single checkpoint and becomes a new expectation for what post-training can do.
+      </p>
+
+      <p>
+        That is the real temperature of R1. Not just intelligence. Not just efficiency. A training pipeline that made reasoning feel less like magic and more like an engineering discipline. And once that happened, the next battle moved out of the lab and into the ecosystem: who could distill it, host it, serve it, police it, and absorb the market shock it caused.
+      </p>
+    </section>
+
+    <section id="ch5">
+      <h2>05 // Distillation, Or How The Secret Escaped</h2>
+      <p class="drop-cap">
+        The secret did not stay in one lab. The minute DeepSeek-R1 landed, the model ceased to be a single artifact and became a recipe. That is what made the release historically dangerous: not just that it reasoned, but that it could be compressed. The frontier model was the generator. The smaller models were the virus.
+      </p>
+
+      <p>
+        DeepSeek's own materials make the mechanism clear. The release was not just a flagship 671B reasoning model. It also included <strong>six distilled dense checkpoints</strong>: <strong>1.5B, 7B, 8B, 14B, 32B, and 70B</strong>. The official README says the Qwen-derived distills were fine-tuned with <strong>800,000 samples curated with DeepSeek-R1</strong>. That is not a cosmetic implementation detail. It means the expensive part of the breakthrough was not only the model weights, but the reasoning traces those weights could produce.
+      </p>
+
+      <h3>The Cloning Line</h3>
+
+      <pre><span class="label">Distillation Pipeline</span><code>hard prompt
+  -&gt; frontier teacher (<span class="ty">DeepSeek-R1</span>)
+  -&gt; long reasoning trace + answer
+  -&gt; filter / rank / curate
+  -&gt; dense student (<span class="ty">Qwen</span> or <span class="ty">Llama</span> backbone)
+  -&gt; much cheaper model with some of the same habits
+
+<span class="cm">The teacher pays the thinking bill once.</span>
+<span class="cm">The student learns the shape of that thinking at far lower serving cost.</span></code></pre>
+
+      <div class="diagram">
+        <span class="diagram-label">Why Distillation Changed The Competitive Map</span>
+        <table>
+          <thead>
+            <tr>
+              <th>Layer</th>
+              <th>What DeepSeek Released</th>
+              <th>Why It Mattered</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Flagship</td>
+              <td>DeepSeek-R1 on DeepSeek-V3-Base</td>
+              <td>Proved the reasoning recipe at frontier scale.</td>
+            </tr>
+            <tr>
+              <td>Distills</td>
+              <td>1.5B to 70B dense models</td>
+              <td>Turned a research event into something the wider market could actually run.</td>
+            </tr>
+            <tr>
+              <td>Method Diffusion</td>
+              <td>Open reproduction and imitation</td>
+              <td>Compressed the time between breakthrough and ecosystem-wide copying.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        This is where the story stops being about open weights in the abstract and starts being about industrial copying. On <strong>January 28, 2025</strong>, Hugging Face launched <strong>Open-R1</strong>, explicitly framing it as a fully open reproduction effort. That timing matters. The industry's first serious reflex was not to dismiss DeepSeek. It was to reconstruct the pipeline. Open-R1 is important precisely because it is <em>not</em> an official DeepSeek release. It is the ecosystem admitting that the method matters enough to reproduce in public.
+      </p>
+
+      <p>
+        The distillation step is the industrial twist. Once the flagship model can generate high-quality reasoning traces, those traces can be repackaged into smaller dense models that are cheap enough to run, tune, ship, and embed into products. The labor of reasoning can be separated from the body of the flagship model and moved downstream into a format the market already knows how to deploy.
+      </p>
+
+      <div class="vs">
+        <div class="vs-card">
+          <h4>Before R1</h4>
+          <p>
+            Frontier reasoning looked like something locked inside a proprietary endpoint with opaque training and pricing.
+          </p>
+        </div>
+        <div class="vs-card">
+          <h4>After R1</h4>
+          <p>
+            Frontier reasoning looked like a pipeline: one large model generates the pattern, smaller models absorb it, and the rest of the industry races to copy the recipe.
+          </p>
+        </div>
+      </div>
+
+      <p>
+        That is why DeepSeek-R1 became a movement instead of a single benchmark event. The flagship model proved the reasoning recipe. The distilled checkpoints turned that recipe into something portable. Open-R1 made sure the ecosystem had no excuse to treat the result as mystical. The threshold had moved. The competition was no longer just who had the best model. It was who could absorb the method fastest.
+      </p>
+
+      <p>
+        And that leads directly to the next hard problem. Once the recipe spreads, the bottleneck moves again. Not to research taste. To systems work. Hosting, routing, cache pressure, long reasoning traces, enterprise trust, and the difference between being able to run a model and being able to operate it.
+      </p>
+    </section>
+
+    <section id="ch6">
+      <h2>06 // Serving The Beast</h2>
+      <p class="drop-cap">
+        A reasoning model is not a PDF. It is a serving problem. Once DeepSeek-R1 left the lab, the question became where the compute lives, who controls the data path, and how much operational pain you are willing to pay for the right to use it. The open-weight story is freedom. The hosted story is management.
+      </p>
+
+      <p>
+        The flagship model is a <strong>671B-parameter MoE system with 37B active per token</strong>, which sounds cheap until you remember what sparsity does and does not remove. Sparse activation cuts compute per token, but it does not erase routing, memory pressure, context pressure, or long-generation latency. The model still has to be loaded, scheduled, and fed through a stack that understands uneven request shapes and reasoning traces that can run long enough to wreck a naive batch.
+      </p>
+
+      <h3>Serving Topology</h3>
+
+      <div class="diagram">
+        <span class="diagram-label">Inference Path</span>
+        <pre><code>client
+  -&gt; API gateway
+  -&gt; request router
+      -&gt; prefix-cache check
+      -&gt; prefill pool
+      -&gt; decode pool
+      -&gt; expert-parallel workers
+  -&gt; token stream back to client
+
+<span class="cm">DeepSeek-R1 is not “one model call.”</span>
+<span class="cm">It is a scheduling problem with memory, topology, and latency constraints.</span></code></pre>
+      </div>
+
+      <pre><span class="label">Scheduler Sketch</span><code><span class="kw">if</span> prefix_cache.hit(request):
+    reuse_kv(request)
+
+<span class="kw">if</span> request.prefill_tokens &gt; long_prefill_threshold:
+    send_to_prefill_pool(request)
+<span class="kw">else</span>:
+    batch_with_decode_pool(request)
+
+<span class="kw">if</span> model.is_moe:
+    route_tokens_to_expert_workers(request)
+
+stream_tokens_back(request)</code></pre>
+
+      <p>
+        DeepSeek's own README points toward the self-hosted reality. The distills can be served with <strong>vLLM</strong> or <strong>SGLang</strong>, and the recommended generation settings already imply a heavyweight reasoning workload: <code>temperature=0.6</code>, <code>top_p=0.95</code>, and output windows that can run as high as <code>32768</code> tokens for local deployment examples. That is the hidden cost of reasoning. The model is not merely answering. It is thinking out loud for long stretches, which changes batching behavior, cache pressure, and tail latency.
+      </p>
+
+      <div class="diagram">
+        <span class="diagram-label">Why R1 Serving Is Harder Than “Open Weights” Suggests</span>
+        <table>
+          <thead>
+            <tr>
+              <th>Problem</th>
+              <th>Why R1 Makes It Worse</th>
+              <th>Operational Consequence</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Long generations</td>
+              <td>Reasoning traces consume more decode time.</td>
+              <td>Higher tail latency and lower batch stability.</td>
+            </tr>
+            <tr>
+              <td>MoE routing</td>
+              <td>Experts must be placed and reached efficiently.</td>
+              <td>More pressure on topology and all-to-all traffic.</td>
+            </tr>
+            <tr>
+              <td>Long context</td>
+              <td>128K-class workloads stress KV cache budgets.</td>
+              <td>Memory management becomes a first-class serving problem.</td>
+            </tr>
+            <tr>
+              <td>Enterprise deployment</td>
+              <td>Customers want guardrails, privacy controls, and predictable cost.</td>
+              <td>Cloud providers become the operational shock absorbers.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        There is one more trap hidden in the phrase <em>37B active</em>. Active compute is not the same thing as resident memory. The sparse path is cheap <em>per token</em>, but the system still has to keep shared blocks, routing logic, and the expert set addressable. That is why MoE serving quickly becomes a parallelism problem: expert placement, all-to-all traffic, cache locality, and prefill/decode interference are often more important than raw flop counts.
+      </p>
+
+      <p>
+        That is why the hyperscalers moved so quickly. Microsoft announced on <strong>January 29, 2025</strong> that DeepSeek R1 was available in <strong>Azure AI Foundry and GitHub</strong>, explicitly framing it as an enterprise-ready catalog model. AWS went further on <strong>March 10, 2025</strong>, making DeepSeek-R1 fully managed in <strong>Amazon Bedrock</strong> and emphasizing the single API, security controls, monitoring, and data-governance story. The difference between those two announcements is the difference between <em>you can host this</em> and <em>we will host this for you</em>.
+      </p>
+
+      <p>
+        The technical implication is simple and severe. DeepSeek-R1 did not just lower the barrier to reasoning models. It widened the gap between people who can run them and people who can operationalize them. The distills are the bridge for smaller teams. The flagship model is a systems test for everyone else.
+      </p>
+
+      <div class="power">
+        <div class="power-label">The Real Shift</div>
+        <p>
+          The market heard “cheaper model.” The clouds heard “new workload.” That difference explains almost everything that happened after January 2025.
+        </p>
+      </div>
+
+      <p>
+        Once the model is treated as infrastructure instead of a demo, the conversation stops being about leaderboard drama and becomes about routing policies, cache strategy, memory layout, guardrails, and who owns the last mile of inference. That is where DeepSeek stopped being a lab story and became a platform story.
+      </p>
+
+      <p>
+        And once a platform story begins, security teams arrive. Not as spectators. As prosecutors.
+      </p>
+    </section>
+
+    <section id="ch7">
+      <h2>07 // The Counterintelligence Problem</h2>
+      <p class="drop-cap">
+        Once the model became deployable, the next bottleneck was not intelligence. It was <strong>trust boundary</strong>. The same DeepSeek release that excited engineers immediately forced a different question on privacy teams and government buyers: what exactly are we importing when we “use DeepSeek”? A weight file? A hosted Chinese service? A moderation policy? A data route?
+      </p>
+
+      <div class="diagram">
+        <span class="diagram-label">Three Very Different Things People Called “DeepSeek”</span>
+        <pre><code><span class="pp">1. Open weights</span>
+pull into private infra
+control logs, routing, retention yourself
+
+<span class="pp">2. Hosted chatbot/app</span>
+vendor controls service behavior, logging, storage, moderation
+
+<span class="pp">3. Cloud-hosted catalog deployment</span>
+same model family, but wrapped by Azure/AWS controls and enterprise governance
+
+<span class="cm">Most public arguments collapsed these three into one object.</span></code></pre>
+      </div>
+
+      <p>
+        The first hard action came quickly. On <strong>January 30, 2025</strong>, Italy's data protection authority ordered DeepSeek's chatbot blocked after finding the company's responses about personal-data handling insufficient. On <strong>February 16-17, 2025</strong>, South Korea's privacy regulator suspended <strong>new downloads</strong> of the app after DeepSeek acknowledged that it had not fully accounted for some local privacy rules. On <strong>March 17, 2025</strong>, Reuters reported that bureaus within the U.S. Commerce Department had banned DeepSeek on government devices.
+      </p>
+
+      <div class="diagram">
+        <span class="diagram-label">The Security Timeline</span>
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Action</th>
+              <th>Actual Scope</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Jan 30, 2025</td>
+              <td>Italy blocks the chatbot.</td>
+              <td>Privacy-regulator action against the service, not a statement about every self-hosted copy.</td>
+            </tr>
+            <tr>
+              <td>Feb 16-17, 2025</td>
+              <td>South Korea suspends new downloads.</td>
+              <td>The web service remained accessible while privacy issues were addressed.</td>
+            </tr>
+            <tr>
+              <td>Mar 17, 2025</td>
+              <td>U.S. Commerce bureaus ban DeepSeek on government devices.</td>
+              <td>Government-device procurement and security decision, not a universal federal statute.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        That distinction matters because the counterintelligence problem had several layers. There was the <strong>hosted service</strong>, with its privacy policy, storage location, and app-level telemetry. There was the <strong>model behavior</strong>, including reported refusals on politically sensitive prompts. And there were the <strong>open weights</strong>, which could be moved into private infrastructure under different controls. Collapse those layers together and the analysis becomes useless.
+      </p>
+
+      <p>
+        Wired's reporting on DeepSeek's privacy posture sharpened the enterprise case against the hosted service: the policy routed collected information to servers in China, immediately pushing the product into the same trust category as any other geopolitically sensitive software dependency. Meanwhile, users and outside tests reported censorship-like refusal behavior around politically sensitive topics. The safe way to say it is precise: these concerns attached most clearly to the branded service and observed outputs, not to every self-hosted deployment by default.
+      </p>
+
+      <div class="power danger">
+        <div class="power-label">Split-Brain Market</div>
+        <p>
+          DeepSeek created a strange duality. The open weights looked like liberation for developers. The branded service looked like a security review waiting to happen.
+        </p>
+      </div>
+
+      <p>
+        That is why the backlash spread so quickly across countries and agencies. They were not only reacting to model capability. They were reacting to a Chinese AI system that combined high performance, consumer scale, and an unresolved data-governance story in one package. In procurement language, this was not merely a model. It was a new foreign software surface.
+      </p>
+
+      <p>
+        And once security teams had their say, Wall Street had to revise its own script. The first panic had been about cheaper intelligence. The second argument was about what cheaper intelligence would actually do to the value chain.
+      </p>
+    </section>
+
+    <section id="ch8">
+      <h2>08 // Wall Street Reprices Intelligence</h2>
+      <p class="drop-cap">
+        By the morning of <strong>January 27, 2025</strong>, Wall Street had already converted DeepSeek into a balance-sheet problem. Reuters said Nvidia fell about <strong>17%</strong> that day, erasing roughly <strong>$593B</strong> in market value. What got repriced was not “AI” in general. It was a narrower assumption: that the next jump in model quality would always map cleanly to more chips, more power, and more capital intensity.
+      </p>
+
+      <p>
+        The next day the market began to argue with itself. Reuters reported a partial rebound on <strong>January 28, 2025</strong>. By <strong>January 29, 2025</strong>, Reuters was reporting that Microsoft and Meta were publicly defending heavy AI spending anyway. That is the real aftermath. The panic did not disappear. It changed shape. DeepSeek became the counterexample every capex model had to answer.
+      </p>
+
+      <div class="diagram">
+        <span class="diagram-label">The Repricing Sequence</span>
+        <table>
+          <thead>
+            <tr>
+              <th>Phase</th>
+              <th>Market Interpretation</th>
+              <th>What It Missed</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Panic</td>
+              <td>Cheaper reasoning means the AI infrastructure thesis is broken.</td>
+              <td>Inference, distribution, and adoption may expand even if unit economics improve.</td>
+            </tr>
+            <tr>
+              <td>Rebound</td>
+              <td>The selloff was overdone; quality infrastructure still matters.</td>
+              <td>The market still had to account for algorithmic efficiency as a real variable.</td>
+            </tr>
+            <tr>
+              <td>Operationalization</td>
+              <td>Cloud platforms host and optimize the model.</td>
+              <td>The story is no longer abstract; it is now a real workload with real demand.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        The right reading is not that DeepSeek killed the infrastructure trade. It did not. It forced finer accounting. Training is one market. Inference is another. Cloud control is another. Once DeepSeek showed a path that looked materially cheaper, investors had to separate necessary compute from overbuilt compute, and model quality from the platform rents wrapped around it.
+      </p>
+
+      <p>
+        That is why the selloff was so violent and the recovery so uneven. Some investors saw a hardware bear case. Others saw a demand-expansion case: if reasoning gets cheaper, more software and more inference can fit inside the market. Microsoft itself provided the clearest evidence of the second view. On <strong>February 26, 2025</strong>, the company said it had improved DeepSeek-R1's <strong>latency</strong>, <strong>throughput</strong>, and <strong>pricing</strong> in Azure AI Foundry after early demand caused capacity constraints. The platforms did not treat DeepSeek as a reason to stop. They treated it as a reason to tune faster.
+      </p>
+
+      <div class="vs">
+        <div class="vs-card">
+          <h4>Bear Case</h4>
+          <p>
+            If reasoning quality can be pushed up with better methods, hardware vendors and infrastructure builders may face margin compression or lower expected spending.
+          </p>
+        </div>
+        <div class="vs-card">
+          <h4>Expansion Case</h4>
+          <p>
+            If reasoning gets cheaper, the market for reasoning gets bigger, and the value shifts toward inference, cloud control, product integration, and trusted deployment.
+          </p>
+        </div>
+      </div>
+
+      <p>
+        DeepSeek did not settle the debate. It forced the debate to become more precise. That alone was enough to redraw portfolios. Capital no longer had the luxury of treating AI as one smooth up-and-to-the-right curve. It had to think in layers: chips, training, inference, platforms, trust, and software leverage.
+      </p>
+
+      <p>
+        Which leads to the strategic conclusion. The significance of DeepSeek was not confined to January's volatility. It changed what kind of event a model release could be, and how fast that event could travel across clouds, borders, and balance sheets.
+      </p>
+    </section>
+
+    <section id="ch9">
+      <h2>09 // The Pacific Opened</h2>
+      <p class="drop-cap">
+        By the end of 2025, DeepSeek-R1 was no longer a single-model story. It had become a template for how frontier capability moves now: from a lab, to open weights, to distills, to clouds, to regulators, to enterprise procurement. The industry stopped asking only whether DeepSeek was as good as OpenAI-o1. It started asking what part of the stack still had real scarcity left.
+      </p>
+
+      <p>
+        Hugging Face answered with <strong>Open-R1</strong> on <strong>January 28, 2025</strong>, turning reproduction into an engineering project. Microsoft answered on <strong>January 29, 2025</strong> by hosting the model, then by <strong>February 26</strong> by improving performance and pricing. AWS answered on <strong>March 10, 2025</strong> with fully managed Bedrock availability. Regulators answered with blocks, suspensions, and government-device bans. Capital answered by reassessing what AI leadership means when software leverage can arrive before the next generation of chips.
+      </p>
+
+      <p>
+        The lasting consequence is not that DeepSeek proved big infrastructure irrelevant. It proved the opposite: infrastructure is still decisive, but it is no longer enough by itself. A model can now hit the world as a technical artifact, a consumer app, a cloud workload, a privacy issue, and a market event in the same week. That changes the competitive map.
+      </p>
+
+      <div class="power wild">
+        <div class="power-label">The New Scarcity</div>
+        <p>
+          After DeepSeek, raw model capability looked less scarce than many people believed. What remained scarce was everything around it: <strong>deployment</strong>, <strong>distribution</strong>, <strong>control</strong>, <strong>safety review</strong>, and <strong>legitimacy</strong>.
+        </p>
+      </div>
+
+      <p>
+        That is the clean ending. DeepSeek opened the Pacific not by crossing it physically, but by making it impossible for the industry to treat model capability as a purely local event. After <strong>January 2025</strong>, every serious AI operator had to think in two registers at once, technical and geopolitical. That is the new baseline.
+      </p>
+    </section>
+
+    <section id="sources">
+      <h2>Sources // Full Draft</h2>
+      <details open>
+        <summary>Research Notes</summary>
+        <div>
+          <p class="small-note">Used for the current draft</p>
+          <p>
+            <a href="https://www.investing.com/news/stock-market-news/chinas-deepseek-sets-off-ai-market-rout-3831131">Reuters-syndicated market report, January 27, 2025</a><br>
+            <a href="https://www.cnbc.com/2025/01/27/how-the-buzz-around-chinese-ai-model-deepseek-sparked-a-massive-nasdaq-sell-off.html">CNBC on the January 27, 2025 DeepSeek-driven selloff and App Store surge</a><br>
+            <a href="https://huggingface.co/papers/2501.12948">Hugging Face paper page for DeepSeek-R1, published January 22, 2025</a><br>
+            <a href="https://www.fdd.org/analysis/policy_briefs/2025/01/30/ais-sputnik-moment-chinese-ai-model-deepseek-r1-reportedly-surpasses-leading-u-s-ai-models/">FDD policy brief citing January 20, 2025 release timing</a><br>
+            <a href="https://azure.microsoft.com/en-us/blog/deepseek-r1-is-now-available-on-azure-ai-foundry-and-github/">Microsoft Azure announcement, January 29, 2025</a><br>
+            <a href="https://www.investing.com/news/economy-news/highflyer-the-ai-quant-fund-behind-chinas-deepseek-3836765">Reuters profile of High-Flyer and DeepSeek, January 29, 2025</a><br>
+            <a href="https://www.investing.com/news/stock-market-news/nvidia-tweaks-flagship-h100-chip-for-export-to-china-as-h800-3035975">Reuters on Nvidia's H800 export-compliant China variant, March 21, 2023</a><br>
+            <a href="https://huggingface.co/papers/2412.19437">Hugging Face paper page for DeepSeek-V3, published December 27, 2024</a><br>
+            <a href="https://github.com/deepseek-ai/DeepSeek-V3">DeepSeek-V3 GitHub README</a><br>
+            <a href="https://github.com/deepseek-ai/DeepSeek-R1">DeepSeek-R1 GitHub README</a><br>
+            <a href="https://huggingface.co/blog/open-r1">Hugging Face Open-R1 announcement, January 28, 2025</a><br>
+            <a href="https://aws.amazon.com/blogs/aws/deepseek-r1-now-available-as-a-fully-managed-serverless-model-in-amazon-bedrock/">AWS DeepSeek-R1 launch blog</a><br>
+            <a href="https://aws.amazon.com/about-aws/whats-new/2025/03/deepseek-r1-fully-managed-amazon-bedrock/">AWS DeepSeek-R1 Bedrock availability, March 10, 2025</a><br>
+            <a href="https://www.investing.com/news/economy-news/italys-privacy-watchdog-blocks-chinese-ai-app-deepseek-3840843">Reuters on Italy blocking DeepSeek's chatbot, January 30, 2025</a><br>
+            <a href="https://www.investing.com/news/stock-market-news/south-koreas-data-protection-authority-suspends-local-service-of-deepseek-3871971">Reuters on South Korea suspending new downloads, February 16-17, 2025</a><br>
+            <a href="https://www.investing.com/news/world-news/us-commerce-department-bureaus-ban-chinas-deepseek-on-government-devices-sources-say-3933103">Reuters on U.S. Commerce device ban, March 17, 2025</a><br>
+            <a href="https://www.investing.com/news/stock-market-news/tech-stock-selloff-deepens-as-deepseek-triggers-ai-rethink-3833347">Reuters follow-up on the market shock, January 27-28, 2025</a><br>
+            <a href="https://www.investing.com/news/stock-market-news/nvidia-stock-bounces-back-after-deep-selloff-3835143">Reuters on partial rebound after the DeepSeek selloff, January 28, 2025</a><br>
+            <a href="https://www.investing.com/news/stock-market-news/microsoft-meta-ceos-defend-hefty-ai-spending-after-deepseek-stuns-tech-world-3838550">Reuters on Microsoft and Meta defending AI capex, January 29, 2025</a><br>
+            <a href="https://techcommunity.microsoft.com/blog/azure-ai-foundry-blog/deepseek-r1-improved-performance-higher-limits-and-transparent-pricing/4386367">Microsoft Foundry update on DeepSeek-R1 latency, throughput, and pricing, February 26, 2025</a><br>
+            <a href="https://www.wired.com/story/deepseek-ai-china-privacy-data/">Wired on privacy and data-routing concerns around DeepSeek</a>
+          </p>
+        </div>
+      </details>
+    </section>
+  </div>
+</body>
+</html>

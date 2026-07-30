@@ -1,0 +1,1958 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Serving the Swarm &mdash; The Efficiency Papers, Part III</title>
+  <link rel="canonical" href="https://femiadeniran.com/deep-dives/efficiency-papers-3-serving-the-swarm.html">
+  <meta property="og:title" content="Serving the Swarm — The Efficiency Papers, Part III">
+  <meta property="og:description" content="ML engineers rediscovered what OS engineers knew in 1960. Pages, tables, copy-on-write — the papers that turned inference into infrastructure.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://femiadeniran.com/deep-dives/efficiency-papers-3-serving-the-swarm.html">
+  <meta property="og:site_name" content="Femi Adeniran">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Serving the Swarm — The Efficiency Papers, Part III">
+  <meta name="twitter:description" content="ML engineers rediscovered what OS engineers knew in 1960. Pages, tables, copy-on-write — the papers that turned inference into infrastructure.">
+  <meta name="author" content="Femi Adeniran">
+<meta name="description" content="ML engineers rediscovered what OS engineers knew in 1960. Pages, tables, copy-on-write — the papers that turned inference into infrastructure.">
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<link
+  href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+  rel="stylesheet"
+>
+<style>
+:root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --white: #e8e8f0;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+}
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 3rem; }
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+}
+
+body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.03) 2px,
+        rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+}
+
+nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 1000;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 1.5rem;
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+}
+nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    transition: color 0.2s, text-shadow 0.2s;
+    padding: 0.3rem 0;
+}
+nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+nav a.active { color: var(--green); text-shadow: 0 0 12px rgba(0,255,136,0.4); }
+.nav-title {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 0.5rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.25);
+    flex-shrink: 0;
+}
+
+.content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+}
+
+.hero {
+    text-align: center;
+    padding: 4rem 0 5rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4rem;
+}
+.hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3rem;
+    font-weight: 600;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+}
+.subtitle {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 640px;
+    margin: 0 auto;
+}
+.series-kicker {
+    margin-top: 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.glitch { position: relative; display: inline-block; }
+.glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    inset: 0;
+    width: 100%; height: 100%;
+}
+.glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 3s infinite linear alternate-reverse;
+    clip-path: inset(0 0 80% 0);
+}
+.glitch::after {
+    color: var(--magenta);
+    animation: glitch-2 2.5s infinite linear alternate-reverse;
+    clip-path: inset(80% 0 0 0);
+}
+.blink { display: inline-block; animation: blink 1s step-end infinite; color: var(--green); }
+@keyframes blink { 50% { opacity: 0; } }
+@keyframes glitch-1 {
+    0%, 90% { transform: translate(0); }
+    92% { transform: translate(-3px, 1px); }
+    94% { transform: translate(3px, -1px); }
+    96% { transform: translate(-2px, 2px); }
+    100% { transform: translate(0); }
+}
+@keyframes glitch-2 {
+    0%, 88% { transform: translate(0); }
+    90% { transform: translate(2px, -1px); }
+    93% { transform: translate(-3px, 2px); }
+    96% { transform: translate(1px, -2px); }
+    100% { transform: translate(0); }
+}
+
+section { margin-bottom: 5rem; padding-top: 1rem; }
+
+h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: var(--green);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: 0.02em;
+}
+h3 {
+    font-size: 1.25rem;
+    color: var(--cyan);
+    margin: 2.5rem 0 1rem;
+    font-weight: 600;
+}
+h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 2rem 0 0.8rem;
+}
+p { margin-bottom: 1rem; }
+strong { color: var(--white); }
+a { color: var(--cyan); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4rem;
+    line-height: 0.8;
+    padding: 0.1em 0.15em 0 0;
+    color: var(--green);
+    font-weight: 700;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+}
+
+code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.15em 0.4em;
+}
+pre {
+    position: relative;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    margin: 1.2rem 0;
+}
+pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+}
+
+.cm { color: var(--text-dim); }
+.kw { color: var(--magenta); }
+.ty { color: var(--cyan); }
+.st { color: var(--green); }
+.nm { color: var(--yellow); }
+.fn { color: var(--blue); }
+.pp { color: var(--orange); }
+
+.label {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.8rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+}
+
+.diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+}
+.diagram pre { border: none; margin: 0; padding: 0; background: none; font-size: 12.5px; line-height: 1.45; }
+.diagram-label {
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    margin-bottom: 0.8rem;
+}
+
+.power {
+    border-left: 3px solid var(--green-dim);
+    background: rgba(0,255,136,0.04);
+    padding: 1rem 1.2rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+}
+.power p { font-size: 0.88rem; line-height: 1.6; margin-bottom: 0; }
+.power.danger { border-left-color: var(--red); background: rgba(255,51,68,0.04); }
+.power.hack { border-left-color: var(--magenta); background: rgba(255,0,170,0.04); }
+.power.wild { border-left-color: var(--orange); background: rgba(255,136,0,0.04); }
+.power.zen { border-left-color: var(--cyan); background: rgba(0,221,255,0.04); }
+.power.purple { border-left-color: var(--purple); background: rgba(170,68,255,0.04); }
+
+.power-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--green);
+    margin-bottom: 0.5rem;
+}
+.power.danger .power-label { color: var(--red); }
+.power.hack .power-label { color: var(--magenta); }
+.power.wild .power-label { color: var(--orange); }
+.power.zen .power-label { color: var(--cyan); }
+.power.purple .power-label { color: var(--purple); }
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.92rem;
+}
+th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--green);
+    text-align: left;
+    padding: 0.6rem 0.8rem;
+    border-bottom: 2px solid var(--border);
+}
+td {
+    padding: 0.5rem 0.8rem;
+    border-bottom: 1px solid var(--border);
+}
+tr:hover td { background: rgba(0,255,136,0.03); }
+
+details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1.2rem 0;
+}
+summary {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--green);
+    padding: 0.8rem 1.2rem;
+    cursor: pointer;
+}
+details[open] summary { border-bottom: 1px solid var(--border); }
+details > div { padding: 1rem 1.2rem; }
+
+.vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+}
+.vs-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem 1.1rem;
+}
+.vs-card h4 { margin-top: 0; }
+
+.viz-container {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+}
+.viz-container svg { width: 100%; height: auto; display: block; }
+.viz-controls {
+    display: flex;
+    gap: 1.5rem;
+    margin-top: 1rem;
+    align-items: center;
+    flex-wrap: wrap;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+}
+.viz-controls label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--cyan);
+    display: block;
+    margin-bottom: 0.3rem;
+}
+.viz-controls select, .viz-controls input[type="range"] {
+    background: var(--bg-code);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 0.3rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    border-radius: 4px;
+}
+.viz-controls input[type="range"] {
+    width: 140px;
+    accent-color: var(--green);
+}
+.viz-controls .val {
+    color: var(--green);
+    font-size: 13px;
+}
+.viz-controls button {
+    background: var(--green-dim);
+    color: var(--bg);
+    border: none;
+    padding: 0.4rem 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    border-radius: 4px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    transition: background 0.15s;
+}
+.viz-controls button:hover { background: var(--green); }
+.viz-controls button.active {
+    background: var(--green);
+    color: var(--bg);
+    box-shadow: 0 0 12px rgba(0,255,136,0.3);
+}
+.viz-controls button.secondary {
+    background: var(--border);
+    color: var(--text);
+}
+.viz-controls button.secondary:hover { background: var(--border-glow); }
+.viz-controls button.secondary.active {
+    background: var(--magenta);
+    color: var(--bg);
+    box-shadow: 0 0 12px rgba(255,0,170,0.3);
+}
+
+.ticker {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--green);
+    text-shadow: 0 0 8px rgba(0,255,136,0.3);
+}
+.ticker.red { color: var(--red); text-shadow: 0 0 8px rgba(255,51,68,0.3); }
+
+.timeline-item {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.2rem;
+    align-items: flex-start;
+}
+.timeline-year {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--magenta);
+    min-width: 50px;
+    flex-shrink: 0;
+    padding-top: 0.15rem;
+}
+.timeline-body {
+    font-size: 0.9rem;
+    line-height: 1.55;
+    border-left: 2px solid var(--border);
+    padding-left: 1rem;
+}
+.timeline-body strong { color: var(--cyan); }
+
+@media (max-width: 700px) {
+    body { font-size: 16px; }
+    nav { font-size: 9px; gap: 0.7rem; }
+    .content { padding: 3rem 0.8rem 4rem; }
+    .hero h1 { font-size: 2rem; }
+    .vs { grid-template-columns: 1fr; }
+    pre { font-size: 10.5px; padding: 0.7rem; }
+    .diagram { padding: 1rem; }
+    .power { padding: 0.6rem 0.8rem; }
+    .viz-container { padding: 1rem; }
+    .viz-controls { gap: 0.8rem; font-size: 10px; }
+    .viz-controls button { padding: 0.3rem 0.8rem; font-size: 10px; }
+    .viz-controls input[type="range"] { width: 100px; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="nav-title">&gt;_ Serving the Swarm</span>
+  <a href="#ch1">01 Hotel</a>
+  <a href="#ch2">02 Scheduling</a>
+  <a href="#ch3">03 Page Table</a>
+  <a href="#ch4">04 Just Use the OS</a>
+  <a href="#ch5">05 Prefix Tree</a>
+  <a href="#ch6">06 Destiny</a>
+</nav>
+
+<div class="content">
+
+<!-- ════════════════════════════════════════════════════════════════════
+     HERO
+     ════════════════════════════════════════════════════════════════════ -->
+<div class="hero">
+  <h1><span class="glitch" data-text="SERVING THE SWARM">SERVING THE SWARM</span></h1>
+  <div class="subtitle">
+    ML engineers rediscovered what OS engineers knew in 1960. Pages, tables, copy-on-write &mdash; the papers that turned inference into infrastructure.<span class="blink">_</span>
+  </div>
+  <div class="series-kicker">The Efficiency Papers &mdash; Part III</div>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     CHAPTER 1 — THE HOTEL PROBLEM
+     ════════════════════════════════════════════════════════════════════ -->
+<section id="ch1">
+<h2>01 // The Hotel Problem</h2>
+
+<p class="drop-cap">Imagine you run a 100-room hotel. Every guest who walks in <em>might</em> stay for 30 nights &mdash; but most leave after two. Your reservation policy: block 30 rooms for every guest, just in case. A backpacker wants one night? Thirty rooms blocked. A couple wants a weekend? Thirty rooms blocked. By the time three guests have checked in, you've "reserved" 90 rooms but only six are occupied. The lobby is full of people you're turning away because the system says you're at capacity.</p>
+
+<p>That was GPU memory management before 2023.</p>
+
+<p>Every time a language model receives a request, it needs space for a <strong>KV cache</strong> &mdash; the running memory of every token the model has seen and generated. Each layer of the Transformer stores a key vector and a value vector for every token in the sequence. As the model generates its response, the cache grows token by token. But here's the problem: the system doesn't know how long that response will be. Could be 10 tokens. Could be 4,096. Could be 32,768. So it reserves for the worst case: one contiguous slab of GPU memory, sized for the maximum possible output length.</p>
+
+<p>A request that generates 50 tokens still holds memory for 2,048. A request that asks "What's 2+2?" and gets "4" holds the same reservation as a request generating a five-page essay. The GPU doesn't distinguish between "might need this" and "actually using this." Reserved is reserved.</p>
+
+<p>To feel the scale: for a Llama-2 13B model with a 4,096-token context window, each request's KV cache reservation is approximately <strong>800 MB</strong>. On an A100 with 80 GB total memory, after the model weights consume ~26 GB, you have ~54 GB left for KV caches. That fits <strong>67 concurrent requests</strong> if each reserves 800 MB. But if requests only generate 200 tokens on average (using ~5% of their reservation), you could fit 1,300 requests in the same memory. The gap between 67 and 1,300 is the cost of pre-allocation.</p>
+
+<p>The waste is not subtle. Measurements from the <a href="https://arxiv.org/abs/2309.06180">PagedAttention paper</a> (Kwon et al., 2023) decomposed the problem into three failure modes:</p>
+
+<p><strong>Internal fragmentation.</strong> Each request's allocated slab is sized for the maximum, but the actual generation rarely fills it. The unused tail of each slab is dead space &mdash; allocated, mapped, invisible to the free-list, doing nothing.</p>
+
+<p><strong>External fragmentation.</strong> When requests finish and release their slabs, they leave gaps of varying sizes. A new request needs a contiguous block. The gap is too small. Another gap exists elsewhere, also too small. Total free memory might be sufficient, but no single contiguous region fits. Same pathology that plagued heap allocators in the 1970s.</p>
+
+<p><strong>Reservation waste.</strong> Memory reserved for tokens that haven't been generated yet &mdash; and may never be, if the request finishes early or gets preempted. The system is holding a reservation on behalf of a future that may not arrive.</p>
+
+<p>The combined toll: only <strong>20&ndash;38%</strong> of KV cache memory actually stores token states. The rest &mdash; 60 to 80% &mdash; is dead weight. On an A100 with 80 GB, that's 48&ndash;64 GB doing nothing. On a cluster of 1,000 GPUs, that's 48&ndash;64 <em>terabytes</em> of the most expensive memory in the world, holding empty space.</p>
+
+<div class="power danger">
+<div class="power-label">The Cost</div>
+<p>An A100 GPU rents for $2&ndash;3 per hour. If 70% of its memory is wasted on fragmentation, you're paying $1.40&ndash;$2.10 per hour per GPU for nothing. A 1,000-GPU deployment loses $1,400&ndash;$2,100 per hour &mdash; $12&ndash;18 million per year &mdash; to empty reservations.</p>
+</div>
+
+<h3>One request is easy. Ten thousand is a different universe.</h3>
+
+<p>Serving a single LLM request is trivial. Load the model, run prefill, decode token by token. A 7B model on a single A100 handles one user comfortably. The entire field of "LLM serving" exists because <strong>one user isn't the problem</strong>.</p>
+
+<p>Scale to 10,000 concurrent users and three crises compound at once.</p>
+
+<p><strong>Crisis 1: Memory is finite, requests are greedy.</strong> Each request's KV cache grows with every generated token. A thousand concurrent requests at 2K context on a large model can demand hundreds of gigabytes of KV cache alone &mdash; far more than any single GPU holds. You must decide who gets memory, who waits, and who gets evicted mid-generation. Do you preempt the request that's 90% done to make room for a high-priority new one? Do you swap KV caches to CPU RAM and back? This is a <em>policy</em> problem, not an engineering problem. It's the same problem operating systems solved with page replacement algorithms &mdash; LRU, LFU, clock &mdash; and serving systems reinvented the same solutions, often without knowing they existed.</p>
+
+<p><strong>Crisis 2: Variable lengths make batching a mess.</strong> The naive approach: collect a batch of requests, run them together, wait for ALL to finish. If one request needs 500 tokens and the other 31 finish at 20, the GPU runs 480 additional decode steps where 31 out of 32 slots are padding &mdash; fake computation that produces no useful output. You're paying for a supercomputer and using it to wait. The GPU utilization curve looks like a sawtooth: briefly high when a batch starts, then declining as requests complete and slots go idle, then high again when the next batch begins.</p>
+
+<p><strong>Crisis 3: Prefill and decode sabotage each other.</strong> Prefill processes the entire input prompt in one parallel pass &mdash; compute-heavy, the GPU doing what it was born to do. Massive matrix-matrix multiplications that saturate every tensor core. Decode generates one token at a time &mdash; a skinny matrix-vector operation that is memory-bandwidth-bound. The GPU has thousands of cores but decode uses maybe 1&ndash;5% of available FLOPS. It's mostly waiting for data to arrive from HBM.</p>
+
+<p>When both phases share a GPU, they sabotage each other. One tourist demands a two-hour check-in while the line grows. A single long prefill &mdash; someone feeding a 32K-token document to be summarized &mdash; monopolizes the GPU for seconds. During that time, every in-flight decode request in the batch is <em>blocked</em>. No tokens generated. Latency spikes. Users stare at frozen cursors. This is <strong>head-of-line blocking</strong>, the same pathology that plagued single-threaded web servers in the 1990s.</p>
+
+<div class="power zen">
+<div class="power-label">The Reframe</div>
+<p>LLM serving is, at its core, a scheduling problem &mdash; closer to air traffic control than to machine learning. Finite runway (GPU memory), variable-size aircraft (requests with different lengths), unpredictable arrival times. The model itself is the easy part. The hard part is managing 10,000 overlapping lifecycles on hardware that wasn't designed for sharing.</p>
+</div>
+
+<!-- D3 VIZ: Memory Waste Comparison -->
+<div class="viz-container">
+<span class="diagram-label">Interactive &mdash; Memory Waste: Pre-Allocated vs. Paged</span>
+<div id="viz-memory-waste"></div>
+<div class="viz-controls">
+  <div>
+    <label>Concurrent Requests</label>
+    <input type="range" id="mem-requests" min="1" max="12" value="3" step="1">
+    <span class="val" id="mem-requests-val">3</span>
+  </div>
+  <button id="mem-add-btn">Add Request</button>
+  <button id="mem-reset-btn" class="secondary">Reset</button>
+  <div style="margin-left:auto">
+    <span style="color:var(--text-dim);font-size:11px">Old waste: </span>
+    <span class="ticker red" id="mem-waste-old">0%</span>
+    <span style="color:var(--text-dim);font-size:11px;margin:0 0.3rem">&bull;</span>
+    <span style="color:var(--text-dim);font-size:11px">Paged waste: </span>
+    <span class="ticker" id="mem-waste-new">0%</span>
+  </div>
+</div>
+</div>
+
+<p>On the left: the old way. Each request claims a contiguous block sized for the maximum sequence length. The bright cells are actual tokens; the dimmed cells are reserved-but-empty memory. By the time a few requests arrive, most of the GPU is holding nothing. On the right: paged allocation. Small blocks, allocated on demand, packed tight. The same requests need a fraction of the space.</p>
+
+<p>Drag the slider to 8 or 10 requests and watch the left side refuse new requests entirely &mdash; "no vacancy" &mdash; while the right side keeps packing them in. That's the difference between serving 3 users and serving 12 on the same hardware.</p>
+
+<p>Four papers fixed this problem. They arrived in sequence between 2022 and 2025, each one reaching deeper into the same bag of tricks &mdash; one that operating systems engineers packed in the 1960s and '70s. Together they turned inference from a research hack into production infrastructure.</p>
+
+<p>Each paper made a different bet. One bet that the scheduling was wrong. One bet that the memory management was wrong. One bet that the caching strategy was wrong. And one bet that the abstraction layer itself was wrong &mdash; that you should stop reimplementing the OS and start <em>using</em> it. They were all right. Here's how.</p>
+
+</section>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     CHAPTER 2 — THE SCHEDULING REVOLUTION
+     ════════════════════════════════════════════════════════════════════ -->
+<section id="ch2">
+<h2>02 // The Scheduling Revolution</h2>
+
+<p class="drop-cap">In 2022, Gyeong-In Yu at Seoul National University looked at how inference servers batched requests and saw a bus that refused to stop. Static batching &mdash; the only approach anyone used &mdash; collected a fixed batch of requests, ran them all through the model, and waited for <em>every single one</em> to finish before accepting new passengers. If one request needed 500 tokens and the other 31 needed 20, the bus drove the full 500-stop route while 31 passengers sat trapped, their destinations long passed.</p>
+
+<p>Think about what this means concretely. Request #7 finishes generating at iteration 20. Its tokens are complete. Its memory could be freed. But it remains in the batch &mdash; padded with dummy tokens &mdash; for 480 more iterations, consuming GPU cycles on meaningless computation. Meanwhile, Request #33 arrived at the server at iteration 21. It will wait in the queue until all 500 iterations complete. Then the system clears the batch, collects the next group of requests, and starts over. Request #33 might wait minutes, watching an idle queue, because the batch boundary is sacred.</p>
+
+<p>Yu and his collaborators &mdash; including advisor Byung-Gon Chun, who would later co-found FriendliAI &mdash; published <a href="https://www.usenix.org/conference/osdi22/presentation/yu"><strong>Orca</strong></a> at OSDI 2022. The paper's subtitle says it all: "A Distributed Serving System for Transformer-Based Generative Models." Not a model optimization paper. A <em>systems</em> paper. Published at the Operating Systems Design and Implementation conference.</p>
+
+<p>The idea was disarmingly simple: don't schedule per request. Schedule per <em>iteration</em>.</p>
+
+<h3>Iteration-level scheduling</h3>
+
+<p>After every single decode step &mdash; one forward pass through the model, one token generated per active sequence &mdash; Orca's scheduler runs. It checks three things:</p>
+
+<pre><span class="label">Orca scheduler loop</span><code><span class="kw">for each</span> iteration:
+    <span class="cm">// 1. Who's done?</span>
+    finished = [seq <span class="kw">for</span> seq <span class="kw">in</span> batch <span class="kw">if</span> seq.eos <span class="kw">or</span> seq.len >= max_len]
+    batch.remove(finished)
+    <span class="fn">release_memory</span>(finished)
+
+    <span class="cm">// 2. Who's waiting?</span>
+    waiting = queue.dequeue(batch.free_slots)
+    batch.insert(waiting)
+    <span class="fn">allocate_memory</span>(waiting)
+
+    <span class="cm">// 3. Run the next forward pass</span>
+    <span class="fn">forward_pass</span>(batch)</code></pre>
+
+<p>That's it. The batch is fluid. Sequences enter and leave at every iteration, not at batch boundaries. The transportation analogy shifts: static batching is a bus that can't stop. Orca is a subway &mdash; passengers enter and exit at every station. The train never waits for the last rider.</p>
+
+<div class="vs">
+<div class="vs-card">
+  <h4>Static Batching</h4>
+  <p>Gather N requests. Run <em>all</em> until the longest finishes. Accept new batch. GPU idles on padding for short requests. New arrivals sit in queue until the batch clears.</p>
+  <p style="margin-top:0.5rem;color:var(--red);font-size:0.85rem;margin-bottom:0">Throughput: 1x baseline</p>
+</div>
+<div class="vs-card">
+  <h4>Continuous Batching (Orca)</h4>
+  <p>After each decode step: eject finished sequences, inject waiting ones. Batch stays full. GPU never wastes cycles on completed requests. No one waits for a batch boundary.</p>
+  <p style="margin-top:0.5rem;color:var(--green);font-size:0.85rem;margin-bottom:0">Throughput: up to 36.9x</p>
+</div>
+</div>
+
+<!-- D3 VIZ: Continuous Batching Timeline -->
+<div class="viz-container">
+<span class="diagram-label">Interactive &mdash; Static vs. Continuous Batching Timeline</span>
+<div id="viz-batching"></div>
+<div class="viz-controls">
+  <button id="batch-play-btn">Play</button>
+  <button id="batch-reset-btn" class="secondary">Reset</button>
+  <div style="margin-left:auto">
+    <span style="color:var(--text-dim);font-size:11px">Static throughput: </span>
+    <span class="ticker red" id="batch-static-tp">0</span>
+    <span style="color:var(--text-dim);font-size:11px"> tok/s &bull; Continuous: </span>
+    <span class="ticker" id="batch-cont-tp">0</span>
+    <span style="color:var(--text-dim);font-size:11px"> tok/s</span>
+  </div>
+</div>
+</div>
+
+<p>Watch the timeline. In the static model, short requests (narrow bars) finish quickly but remain in the batch, padded with wasted cycles (striped regions), until the longest request completes. Only then can a new batch start. In the continuous model, the moment a request finishes, its slot opens for the next request in the queue. The batch stays packed. No padding. No idle slots. The throughput counter tells the story.</p>
+
+<h3>Selective batching</h3>
+
+<p>There's a subtlety the summary misses. Not every operation in a Transformer can be naively batched across sequences of different lengths. The feed-forward layers are position-independent &mdash; they process each token identically regardless of where it sits in the sequence. Batch freely. But attention depends on sequence position: each token attends to all previous tokens in <em>its own</em> sequence, not tokens from other sequences in the batch. You can't just concatenate everyone's tokens and run one attention kernel.</p>
+
+<p>Orca introduced <strong>selective batching</strong>: apply batching to position-independent operations (the feed-forward networks, layer norms, embeddings) while handling position-dependent operations (attention) per-sequence. This sounds like a detail, but it's what makes the whole thing work. It lets the engine process <em>heterogeneous</em> sequences &mdash; some still in their prefill phase (processing long input prompts), others mid-generation (producing token #47 of a response) &mdash; in a single forward pass.</p>
+
+<p>The result: <strong>36.9x throughput</strong> over NVIDIA's FasterTransformer at the same latency, measured on a GPT-3 175B-scale model. That number is extreme. It captures the worst case for static batching: high variance in output length, where short requests wait ages for long ones. Real production gains &mdash; conversational workloads where output lengths vary 10&ndash;500 tokens &mdash; settle around <strong>3&ndash;8x</strong>. But 3x on a GPU that costs $30,000 means the same workload runs on one-third the hardware. Or three times the users on the same hardware. Either way, millions of dollars.</p>
+
+<div class="power">
+<div class="power-label">The Ripple Effect</div>
+<p>Every major inference framework adopted iteration-level scheduling within two years. vLLM calls it continuous batching. NVIDIA's TensorRT-LLM calls it in-flight batching. Hugging Face TGI, SGLang, LMDeploy &mdash; all of them. An OSDI paper from Seoul became the default scheduling policy for the entire industry. Yu went on to become CTO of FriendliAI. The paper won Best PhD Dissertation from Seoul National University's CS department.</p>
+</div>
+
+<h3>The prefill-decode interference problem</h3>
+
+<p>Continuous batching solved scheduling. But it introduced a new conflict: <strong>prefill-decode interference</strong>. The two phases of inference have opposite computational profiles, and cramming them onto the same GPU creates head-of-line blocking.</p>
+
+<p><strong>Prefill</strong> processes the entire input prompt in one parallel pass. Every token in the prompt is processed simultaneously. This is a massive matrix-matrix multiplication &mdash; the kind of operation GPUs are designed for. Tensor cores saturate. FLOPS utilization is high. The operation is compute-bound.</p>
+
+<p><strong>Decode</strong> generates one token at a time. Each new token requires a full forward pass, but the computation is a single matrix-vector operation (the new token attending to all cached keys/values). GPU utilization drops to 1&ndash;5% of available FLOPS. The operation is memory-bandwidth-bound &mdash; the bottleneck is reading the model weights and KV cache from HBM, not the computation itself.</p>
+
+<p>When continuous batching mixes prefill and decode requests in the same batch, a long prefill (a 32K-token document being summarized) monopolizes the GPU for seconds. Every in-flight decode request in the batch is blocked. No tokens generated. The user who asked "What's the weather?" watches their cursor freeze because someone else submitted a legal document.</p>
+
+<p>The industry response: <strong>prefill-decode disaggregation</strong>. Run prefill on one pool of GPUs and decode on another, so they never interfere. DeepSeek deployed this architecture for their V3 model. Together AI's cache-aware variant reported 40% higher throughput for long-context workloads. Every major serving framework &mdash; vLLM, SGLang, TensorRT-LLM &mdash; now supports disaggregated scheduling. It's the same principle that drove web servers from single-threaded to multi-process architectures: separate the heavy initialization work from the interactive streaming work.</p>
+
+<p>The disaggregation story is worth pausing on because it reveals how deep the OS analogy goes. In web serving, Nginx separates the "accept connection and parse headers" phase (fast, I/O-bound) from the "run the application handler" phase (slow, compute-bound). They run on different processes. The same pattern appears in databases: the query parser and the execution engine are decoupled so that parsing one query doesn't block executing another.</p>
+
+<p>Prefill-decode disaggregation is the LLM equivalent. Prefill GPUs become the "parser pool" &mdash; they accept prompts, process them in bulk, and ship the computed KV caches to the decode pool. Decode GPUs become the "execution pool" &mdash; they generate tokens one at a time, latency-sensitive, never blocked by a heavy prefill. The architecture looks identical to a web application with separate frontend and backend tiers. The only difference is that the "network" between tiers is NVLink or InfiniBand, and the "requests" are KV cache tensors.</p>
+
+<p>But Orca's deepest contribution wasn't any single optimization. It was a reframing. Before Orca, inference was a machine learning problem: run the model. After Orca, inference was a <em>systems</em> problem: manage the queue. That shift &mdash; from compute to scheduling &mdash; opened the door for everything that followed.</p>
+
+<p>Think about what Orca didn't change. It didn't change the model. It didn't change the hardware. It didn't even change the attention mechanism. It changed the <em>order</em> in which requests execute and the <em>granularity</em> at which the system makes scheduling decisions. Pure scheduling. Pure systems design. And it delivered more throughput improvement than any model architecture change that year.</p>
+
+<p>The next paper through that door would reach even further back into the operating systems playbook &mdash; all the way to the 1960s, and to the single most important memory management abstraction ever invented.</p>
+
+<details>
+<summary>Deep detail: How selective batching handles mixed prefill/decode</summary>
+<div>
+<p>In a continuous batching system, the active batch might contain sequences at very different stages. Sequence A is on token 3 of its decode (generating word by word). Sequence B just arrived and needs to prefill a 2,000-token prompt. Sequence C is on token 47 of its decode. How do you run a single forward pass with all three?</p>
+<p>Orca's selective batching splits the forward pass into two categories of operations:</p>
+<p><strong>Position-independent operations</strong> (feed-forward layers, layer norms, embedding lookups): These process each token identically regardless of context. You can concatenate all tokens from all sequences into one big batch, run the FFN, and split the results back. This is maximally efficient &mdash; full GPU utilization on the compute-heavy layers.</p>
+<p><strong>Position-dependent operations</strong> (self-attention): Each token attends only to tokens in its own sequence. You cannot batch across sequence boundaries. Orca processes attention per-sequence (or uses grouped attention with appropriate masking). For prefill sequences, this means a single large matrix-matrix attention. For decode sequences, this means a single-row matrix-vector attention. Both run in the same forward pass, just with different shapes.</p>
+<p>Modern implementations (vLLM, SGLang) use <strong>FlashAttention with variable-length support</strong>: a single kernel call processes multiple sequences of different lengths by passing a cumulative sequence length array. The kernel handles the per-sequence boundaries internally. This eliminates the overhead of separate per-sequence kernel launches.</p>
+</div>
+</details>
+
+</section>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     CHAPTER 3 — THE PAGE TABLE
+     ════════════════════════════════════════════════════════════════════ -->
+<section id="ch3">
+<h2>03 // The Page Table</h2>
+
+<p class="drop-cap">In the summer of 2022, a team of PhD students in UC Berkeley's newly launched Sky Computing Lab had built a framework for distributing models across GPUs. When they set up a demo, performance was terrible. Not "could be better" terrible. <em>Barely functional</em> terrible. Zhuohan Li and Woosuk Kwon spent months profiling, expecting to find a compute bottleneck &mdash; maybe the attention kernels were slow, or the pipeline parallelism had too much bubble time.</p>
+
+<p>Instead they found a memory management disaster.</p>
+
+<p>The KV cache &mdash; not compute, not communication &mdash; was the binding constraint. Requests were reserving huge contiguous slabs of GPU memory and barely using them. The GPU was reporting "out of memory" while most of its HBM held nothing. The profiling traces told a clear story: memory fragmentation was killing throughput before compute ever got a chance.</p>
+
+<p>Kwon had a specific memory. Not a GPU memory &mdash; a human one. He recalled a concept from his undergraduate operating systems course at UC Berkeley: <strong>virtual memory with demand paging</strong>. The idea that transformed computing in the 1960s. The OS doesn't give each process a contiguous slab of physical RAM. It breaks memory into small fixed-size <em>pages</em>, typically 4 KB each. A process thinks it has a big contiguous address space (the "virtual" part), but the pages are scattered across physical RAM wherever there's room. A <em>page table</em> maps virtual addresses to physical locations. The hardware (the MMU) handles the translation transparently. Pages are allocated on demand &mdash; only when the process actually touches them, not when it asks for address space.</p>
+
+<p>This is the idea that let a 64 KB machine run programs that needed 256 KB. It's the idea that lets your laptop run dozens of programs whose combined memory demands exceed your physical RAM. It solved the same three problems the KV cache faces: internal fragmentation (processes that don't use their full allocation), external fragmentation (freed memory leaving unusable gaps), and over-reservation (allocating for worst-case needs that rarely materialize).</p>
+
+<p>The Atlas computer at the University of Manchester implemented the first virtual memory system in 1962. By the 1970s, every major operating system used demand paging. By the 1980s, it was so foundational that engineers stopped thinking about it &mdash; it just <em>worked</em>. It's one of the three or four most important abstractions in the history of computing.</p>
+
+<p>Kwon asked the question that created an industry: <em>why aren't we doing this for the KV cache?</em></p>
+
+<h3>PagedAttention</h3>
+
+<p>The answer became <a href="https://arxiv.org/abs/2309.06180"><strong>PagedAttention</strong></a>, the core algorithm behind <strong>vLLM</strong>. Kwon, Li, and their collaborators &mdash; including Ion Stoica and Hao Zhang, both key figures in the Berkeley systems community &mdash; published the paper at <a href="https://dl.acm.org/doi/10.1145/3600006.3613165">SOSP 2023</a>. Not a machine learning conference. The Symposium on <em>Operating Systems</em> Principles. The most prestigious venue in systems research.</p>
+
+<p>The paper's core contribution is a one-to-one mapping between OS virtual memory concepts and GPU KV cache management. Every concept has a direct analog:</p>
+
+<table>
+<thead>
+<tr><th>OS Concept</th><th>PagedAttention</th><th>How It Works</th></tr>
+</thead>
+<tbody>
+<tr><td>Pages (4 KB)</td><td>KV blocks (16 tokens)</td><td>Fixed-size chunks that are the unit of allocation</td></tr>
+<tr><td>Page table</td><td>Block table</td><td>Maps logical block index to physical block ID in GPU memory</td></tr>
+<tr><td>Virtual address space</td><td>Logical KV cache</td><td>Contiguous from the model's perspective; physical storage is scattered</td></tr>
+<tr><td>Demand paging</td><td>On-demand allocation</td><td>Blocks allocated only when new tokens actually need them</td></tr>
+<tr><td>Copy-on-write</td><td>Shared prefix blocks</td><td>Beam search candidates share prompt KV blocks; copy only on divergence</td></tr>
+<tr><td>LRU eviction</td><td>Block eviction</td><td>When memory fills, evict least-recently-used blocks to free space</td></tr>
+<tr><td>Physical frame list</td><td>Free block queue</td><td>Pool of available physical KV blocks managed in LRU order</td></tr>
+</tbody>
+</table>
+
+<p>The mechanism: break the KV cache into small fixed-size <strong>blocks</strong>, each holding key and value vectors for 16 tokens. Don't allocate them upfront. As the sequence grows token by token, allocate new blocks on demand from a free list. Store them anywhere in GPU memory &mdash; they don't need to be contiguous. A <strong>block table</strong> maps logical positions (block 0, block 1, block 2...) to physical block IDs. The attention kernel gathers scattered blocks using this indirection, the same way a CPU's memory management unit translates virtual addresses to physical ones.</p>
+
+<pre><span class="label">PagedAttention pseudocode</span><code><span class="cm">// Each sequence gets a block table: logical_idx -> physical_block_id</span>
+<span class="ty">block_table</span>[seq_id] = []
+
+<span class="cm">// As tokens generate, allocate blocks on demand</span>
+<span class="kw">def</span> <span class="fn">append_token</span>(seq_id, token):
+    logical_idx = seq_id.num_tokens // <span class="nm">BLOCK_SIZE</span>
+    <span class="kw">if</span> logical_idx >= len(block_table[seq_id]):
+        phys_block = <span class="fn">free_list.pop</span>()            <span class="cm">// grab from pool</span>
+        block_table[seq_id].append(phys_block)   <span class="cm">// map it</span>
+    offset = seq_id.num_tokens % <span class="nm">BLOCK_SIZE</span>
+    <span class="fn">write_kv</span>(block_table[seq_id][-1], offset, token)
+
+<span class="cm">// Attention kernel uses block table to gather K,V from scattered blocks</span>
+<span class="kw">def</span> <span class="fn">paged_attention</span>(query, seq_id):
+    <span class="kw">for</span> block_idx <span class="kw">in</span> block_table[seq_id]:
+        k, v = <span class="fn">load_block</span>(block_idx)           <span class="cm">// physical location</span>
+        output += <span class="fn">attention</span>(query, k, v)        <span class="cm">// standard attention</span>
+    <span class="kw">return</span> output</code></pre>
+
+<p>Result: memory waste dropped from <strong>60&ndash;80%</strong> to <strong>under 4%</strong>. The only waste is in the last block of each sequence, which might not be completely filled &mdash; and even that waste is at most <code>BLOCK_SIZE - 1</code> tokens per sequence, amortized across the entire cache.</p>
+
+<p>The practical impact: same GPU, same model, <strong>2&ndash;4x more concurrent requests</strong> fit in memory. This translates directly to 2&ndash;4x throughput, because more requests in the batch means the GPU does more useful work per forward pass. The gains are multiplicative with Orca's continuous batching &mdash; Orca packs the schedule, PagedAttention packs the memory, and the combination is the foundation of every modern serving engine.</p>
+
+<p>Against HuggingFace Transformers (the naive baseline many teams started from), vLLM showed <strong>14&ndash;24x throughput</strong>. Against FasterTransformer (NVIDIA's optimized engine, already using some batching), the gain was <strong>2&ndash;4x</strong>. Against Orca itself (which had continuous batching but not paged memory), the gain was still meaningful: the same scheduling quality, but fitting 2&ndash;3x more requests in the batch.</p>
+
+<!-- D3 VIZ: OS vs GPU Page Table -->
+<div class="viz-container">
+<span class="diagram-label">Interactive &mdash; OS Virtual Memory vs. GPU Page Table</span>
+<div id="viz-page-table"></div>
+<div class="viz-controls">
+  <button id="pt-alloc-btn">Allocate Request</button>
+  <button id="pt-free-btn" class="secondary">Free Oldest</button>
+  <button id="pt-cow-btn" class="secondary">Fork (CoW)</button>
+  <button id="pt-reset-btn" class="secondary">Reset</button>
+  <div style="margin-left:auto">
+    <span style="color:var(--text-dim);font-size:11px">Pages used: </span>
+    <span class="ticker" id="pt-used">0</span>
+    <span style="color:var(--text-dim);font-size:11px"> / </span>
+    <span class="ticker" id="pt-total">32</span>
+  </div>
+</div>
+</div>
+
+<p>Both sides show the same pattern: a process (or sequence) gets a logical address space that <em>looks</em> contiguous, but the physical storage is scattered. A table handles the translation. Click "Allocate Request" to watch blocks claim physical pages from the free list. "Free Oldest" returns them. "Fork (CoW)" demonstrates copy-on-write: two sequences share the same physical blocks until one diverges &mdash; only then does the system copy.</p>
+
+<h3>Copy-on-write for beam search</h3>
+
+<p>Beam search generates multiple candidate sequences from the same prompt. In the old world, each beam got its own copy of the prompt's KV cache &mdash; identical data, duplicated N times. PagedAttention asks: why copy? All beams start from the same prompt. Their KV caches are identical until they diverge.</p>
+
+<p>The solution: reference counting, borrowed directly from Unix <code>fork()</code>. When the beam search forks, all candidates share the prompt's physical KV blocks. The reference count on each shared block increments. When a beam generates a token that <em>diverges</em> from its siblings &mdash; writes new KV data to a block that other beams still need &mdash; the system copies that block first, then modifies the copy. Classic copy-on-write.</p>
+
+<p>The savings: <strong>55% memory reduction</strong> for beam search workloads. For parallel sampling (generating multiple responses to the same prompt), shared prompt blocks saved 6&ndash;10%. In the original paper, beam search with 4 beams went from requiring 4x the memory to requiring roughly 1.8x &mdash; the shared prefix dominates.</p>
+
+<h3>The kernel tax</h3>
+
+<p>There's a catch, and it matters for the next chapter.</p>
+
+<p>PagedAttention's block table adds a layer of indirection to every attention computation. The kernel must look up physical block IDs before accessing KV data. FlashAttention &mdash; the fastest attention kernel, the one <a href="efficiency-papers-1-attention-tax.html">Part I of this series</a> covered &mdash; expects <em>contiguous</em> memory. It was designed to tile through a single contiguous buffer with optimal memory access patterns. Non-contiguous blocks break those patterns.</p>
+
+<p>PagedAttention needed a custom "paged" variant of FlashAttention: <code>flash_attn_with_kv_cache</code>. That variant works, but it's <strong>2.8x slower</strong> than native FlashAttention for the kernel itself. The total system throughput still wins because you're serving 2&ndash;4x more requests (the memory savings outweigh the kernel overhead). But the per-kernel tax is real.</p>
+
+<p>Worse, it created an ecosystem problem. Every new attention kernel innovation needed a paged version. FlashAttention-2 needed one. FlashAttention-3 shipped without one initially &mdash; meaning you couldn't use the fastest attention kernel with dynamic memory management. FlashInfer built its own paged backend. DeepSeek's MLA attention needed yet another. Each kernel, each variant, each integration: hundreds of lines of GPU code to handle block table indirection.</p>
+
+<div class="power danger">
+<div class="power-label">The Kernel Tax</div>
+<p>PagedAttention's block table is a software reimplementation of hardware address translation. Every kernel must implement the lookup. Every new attention innovation must be ported to the paged format. The abstraction saves 60% of memory but costs 2.8x in kernel speed and fragments the entire attention kernel ecosystem. One paper, later, would ask: why are we doing this in software?</p>
+</div>
+
+<h3>The eureka, and why it appeared at SOSP</h3>
+
+<p>The PagedAttention paper was reviewed and accepted by operating systems researchers, not machine learning researchers. The program committee at SOSP recognized what it was: an OS paper that happened to run on GPUs. The contribution wasn't a new model architecture or a new training trick. It was a memory management system &mdash; a page table, a free list, a demand allocator, and a copy-on-write mechanism &mdash; applied to a new domain.</p>
+
+<div class="power zen">
+<div class="power-label">The Eureka</div>
+<p>"This IS virtual memory." Woosuk Kwon literally recalled his undergrad OS course and transplanted the core abstraction to GPUs. Every CS undergrad learns paging, passes the exam, forgets it. Then, a decade later, the exact same problems appear on different hardware, and someone has to reinvent the same solutions. The deepest insight in the vLLM paper isn't technical. It's sociological: knowledge siloed in one field sat dormant while another field needed it.</p>
+</div>
+
+<h3>From paper to industry default</h3>
+
+<p>The timeline tells the story of an idea whose time had come:</p>
+
+<div class="timeline-item">
+  <span class="timeline-year">Jun 23</span>
+  <div class="timeline-body"><strong>vLLM launches</strong> open-source with first blog post. Benchmarks show 14&ndash;24x throughput over Hugging Face Transformers.</div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">Sep 23</span>
+  <div class="timeline-body"><strong>SOSP paper published.</strong> Academic recognition from the OS community.</div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">Oct 24</span>
+  <div class="timeline-body"><strong>Joins Linux Foundation</strong> AI & Data as incubation project. 50,000+ GitHub stars, 350+ contributors.</div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">2025</span>
+  <div class="timeline-body"><strong>Production everywhere.</strong> Meta, Mistral AI, Cohere, IBM, Amazon (Rufus), LinkedIn. Red Hat builds their AI Inference Server on it. Kwon co-founds Inferact. The team raises $150M.</div>
+</div>
+
+<p>A single insight about page tables &mdash; recalled from an undergrad lecture, applied to GPU memory, published at an OS conference &mdash; became the de facto serving infrastructure for the entire industry in less than two years.</p>
+
+<p>But PagedAttention's success came with a hidden cost. The block table &mdash; the very mechanism that saved 60% of memory &mdash; introduced a layer of software indirection that every attention kernel now had to accommodate. And one team, two years later, would ask whether that indirection was necessary at all.</p>
+
+<details>
+<summary>Deep detail: Inside vLLM's block management</summary>
+<div>
+<p>The current vLLM architecture (v1, post-refactor) implements PagedAttention through four key components:</p>
+<p><strong>BlockPool</strong>: Manages all physical KV cache blocks. Maintains <code>KVCacheBlock</code> objects indexed by <code>block_id</code>, a free block queue (<code>FreeKVCacheBlockQueue</code>) sorted in LRU order, and a cached block map (<code>BlockHashToBlockMap</code>) for prefix caching lookups.</p>
+<p><strong>BlockTable</strong>: The page table. Maps each request's logical block positions to physical block IDs. Supports a hybrid mode where one allocation block maps to multiple kernel blocks via <code>blocks_per_kv_block</code>, allowing different granularities for allocation and computation.</p>
+<p><strong>KVCacheManager</strong>: Orchestrates the allocation flow. On each new request: (1) check the prefix cache for hits via <code>get_computed_blocks()</code>, (2) allocate new blocks from the BlockPool via <code>get_new_blocks()</code>, (3) when blocks fill up with tokens, hash them and register in the prefix cache for future reuse.</p>
+<p><strong>LRU Eviction</strong>: When the free list is exhausted, evict blocks with <code>ref_cnt == 0</code> from the head of the LRU queue. Blocks are freed in reverse order (tail first) to prioritize evicting less-reusable blocks &mdash; the tail of a sequence is less likely to be a shared prefix than the head.</p>
+<p>This is a full OS-style memory management subsystem, running in Python and CUDA, inside a serving framework. It's the functional equivalent of Linux's <code>mm/</code> subsystem, specialized for KV cache blocks instead of 4 KB pages.</p>
+</div>
+</details>
+
+</section>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     CHAPTER 4 — JUST USE THE OS
+     ════════════════════════════════════════════════════════════════════ -->
+<section id="ch4">
+<h2>04 // Just Use the OS</h2>
+
+<p class="drop-cap">PagedAttention was inspired by OS paging. But it <em>reimplemented</em> paging in userspace &mdash; inside the serving framework, inside the GPU kernels. It wrote a custom allocator. A custom page table (the block table). Custom attention kernels that understand block-table indirection. Every component of the OS memory management stack, rebuilt from scratch in CUDA.</p>
+
+<p>In 2025, a team at Microsoft Research India asked the question that was hiding in plain sight: <em>the GPU already has a memory management unit. Why aren't we using it?</em></p>
+
+<p><a href="https://arxiv.org/abs/2405.04437"><strong>vAttention</strong></a> (Prabhu et al., ASPLOS 2025) completed the arc. CUDA has had virtual memory management APIs since CUDA 10.2. The function signatures are right there in the documentation. <code>cuMemAddressReserve</code>. <code>cuMemCreate</code>. <code>cuMemMap</code>. They do exactly what their names suggest: reserve virtual address space, create physical memory handles, map physical pages to virtual addresses. The GPU's hardware MMU does the virtual-to-physical translation at wire speed, transparently, without any kernel modifications.</p>
+
+<p>PagedAttention rebuilt this in software. vAttention deleted the rebuild.</p>
+
+<h3>Three API calls</h3>
+
+<p>The entire memory management system reduces to three CUDA functions:</p>
+
+<pre><span class="label">CUDA VMM</span><code><span class="cm">// Step 1: Reserve a contiguous virtual address range</span>
+<span class="cm">// No physical memory allocated yet. Address space is cheap.</span>
+<span class="cm">// 64-bit GPUs have 128 TB of virtual address space available.</span>
+<span class="fn">cuMemAddressReserve</span>(&ptr, size, alignment, <span class="nm">0</span>, <span class="nm">0</span>);
+
+<span class="cm">// Step 2: Create a physical memory handle (one "page")</span>
+<span class="cm">// This actually allocates physical GPU memory.</span>
+<span class="fn">cuMemCreate</span>(&handle, page_size, &prop, <span class="nm">0</span>);
+
+<span class="cm">// Step 3: Map the physical page to a virtual address</span>
+<span class="cm">// After this, the virtual address range is backed by physical memory.</span>
+<span class="cm">// The GPU MMU handles translation in hardware.</span>
+<span class="fn">cuMemMap</span>(ptr + offset, page_size, <span class="nm">0</span>, handle, <span class="nm">0</span>);</code></pre>
+
+<p>The strategy: reserve 12 terabytes of contiguous virtual address space per KV cache (64-bit GPUs have 128 TB available &mdash; virtual address space costs nothing). Map physical pages only when tokens actually arrive. The model sees a contiguous tensor. The GPU hardware handles the physical scatter underneath.</p>
+
+<p>This is <em>exactly</em> how <code>malloc</code> works on Linux. The kernel overcommits virtual address space freely. Physical pages get mapped (via page faults) only when you actually write to them. The application never knows the difference. The MMU makes non-contiguous physical memory look contiguous. vAttention does the same thing on the GPU.</p>
+
+<div class="vs">
+<div class="vs-card">
+  <h4>PagedAttention Stack</h4>
+  <p>Custom allocator &rarr; block table in GPU memory &rarr; modified attention kernel reads block table &rarr; gathers scattered physical blocks &rarr; computes attention</p>
+  <p style="margin-top:0.5rem;color:var(--text-dim);font-size:0.85rem">5 components, all in software</p>
+  <p style="color:var(--red);font-size:0.85rem;margin-bottom:0">Every new kernel needs a paged variant. 600+ lines per integration.</p>
+</div>
+<div class="vs-card">
+  <h4>vAttention Stack</h4>
+  <p>cuMemAddressReserve &rarr; cuMemCreate &rarr; cuMemMap &rarr; GPU MMU translates at wire speed &rarr; FlashAttention reads contiguous addresses</p>
+  <p style="margin-top:0.5rem;color:var(--text-dim);font-size:0.85rem">3 API calls + hardware</p>
+  <p style="color:var(--green);font-size:0.85rem;margin-bottom:0">FlashAttention works UNMODIFIED. Any kernel works unmodified.</p>
+</div>
+</div>
+
+<p>That last line is the real payoff. FlashAttention sees a contiguous tensor &mdash; because the virtual addresses <em>are</em> contiguous. The GPU hardware handles the physical scatter transparently. No custom kernels. No block tables. No paged variants. When FlashAttention-3 ships, it works immediately. When someone writes a new attention kernel next month, it works immediately. The kernel tax that PagedAttention imposed on the entire ecosystem simply vanishes.</p>
+
+<h3>The numbers</h3>
+
+<table>
+<thead>
+<tr><th>Metric</th><th>vAttention vs. PagedAttention</th><th>Context</th></tr>
+</thead>
+<tbody>
+<tr><td>Decode speed</td><td><strong>1.97x faster</strong></td><td>Yi-6B, 16K context, 256 generated tokens</td></tr>
+<tr><td>Prefill speed</td><td><strong>3.92x faster</strong></td><td>Yi-6B, 192K context, chunked prefill</td></tr>
+<tr><td>Time-to-first-token</td><td><strong>266ms &rarr; 68ms</strong></td><td>Yi-6B, 192K single prompt</td></tr>
+<tr><td>End-to-end throughput</td><td><strong>1.23x higher</strong></td><td>Full serving workload, best case</td></tr>
+<tr><td>Integration effort</td><td><strong>4 API calls</strong></td><td>vs. rewriting kernels + block-table management</td></tr>
+</tbody>
+</table>
+
+<p>The 3.92x prefill speedup tells the story. Prefill processes long sequences in one pass &mdash; the exact scenario where FlashAttention's tiling strategy matters most, and where PagedAttention's block table indirection hurts most. Remove the indirection, let FlashAttention run natively, and you get the performance that was always available but locked behind an abstraction mismatch.</p>
+
+<h3>Deferred reclamation</h3>
+
+<p>vAttention adds a clever optimization for the hot path. When request R1 finishes, don't immediately free and unmap its physical pages. When R2 arrives, assign it R1's request slot and reuse the already-mapped physical memory. Only allocate new pages if R2's context exceeds R1's length. Batch the actual reclamation (unmapping and freeing pages) only when free memory drops below 10%.</p>
+
+<p>This amortizes the cost of <code>cuMemCreate</code> (1.7 microseconds per 64 KB page) and <code>cuMemMap</code> (8 microseconds per mapping) across many requests. In practice, the allocation bandwidth reaches 7.6 GB/s &mdash; far more than the ~600 MB/s that decode-phase allocation actually needs. The overhead is invisible.</p>
+
+<h3>The page size problem</h3>
+
+<p>One wrinkle: NVIDIA's standard CUDA drivers only support a minimum page size of 2 MB. For a small model like Yi-6B, a single 2 MB page might hold KV data for hundreds of tokens &mdash; far more than a request typically needs per allocation step. The internal fragmentation in that last partially-filled page, multiplied across all active sequences and all layers, can reach <strong>128 MB</strong>. On a 24 GB consumer GPU, that's 0.5% of total memory. On a production 80 GB A100 with hundreds of active sequences, it adds up.</p>
+
+<p>The vAttention authors solved this by modifying NVIDIA's open-source unified memory driver (<code>nvidia-uvm</code>) to expose custom page sizes: 64 KB, 128 KB, and 256 KB. The kernel module exposes three new functions &mdash; <code>vMemReserve</code>, <code>vMemCreate</code>, <code>vMemMap</code> &mdash; that mirror the CUDA VMM APIs but with finer granularity. With 256 KB pages, worst-case fragmentation drops from 128 MB to <strong>16 MB</strong>. With 64 KB pages, it drops further.</p>
+
+<p>The tradeoff: smaller pages mean more page table entries, which means more TLB pressure on the GPU's memory management unit. The authors measured the overhead and found it negligible for typical serving workloads &mdash; the TLB is large enough to absorb the extra entries without measurable performance loss. But the custom driver module is a deployment friction. You can't just <code>pip install vattention</code>. You need to build and install a modified kernel module, which requires matching NVIDIA driver versions, kernel headers, and root access. For a research prototype, this is fine. For production at scale, it's a barrier.</p>
+
+<h3>The ecosystem irony</h3>
+
+<p>vAttention solved the ecosystem problem PagedAttention created: kernel fragmentation. It should be the obvious next step. Use the hardware for what the hardware was designed to do.</p>
+
+<p>But vLLM's community <a href="https://github.com/vllm-project/vllm/issues/17612">closed the integration request</a> as "not planned," arguing that the industry has converged on paged kernel layouts and that <code>cuMemMap</code> overhead may negate gains in some configurations. FlashInfer, the kernel library that vLLM uses, has deeply optimized its paged attention kernels &mdash; they're fast enough that the software indirection overhead is small for common batch sizes.</p>
+
+<p>The ecosystem lock-in that vAttention diagnosed is, ironically, preventing its adoption. PagedAttention's software reimplementation of paging became so entrenched &mdash; the kernels so optimized, the integrations so polished, the production deployments so validated &mdash; that using the <em>actual</em> paging hardware is now the harder sell. Sometimes the reimplementation outlives the need for reinvention. Sometimes the workaround becomes the standard. PagedAttention wasn't the theoretically <em>right</em> answer &mdash; using the hardware MMU was always the cleaner design. But it was the <em>available</em> answer in 2023, when CUDA's VMM APIs were obscure and poorly documented, and it won by shipping first and iterating fast. In systems engineering, being deployed matters more than being correct.</p>
+
+<div class="power wild">
+<div class="power-label">The Pattern</div>
+<p>PagedAttention said: "The OS solved this. Let's copy the idea." vAttention said: "If the OS solved it, let's <em>use</em> the OS." The first was a metaphor. The second was the literal implementation. Both were right. The GPU is speed-running 50 years of operating system evolution, and sometimes the shortcut is remembering the destination already exists. But sometimes the detour builds infrastructure that the shortcut can't replace.</p>
+</div>
+
+<details>
+<summary>Deep detail: The step() API and allocation flow</summary>
+<div>
+<p>Before each decode iteration, the serving framework calls vAttention's <code>step(sequence_lengths[])</code> API. vAttention checks each active sequence's current length against its mapped physical memory. If any sequence needs a new page (has grown beyond its last mapped page boundary), vAttention calls <code>cuMemCreate</code> + <code>cuMemMap</code> for that page. In the decode phase, this is at most one new page per active request per iteration &mdash; a small, predictable cost.</p>
+<p>If <code>step()</code> can't allocate (out of physical memory), it returns -1, signaling the framework to preempt a lower-priority request. This is analogous to the OS page fault handler returning an out-of-memory signal to the process scheduler.</p>
+<p>The <code>step()</code> API replaces PagedAttention's entire block management layer: the BlockPool, the BlockTable, the KVCacheManager, and the free block queue. All of that software becomes three CUDA API calls and a length check.</p>
+</div>
+</details>
+
+</section>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     CHAPTER 5 — THE PREFIX TREE
+     ════════════════════════════════════════════════════════════════════ -->
+<section id="ch5">
+<h2>05 // The Prefix Tree</h2>
+
+<p class="drop-cap">PagedAttention solved allocation. But it had a blind spot: it threw away the KV cache the moment a request finished. Every new request started cold &mdash; even if it shared 90% of its prompt with the previous one. Think about what that means for a chatbot. Every user starts with the same system prompt: "You are a helpful assistant. You respond concisely..." That's hundreds of tokens, identical across every single request. With PagedAttention, every request recomputes those tokens from scratch. Hundreds of times per second, across thousands of users, the same keys and values get calculated, stored, and discarded.</p>
+
+<p>Imagine a library that burns its card catalog at closing and rebuilds it the next morning. From scratch. Even though the books haven't changed.</p>
+
+<p>vLLM later added "Automatic Prefix Caching" (APC) using hash-based block matching at 16-token granularity. The system hashes each 16-token block of the prompt and checks if an identical block already exists in GPU memory. If yes, reuse it. If two prompts share the first 32 tokens, the two 16-token blocks match and get reused. Solid idea. But the granularity is coarse.</p>
+
+<p>If two prompts diverge at token 17, the first 16-token block matches but the single shared token in the second block is wasted &mdash; the block can't be partially reused. And APC only cached <em>prompt</em> tokens, not generated ones. In multi-turn chat, the assistant's previous response is part of the next turn's context &mdash; but those tokens weren't cached. Every continuation recomputed them.</p>
+
+<h3>The filesystem insight</h3>
+
+<p>In late 2023, Lianmin Zheng &mdash; who had co-authored the vLLM paper &mdash; was working with a team spanning UC Berkeley, xAI, and the LMSYS chatbot arena. They'd been building SGLang, a programming language for structured LLM generation, and needed a backend that could handle complex multi-turn, multi-branch workloads efficiently.</p>
+
+<p>Zheng asked a different question: what if KV cache management isn't a memory problem at all? What if it's a <em>filesystem</em> problem?</p>
+
+<p>Think about it. A filesystem organizes hierarchical data: <code>/usr/local/bin/python</code>. Each component narrows the path. Shared prefixes (<code>/usr/local/</code>) are traversed once, not per file. The data structure that makes this work &mdash; the data structure Linux uses for its page cache, its routing tables, its radix tree &mdash; is purpose-built for prefix matching.</p>
+
+<p>LLM workloads are <em>tree-shaped</em>. Multi-turn chat: shared system prompt branching into diverging conversations. Few-shot learning: shared examples branching into different queries. Agent workflows: shared tool descriptions branching into different tool calls. Beam search: shared prompt branching into candidate completions.</p>
+
+<p>A radix tree is the natural data structure for tree-shaped data. And unlike a hash table (which vLLM uses for its block-level prefix cache), a radix tree preserves the <em>hierarchical structure</em> of the data. It knows that Turn 2 is a child of Turn 1, not just that they share a hash. This lets the scheduler reason about the cache topologically &mdash; which branches are hot, which are cold, which should be evicted first &mdash; instead of treating each cached block as an independent entry.</p>
+
+<h3>RadixAttention</h3>
+
+<p><a href="https://arxiv.org/abs/2312.07104"><strong>SGLang</strong></a>, published at NeurIPS 2024, introduced <strong>RadixAttention</strong>: a radix tree that serves as a filesystem for KV caches. Each node in the tree holds a sequence of token IDs (the "key") and pointers to GPU memory holding their KV cache (the "value"). Children branch at divergence points. Looking up a prefix is O(length) &mdash; walk the tree, matching tokens at each node. This is how <code>open("/usr/local/bin/python")</code> works: traverse path components one by one until you reach the file.</p>
+
+<p>Three improvements over vLLM's block-level caching make RadixAttention qualitatively different:</p>
+
+<p><strong>Token-level granularity.</strong> Unlike vLLM's 16-token blocks, RadixAttention matches at individual token boundaries. If two requests share 47 tokens, all 47 get reused. The tree splits nodes at the <em>exact</em> divergence point using a <code>_split_node</code> operation. No wasted partial blocks. No lost single tokens at block boundaries. The resolution is perfect.</p>
+
+<p><strong>Caches generated tokens too.</strong> This is the big one. When a model generates a response, those KV values stay in the tree. In multi-turn chat, the <em>entire</em> conversation history &mdash; system prompt, first user message, first assistant response, second user message &mdash; accumulates in the tree as a single path. The second turn doesn't recompute the first turn's KV cache. The third turn reuses both. Each continuation is just an extension of the existing path.</p>
+
+<p>This changes the economics of multi-turn chat fundamentally. Consider a 10-turn conversation where each turn is ~100 tokens (user message + assistant response). With vLLM's prompt-only caching:</p>
+
+<ul style="margin:0.5rem 0 1rem 1.5rem;font-size:0.95rem">
+<li>Turn 1: prefill 100 tokens (system prompt + user message). Cost: 100 tokens.</li>
+<li>Turn 2: prefill 200 tokens (entire history up to now). Cost: 200 tokens.</li>
+<li>Turn 3: prefill 300 tokens. Cost: 300 tokens.</li>
+<li>Turn 10: prefill 1,000 tokens. Cost: 1,000 tokens.</li>
+<li><strong>Total prefill: 5,500 tokens.</strong> O(n^2) in conversation length.</li>
+</ul>
+
+<p>With RadixAttention, every previous turn's KV cache stays in the tree:</p>
+
+<ul style="margin:0.5rem 0 1rem 1.5rem;font-size:0.95rem">
+<li>Turn 1: prefill 100 tokens. Cost: 100 tokens.</li>
+<li>Turn 2: cache hit for 100 tokens, prefill only the new 100. Cost: 100 tokens.</li>
+<li>Turn 3: cache hit for 200 tokens, prefill 100. Cost: 100 tokens.</li>
+<li>Turn 10: cache hit for 900 tokens, prefill 100. Cost: 100 tokens.</li>
+<li><strong>Total prefill: 1,000 tokens.</strong> O(n) in conversation length.</li>
+</ul>
+
+<p>From 5,500 tokens of prefill to 1,000. That's a <strong>5.5x reduction</strong> in compute for a 10-turn conversation, and the gap grows quadratically with conversation length. For a 50-turn conversation (common in coding assistants or customer support), the ratio is 25x.</p>
+
+<p><strong>Cache-aware scheduling.</strong> The scheduler doesn't process requests FIFO. It uses <strong>Longest Prefix Match (LPM)</strong>: requests sharing longer prefixes with cached data get priority. With <em>depth-first scheduling</em>, the system processes the deepest branch of the radix tree first, keeping those KV caches hot in GPU memory. Related requests run back-to-back. Cache thrash drops. Hit rates climb.</p>
+
+<pre><span class="label">Radix tree scheduling</span><code><span class="cm">// Group pending requests by their terminal node in the radix tree</span>
+<span class="kw">for</span> node <span class="kw">in</span> radix_tree.leaves():
+    node.weight = count(pending_requests_at(node))
+
+<span class="cm">// Propagate weights upward (child weights sum into parents)</span>
+<span class="kw">for</span> node <span class="kw">in</span> radix_tree.bottom_up():
+    node.weight += sum(child.weight <span class="kw">for</span> child <span class="kw">in</span> node.children)
+
+<span class="cm">// Schedule depth-first: process heaviest branch first</span>
+<span class="cm">// This keeps hot KV caches in memory, maximizing hits</span>
+schedule_order = radix_tree.<span class="fn">dfs_by_weight</span>()</code></pre>
+
+<p>The result: requests that share long prefixes run back-to-back, keeping those KV caches hot. If 50 users all start with the same system prompt, the scheduler runs them in sequence, reusing the cached system prompt for all 50. Without this, a FIFO scheduler might interleave them with unrelated requests, evicting the system prompt cache between hits.</p>
+
+<!-- D3 VIZ: Radix Tree -->
+<div class="viz-container">
+<span class="diagram-label">Interactive &mdash; The Radix Tree: A Filesystem for KV Caches</span>
+<div id="viz-radix-tree"></div>
+<div class="viz-controls">
+  <button id="radix-req1-btn">Chat: User A Turn 1</button>
+  <button id="radix-req2-btn" class="secondary">Chat: User B Turn 1</button>
+  <button id="radix-req3-btn" class="secondary">Chat: User A Turn 2</button>
+  <button id="radix-evict-btn" class="secondary">Evict LRU</button>
+  <button id="radix-reset-btn" class="secondary">Reset</button>
+</div>
+</div>
+
+<p>Watch the tree grow. Click "User A Turn 1" &mdash; the first request creates a path from root through the system prompt to user A's question to the assistant's response. Everything is orange (freshly computed). After a moment, it turns green (cached).</p>
+
+<p>Click "User B Turn 1." User B has the same system prompt. The system prompt segment of the tree is green (cache hit &mdash; no recomputation). Only user B's unique question branches off in orange (new computation). The tree <em>splits</em> at the divergence point.</p>
+
+<p>Click "User A Turn 2." User A continues the conversation. The system traverses the <em>entire</em> existing branch for User A &mdash; system prompt, turn 1 question, turn 1 answer &mdash; all green, all cached. Only the new question extends the path in orange. Almost no new computation.</p>
+
+<p>Click "Evict LRU" to simulate memory pressure. The least-recently-used leaf &mdash; User B's branch, if you haven't touched it &mdash; gets evicted first. Active conversation branches survive.</p>
+
+<h3>The numbers</h3>
+
+<table>
+<thead>
+<tr><th>Workload</th><th>Improvement vs vLLM</th><th>Context</th></tr>
+</thead>
+<tbody>
+<tr><td>Few-shot MMLU</td><td><strong>5x throughput</strong></td><td>vs vLLM v0.2.5 (before APC)</td></tr>
+<tr><td>ReAct agents</td><td><strong>5.6x throughput, 87% latency drop</strong></td><td>Shared tool descriptions across agent steps</td></tr>
+<tr><td>GSM-8K reasoning</td><td><strong>4.5x throughput</strong></td><td>Chain-of-thought with shared few-shot prefix</td></tr>
+<tr><td>Multi-turn chat</td><td><strong>75&ndash;90% cache hit rate</strong></td><td>Depends on conversation depth</td></tr>
+<tr><td>Few-shot prompts</td><td><strong>85&ndash;95% cache hit rate</strong></td><td>Shared examples, varying queries</td></tr>
+<tr><td>Granularity</td><td><strong>1 token</strong> vs 16-token blocks</td><td>Perfect prefix matching vs lossy block matching</td></tr>
+</tbody>
+</table>
+
+<p>By 2025, SGLang was running on <strong>400,000+ GPUs</strong>, processing trillions of tokens per day. The cache-aware load balancer (added in v0.4) achieved 1.9x throughput with 3.8x higher cache hit rates by routing requests to the GPU most likely to have their prefix cached.</p>
+
+<h3>The scheduling depth</h3>
+
+<p>The interplay between the radix tree and the scheduler deserves attention. In a naive FIFO scheduler, requests execute in arrival order. If User A sends Turn 1, then User B sends Turn 1, then User C sends Turn 1, the KV cache thrashes: each request loads a different conversation context, evicting the previous one. By the time User A sends Turn 2, their Turn 1 cache is long gone.</p>
+
+<p>SGLang's depth-first scheduler reorders the queue. It groups pending requests by their position in the radix tree and processes the deepest (longest-prefix) matches first. If User A's Turn 1 is cached, User A's Turn 2 gets priority &mdash; it will reuse the most cached data. User B and User C wait slightly longer, but the <em>total</em> computation drops because the system avoids redundant prefill work.</p>
+
+<p>This is the same insight behind disk elevator algorithms (process I/O requests in spatial order to minimize seek time) and CPU cache-aware scheduling (schedule threads that share data on the same core). The pattern: when your system has a cache, schedule to maximize cache hits, even if it means deviating from FIFO fairness. The throughput gain dwarfs the fairness cost.</p>
+
+<p>In practice, SGLang's scheduler also handles a subtle case: <strong>in-batch prefix sharing</strong>. When multiple requests in the same batch share a prefix that isn't yet cached, the scheduler detects this by simulating the radix tree over the waiting queue. It runs the prefix-establishing request first, caches the result, then runs the dependent requests. This avoids the thundering-herd problem where 50 requests all try to compute the same system prompt simultaneously.</p>
+
+<p>SGLang v0.4 extended this with a <strong>cache-aware load balancer</strong> for multi-GPU deployments. When requests arrive at a cluster of N GPUs, the load balancer checks which GPU is most likely to have the request's prefix cached. It routes accordingly. The result: 3.8x higher cache hit rates compared to round-robin routing, and 1.9x higher throughput. The insight is that load balancing itself is a caching problem &mdash; you want to route requests to the GPU where their data already lives, even at the cost of slight load imbalance.</p>
+
+<p>This mirrors the NUMA-aware scheduling in modern operating systems, where the kernel schedules threads on the CPU socket closest to their data. Same principle: minimize data movement by scheduling computation near the cache.</p>
+
+<div class="power">
+<div class="power-label">The Filesystem Analogy</div>
+<p>The radix tree is to KV caches what the filesystem is to disk. Path lookup = prefix matching. <code>ls</code> = cache enumeration. <code>rm</code> = LRU eviction. <code>ln</code> = reference-counted sharing. <code>df</code> = memory utilization. The same data structure, solving the same problem: how do you organize a hierarchy of named, variably-sized objects so that retrieval is fast, space is shared across overlapping paths, and eviction is graceful under pressure?</p>
+</div>
+
+<details>
+<summary>Deep detail: How the radix tree evolves during a conversation</summary>
+<div>
+<p><strong>State 1 (empty):</strong> Just the root node. No cached KV data. All computation starts fresh.</p>
+<p><strong>State 2 (first request):</strong> User A sends a message. The system prompt + user message + assistant response become a single edge from root. The KV cache for all these tokens is stored in GPU memory and linked from the tree node.</p>
+<p><strong>State 3 (shared prefix splits):</strong> User B sends a message with the same system prompt but a different question. The tree splits: the system prompt becomes a shared parent node (its KV cache is reused), and two children branch off &mdash; one for User A's path, one for User B's path.</p>
+<p><strong>State 4 (LRU eviction):</strong> Memory pressure. The system walks leaves in LRU order. User B hasn't sent a follow-up; their leaf node has the oldest access time. It gets evicted. Its KV cache is freed. The shared system prompt node survives because User A's branch still references it (ref count > 0).</p>
+<p><strong>State 5 (continuation extends):</strong> User A sends Turn 2. The system walks User A's existing branch (system prompt &rarr; turn 1 question &rarr; turn 1 answer) &mdash; all cached, all free. Only the new tokens need computation. The path extends deeper.</p>
+</div>
+</details>
+
+</section>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     CHAPTER 6 — INFRASTRUCTURE IS DESTINY
+     ════════════════════════════════════════════════════════════════════ -->
+<section id="ch6">
+<h2>06 // Infrastructure Is Destiny</h2>
+
+<p class="drop-cap">Step back and look at the sequence. In three years, four papers independently reached into the same bag of tricks &mdash; one that operating systems engineers packed in the 1960s and '70s.</p>
+
+<div class="timeline-item">
+  <span class="timeline-year">2022</span>
+  <div class="timeline-body"><strong>Orca</strong> &mdash; Iteration-level scheduling. The OS concept: preemptive process scheduling, where the kernel can interrupt and reschedule after each time quantum. Orca's quantum is one decode step. Published at OSDI (Operating Systems Design and Implementation). <a href="https://www.usenix.org/conference/osdi22/presentation/yu">Yu et al., Seoul National University</a></div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">2023</span>
+  <div class="timeline-body"><strong>PagedAttention / vLLM</strong> &mdash; Virtual memory paging for the KV cache. Block tables, demand allocation, copy-on-write, LRU eviction. Published at SOSP (Operating Systems Principles). <a href="https://arxiv.org/abs/2309.06180">Kwon et al., UC Berkeley</a></div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">2024</span>
+  <div class="timeline-body"><strong>SGLang / RadixAttention</strong> &mdash; A radix tree filesystem for KV caches. Token-level prefix matching, LRU eviction, reference counting, cache-aware scheduling. Published at NeurIPS. <a href="https://arxiv.org/abs/2312.07104">Zheng et al., UC Berkeley + xAI + LMSYS</a></div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">2025</span>
+  <div class="timeline-body"><strong>vAttention</strong> &mdash; "Just use the actual CUDA VMM." GPU hardware handles the paging that PagedAttention reimplemented in software. FlashAttention works unmodified. Published at ASPLOS (Architectural Support for Programming Languages and Operating Systems). <a href="https://arxiv.org/abs/2405.04437">Prabhu et al., Microsoft Research India</a></div>
+</div>
+
+<p>Scheduling. Paging. Filesystems. Hardware memory management. Each step pushed the analogy deeper. Each paper appeared at a <em>systems</em> conference &mdash; OSDI, SOSP, ASPLOS, NeurIPS (the exception, but with deeply systems-flavored content). The reviewers at OSDI and SOSP were operating systems researchers. They recognized what they were reading: these were OS papers wearing ML clothing.</p>
+
+<p>Notice the geography, too. Seoul (Orca). Berkeley (PagedAttention, SGLang). Bangalore (vAttention, via Microsoft Research India). Three continents. Three teams who'd never collaborated. The same bag of tricks, opened independently, because the problems converged. When your hardware becomes a shared resource, the solutions converge too.</p>
+
+<h3>The rediscovery map</h3>
+
+<table>
+<thead>
+<tr><th>OS Concept (1960s&ndash;1980s)</th><th>LLM System (2022&ndash;2025)</th><th>The Correspondence</th></tr>
+</thead>
+<tbody>
+<tr><td>Preemptive scheduling</td><td>Orca (continuous batching)</td><td>Interrupt after each quantum (decode step), reschedule</td></tr>
+<tr><td>Virtual memory + paging</td><td>PagedAttention / vLLM</td><td>Fixed-size blocks, page table, demand allocation, CoW</td></tr>
+<tr><td>Page cache / filesystem</td><td>RadixAttention / SGLang</td><td>Radix tree, prefix matching, LRU eviction, reference counting</td></tr>
+<tr><td>Hardware MMU</td><td>vAttention (CUDA VMM)</td><td>Let the hardware do the address translation instead of software</td></tr>
+<tr><td>Speculative execution</td><td>Speculative decoding</td><td>Guess ahead, verify in parallel, discard on misprediction</td></tr>
+<tr><td>Memory-mapped files</td><td>Prefix caching / KV offloading</td><td>Map external storage into the address space on demand</td></tr>
+</tbody>
+</table>
+
+<h3>Why it happened</h3>
+
+<p>The rediscovery isn't a coincidence. It's structural.</p>
+
+<p><strong>GPUs became shared resources.</strong> When one model serves thousands of users, the GPU faces the same multiplexing problems that mainframes faced in the 1960s. Multiple processes competing for finite memory. Variable-length workloads requiring fair scheduling. Shared data structures needing copy-on-write semantics. Same problems. Same solutions. Sixty years apart.</p>
+
+<p><strong>Memory became the bottleneck.</strong> Just as 1960s machines were memory-constrained (leading to virtual memory), modern GPUs are VRAM-constrained (leading to PagedAttention). The KV cache is the new working set. It grows with context length, competes with model weights for the same HBM, and determines how many concurrent users you can serve. The constraint is identical; only the speed of the memory changed.</p>
+
+<p><strong>The abstraction gap.</strong> CUDA gives you raw memory allocation &mdash; <code>cudaMalloc</code> returns a pointer, and you manage everything yourself. There's no GPU "operating system" that handles paging, scheduling, or caching for you. ML engineers had to build one. And when you're building an OS from scratch, you inevitably rediscover the same abstractions the original OS builders discovered, because the problems are isomorphic.</p>
+
+<p><strong>Different tribes, same territory.</strong> OS researchers and ML researchers read different papers, attend different conferences, use different terminology. A "page fault" and "KV cache miss" describe the same event. A "context switch" and "request preemption" are the same operation. The rediscovery was almost inevitable because the knowledge was siloed. It took individuals who straddled both worlds &mdash; Berkeley PhD students who'd taken OS courses and were now building ML systems &mdash; to see the mapping.</p>
+
+<div class="power purple">
+<div class="power-label">The Deeper Lesson</div>
+<p>Every generation of hardware eventually needs an operating system. The GPU's OS is being written right now, one systems paper at a time. The irony is that vLLM's page table is <em>simpler</em> than a real OS page table &mdash; no TLB, no multi-level hierarchy, no swap space to disk. Yet. Give it time. The GPU is where operating systems were in 1970, and it's speed-running the same evolutionary path that took CPUs fifty years. We already have paging, scheduling, and a filesystem abstraction. Swap space (KV cache offloading to CPU RAM or SSD) is arriving. Multi-level page tables will follow. The endpoint is predictable: a full GPU operating system. The question is only how many papers it takes to get there.</p>
+</div>
+
+<h3>The supply-side story</h3>
+
+<p>There's one thread that runs through all four papers: they optimized the <em>supply side</em>. More requests per GPU. Better memory utilization. Higher throughput. Lower cost per token. The provider wins: serve more users, spend less on hardware. Orca packed the schedule. PagedAttention packed the memory. SGLang avoided redundant work. vAttention removed the software overhead.</p>
+
+<p>The numbers are stunning. A serving stack built on continuous batching + PagedAttention + RadixAttention can serve <strong>10&ndash;20x</strong> more users per GPU than the naive approach from 2022. That's the difference between a $10 million GPU bill and a $500,000 GPU bill for the same workload. Infrastructure papers don't win best paper awards, but they determine who can afford to deploy.</p>
+
+<p>Consider the economics concretely. In early 2023, before these optimizations were widely deployed, serving a 70B model to 1,000 concurrent users required roughly 32 A100 GPUs. At cloud prices of ~$2.50/hour per GPU, that's $80/hour, or $700,000/year just for the inference fleet. Apply continuous batching (3x), PagedAttention (2.5x), and prefix caching (2x for typical workloads), and the same 1,000 users fit on 5&ndash;8 GPUs. The annual cost drops below $200,000. The delta &mdash; $500,000/year &mdash; funded by four systems papers.</p>
+
+<p>This is why infrastructure matters more than architecture for deployment economics. A 2x better model that costs 10x more to serve loses to a 1.5x better model with 20x better serving efficiency. The models grab the headlines. The serving papers pay the bills.</p>
+
+<h3>But throughput is not latency</h3>
+
+<p>Every optimization in this article made the <em>system</em> more efficient. More users per GPU. More tokens per second per dollar. But for any <em>individual</em> user, the picture is more complicated.</p>
+
+<p>Batching 64 requests together amortizes the cost per token beautifully. GPU utilization climbs. Cost plummets. But each individual user now shares the GPU with 63 others. Time-per-output-token <em>increases</em>. Your request must wait its turn in every forward pass. Queuing delay compounds. The system is more efficient overall, but <em>you</em> wait longer.</p>
+
+<p>The provider is happy. The user is not.</p>
+
+<p>This is the fundamental tension of shared infrastructure. Airlines maximize revenue per seat (throughput). Passengers care about how long they sit on the tarmac (latency). Highways maximize cars per hour (throughput). Drivers care about their commute time (latency). Every shared resource faces this tradeoff, and every optimization that improves one metric by sharing resources more aggressively makes the other metric worse for individuals.</p>
+
+<p>In LLM serving, the tension is sharp. A batch of 64 requests uses the GPU 64x more efficiently than a single request. But each request's time-per-output-token increases because it shares every forward pass with 63 others. At batch size 1, a user gets undivided GPU attention: 50 tokens per second, text streaming fast enough to read in real time. At batch size 64, the same user might see 15&ndash;20 tokens per second. Still usable, but the experience changes. At batch size 256, latency crosses the threshold where users notice the lag. The text stutters. The illusion of real-time conversation breaks.</p>
+
+<p>We've optimized memory. We've optimized scheduling. We've built a paging system, a filesystem, and argued about whether to use the hardware MMU or the software one. But latency &mdash; the time a single user waits for each token to appear on screen &mdash; is the one thing batching cannot fix. Continuous batching makes latency <em>worse</em> for individuals even as it makes throughput better for the fleet.</p>
+
+<p>What if the model could guess its own future?</p>
+
+<p>What if a small, fast draft model could race ahead, proposing five tokens at once, and the big model could verify them all in a single parallel pass? The verification is parallel (one forward pass checks all five). The generation is sequential (each token depends on the last). That asymmetry &mdash; parallel verification vs. sequential generation &mdash; is the same asymmetry that makes CPU speculative execution work. The same asymmetry that lets a proofreader check five paragraphs faster than a writer can compose one. And it's exploitable.</p>
+
+<p>We've spent three chapters making inference cheaper. Part IV asks the question that makes inference <em>faster</em>: what if you could break the autoregressive chain?</p>
+
+<h3>The papers</h3>
+
+<div class="timeline-item">
+  <span class="timeline-year">2022</span>
+  <div class="timeline-body"><strong>Orca: A Distributed Serving System for Transformer-Based Generative Models.</strong> Gyeong-In Yu, Joo Seong Jeong, Geon-Woo Kim, Soojeong Kim, Byung-Gon Chun. Seoul National University + FriendliAI. OSDI 2022. <a href="https://www.usenix.org/conference/osdi22/presentation/yu">usenix.org</a></div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">2023</span>
+  <div class="timeline-body"><strong>Efficient Memory Management for Large Language Model Serving with PagedAttention.</strong> Woosuk Kwon, Zhuohan Li, Siyuan Zhuang, Ying Sheng, Lianmin Zheng, Cody Hao Yu, Joseph E. Gonzalez, Hao Zhang, Ion Stoica. UC Berkeley. SOSP 2023. <a href="https://arxiv.org/abs/2309.06180">arXiv:2309.06180</a></div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">2024</span>
+  <div class="timeline-body"><strong>SGLang: Efficient Execution of Structured Language Model Programs.</strong> Lianmin Zheng, Liangsheng Yin, Zhiqiang Xie, Chuyue Sun, Jeff Huang, Cody Hao Yu, Shiyi Cao, Christos Kozyrakis, Ion Stoica, Joseph E. Gonzalez, Clark Barrett, Ying Sheng. UC Berkeley + xAI + LMSYS. NeurIPS 2024. <a href="https://arxiv.org/abs/2312.07104">arXiv:2312.07104</a></div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">2025</span>
+  <div class="timeline-body"><strong>vAttention: Dynamic Memory Management for Serving LLMs without PagedAttention.</strong> Ramya Prabhu, Ajay Nayak, Jayashree Mohan, Ramachandran Ramjee, Ashish Panwar. Microsoft Research India. ASPLOS 2025. <a href="https://arxiv.org/abs/2405.04437">arXiv:2405.04437</a></div>
+</div>
+
+<details>
+<summary>Further reading: The OS &harr; LLM mapping</summary>
+<div>
+<p><a href="https://muhtasham.github.io/blog/posts/os-concepts-llm/">Concepts from Operating Systems That Found Their Way in LLMs</a> &mdash; a blog post explicitly mapping OS primitives to inference systems.</p>
+<p><a href="https://medium.com/wix-engineering/7-operating-system-concepts-every-llm-engineer-should-understand-84ddf0cfb89a">7 Operating System Concepts Every LLM Engineer Should Understand</a> &mdash; practical guide to the parallel.</p>
+<p><a href="https://eunomia.dev/blog/2025/02/18/os-level-challenges-in-llm-inference-and-optimizations/">OS-Level Challenges in LLM Inference and Optimizations</a> &mdash; detailed technical mapping from virtual memory to speculative execution.</p>
+<p><a href="https://blog.vllm.ai/2023/06/20/vllm.html">vLLM: Easy, Fast, and Cheap LLM Serving</a> &mdash; the original vLLM blog post with benchmarks.</p>
+<p><a href="https://www.anyscale.com/blog/continuous-batching-llm-inference">How Continuous Batching Enables 23x Throughput in LLM Inference</a> &mdash; Anyscale's explainer on the batching revolution.</p>
+<p><a href="https://lmsys.org/blog/2024-01-17-sglang/">SGLang: Fast and Expressive LLM Inference</a> &mdash; the LMSYS launch post introducing RadixAttention.</p>
+</div>
+</details>
+
+</section>
+
+</div><!-- .content -->
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     JAVASCRIPT — SCROLL SPY + D3 VISUALIZATIONS
+     ════════════════════════════════════════════════════════════════════ -->
+<script>
+// ── Scroll spy ──────────────────────────────────────────────────────
+(function() {
+    const links = document.querySelectorAll('nav a');
+    const sections = document.querySelectorAll('section');
+    const obs = new IntersectionObserver(entries => {
+        entries.forEach(e => {
+            if (e.isIntersecting) {
+                links.forEach(l => l.classList.remove('active'));
+                const id = e.target.getAttribute('id');
+                const link = document.querySelector(`nav a[href="#${id}"]`);
+                if (link) link.classList.add('active');
+            }
+        });
+    }, { rootMargin: '-20% 0px -60% 0px' });
+    sections.forEach(s => obs.observe(s));
+})();
+
+
+// ════════════════════════════════════════════════════════════════════
+// VIZ 0 — Continuous Batching Timeline
+// ════════════════════════════════════════════════════════════════════
+(function() {
+    const W = 760, H = 320;
+    const margin = { top: 30, right: 20, bottom: 20, left: 20 };
+    const rowH = 24, gap = 3;
+    const SLOTS = 4;
+    const MAX_ITER = 40;
+    const reqColors = ['#00ddff','#ff8800','#aa44ff','#ff00aa','#ffdd00','#4488ff','#00ff88','#ff3344','#cc66ff','#ffaa33'];
+
+    const svg = d3.select('#viz-batching')
+        .append('svg')
+        .attr('viewBox', `0 0 ${W} ${H}`)
+        .attr('preserveAspectRatio', 'xMidYMid meet');
+
+    // Generate requests: arrive at various times, need various lengths
+    const requests = [
+        { id: 0, arrive: 0, len: 8 },
+        { id: 1, arrive: 0, len: 25 },
+        { id: 2, arrive: 0, len: 5 },
+        { id: 3, arrive: 0, len: 12 },
+        { id: 4, arrive: 6, len: 7 },
+        { id: 5, arrive: 9, len: 15 },
+        { id: 6, arrive: 14, len: 6 },
+        { id: 7, arrive: 18, len: 10 },
+        { id: 8, arrive: 22, len: 4 },
+        { id: 9, arrive: 26, len: 8 }
+    ];
+
+    const topY = margin.top + 10;
+    const midY = topY + SLOTS * (rowH + gap) + 30;
+    const iterW = (W - margin.left - margin.right) / MAX_ITER;
+
+    // Labels
+    svg.append('text').attr('x', margin.left).attr('y', topY - 8)
+        .attr('fill','#ff3344').attr('font-size','10px')
+        .attr('font-family','JetBrains Mono, monospace').attr('letter-spacing','0.05em')
+        .text('STATIC BATCHING');
+    svg.append('text').attr('x', margin.left).attr('y', midY - 8)
+        .attr('fill','#00ff88').attr('font-size','10px')
+        .attr('font-family','JetBrains Mono, monospace').attr('letter-spacing','0.05em')
+        .text('CONTINUOUS BATCHING (ORCA)');
+
+    // Iteration axis ticks
+    for (let i = 0; i <= MAX_ITER; i += 5) {
+        const x = margin.left + i * iterW;
+        [topY + SLOTS*(rowH+gap) + 2, midY + SLOTS*(rowH+gap) + 2].forEach(ty => {
+            svg.append('text').attr('x', x).attr('y', ty + 10)
+                .attr('text-anchor','middle').attr('fill','#2a2a4a')
+                .attr('font-size','8px').attr('font-family','JetBrains Mono, monospace')
+                .text(i);
+        });
+    }
+
+    const gStatic = svg.append('g');
+    const gCont = svg.append('g');
+    let animFrame = 0, playing = false, animId = null;
+
+    function computeStatic() {
+        // Static: batch of SLOTS, wait for longest, then next batch
+        const schedule = [];
+        let queue = [...requests].sort((a,b) => a.arrive - b.arrive);
+        let time = 0;
+        while (queue.length > 0) {
+            const available = queue.filter(r => r.arrive <= time);
+            if (available.length === 0) { time++; continue; }
+            const batch = available.slice(0, SLOTS);
+            queue = queue.filter(r => !batch.includes(r));
+            const maxLen = Math.max(...batch.map(r => r.len));
+            batch.forEach((r, slot) => {
+                schedule.push({
+                    id: r.id, slot, start: time,
+                    activeEnd: time + r.len,
+                    paddedEnd: time + maxLen,
+                    color: reqColors[r.id % reqColors.length]
+                });
+            });
+            time += maxLen;
+        }
+        return schedule;
+    }
+
+    function computeContinuous() {
+        const schedule = [];
+        let queue = [...requests].sort((a,b) => a.arrive - b.arrive);
+        // slots[i] = { id, start, end, color } or null
+        let slots = new Array(SLOTS).fill(null);
+        for (let t = 0; t < MAX_ITER; t++) {
+            // Free completed slots
+            slots = slots.map(s => (s && t >= s.end) ? null : s);
+            // Fill empty slots from queue
+            const available = queue.filter(r => r.arrive <= t);
+            for (let si = 0; si < SLOTS; si++) {
+                if (!slots[si] && available.length > 0) {
+                    const r = available.shift();
+                    queue = queue.filter(q => q !== r);
+                    slots[si] = { id: r.id, start: t, end: t + r.len, color: reqColors[r.id % reqColors.length] };
+                    schedule.push({ id: r.id, slot: si, start: t, end: t + r.len, color: reqColors[r.id % reqColors.length] });
+                }
+            }
+        }
+        return schedule;
+    }
+
+    function drawStatic(upTo) {
+        gStatic.selectAll('*').remove();
+        const sched = computeStatic();
+        sched.forEach(s => {
+            const x1 = margin.left + s.start * iterW;
+            const activeW = Math.min(s.activeEnd, upTo) - s.start;
+            const padW = Math.min(s.paddedEnd, upTo) - Math.min(s.activeEnd, upTo);
+            const y = topY + s.slot * (rowH + gap);
+
+            if (activeW > 0 && s.start < upTo) {
+                gStatic.append('rect')
+                    .attr('x', x1).attr('y', y)
+                    .attr('width', Math.max(0, activeW) * iterW).attr('height', rowH)
+                    .attr('rx', 2).attr('fill', s.color).attr('opacity', 0.75);
+            }
+            if (padW > 0 && s.activeEnd < upTo) {
+                const px = margin.left + Math.min(s.activeEnd, upTo) * iterW;
+                gStatic.append('rect')
+                    .attr('x', px).attr('y', y)
+                    .attr('width', Math.max(0, padW) * iterW).attr('height', rowH)
+                    .attr('rx', 2).attr('fill', s.color).attr('opacity', 0.15)
+                    .attr('stroke', s.color).attr('stroke-width', 0.5).attr('stroke-dasharray','3,2');
+            }
+
+            // Label
+            if (s.start < upTo) {
+                gStatic.append('text').attr('x', x1 + 3).attr('y', y + rowH/2 + 3)
+                    .attr('fill','#0a0a0f').attr('font-size','8px')
+                    .attr('font-family','JetBrains Mono, monospace')
+                    .text('R' + s.id);
+            }
+        });
+
+        // Throughput calc
+        let totalTokens = 0;
+        sched.forEach(s => { if (s.activeEnd <= upTo) totalTokens += s.paddedEnd - s.start; });
+        let activeTokens = 0;
+        sched.forEach(s => { activeTokens += Math.min(s.activeEnd, upTo) - s.start; });
+        document.getElementById('batch-static-tp').textContent = upTo > 0 ? Math.round(activeTokens / upTo * 10) : 0;
+    }
+
+    function drawContinuous(upTo) {
+        gCont.selectAll('*').remove();
+        const sched = computeContinuous();
+        let activeTokens = 0;
+        sched.forEach(s => {
+            const x1 = margin.left + s.start * iterW;
+            const w = Math.min(s.end, upTo) - s.start;
+            const y = midY + s.slot * (rowH + gap);
+            if (w > 0 && s.start < upTo) {
+                gCont.append('rect')
+                    .attr('x', x1).attr('y', y)
+                    .attr('width', Math.max(0, w) * iterW).attr('height', rowH)
+                    .attr('rx', 2).attr('fill', s.color).attr('opacity', 0.75);
+                gCont.append('text').attr('x', x1 + 3).attr('y', y + rowH/2 + 3)
+                    .attr('fill','#0a0a0f').attr('font-size','8px')
+                    .attr('font-family','JetBrains Mono, monospace')
+                    .text('R' + s.id);
+                activeTokens += w;
+            }
+        });
+        document.getElementById('batch-cont-tp').textContent = upTo > 0 ? Math.round(activeTokens / upTo * 10) : 0;
+    }
+
+    function drawAll(t) {
+        drawStatic(t);
+        drawContinuous(t);
+    }
+
+    function animate() {
+        if (!playing) return;
+        animFrame += 0.3;
+        if (animFrame > MAX_ITER) { animFrame = MAX_ITER; playing = false; }
+        drawAll(animFrame);
+        if (playing) animId = requestAnimationFrame(animate);
+    }
+
+    document.getElementById('batch-play-btn').addEventListener('click', () => {
+        if (playing) { playing = false; return; }
+        if (animFrame >= MAX_ITER) animFrame = 0;
+        playing = true;
+        animate();
+    });
+    document.getElementById('batch-reset-btn').addEventListener('click', () => {
+        playing = false;
+        animFrame = 0;
+        drawAll(0);
+    });
+
+    drawAll(MAX_ITER);
+})();
+
+
+// ════════════════════════════════════════════════════════════════════
+// VIZ 1 — Memory Waste: Pre-allocated vs Paged
+// ════════════════════════════════════════════════════════════════════
+(function() {
+    const W = 760, H = 340;
+    const margin = { top: 36, right: 16, bottom: 16, left: 16 };
+    const gap = 50;
+    const colW = (W - margin.left - margin.right - gap) / 2;
+    const ROWS = 8, COLS = 8;
+    const TOTAL = ROWS * COLS;
+    const cellSize = Math.floor(Math.min(colW / COLS, (H - margin.top - margin.bottom - 20) / ROWS)) - 2;
+
+    const svg = d3.select('#viz-memory-waste')
+        .append('svg')
+        .attr('viewBox', `0 0 ${W} ${H}`)
+        .attr('preserveAspectRatio', 'xMidYMid meet');
+
+    const colors = [
+        '#00ddff','#ff8800','#aa44ff','#ff00aa','#ffdd00','#4488ff',
+        '#00ff88','#ff3344','#ff6655','#ffaa33','#33eeff','#cc66ff'
+    ];
+
+    let reqOld = [], reqNew = [], counter = 0;
+    const MAX_RESERVE = Math.floor(TOTAL / 3);
+
+    function pos(i, offX) {
+        return {
+            x: offX + (i % COLS) * (cellSize + 2),
+            y: margin.top + 22 + Math.floor(i / COLS) * (cellSize + 2)
+        };
+    }
+
+    // Column headers
+    svg.append('text')
+        .attr('x', margin.left + colW / 2).attr('y', margin.top + 8)
+        .attr('text-anchor','middle').attr('fill','#ff3344').attr('font-size','11px')
+        .attr('font-family','JetBrains Mono, monospace').attr('letter-spacing','0.05em')
+        .text('PRE-ALLOCATED (STATIC)');
+    svg.append('text')
+        .attr('x', margin.left + colW + gap + colW / 2).attr('y', margin.top + 8)
+        .attr('text-anchor','middle').attr('fill','#00ff88').attr('font-size','11px')
+        .attr('font-family','JetBrains Mono, monospace').attr('letter-spacing','0.05em')
+        .text('PAGED (ON-DEMAND)');
+
+    const gOldBg = svg.append('g');
+    const gNewBg = svg.append('g');
+    const gOld = svg.append('g');
+    const gNew = svg.append('g');
+
+    // Draw background grids
+    for (let i = 0; i < TOTAL; i++) {
+        let p = pos(i, margin.left);
+        gOldBg.append('rect').attr('x',p.x).attr('y',p.y)
+            .attr('width',cellSize).attr('height',cellSize).attr('rx',2)
+            .attr('fill','#0e0e16').attr('stroke','#1e1e2e').attr('stroke-width',0.5);
+        p = pos(i, margin.left + colW + gap);
+        gNewBg.append('rect').attr('x',p.x).attr('y',p.y)
+            .attr('width',cellSize).attr('height',cellSize).attr('rx',2)
+            .attr('fill','#0e0e16').attr('stroke','#1e1e2e').attr('stroke-width',0.5);
+    }
+
+    function render() {
+        gOld.selectAll('rect').remove();
+        gNew.selectAll('rect').remove();
+
+        // OLD: contiguous blocks, reserved
+        let idx = 0, usedOld = 0, reservedOld = 0;
+        reqOld.forEach(r => {
+            for (let j = 0; j < r.reserved && idx < TOTAL; j++, idx++) {
+                const p = pos(idx, margin.left);
+                const live = j < r.used;
+                gOld.append('rect').attr('x',p.x).attr('y',p.y)
+                    .attr('width',cellSize).attr('height',cellSize).attr('rx',2)
+                    .attr('fill', live ? r.color : 'rgba(255,51,68,0.12)')
+                    .attr('stroke', live ? r.color : '#ff3344')
+                    .attr('stroke-width', live ? 1.5 : 0.5)
+                    .attr('opacity', live ? 0.85 : 0.35);
+                if (live) usedOld++;
+                reservedOld++;
+            }
+        });
+
+        // NEW: tight packing
+        let idxN = 0, usedNew = 0;
+        reqNew.forEach(r => {
+            for (let j = 0; j < r.used && idxN < TOTAL; j++, idxN++) {
+                const p = pos(idxN, margin.left + colW + gap);
+                gNew.append('rect').attr('x',p.x).attr('y',p.y)
+                    .attr('width',cellSize).attr('height',cellSize).attr('rx',2)
+                    .attr('fill', r.color).attr('stroke', r.color)
+                    .attr('stroke-width', 1.5).attr('opacity', 0.85);
+                usedNew++;
+            }
+        });
+
+        const wasteOldPct = reservedOld > 0 ? Math.round((1 - usedOld / reservedOld) * 100) : 0;
+        document.getElementById('mem-waste-old').textContent = reservedOld > 0 ? wasteOldPct + '%' : '0%';
+        document.getElementById('mem-waste-new').textContent = usedNew > 0 ? '< 4%' : '0%';
+    }
+
+    function addReq() {
+        const used = Math.floor(Math.random() * (MAX_RESERVE - 2)) + 2;
+        const col = colors[counter % colors.length];
+        counter++;
+        const oldTotal = reqOld.reduce((s,r) => s + r.reserved, 0);
+        const newTotal = reqNew.reduce((s,r) => s + r.used, 0);
+        if (oldTotal + MAX_RESERVE <= TOTAL) reqOld.push({ reserved: MAX_RESERVE, used, color: col });
+        if (newTotal + used <= TOTAL) reqNew.push({ used, color: col });
+        render();
+    }
+
+    function reset() { reqOld = []; reqNew = []; counter = 0; render(); }
+
+    function setSlider(n) {
+        reset();
+        for (let i = 0; i < n; i++) addReq();
+    }
+
+    const slider = document.getElementById('mem-requests');
+    const sliderVal = document.getElementById('mem-requests-val');
+    slider.addEventListener('input', function() {
+        sliderVal.textContent = this.value;
+        setSlider(+this.value);
+    });
+    document.getElementById('mem-add-btn').addEventListener('click', addReq);
+    document.getElementById('mem-reset-btn').addEventListener('click', () => { slider.value = 0; sliderVal.textContent = '0'; reset(); });
+
+    setSlider(3);
+})();
+
+
+// ════════════════════════════════════════════════════════════════════
+// VIZ 2 — OS vs GPU Page Table (Side by Side)
+// ════════════════════════════════════════════════════════════════════
+(function() {
+    const W = 760, H = 440;
+    const svg = d3.select('#viz-page-table')
+        .append('svg')
+        .attr('viewBox', `0 0 ${W} ${H}`)
+        .attr('preserveAspectRatio', 'xMidYMid meet');
+
+    const PHYS = 32, COLS = 8, ROWS = 4;
+    const cW = 34, cH = 28;
+    const colors = ['#00ddff','#ff8800','#aa44ff','#ff00aa','#ffdd00','#4488ff','#00ff88','#ff3344'];
+
+    const LEFT = 20, RIGHT = 400;
+    const PROC_Y = 55, TBL_Y = 55, PHYS_Y = 230;
+    const TBL_X_OFF = 100, TBL_W = 160, TBL_H = 145;
+
+    let seqs = [], phys = new Array(PHYS).fill(null), seqN = 0;
+
+    // Title labels
+    svg.append('text').attr('x', LEFT + 170).attr('y', 22)
+        .attr('text-anchor','middle').attr('fill','#00ddff')
+        .attr('font-size','11px').attr('font-family','JetBrains Mono, monospace')
+        .attr('letter-spacing','0.05em').text('OS: PROCESS \u2192 PAGE TABLE \u2192 RAM');
+    svg.append('text').attr('x', RIGHT + 170).attr('y', 22)
+        .attr('text-anchor','middle').attr('fill','#00ff88')
+        .attr('font-size','11px').attr('font-family','JetBrains Mono, monospace')
+        .attr('letter-spacing','0.05em').text('GPU: SEQUENCE \u2192 BLOCK TABLE \u2192 HBM');
+
+    // Table outlines
+    function drawBox(x, y, w, h, label) {
+        svg.append('rect').attr('x',x).attr('y',y).attr('width',w).attr('height',h)
+            .attr('rx',4).attr('fill','#0e0e16').attr('stroke','#1e1e2e');
+        svg.append('text').attr('x',x+w/2).attr('y',y-7)
+            .attr('text-anchor','middle').attr('fill','#6a6a7e')
+            .attr('font-size','9px').attr('font-family','JetBrains Mono, monospace')
+            .attr('letter-spacing','0.06em').text(label);
+    }
+    drawBox(LEFT + TBL_X_OFF, TBL_Y, TBL_W, TBL_H, 'PAGE TABLE');
+    drawBox(RIGHT + TBL_X_OFF, TBL_Y, TBL_W, TBL_H, 'BLOCK TABLE');
+
+    // Physical memory labels
+    function physLabel(x, y, t) {
+        svg.append('text').attr('x',x).attr('y',y-8)
+            .attr('fill','#6a6a7e').attr('font-size','9px')
+            .attr('font-family','JetBrains Mono, monospace').attr('letter-spacing','0.06em').text(t);
+    }
+    physLabel(LEFT, PHYS_Y, 'PHYSICAL RAM FRAMES');
+    physLabel(RIGHT, PHYS_Y, 'GPU HBM BLOCKS');
+
+    // Draw physical grids
+    const gPhysL = svg.append('g'), gPhysR = svg.append('g');
+    function drawPhysGrid(g, bx, by) {
+        for (let i = 0; i < PHYS; i++) {
+            const c = i % COLS, r = Math.floor(i / COLS);
+            g.append('rect').attr('class','pg').attr('data-i',i)
+                .attr('x', bx + c*(cW+2)).attr('y', by + r*(cH+2))
+                .attr('width',cW).attr('height',cH).attr('rx',2)
+                .attr('fill','#0e0e16').attr('stroke','#1e1e2e').attr('stroke-width',0.5);
+            g.append('text').attr('class','pg-lbl').attr('data-i',i)
+                .attr('x', bx + c*(cW+2) + cW/2).attr('y', by + r*(cH+2) + cH/2 + 3)
+                .attr('text-anchor','middle').attr('fill','#2a2a4a')
+                .attr('font-size','8px').attr('font-family','JetBrains Mono, monospace')
+                .text(i.toString().padStart(2,'0'));
+        }
+    }
+    drawPhysGrid(gPhysL, LEFT, PHYS_Y);
+    drawPhysGrid(gPhysR, RIGHT, PHYS_Y);
+
+    // Sequence labels + table entries groups
+    const gLabels = svg.append('g');
+    const gEntries = svg.append('g');
+    const gArrows = svg.append('g');
+
+    function freePage() {
+        for (let i = 0; i < PHYS; i++) if (!phys[i]) return i;
+        return -1;
+    }
+
+    function allocate() {
+        const n = 2 + Math.floor(Math.random()*3);
+        const col = colors[seqN % colors.length];
+        const pages = [];
+        for (let i = 0; i < n; i++) {
+            const p = freePage();
+            if (p === -1) break;
+            phys[p] = { seq: seqN, color: col };
+            pages.push(p);
+        }
+        if (pages.length) { seqs.push({ id: seqN, color: col, pages }); seqN++; }
+        draw();
+    }
+
+    function freeOldest() {
+        if (!seqs.length) return;
+        const old = seqs.shift();
+        old.pages.forEach(p => {
+            if (!seqs.some(s => s.pages.includes(p))) phys[p] = null;
+        });
+        draw();
+    }
+
+    function forkCoW() {
+        if (!seqs.length) return;
+        const parent = seqs[seqs.length - 1];
+        const col = colors[seqN % colors.length];
+        const shared = parent.pages.slice(0, Math.ceil(parent.pages.length * 0.6));
+        const newP = [];
+        for (let i = 0; i < 1 + Math.floor(Math.random()*2); i++) {
+            const p = freePage();
+            if (p === -1) break;
+            phys[p] = { seq: seqN, color: col };
+            newP.push(p);
+        }
+        seqs.push({ id: seqN, color: col, pages: [...shared, ...newP], cow: true, sharedFrom: parent.id, sharedPages: shared });
+        seqN++;
+        draw();
+    }
+
+    function resetPT() { seqs = []; phys = new Array(PHYS).fill(null); seqN = 0; draw(); }
+
+    function draw() {
+        // Update phys cells
+        [gPhysL, gPhysR].forEach(g => {
+            g.selectAll('.pg').each(function() {
+                const i = +d3.select(this).attr('data-i');
+                const pg = phys[i];
+                d3.select(this)
+                    .attr('fill', pg ? pg.color : '#0e0e16')
+                    .attr('stroke', pg ? pg.color : '#1e1e2e')
+                    .attr('opacity', pg ? 0.65 : 1)
+                    .attr('stroke-width', pg ? 1.5 : 0.5);
+            });
+            g.selectAll('.pg-lbl').each(function() {
+                const i = +d3.select(this).attr('data-i');
+                d3.select(this).attr('fill', phys[i] ? '#0a0a0f' : '#2a2a4a');
+            });
+        });
+
+        // Labels & entries
+        gLabels.selectAll('*').remove();
+        gEntries.selectAll('*').remove();
+        gArrows.selectAll('*').remove();
+
+        seqs.forEach((s, idx) => {
+            const y = TBL_Y + 16 + idx * 20;
+            if (y > TBL_Y + TBL_H - 10) return;
+
+            // Process labels
+            gLabels.append('text').attr('x', LEFT + 40).attr('y', y + 4)
+                .attr('text-anchor','middle').attr('fill', s.color)
+                .attr('font-size','10px').attr('font-family','JetBrains Mono, monospace')
+                .text('P' + s.id);
+            gLabels.append('text').attr('x', RIGHT + 40).attr('y', y + 4)
+                .attr('text-anchor','middle').attr('fill', s.color)
+                .attr('font-size','10px').attr('font-family','JetBrains Mono, monospace')
+                .text('S' + s.id);
+
+            // Arrows from label to table
+            gArrows.append('line')
+                .attr('x1', LEFT + 60).attr('y1', y)
+                .attr('x2', LEFT + TBL_X_OFF - 2).attr('y2', y)
+                .attr('stroke', s.color).attr('stroke-width', 0.5).attr('opacity', 0.4);
+            gArrows.append('line')
+                .attr('x1', RIGHT + 60).attr('y1', y)
+                .attr('x2', RIGHT + TBL_X_OFF - 2).attr('y2', y)
+                .attr('stroke', s.color).attr('stroke-width', 0.5).attr('opacity', 0.4);
+
+            // Table entries
+            const pStr = s.pages.slice(0,5).map(p => p.toString().padStart(2,'0')).join(' ');
+            const suf = s.pages.length > 5 ? '..' : '';
+            const cowTag = s.cow ? ' CoW' : '';
+            gEntries.append('text').attr('x', LEFT + TBL_X_OFF + 8).attr('y', y + 4)
+                .attr('fill', s.color).attr('font-size','9px')
+                .attr('font-family','JetBrains Mono, monospace')
+                .text(pStr + suf + cowTag);
+            gEntries.append('text').attr('x', RIGHT + TBL_X_OFF + 8).attr('y', y + 4)
+                .attr('fill', s.color).attr('font-size','9px')
+                .attr('font-family','JetBrains Mono, monospace')
+                .text(pStr + suf + cowTag);
+        });
+
+        const used = phys.filter(p => p !== null).length;
+        document.getElementById('pt-used').textContent = used;
+    }
+
+    document.getElementById('pt-alloc-btn').addEventListener('click', allocate);
+    document.getElementById('pt-free-btn').addEventListener('click', freeOldest);
+    document.getElementById('pt-cow-btn').addEventListener('click', forkCoW);
+    document.getElementById('pt-reset-btn').addEventListener('click', resetPT);
+    draw();
+})();
+
+
+// ════════════════════════════════════════════════════════════════════
+// VIZ 3 — Radix Tree: Filesystem for KV Caches
+// ════════════════════════════════════════════════════════════════════
+(function() {
+    const W = 760, H = 440;
+    const svg = d3.select('#viz-radix-tree')
+        .append('svg')
+        .attr('viewBox', `0 0 ${W} ${H}`)
+        .attr('preserveAspectRatio', 'xMidYMid meet');
+
+    let state = 0;
+    let tree = { id: 'root', label: '[ROOT]', children: [], cached: false };
+
+    function reset() {
+        state = 0;
+        tree = { id: 'root', label: '[ROOT]', children: [], cached: false };
+        render();
+    }
+
+    function markCached(node) {
+        node.cached = true;
+        (node.children || []).forEach(markCached);
+    }
+
+    function userATurn1() {
+        if (state >= 1) return;
+        state = 1;
+        tree.children = [{
+            id: 'sys', label: 'SYS: "You are a helpful..."',
+            cached: false, children: [{
+                id: 'ua1', label: 'A: "What is PagedAttention?"',
+                cached: false, children: [{
+                    id: 'aa1', label: 'Asst: "PagedAttention uses paging..."',
+                    cached: false, children: []
+                }]
+            }]
+        }];
+        render();
+        setTimeout(() => { markCached(tree); render(); }, 900);
+    }
+
+    function userBTurn1() {
+        if (state < 1 || state >= 2) return;
+        state = 2;
+        tree.children[0].children.push({
+            id: 'ub1', label: 'B: "Explain radix trees."',
+            cached: false, children: [{
+                id: 'ab1', label: 'Asst: "A radix tree is..."',
+                cached: false, children: []
+            }]
+        });
+        render();
+        setTimeout(() => { markCached(tree); render(); }, 900);
+    }
+
+    function userATurn2() {
+        if (state < 2 || state >= 3) return;
+        state = 3;
+        const aa1 = tree.children[0].children.find(c => c.id === 'ua1').children[0];
+        aa1.children.push({
+            id: 'ua2', label: 'A T2: "How does CoW work?"',
+            cached: false, children: [{
+                id: 'aa2', label: 'Asst: "Copy-on-write shares..."',
+                cached: false, children: []
+            }]
+        });
+        render();
+        setTimeout(() => { markCached(tree); render(); }, 900);
+    }
+
+    function evict() {
+        const sys = tree.children[0];
+        if (!sys) return;
+        // Evict user B's branch first (least recently used)
+        const ubIdx = sys.children.findIndex(c => c.id === 'ub1');
+        if (ubIdx >= 0) { sys.children.splice(ubIdx, 1); render(); return; }
+        // Otherwise evict deepest leaf
+        function evictLeaf(node) {
+            if (!node.children || node.children.length === 0) return true;
+            for (let i = node.children.length - 1; i >= 0; i--) {
+                if (evictLeaf(node.children[i])) { node.children.splice(i, 1); return false; }
+            }
+            return false;
+        }
+        evictLeaf(tree);
+        render();
+    }
+
+    function render() {
+        svg.selectAll('*').remove();
+
+        const root = d3.hierarchy(tree, d => d.children);
+        const layout = d3.tree().size([W - 120, H - 120]);
+        layout(root);
+
+        // Draw links
+        svg.selectAll('.link')
+            .data(root.links())
+            .enter().append('path')
+            .attr('d', d3.linkVertical().x(d => d.x + 60).y(d => d.y + 50))
+            .attr('fill','none')
+            .attr('stroke', d => d.target.data.cached ? '#00ff88' : '#ff8800')
+            .attr('stroke-width', 2.5)
+            .attr('stroke-opacity', 0.6);
+
+        // Draw nodes
+        const nodes = svg.selectAll('.node')
+            .data(root.descendants())
+            .enter().append('g')
+            .attr('transform', d => `translate(${d.x + 60},${d.y + 50})`);
+
+        nodes.append('circle')
+            .attr('r', d => d.data.id === 'root' ? 10 : 7)
+            .attr('fill', d => d.data.cached ? '#00ff88' : (d.data.id === 'root' ? '#6a6a7e' : '#ff8800'))
+            .attr('opacity', 0.85)
+            .attr('stroke', d => d.data.cached ? '#00ff88' : (d.data.id === 'root' ? '#6a6a7e' : '#ff8800'))
+            .attr('stroke-width', 1.5);
+
+        // Node labels
+        nodes.append('text')
+            .attr('dy', d => {
+                if (d.data.id === 'root') return -16;
+                if (d.children && d.children.length > 0) return -14;
+                return 20;
+            })
+            .attr('text-anchor','middle')
+            .attr('fill', d => d.data.cached ? '#00ff88' : (d.data.id === 'root' ? '#6a6a7e' : '#ff8800'))
+            .attr('font-size','8.5px')
+            .attr('font-family','JetBrains Mono, monospace')
+            .text(d => d.data.label);
+
+        // Legend
+        const ly = H - 25;
+        svg.append('circle').attr('cx', 30).attr('cy', ly).attr('r', 5).attr('fill','#00ff88');
+        svg.append('text').attr('x', 40).attr('y', ly + 4)
+            .attr('fill','#6a6a7e').attr('font-size','10px')
+            .attr('font-family','JetBrains Mono, monospace').text('Cached (hit \u2014 free)');
+        svg.append('circle').attr('cx', 210).attr('cy', ly).attr('r', 5).attr('fill','#ff8800');
+        svg.append('text').attr('x', 220).attr('y', ly + 4)
+            .attr('fill','#6a6a7e').attr('font-size','10px')
+            .attr('font-family','JetBrains Mono, monospace').text('Computed (new work)');
+
+        // Stats
+        let total = 0, cached = 0;
+        root.descendants().forEach(d => { if (d.data.id !== 'root') { total++; if (d.data.cached) cached++; } });
+        const hitRate = total > 0 ? Math.round(cached / total * 100) : 0;
+        svg.append('text').attr('x', W - 60).attr('y', ly + 4)
+            .attr('text-anchor','end').attr('fill','#00ff88')
+            .attr('font-size','11px').attr('font-family','JetBrains Mono, monospace')
+            .text('Hit: ' + hitRate + '%');
+    }
+
+    document.getElementById('radix-req1-btn').addEventListener('click', userATurn1);
+    document.getElementById('radix-req2-btn').addEventListener('click', userBTurn1);
+    document.getElementById('radix-req3-btn').addEventListener('click', userATurn2);
+    document.getElementById('radix-evict-btn').addEventListener('click', evict);
+    document.getElementById('radix-reset-btn').addEventListener('click', reset);
+
+    render();
+})();
+</script>
+
+</body>
+</html>

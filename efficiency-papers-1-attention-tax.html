@@ -1,0 +1,2149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Attention Tax &mdash; The Efficiency Papers, Part I</title>
+  <link rel="canonical" href="https://femiadeniran.com/deep-dives/efficiency-papers-1-attention-tax.html">
+  <meta property="og:title" content="The Attention Tax — The Efficiency Papers, Part I">
+  <meta property="og:description" content="The hidden memory cost that grows with every token — and two revolutions that fight it. How MQA, GQA, MLA, and FlashAttention attacked the KV cache bottleneck from opposite directions.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://femiadeniran.com/deep-dives/efficiency-papers-1-attention-tax.html">
+  <meta property="og:site_name" content="Femi Adeniran">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="The Attention Tax — The Efficiency Papers, Part I">
+  <meta name="twitter:description" content="The hidden memory cost that grows with every token — and two revolutions that fight it. How MQA, GQA, MLA, and FlashAttention attacked the KV cache bottleneck from opposite directions.">
+  <meta name="author" content="Femi Adeniran">
+<meta name="description" content="The hidden memory cost that grows with every token — and two revolutions that fight it. How MQA, GQA, MLA, and FlashAttention attacked the KV cache bottleneck from opposite directions.">
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<link
+  href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+  rel="stylesheet"
+>
+<style>
+:root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --white: #e8e8f0;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+}
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 3rem; }
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+}
+
+body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.03) 2px,
+        rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+}
+
+nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 1000;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 1.5rem;
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+}
+nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    transition: color 0.2s, text-shadow 0.2s;
+    padding: 0.3rem 0;
+}
+nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+nav a.active { color: var(--green); text-shadow: 0 0 12px rgba(0,255,136,0.4); }
+.nav-title {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 0.5rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.25);
+    flex-shrink: 0;
+}
+
+.content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+}
+
+.hero {
+    text-align: center;
+    padding: 4rem 0 5rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4rem;
+}
+.hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3rem;
+    font-weight: 600;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+}
+.subtitle {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 640px;
+    margin: 0 auto;
+}
+.series-kicker {
+    margin-top: 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.glitch { position: relative; display: inline-block; }
+.glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    inset: 0;
+    width: 100%; height: 100%;
+}
+.glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 3s infinite linear alternate-reverse;
+    clip-path: inset(0 0 80% 0);
+}
+.glitch::after {
+    color: var(--magenta);
+    animation: glitch-2 2.5s infinite linear alternate-reverse;
+    clip-path: inset(80% 0 0 0);
+}
+.blink { display: inline-block; animation: blink 1s step-end infinite; color: var(--green); }
+@keyframes blink { 50% { opacity: 0; } }
+@keyframes glitch-1 {
+    0%, 90% { transform: translate(0); }
+    92% { transform: translate(-3px, 1px); }
+    94% { transform: translate(3px, -1px); }
+    96% { transform: translate(-2px, 2px); }
+    100% { transform: translate(0); }
+}
+@keyframes glitch-2 {
+    0%, 88% { transform: translate(0); }
+    90% { transform: translate(2px, -1px); }
+    93% { transform: translate(-3px, 2px); }
+    96% { transform: translate(1px, -2px); }
+    100% { transform: translate(0); }
+}
+
+section { margin-bottom: 5rem; padding-top: 1rem; }
+
+h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: var(--green);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: 0.02em;
+}
+h3 {
+    font-size: 1.25rem;
+    color: var(--cyan);
+    margin: 2.5rem 0 1rem;
+    font-weight: 600;
+}
+h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 2rem 0 0.8rem;
+}
+p { margin-bottom: 1rem; }
+strong { color: var(--white); }
+a { color: var(--cyan); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4rem;
+    line-height: 0.8;
+    padding: 0.1em 0.15em 0 0;
+    color: var(--green);
+    font-weight: 700;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+}
+
+code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.15em 0.4em;
+}
+pre {
+    position: relative;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    margin: 1.2rem 0;
+}
+pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+}
+
+.cm { color: var(--text-dim); }
+.kw { color: var(--magenta); }
+.ty { color: var(--cyan); }
+.st { color: var(--green); }
+.nm { color: var(--yellow); }
+.fn { color: var(--blue); }
+.pp { color: var(--orange); }
+
+.label {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.8rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+}
+
+.diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+}
+.diagram pre { border: none; margin: 0; padding: 0; background: none; font-size: 12.5px; line-height: 1.45; }
+.diagram-label {
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    margin-bottom: 0.8rem;
+}
+
+.power {
+    border-left: 3px solid var(--green-dim);
+    background: rgba(0,255,136,0.04);
+    padding: 1rem 1.2rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+}
+.power p { font-size: 0.88rem; line-height: 1.6; margin-bottom: 0; }
+.power.danger { border-left-color: var(--red); background: rgba(255,51,68,0.04); }
+.power.hack { border-left-color: var(--magenta); background: rgba(255,0,170,0.04); }
+.power.wild { border-left-color: var(--orange); background: rgba(255,136,0,0.04); }
+.power.zen { border-left-color: var(--cyan); background: rgba(0,221,255,0.04); }
+.power.purple { border-left-color: var(--purple); background: rgba(170,68,255,0.04); }
+
+.power-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--green);
+    margin-bottom: 0.5rem;
+}
+.power.danger .power-label { color: var(--red); }
+.power.hack .power-label { color: var(--magenta); }
+.power.wild .power-label { color: var(--orange); }
+.power.zen .power-label { color: var(--cyan); }
+.power.purple .power-label { color: var(--purple); }
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.92rem;
+}
+th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--green);
+    text-align: left;
+    padding: 0.6rem 0.8rem;
+    border-bottom: 2px solid var(--border);
+}
+td {
+    padding: 0.5rem 0.8rem;
+    border-bottom: 1px solid var(--border);
+}
+tr:hover td { background: rgba(0,255,136,0.03); }
+
+details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1.2rem 0;
+}
+summary {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--green);
+    padding: 0.8rem 1.2rem;
+    cursor: pointer;
+}
+details[open] summary { border-bottom: 1px solid var(--border); }
+details > div { padding: 1rem 1.2rem; }
+
+.vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+}
+.vs-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem 1.1rem;
+}
+.vs-card h4 { margin-top: 0; }
+
+.viz-container {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+}
+.viz-container svg { width: 100%; height: auto; display: block; }
+.viz-controls {
+    display: flex;
+    gap: 1.5rem;
+    margin-top: 1rem;
+    align-items: center;
+    flex-wrap: wrap;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+}
+.viz-controls label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--cyan);
+    display: block;
+    margin-bottom: 0.3rem;
+}
+.viz-controls select, .viz-controls input[type="range"] {
+    background: var(--bg-code);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 0.3rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    border-radius: 4px;
+}
+.viz-controls input[type="range"] {
+    width: 140px;
+    accent-color: var(--green);
+}
+.viz-controls .val {
+    color: var(--green);
+    font-size: 13px;
+}
+.viz-controls button {
+    background: var(--green-dim);
+    color: var(--bg);
+    border: none;
+    padding: 0.4rem 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    border-radius: 4px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    transition: background 0.15s;
+}
+.viz-controls button:hover { background: var(--green); }
+.viz-controls button.active {
+    background: var(--green);
+    color: var(--bg);
+    box-shadow: 0 0 12px rgba(0,255,136,0.3);
+}
+.viz-controls button.secondary {
+    background: var(--border);
+    color: var(--text);
+}
+.viz-controls button.secondary:hover { background: var(--border-glow); }
+.viz-controls button.secondary.active {
+    background: var(--magenta);
+    color: var(--bg);
+    box-shadow: 0 0 12px rgba(255,0,170,0.3);
+}
+
+.ticker {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--green);
+    text-shadow: 0 0 8px rgba(0,255,136,0.3);
+}
+
+.timeline-item {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.2rem;
+    align-items: flex-start;
+}
+.timeline-year {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--magenta);
+    min-width: 50px;
+    flex-shrink: 0;
+    padding-top: 0.15rem;
+}
+.timeline-body {
+    font-size: 0.9rem;
+    line-height: 1.55;
+    border-left: 2px solid var(--border);
+    padding-left: 1rem;
+}
+.timeline-body strong { color: var(--cyan); }
+
+@media (max-width: 700px) {
+    body { font-size: 16px; }
+    nav { font-size: 9px; gap: 0.7rem; }
+    .content { padding: 3rem 0.8rem 4rem; }
+    .hero h1 { font-size: 2rem; }
+    .vs { grid-template-columns: 1fr; }
+    pre { font-size: 10.5px; padding: 0.7rem; }
+    .diagram { padding: 1rem; }
+    .power { padding: 0.6rem 0.8rem; }
+    .viz-container { padding: 1rem; }
+    .viz-controls { gap: 0.8rem; font-size: 10px; }
+    .viz-controls button { padding: 0.3rem 0.8rem; font-size: 10px; }
+    .viz-controls input[type="range"] { width: 100px; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="nav-title">&gt;_ Attention Tax</span>
+  <a href="#ch1">01 The Tax</a>
+  <a href="#ch2">02 Shazeer</a>
+  <a href="#ch3">03 Compress</a>
+  <a href="#ch4">04 Flash</a>
+  <a href="#ch5">05 Same Person</a>
+  <a href="#ch6">06 Next</a>
+</nav>
+
+<div class="content">
+
+<!-- ════════════════════════════════════════════════════════════════════
+     HERO
+     ════════════════════════════════════════════════════════════════════ -->
+<div class="hero">
+  <h1><span class="glitch" data-text="THE ATTENTION TAX">THE ATTENTION TAX</span></h1>
+  <div class="subtitle">
+    The hidden cost that grows with every token &mdash; and two revolutions that fight it.<span class="blink">_</span>
+  </div>
+  <div class="series-kicker">The Efficiency Papers &mdash; Part I</div>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     CHAPTER 1 — THE TAX NOBODY SEES
+     ════════════════════════════════════════════════════════════════════ -->
+<section id="ch1">
+<h2>01 // The Tax Nobody Sees</h2>
+
+<p class="drop-cap">Picture a warehouse with 80 billion numbers inside it. That is your GPU&rsquo;s main memory &mdash; HBM &mdash; on an NVIDIA A100. Somewhere inside that warehouse, your model&rsquo;s weights sit on pallets. Next to them, growing taller with every word the model writes, is a second stack: the <strong>KV cache</strong>. Every past token&rsquo;s keys and values, preserved so the model can attend to them when generating the next word.</p>
+
+<p>Now picture the only way to get data from the warehouse to the compute cores: a mail slot in a thick steel door. Narrow. 2 terabytes per second sounds fast until you realize the cores on the other side &mdash; over 100,000 CUDA threads spread across 108 streaming multiprocessors &mdash; can chew through 312 trillion floating-point operations per second. They can process a page in microseconds. But they cannot start until the page slides through the slot. So they sit idle, staring at the mail slot, tapping their fingers, waiting for the next chunk of KV cache to arrive.</p>
+
+<p>That mail slot is <strong>memory bandwidth</strong>. And the KV cache is the package that gets heavier with every single token the model generates.</p>
+
+<p>Every token generated means the model must read the entire accumulated cache &mdash; every past token&rsquo;s keys and values, across every layer &mdash; to compute attention. Token 1: read a few kilobytes. Token 1,000: read megabytes. Token 32,000: read gigabytes. Token 128,000: read tens of gigabytes. And this happens for <em>every single token generated</em>. The cost does not amortize. It accumulates.</p>
+
+<h3>How Heavy?</h3>
+
+<p>The formula is straightforward:</p>
+
+<pre><span class="label">KV Cache Size</span><code><span class="ty">KV per token</span> = <span class="nm">2</span> <span class="cm">// K + V</span>
+             &times; <span class="nm">num_layers</span>
+             &times; <span class="nm">num_kv_heads</span>
+             &times; <span class="nm">head_dim</span>
+             &times; <span class="nm">bytes_per_element</span></code></pre>
+
+<p>For <strong>GPT-2</strong> &mdash; 124 million parameters, 12 layers, 12 heads, head dimension 64 &mdash; the KV cache at 1,024 tokens is <strong>36 MB</strong>. A rounding error. It fits in the L2 cache of a modern GPU. You would never notice it.</p>
+
+<p>For <strong>Qwen 2.5 72B</strong> &mdash; 80 layers, 8 KV heads (GQA), head dimension 128 &mdash; the cache is 320 KB per token. At 8K tokens, that is <strong>2.5 GB</strong> &mdash; already five times the entire GPT-2 model. At 32K tokens: <strong>10 GB</strong>. That is more memory than an entire RTX 3080 has, and you have not even loaded the model weights yet.</p>
+
+<p>For <strong>DeepSeek-V2</strong> &mdash; 236 billion parameters, 128 attention heads &mdash; without compression, the cache at 128K tokens would require <strong>480 GB</strong>. That is six A100 GPUs just for the attention scratchpad, before you even account for model weights. The entire model serving setup would need a dozen or more GPUs &mdash; hundreds of thousands of dollars in hardware &mdash; <em>just to remember what has been said so far</em>. With their MLA compression, the same cache fits in 8 GB. But that story comes later.</p>
+
+<p>The KV cache is not a fixed cost you pay once. It grows with every token in the conversation. And unlike model weights &mdash; which are constant, shared across all requests, and can be loaded once at startup &mdash; the cache is <em>per user, per conversation, per token</em>. If you are serving 100 concurrent users with 32K contexts, multiply every number above by 100. The attention tax scales with your user base.</p>
+
+<div class="power danger">
+  <div class="power-label">The Punchline</div>
+  <p>At 128K context, the KV cache alone can be <strong>60&ndash;80x larger</strong> than the entire GPT-2 model. You spend more memory <em>remembering the conversation</em> than it takes to store most models.</p>
+</div>
+
+<h3>Watch It Fill</h3>
+
+<p>Do not take my word for it. Pick a model, drag the sequence length, and watch your GPU memory disappear.</p>
+
+<!-- ── VISUALIZATION 1: GPU Memory Fill ── -->
+<div class="viz-container">
+  <span class="diagram-label">Interactive &mdash; GPU Memory Pressure</span>
+  <svg id="viz-mem-fill" viewBox="0 0 760 280"></svg>
+  <div class="viz-controls">
+    <div>
+      <label>Model</label>
+      <div id="viz-mem-model-btns" style="display:flex; gap:0.4rem; flex-wrap:wrap;">
+        <button class="active" data-model="gpt2">GPT-2 124M</button>
+        <button class="secondary" data-model="qwen72b">Qwen 72B</button>
+        <button class="secondary" data-model="dsv2">DeepSeek-V2</button>
+        <button class="secondary" data-model="dsv2mla">DS-V2 + MLA</button>
+      </div>
+    </div>
+    <div>
+      <label>Sequence Length</label>
+      <input type="range" id="viz-mem-seq" min="0" max="131072" value="1024" step="512">
+      <span class="val" id="viz-mem-seq-val">1,024</span>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+    var W = 760, H = 280;
+    var svg = d3.select('#viz-mem-fill');
+
+    var models = {
+        gpt2:    { name:'GPT-2 124M',           weights: 0.25,  kvPerToken: 36864,    color:'#00ff88', gpu: 80 },
+        qwen72b: { name:'Qwen 2.5 72B',         weights: 144,   kvPerToken: 327680,   color:'#00ddff', gpu: 80 },
+        dsv2:    { name:'DeepSeek-V2 (no MLA)',  weights: 472,   kvPerToken: 3932160,  color:'#ff8800', gpu: 80 },
+        dsv2mla: { name:'DeepSeek-V2 + MLA',     weights: 472,   kvPerToken: 69120,    color:'#aa44ff', gpu: 80 }
+    };
+
+    var currentModel = 'gpt2';
+    var currentSeq = 1024;
+    var barX = 60, barY = 50, barW = 640, barH = 50;
+
+    function fmt(gb) {
+        if (gb < 0.001) return (gb * 1024 * 1024).toFixed(0) + ' KB';
+        if (gb < 0.01) return (gb * 1024).toFixed(1) + ' MB';
+        if (gb < 1) return (gb * 1024).toFixed(0) + ' MB';
+        return gb.toFixed(1) + ' GB';
+    }
+
+    function fmtTokens(n) {
+        if (n >= 1000) return (n/1000).toFixed(n >= 10000 ? 0 : 1) + 'K';
+        return n.toString();
+    }
+
+    function draw() {
+        svg.selectAll('*').remove();
+        var m = models[currentModel];
+        var kvGB = (m.kvPerToken * currentSeq) / (1024*1024*1024);
+        var totalUsed = m.weights + kvGB;
+        var gpu = m.gpu;
+        var oom = totalUsed > gpu;
+
+        // GPU label
+        svg.append('text').attr('x', barX + barW / 2).attr('y', barY - 14)
+            .text(gpu + ' GB A100 HBM')
+            .attr('fill', oom ? '#ff3344' : '#6a6a7e').attr('text-anchor', 'middle')
+            .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 11);
+
+        // Background bar
+        svg.append('rect').attr('x', barX).attr('y', barY).attr('width', barW).attr('height', barH)
+            .attr('fill', '#1a1a2e').attr('stroke', oom ? '#ff3344' : '#2a2a4a')
+            .attr('stroke-width', oom ? 2 : 1).attr('rx', 4);
+
+        // Weights portion
+        var wFrac = Math.min(m.weights / gpu, 1);
+        var wW = wFrac * barW;
+        if (wW > 0) {
+            svg.append('rect').attr('x', barX).attr('y', barY)
+                .attr('width', Math.min(wW, barW)).attr('height', barH)
+                .attr('fill', 'rgba(68,136,255,0.45)').attr('rx', 4);
+        }
+
+        // KV cache portion
+        var kvFrac = kvGB / gpu;
+        var kvW = Math.min(kvFrac * barW, barW - wW);
+        if (kvW > 1) {
+            svg.append('rect').attr('x', barX + wW).attr('y', barY)
+                .attr('width', kvW).attr('height', barH)
+                .attr('fill', m.color).attr('opacity', 0.5);
+        }
+
+        // OOM overlay
+        if (oom) {
+            svg.append('rect').attr('x', barX).attr('y', barY)
+                .attr('width', barW).attr('height', barH)
+                .attr('fill', 'rgba(255,51,68,0.15)').attr('rx', 4);
+            svg.append('text').attr('x', barX + barW / 2).attr('y', barY + barH / 2 + 5)
+                .text('OUT OF MEMORY')
+                .attr('fill', '#ff3344').attr('text-anchor', 'middle')
+                .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 15).attr('font-weight', 700);
+        }
+
+        // Legend row
+        var legY = barY + barH + 30;
+        svg.append('rect').attr('x', barX).attr('y', legY).attr('width', 14).attr('height', 14)
+            .attr('fill', 'rgba(68,136,255,0.5)').attr('rx', 2);
+        svg.append('text').attr('x', barX + 20).attr('y', legY + 11)
+            .text('Model Weights: ' + fmt(m.weights))
+            .attr('fill', '#4488ff').attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 11);
+
+        svg.append('rect').attr('x', barX + 240).attr('y', legY).attr('width', 14).attr('height', 14)
+            .attr('fill', m.color).attr('opacity', 0.6).attr('rx', 2);
+        svg.append('text').attr('x', barX + 260).attr('y', legY + 11)
+            .text('KV Cache: ' + fmt(kvGB))
+            .attr('fill', m.color).attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 11);
+
+        if (!oom) {
+            var freeGB = gpu - totalUsed;
+            svg.append('text').attr('x', barX + 480).attr('y', legY + 11)
+                .text('Free: ' + fmt(Math.max(0, freeGB)))
+                .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 11);
+        }
+
+        // Stats row
+        var statY = legY + 32;
+        svg.append('text').attr('x', barX).attr('y', statY)
+            .text(fmtTokens(currentSeq) + ' tokens')
+            .attr('fill', '#e8e8f0').attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 14).attr('font-weight', 600);
+
+        var kvPerTokKB = m.kvPerToken / 1024;
+        svg.append('text').attr('x', barX + 140).attr('y', statY)
+            .text('KV/token: ' + (kvPerTokKB >= 1000 ? (kvPerTokKB/1024).toFixed(2) + ' MB' : kvPerTokKB.toFixed(kvPerTokKB < 100 ? 1 : 0) + ' KB'))
+            .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 11);
+
+        if (kvGB > 0.0001 && totalUsed > 0) {
+            var pct = (kvGB / totalUsed) * 100;
+            svg.append('text').attr('x', barX + 380).attr('y', statY)
+                .text('Cache = ' + pct.toFixed(1) + '% of used memory')
+                .attr('fill', pct > 50 ? '#ff8800' : '#6a6a7e')
+                .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 11);
+        }
+
+        // Model name
+        svg.append('text').attr('x', barX).attr('y', H - 10)
+            .text(m.name)
+            .attr('fill', m.color).attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 12).attr('font-weight', 600);
+    }
+
+    d3.selectAll('#viz-mem-model-btns button').on('click', function() {
+        d3.selectAll('#viz-mem-model-btns button').classed('active', false).classed('secondary', true);
+        d3.select(this).classed('active', true).classed('secondary', false);
+        currentModel = this.dataset.model;
+        draw();
+    });
+
+    d3.select('#viz-mem-seq').on('input', function() {
+        currentSeq = +this.value;
+        d3.select('#viz-mem-seq-val').text(fmtTokens(currentSeq));
+        draw();
+    });
+
+    draw();
+})();
+</script>
+
+<h3>The Two Phases</h3>
+
+<p><strong>Prefill</strong> is a feast. You hand the model your entire prompt &mdash; say 2,000 tokens at once. Every matrix multiply is (2048 &times; hidden_dim) &mdash; a fat, parallelizable GEMM. The GPU lights up like a Christmas tree. Compute utilization hits 80, 90%. The cores are happy.</p>
+
+<p><strong>Decode</strong> is a famine. One. Token. At. A. Time. To generate each word, the GPU must:</p>
+
+<ol style="margin: 0.5rem 0 1rem 1.5rem; font-size: 0.95rem; line-height: 1.6;">
+  <li>Read the entire KV cache (all previous tokens&rsquo; keys and values) from HBM</li>
+  <li>Compute attention scores against all of them</li>
+  <li>Produce exactly one new token</li>
+  <li>Append its K and V to the cache</li>
+  <li>Repeat</li>
+</ol>
+
+<p>This is a matrix-<em>vector</em> operation, not a matrix-matrix multiply. Every matrix multiply is (1 &times; hidden_dim) &mdash; a skinny vector, not a fat batch. The GPU&rsquo;s cores finish the math almost instantly, then wait for the next chunk of cache to arrive from the warehouse. It is like printing one page at a time, driving to the warehouse for each new sheet, and driving back. The press sits cold.</p>
+
+<p>How bad is the imbalance? The <strong>arithmetic intensity</strong> of decode attention is roughly <strong>1 operation per byte</strong> loaded from memory. The A100&rsquo;s &ldquo;ridge point&rdquo; &mdash; the balance point where compute and memory are equally utilized &mdash; is 156 operations per byte. Decode runs at <strong>less than 1%</strong> of the GPU&rsquo;s computational capacity. The other 99% is wasted heat.</p>
+
+<p>One study measured: on an A100, the decode stage achieves <strong>0.19% GPU compute utilization</strong>. Not 19%. Not 1.9%. Zero point one nine percent. You are paying for a supercomputer and using it as a storage shelf.</p>
+
+<h3>The Warehouse and the Desk</h3>
+
+<p>To understand why, you need the memory hierarchy. A modern GPU has four levels of memory, and the gaps between them are staggering:</p>
+
+<table>
+  <thead>
+    <tr><th>Memory Level</th><th>Capacity (A100)</th><th>Bandwidth</th><th>Analogy</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Registers</td><td>~27 MB total</td><td>Instant (same cycle)</td><td>Your hands &mdash; whatever you are holding right now</td></tr>
+    <tr><td>SRAM (shared memory)</td><td>~20 MB total</td><td><strong>19 TB/s</strong></td><td>Your desk &mdash; arm&rsquo;s reach, tiny surface</td></tr>
+    <tr><td>L2 Cache</td><td>40 MB</td><td>~4&ndash;5 TB/s</td><td>A filing cabinet in your office</td></tr>
+    <tr><td>HBM (main memory)</td><td>80 GB</td><td><strong>2 TB/s</strong></td><td>A warehouse across the parking lot</td></tr>
+  </tbody>
+</table>
+
+<p>The critical gap: SRAM is <strong>~10x faster</strong> than HBM, but <strong>4,000x smaller</strong>. This is the fundamental tension of every GPU workload. The fast memory is too small. The big memory is too slow.</p>
+
+<p>And the gap is not closing &mdash; it is <em>widening</em>. Processor speed doubles every ~2 years. Memory bandwidth improves 7&ndash;10% per year. This is not a temporary engineering problem waiting for a better chip. It is a <strong>structural asymmetry</strong> in how silicon works: moving data costs energy proportional to distance, while computing costs energy proportional to transistor count. As chips get denser (more compute per mm<sup>2</sup>), the ratio of compute-to-bandwidth grows worse, not better. The &ldquo;memory wall,&rdquo; as Wulf and McKee named it in 1995, grows taller with every chip generation.</p>
+
+<p>The H100 illustrates this perfectly. It has 3x the compute of the A100 (990 vs 312 TFLOPS in FP16) but only 1.7x the memory bandwidth (3.35 vs 2.0 TB/s). The ridge point moved from 156 ops/byte to 296 ops/byte. The gap between what the chip can compute and what it can feed got <em>worse</em>. More of the GPU sits idle during memory-bound workloads like decode. The wall gets taller. The optimizations we are about to trace become more important, not less, with every generation.</p>
+
+<div class="power zen">
+  <div class="power-label">The Core Tension</div>
+  <p>Every optimization in LLM inference is some variation of: <strong>how do we fit more work onto the 20 MB desk before going back to the 80 GB warehouse?</strong> MLA and GQA shrink what you need to fetch (fewer truck trips). FlashAttention reorganizes the computation to stay on the desk (fewer round trips). Quantization makes each piece of data smaller (bigger loads per trip).</p>
+</div>
+
+<h3>The Roofline</h3>
+
+<p>There is a standard tool for visualizing this bottleneck: the <strong>roofline model</strong>. On the x-axis: arithmetic intensity (operations per byte loaded). On the y-axis: achieved performance (FLOPS). Two lines meet at a peak &mdash; the ridge point. To the left of the ridge: you are memory-bound. To the right: compute-bound.</p>
+
+<p>Drag the dot and watch where different workloads land on the roofline.</p>
+
+<!-- ── VISUALIZATION: Roofline Model ── -->
+<div class="viz-container">
+  <span class="diagram-label">Interactive &mdash; GPU Roofline Model (A100)</span>
+  <svg id="viz-roofline" viewBox="0 0 760 340"></svg>
+  <div class="viz-controls">
+    <div>
+      <label>GPU</label>
+      <div id="viz-roof-gpu-btns" style="display:flex; gap:0.4rem;">
+        <button class="active" data-gpu="a100">A100</button>
+        <button class="secondary" data-gpu="h100">H100</button>
+      </div>
+    </div>
+    <div id="viz-roof-info" style="color: var(--text-dim); font-size: 11px;"></div>
+  </div>
+</div>
+
+<script>
+(function() {
+    var W = 760, H = 340;
+    var svg = d3.select('#viz-roofline');
+    var padL = 80, padR = 30, padT = 30, padB = 60;
+    var plotW = W - padL - padR, plotH = H - padT - padB;
+
+    var gpus = {
+        a100: { name: 'A100 SXM', flops: 312, bw: 2.0, ridge: 156 },
+        h100: { name: 'H100 SXM', flops: 990, bw: 3.35, ridge: 296 }
+    };
+
+    var workloads = [
+        { name: 'Decode Attention', ai: 1, color: '#ff3344' },
+        { name: 'FFN Decode', ai: 8, color: '#ff8800' },
+        { name: 'Prefill GEMM', ai: 200, color: '#00ff88' },
+        { name: 'FA Decode', ai: 4, color: '#00ddff' }
+    ];
+
+    var currentGPU = 'a100';
+
+    function draw() {
+        svg.selectAll('*').remove();
+        var g = gpus[currentGPU];
+
+        // Log scales
+        var xMin = 0.1, xMax = 1000;
+        var yMin = 0.1, yMax = g.flops * 2;
+        var xScale = d3.scaleLog().domain([xMin, xMax]).range([0, plotW]);
+        var yScale = d3.scaleLog().domain([yMin, yMax]).range([plotH, 0]);
+
+        var plot = svg.append('g').attr('transform', 'translate(' + padL + ',' + padT + ')');
+
+        // Axes
+        var xTicks = [0.1, 1, 10, 100, 1000];
+        var yTicks = [0.1, 1, 10, 100, 1000];
+        if (g.flops > 500) yTicks.push(500);
+
+        xTicks.forEach(function(t) {
+            var x = xScale(t);
+            plot.append('line').attr('x1', x).attr('y1', 0).attr('x2', x).attr('y2', plotH)
+                .attr('stroke', '#1e1e2e').attr('stroke-width', 0.5);
+            plot.append('text').attr('x', x).attr('y', plotH + 18)
+                .text(t >= 1 ? t : t.toString())
+                .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
+                .attr('font-size', 9).attr('text-anchor', 'middle');
+        });
+        yTicks.forEach(function(t) {
+            if (t > yMax) return;
+            var y = yScale(t);
+            plot.append('line').attr('x1', 0).attr('y1', y).attr('x2', plotW).attr('y2', y)
+                .attr('stroke', '#1e1e2e').attr('stroke-width', 0.5);
+            plot.append('text').attr('x', -10).attr('y', y + 3)
+                .text(t >= 1 ? t : t.toString())
+                .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
+                .attr('font-size', 9).attr('text-anchor', 'end');
+        });
+
+        // Axis labels
+        svg.append('text').attr('x', padL + plotW / 2).attr('y', H - 8)
+            .text('Arithmetic Intensity (ops/byte)')
+            .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 10).attr('text-anchor', 'middle');
+        svg.append('text').attr('x', 14).attr('y', padT + plotH / 2)
+            .text('TFLOPS')
+            .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 10).attr('text-anchor', 'middle')
+            .attr('transform', 'rotate(-90, 14, ' + (padT + plotH/2) + ')');
+
+        // Roofline: memory-bound slope
+        var memX1 = Math.max(xMin, 0.1);
+        var memX2 = g.ridge;
+        var memY1 = g.bw * memX1;
+        var memY2 = g.flops;
+        plot.append('line')
+            .attr('x1', xScale(memX1)).attr('y1', yScale(Math.max(memY1, yMin)))
+            .attr('x2', xScale(memX2)).attr('y2', yScale(memY2))
+            .attr('stroke', '#ffdd00').attr('stroke-width', 2);
+
+        // Roofline: compute ceiling
+        plot.append('line')
+            .attr('x1', xScale(memX2)).attr('y1', yScale(g.flops))
+            .attr('x2', xScale(xMax)).attr('y2', yScale(g.flops))
+            .attr('stroke', '#ffdd00').attr('stroke-width', 2);
+
+        // Ridge point marker
+        plot.append('circle').attr('cx', xScale(g.ridge)).attr('cy', yScale(g.flops))
+            .attr('r', 5).attr('fill', '#ffdd00');
+        plot.append('text').attr('x', xScale(g.ridge)).attr('y', yScale(g.flops) - 12)
+            .text('Ridge: ' + g.ridge + ' ops/byte')
+            .attr('fill', '#ffdd00').attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 9).attr('text-anchor', 'middle');
+
+        // Memory-bound shading
+        var shadePath = 'M' + xScale(xMin) + ',' + yScale(yMin) +
+            ' L' + xScale(memX1) + ',' + yScale(Math.max(memY1, yMin)) +
+            ' L' + xScale(memX2) + ',' + yScale(memY2) +
+            ' L' + xScale(memX2) + ',' + yScale(yMin) + ' Z';
+        plot.append('path').attr('d', shadePath)
+            .attr('fill', 'rgba(255,51,68,0.06)');
+
+        // Labels for regions
+        plot.append('text').attr('x', xScale(3)).attr('y', yScale(yMin) - 8)
+            .text('MEMORY-BOUND')
+            .attr('fill', '#ff3344').attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 8).attr('text-anchor', 'middle').attr('opacity', 0.6);
+        plot.append('text').attr('x', xScale(500)).attr('y', yScale(g.flops) + 20)
+            .text('COMPUTE-BOUND')
+            .attr('fill', '#00ff88').attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 8).attr('text-anchor', 'middle').attr('opacity', 0.6);
+
+        // Workload dots
+        workloads.forEach(function(wl) {
+            var achieved = Math.min(g.bw * wl.ai, g.flops);
+            var cx = xScale(wl.ai);
+            var cy = yScale(achieved);
+            plot.append('circle').attr('cx', cx).attr('cy', cy).attr('r', 6)
+                .attr('fill', wl.color).attr('opacity', 0.8);
+            plot.append('text').attr('x', cx).attr('y', cy - 12)
+                .text(wl.name)
+                .attr('fill', wl.color).attr('font-family', 'JetBrains Mono, monospace')
+                .attr('font-size', 9).attr('text-anchor', 'middle').attr('font-weight', 600);
+            plot.append('text').attr('x', cx).attr('y', cy + 18)
+                .text(achieved.toFixed(achieved < 10 ? 1 : 0) + ' TFLOPS')
+                .attr('fill', wl.color).attr('font-family', 'JetBrains Mono, monospace')
+                .attr('font-size', 8).attr('text-anchor', 'middle').attr('opacity', 0.7);
+        });
+
+        // GPU name
+        plot.append('text').attr('x', plotW).attr('y', -10)
+            .text(g.name + ' | ' + g.flops + ' TFLOPS | ' + g.bw + ' TB/s')
+            .attr('fill', '#ffdd00').attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 10).attr('text-anchor', 'end').attr('opacity', 0.7);
+
+        d3.select('#viz-roof-info').text(
+            'Decode attention (' + workloads[0].ai + ' ops/byte) uses ' +
+            ((workloads[0].ai / g.ridge) * 100).toFixed(1) + '% of the ridge point. ' +
+            'The GPU is ' + (100 - (workloads[0].ai / g.ridge) * 100).toFixed(0) + '% idle.'
+        );
+    }
+
+    d3.selectAll('#viz-roof-gpu-btns button').on('click', function() {
+        d3.selectAll('#viz-roof-gpu-btns button').classed('active', false).classed('secondary', true);
+        d3.select(this).classed('active', true).classed('secondary', false);
+        currentGPU = this.dataset.gpu;
+        draw();
+    });
+
+    draw();
+})();
+</script>
+
+<p>Look at where decode attention sits on the roofline: so far to the left it is practically on the y-axis. You would need to do <strong>156x more computation per byte loaded</strong> just to break even with the compute ceiling. This is why buying a bigger GPU barely helps decode speed &mdash; a GPU with 2x more TFLOPS but the same memory bandwidth gives you almost nothing. You need more <em>bandwidth</em>, not more <em>compute</em>.</p>
+
+<p>Now toggle to the H100. The ridge point shifts right (296 ops/byte) &mdash; the imbalance is actually <em>worse</em> on the newer chip, because compute grew faster than bandwidth. The memory wall gets taller every generation.</p>
+
+<p>Two research threads attacked this problem from opposite directions. One asked: <em>what if we stored less?</em> The other asked: <em>what if we computed smarter?</em> Both changed everything. And the same principle &mdash; that memory movement, not arithmetic, is the real cost &mdash; connects them.</p>
+
+</section>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     CHAPTER 2 — THE SHAZEER BET
+     ════════════════════════════════════════════════════════════════════ -->
+<section id="ch2">
+<h2>02 // The Shazeer Bet</h2>
+
+<p class="drop-cap">On November 7, 2019, Noam Shazeer uploaded a 7-page paper to arXiv. No co-authors. The title was a wink at his own prior work: <a href="https://arxiv.org/abs/1911.02150">&ldquo;Fast Transformer Decoding: One Write-Head is All You Need.&rdquo;</a> Two years earlier, he had been one of eight authors on the paper that introduced the Transformer itself &mdash; <em>&ldquo;Attention Is All You Need.&rdquo;</em> This time, nobody was paying attention.</p>
+
+<p>Shazeer&rsquo;s biography reads like a speedrun through the history of modern tech. Born around 1975 in Philadelphia. Gold medal with a <em>perfect score</em> at the International Mathematical Olympiad in 1994 &mdash; not just a gold medal, but every single problem solved correctly. Math and CS at Duke, graduating in 1998. Joined Google in 2000, when it was still a small company &mdash; roughly employee number 200. His first big contribution? Improving Google&rsquo;s spelling corrector &mdash; a problem that sounds mundane but required deep statistical modeling of language at scale.</p>
+
+<p>By 2017, he was one of eight co-authors on &ldquo;Attention Is All You Need&rdquo; &mdash; the paper that introduced the Transformer architecture. This paper would eventually become the most cited machine learning paper in history, the foundation of GPT, BERT, and every frontier model on the planet. By 2019, Shazeer was deep inside Google&rsquo;s language model efforts, and he had noticed something nobody else seemed to care about.</p>
+
+<p><strong>Inference was slow, and the bottleneck was not compute. It was memory bandwidth.</strong></p>
+
+<h3>The Brutal Idea</h3>
+
+<p>Standard multi-head attention (MHA) gives each of the model&rsquo;s attention heads its own set of keys and values. A 32-head model stores 32 unique K vectors and 32 unique V vectors per token per layer. During decode, the GPU must read <em>all of them</em> for every past token.</p>
+
+<p>Shazeer&rsquo;s question: what if all 32 query heads shared a <em>single</em> K and a <em>single</em> V? He called it <strong>Multi-Query Attention</strong> (MQA). The code change was one line &mdash; removing the head dimension from the K and V projection tensors.</p>
+
+<pre><span class="label">MQA vs MHA</span><code><span class="cm">// Standard MHA: each head has its own K, V</span>
+<span class="ty">P_k</span>: tensor [<span class="nm">h</span>, <span class="nm">d_model</span>, <span class="nm">d_k</span>]   <span class="cm">// h separate K projections</span>
+<span class="ty">P_v</span>: tensor [<span class="nm">h</span>, <span class="nm">d_model</span>, <span class="nm">d_v</span>]   <span class="cm">// h separate V projections</span>
+
+<span class="cm">// Multi-Query Attention: one shared K, V</span>
+<span class="ty">P_k</span>: tensor [<span class="nm">d_model</span>, <span class="nm">d_k</span>]      <span class="cm">// shared across all heads</span>
+<span class="ty">P_v</span>: tensor [<span class="nm">d_model</span>, <span class="nm">d_v</span>]      <span class="cm">// shared across all heads</span></code></pre>
+
+<p>The results were startling for how asymmetric they were:</p>
+
+<table>
+  <thead>
+    <tr><th>Metric</th><th>MHA (baseline)</th><th>MQA</th><th>Change</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Perplexity (base)</td><td>10.2</td><td>10.4</td><td>+2% <span style="color:var(--text-dim)">(barely noticeable)</span></td></tr>
+    <tr><td>WMT14 En-De BLEU</td><td>28.3</td><td>28.5</td><td><strong>Higher</strong> <span style="color:var(--green)">(surprise)</span></td></tr>
+    <tr><td>Inference speed</td><td>1.0x</td><td>1.8&ndash;2.4x</td><td><strong>Nearly free speedup</strong></td></tr>
+    <tr><td>Training time/step</td><td>433ms</td><td>425ms</td><td>~0% overhead</td></tr>
+  </tbody>
+</table>
+
+<p>Read that table carefully. MQA cost <em>nothing</em> during training &mdash; the KV projections are a tiny fraction of total compute. It delivered nearly everything during inference. And on translation quality, it actually <em>scored higher</em>. This is the rare truly-free lunch in machine learning.</p>
+
+<p>The paper sat on arXiv. It was never published at a conference. For three and a half years, one of the most impactful inference optimizations in the history of deep learning existed as a lonely preprint. It accumulated citations slowly, overshadowed by the training-obsessed zeitgeist of the era.</p>
+
+<h3>Why Nobody Cared</h3>
+
+<p>Three reasons. First, the field was obsessed with <strong>training efficiency</strong>, not inference. In 2019, nobody was serving billion-parameter models to millions of users. Inference cost was not the pressing problem.</p>
+
+<p>Second, <strong>encoder-decoder models still dominated</strong> &mdash; T5, BART &mdash; so MQA only helped the decoder half. The speedup numbers looked modest.</p>
+
+<p>Third, <strong>GPT-3 changed everything but slowly</strong>. When GPT-3 dropped in June 2020, it showed massive decoder-only models could do incredible things. But GPT-3 was an API &mdash; OpenAI ate the inference cost. The open-source community had not yet felt the pain.</p>
+
+<p>The seal broke in April 2022. Google released <a href="https://arxiv.org/abs/2204.02311"><strong>PaLM</strong></a> &mdash; 540 billion parameters. Shazeer was a co-author. PaLM quietly used MQA. At 540B, the KV cache for standard attention would have been catastrophic. This was the first major model to prove MQA worked at frontier scale without quality collapse.</p>
+
+<p>Then came the benchmarks that made the industry sit up. The Technology Innovation Institute (UAE) released Falcon-7B and Falcon-40B in 2023, both using MQA. Falcon-40B used an interesting variant: 8 KV heads (one per GPU in their 8-way tensor parallel setup) rather than a true single head &mdash; a pragmatic hack to avoid redundant computation. <a href="https://fireworks.ai/blog/multi-query-attention-is-all-you-need">Fireworks.ai benchmarked Falcon</a> on A6000 GPUs and found:</p>
+
+<table>
+  <thead>
+    <tr><th>Metric</th><th>Falcon 7B</th><th>Falcon 40B</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Throughput gain</td><td colspan="2"><strong>Up to 11x</strong> on longer sequences (1000&ndash;1500 tokens)</td></tr>
+    <tr><td>Latency under load</td><td colspan="2"><strong>30&ndash;40%</strong> faster</td></tr>
+    <tr><td>Batch size increase</td><td><strong>71x larger</strong></td><td><strong>16x larger</strong></td></tr>
+  </tbody>
+</table>
+
+<p>These numbers were dramatically larger than Shazeer&rsquo;s original 1.8&ndash;2.4x because three things had changed. First, decoder-only models benefit fully (no encoder to dilute the gains). Second, longer sequences amplify KV cache savings. Third &mdash; and this is the sleeper insight &mdash; the real benefit is in <strong>batch size</strong>. With 71x more room for KV caches, you can serve 71x more users simultaneously. That is not a 2x optimization. That is the difference between a viable product and a money-losing demo.</p>
+
+<p>But Shazeer had already left. In October 2021, he and Daniel de Freitas had built Meena, a powerful conversational chatbot inside Google. Leadership refused to release it, citing safety concerns. Frustrated, they founded Character.AI. The man who invented MQA was gone before the world realized his idea mattered.</p>
+
+<h3>The Middle Ground</h3>
+
+<p>On May 22, 2023, six researchers at Google &mdash; Joshua Ainslie, James Lee-Thorp, Michiel de Jong, Yury Zemlyanskiy, Federico Lebron, and Sumit Sanghai &mdash; published a paper that solved MQA&rsquo;s weakness. The problem: MQA was <em>too</em> aggressive. Sharing a single KV head across all queries caused training instability. The <a href="https://arxiv.org/abs/2305.13245">GQA paper&rsquo;s</a> appendix reveals: &ldquo;multi-query attention can lead to training instability during fine-tuning, in particular combined with long input tasks.&rdquo; Models with MQA suffered frequent loss spikes and diverged on long-context tasks.</p>
+
+<p>The fix was <strong>Grouped-Query Attention</strong> (GQA). Instead of 1 shared KV head (MQA) or 32 independent heads (MHA), split into groups. Each group of query heads shares one K and one V.</p>
+
+<p>The numbers from their T5-XXL experiments tell the story:</p>
+
+<table>
+  <thead>
+    <tr><th>Configuration</th><th>Inference Time</th><th>Avg Quality</th><th>vs MHA</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>MHA (baseline)</td><td>1.51s</td><td>47.2</td><td>1.0x</td></tr>
+    <tr><td>MQA</td><td>0.24s</td><td>46.6</td><td><strong>6.3x faster</strong></td></tr>
+    <tr><td>GQA-8</td><td>0.28s</td><td>47.1</td><td><strong>5.4x faster</strong></td></tr>
+  </tbody>
+</table>
+
+<p>Read that table carefully. GQA-8 is only 17% slower than MQA, but recovers almost all the quality. It loses <strong>0.1 points</strong> from the full MHA baseline &mdash; within noise &mdash; while running 5.4x faster. And here is the killer: GQA-8-XXL (0.28s, quality 47.1) is <em>faster</em> than MHA-Large (0.37s, quality 46.0) while being substantially better. You get a bigger, better model that is also faster.</p>
+
+<p>The conversion trick was equally elegant. Take any existing MHA model with H attention heads. Group the H key projection matrices into G groups of H/G each. <strong>Mean-pool</strong> the weight matrices within each group &mdash; average them together. Do the same for the value projections. Then retrain for just <strong>5% of the original training compute</strong>.</p>
+
+<p>Why mean-pooling? The paper tested three conversion methods on T5-Large:</p>
+
+<table>
+  <thead>
+    <tr><th>Conversion Method</th><th>Quality Score</th><th>Intuition</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Mean pool (average weights)</td><td>~55.5</td><td>Preserves the most information from the original</td></tr>
+    <tr><td>Select first head</td><td>~55.0</td><td>Preserves one head exactly, discards the rest</td></tr>
+    <tr><td>Random initialization</td><td>~54.5</td><td>Starts fresh, learns from scratch during uptrain</td></tr>
+  </tbody>
+</table>
+
+<p>As the authors noted: &ldquo;results are ordered by the degree to which information is preserved from the pre-trained model.&rdquo; A critical finding: GQA achieves reasonable performance <em>with zero uptraining</em> (just the mean-pool conversion alone), while MQA requires uptraining to be useful. This makes sense &mdash; GQA preserves more structure from the original model, so less relearning is needed.</p>
+
+<p>The 5% uptraining cost was approximately <strong>600 TPUv3 chip-days</strong> for T5-XXL. Not cheap in absolute terms, but trivial compared to the original pre-training cost. It meant the entire existing ecosystem of MHA models could be cheaply converted without retraining from scratch.</p>
+
+<div class="power">
+  <div class="power-label">The Hardware Coincidence</div>
+  <p>Why 8 groups? Because most large model deployments use 8-way tensor parallelism &mdash; one GPU per group. With MQA&rsquo;s single KV head, every GPU computes the same K and V redundantly. GQA-8 gives each GPU exactly one unique KV head. The &ldquo;optimal&rdquo; number of groups is really the number of GPUs you have.</p>
+</div>
+
+<h3>The Adoption Cascade</h3>
+
+<p><strong>July 2023</strong>: Meta ships Llama 2 with GQA in the 34B and 70B variants (8 KV heads, 64 query heads). The smaller 7B and 13B keep standard MHA &mdash; GQA&rsquo;s benefit scales with model size.</p>
+
+<p><strong>September 2023</strong>: Mistral 7B uses GQA with 8 KV heads even at 7B scale, combined with sliding window attention.</p>
+
+<p>The adoption accelerated through 2024. Llama 3 (April 2024) used GQA with 8 KV heads across <em>all</em> sizes, from 8B to 405B. Gemma (Google), Phi (Microsoft), Qwen (Alibaba), Mistral, Mixtral &mdash; the entire open-model ecosystem converged on GQA-8 within 18 months of the paper. As IBM noted: GQA &ldquo;has become the default attention paradigm in large-scale LLMs.&rdquo;</p>
+
+<p>The one notable exception: DeepSeek, which went further.</p>
+
+<p>Meanwhile, Shazeer was at Character.AI. In August 2024, Google paid <strong>$2.7 billion</strong> to bring him back. Time magazine had named him one of the 100 most influential people in AI. He was elected to the National Academy of Engineering in 2026. His MQA paper remains an arXiv preprint. It has no co-authors. It is 7 pages long. And its core idea is now inside virtually every LLM on the planet.</p>
+
+<!-- ── VISUALIZATION 2: Head Sharing Patterns ── -->
+<div class="viz-container">
+  <span class="diagram-label">Interactive &mdash; Head Sharing Patterns</span>
+  <svg id="viz-heads" viewBox="0 0 760 310"></svg>
+  <div class="viz-controls">
+    <div>
+      <label>Attention Type</label>
+      <div id="viz-heads-btns" style="display:flex; gap:0.4rem; flex-wrap:wrap;">
+        <button class="active" data-mode="mha">MHA</button>
+        <button class="secondary" data-mode="mqa">MQA</button>
+        <button class="secondary" data-mode="gqa">GQA-8</button>
+        <button class="secondary" data-mode="mla">MLA</button>
+      </div>
+    </div>
+    <div>
+      <span id="viz-heads-mem" style="color: var(--green); font-size: 12px;"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+    var W = 760, H = 310;
+    var svg = d3.select('#viz-heads');
+    var nHeads = 32;
+    var headW = 18, headH = 18, gapH = 3;
+
+    var groupColors = ['#ff3344','#ff8800','#ffdd00','#00ff88','#00ddff','#4488ff','#aa44ff','#ff00aa'];
+
+    function getMemLabel(mode) {
+        if (mode === 'mha') return '32 unique K + 32 unique V = 32,768 values/token/layer';
+        if (mode === 'mqa') return '1 shared K + 1 shared V = 1,024 values/token/layer   (32x smaller)';
+        if (mode === 'gqa') return '8 K groups + 8 V groups = 4,096 values/token/layer   (8x smaller)';
+        if (mode === 'mla') return '1 latent (512d) + 1 RoPE (64d) = 576 values/token/layer   (57x smaller)';
+        return '';
+    }
+
+    function draw(mode) {
+        svg.selectAll('*').remove();
+        var startX = 40, qY = 50, kvY = 190;
+
+        // Q heads label
+        svg.append('text').attr('x', startX).attr('y', qY - 12)
+            .text('QUERY HEADS (32) \u2014 each asks its own question')
+            .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 9).attr('letter-spacing', '0.05em');
+
+        // Draw 32 Q heads
+        for (var i = 0; i < nHeads; i++) {
+            var x = startX + i * (headW + gapH);
+            var col;
+            if (mode === 'mha') col = d3.interpolateRainbow(i / nHeads);
+            else if (mode === 'mqa') col = '#00ddff';
+            else if (mode === 'gqa') col = groupColors[Math.floor(i / 4)];
+            else col = d3.interpolateRainbow(i / nHeads); // MLA: all unique
+
+            svg.append('rect').attr('x', x).attr('y', qY).attr('width', headW).attr('height', headH)
+                .attr('fill', col).attr('opacity', 0.75).attr('rx', 2);
+            if (headW >= 16) {
+                svg.append('text').attr('x', x + headW/2).attr('y', qY + headH/2 + 3.5)
+                    .text(i).attr('fill', '#0a0a0f').attr('font-family', 'JetBrains Mono, monospace')
+                    .attr('font-size', 7).attr('text-anchor', 'middle').attr('font-weight', 600);
+            }
+        }
+
+        // KV label
+        var kvLabel = mode === 'mha' ? 'KV HEADS (32 unique)' :
+                      mode === 'mqa' ? 'KV HEAD (1 shared)' :
+                      mode === 'gqa' ? 'KV HEADS (8 groups)' :
+                      'LATENT VECTOR (576 dims, up-projects to 32 unique K/V)';
+        svg.append('text').attr('x', startX).attr('y', kvY - 12)
+            .text(kvLabel)
+            .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 9).attr('letter-spacing', '0.05em');
+
+        // Draw KV heads + connections
+        if (mode === 'mha') {
+            for (var i = 0; i < nHeads; i++) {
+                var x = startX + i * (headW + gapH);
+                var col = d3.interpolateRainbow(i / nHeads);
+                svg.append('rect').attr('x', x).attr('y', kvY).attr('width', headW).attr('height', headH)
+                    .attr('fill', col).attr('opacity', 0.45).attr('rx', 2);
+                svg.append('line').attr('x1', x + headW/2).attr('y1', qY + headH)
+                    .attr('x2', x + headW/2).attr('y2', kvY)
+                    .attr('stroke', col).attr('stroke-width', 0.5).attr('opacity', 0.25);
+            }
+        } else if (mode === 'mqa') {
+            var cx = startX + (nHeads * (headW + gapH)) / 2 - 16;
+            svg.append('rect').attr('x', cx).attr('y', kvY).attr('width', 32).attr('height', headH)
+                .attr('fill', '#00ddff').attr('opacity', 0.6).attr('rx', 3);
+            svg.append('text').attr('x', cx + 16).attr('y', kvY + headH/2 + 3.5)
+                .text('K/V').attr('fill', '#0a0a0f').attr('font-family', 'JetBrains Mono, monospace')
+                .attr('font-size', 9).attr('text-anchor', 'middle').attr('font-weight', 600);
+            for (var i = 0; i < nHeads; i++) {
+                var x = startX + i * (headW + gapH);
+                svg.append('line').attr('x1', x + headW/2).attr('y1', qY + headH)
+                    .attr('x2', cx + 16).attr('y2', kvY)
+                    .attr('stroke', '#00ddff').attr('stroke-width', 0.4).attr('opacity', 0.2);
+            }
+        } else if (mode === 'gqa') {
+            for (var g = 0; g < 8; g++) {
+                var gCenterIdx = g * 4 + 1.5;
+                var gx = startX + gCenterIdx * (headW + gapH) - 10;
+                var col = groupColors[g];
+                svg.append('rect').attr('x', gx).attr('y', kvY).attr('width', 24).attr('height', headH)
+                    .attr('fill', col).attr('opacity', 0.5).attr('rx', 3);
+                svg.append('text').attr('x', gx + 12).attr('y', kvY + headH/2 + 3.5)
+                    .text('G' + g).attr('fill', '#0a0a0f').attr('font-family', 'JetBrains Mono, monospace')
+                    .attr('font-size', 7).attr('text-anchor', 'middle').attr('font-weight', 600);
+                for (var j = 0; j < 4; j++) {
+                    var qi = g * 4 + j;
+                    var qx = startX + qi * (headW + gapH);
+                    svg.append('line').attr('x1', qx + headW/2).attr('y1', qY + headH)
+                        .attr('x2', gx + 12).attr('y2', kvY)
+                        .attr('stroke', col).attr('stroke-width', 0.5).attr('opacity', 0.25);
+                }
+            }
+        } else if (mode === 'mla') {
+            // Compressed latent
+            var lw = 120, lx = startX + (nHeads * (headW + gapH)) / 2 - lw/2;
+            svg.append('rect').attr('x', lx).attr('y', kvY).attr('width', lw).attr('height', headH)
+                .attr('fill', '#aa44ff').attr('opacity', 0.5).attr('rx', 3);
+            svg.append('text').attr('x', lx + lw/2).attr('y', kvY + headH/2 + 3.5)
+                .text('512d latent + 64d RoPE').attr('fill', '#e8e8f0')
+                .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 8)
+                .attr('text-anchor', 'middle');
+
+            // Up-project arrows to all 32 Q heads
+            for (var i = 0; i < nHeads; i++) {
+                var x = startX + i * (headW + gapH);
+                svg.append('line').attr('x1', lx + lw/2).attr('y1', kvY)
+                    .attr('x2', x + headW/2).attr('y2', qY + headH)
+                    .attr('stroke', '#aa44ff').attr('stroke-width', 0.35).attr('opacity', 0.2);
+            }
+            svg.append('text').attr('x', lx + lw + 10).attr('y', kvY + headH/2 + 3)
+                .text('\u2192 up-projects to 32 unique K + 32 unique V')
+                .attr('fill', '#aa44ff').attr('font-family', 'JetBrains Mono, monospace')
+                .attr('font-size', 9).attr('opacity', 0.7);
+        }
+
+        // Memory label
+        d3.select('#viz-heads-mem').text(getMemLabel(mode));
+    }
+
+    d3.selectAll('#viz-heads-btns button').on('click', function() {
+        d3.selectAll('#viz-heads-btns button').classed('active', false).classed('secondary', true);
+        d3.select(this).classed('active', true).classed('secondary', false);
+        draw(this.dataset.mode);
+    });
+
+    draw('mha');
+})();
+</script>
+
+</section>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     CHAPTER 3 — COMPRESS, DON'T DELETE
+     ════════════════════════════════════════════════════════════════════ -->
+<section id="ch3">
+<h2>03 // Compress, Don&rsquo;t Delete</h2>
+
+<p class="drop-cap">In October 2022, the U.S. Bureau of Industry and Security issued sweeping export controls on advanced semiconductors to China. The top-of-the-line NVIDIA H100, with its full NVLink interconnect bandwidth, was restricted. Chinese labs could still buy the H800 &mdash; a variant with capped interconnect speed &mdash; but the message was clear: you will have less hardware, and it will be slower.</p>
+
+<p>DeepSeek trained V3 on 2,048 of those H800 GPUs. Where Western labs could throw hardware at the problem &mdash; Llama 3.1 405B used roughly 10x more compute &mdash; DeepSeek had to <em>think</em> their way out. The result: a <strong>$5.6 million training run</strong> that matched frontier models. Not by cutting corners, but by compressing everything &mdash; attention, communication, precision &mdash; until every byte of memory and every FLOP of compute earned its place.</p>
+
+<p>The constraint was real. With fewer GPUs and slower interconnect, the KV cache memory overhead was proportionally worse: less room per card meant attention memory competed more aggressively with model weights and activations. A solution that reduced the cache was not just nice to have &mdash; it was existential. Without it, the model simply would not fit.</p>
+
+<p>Every other lab facing the KV cache bottleneck chose <strong>deletion</strong>. GQA forces multiple query heads to share the same K and V projections. It is like making 8 students share 2 textbooks. You save shelf space, but the students cannot each study different chapters simultaneously.</p>
+
+<p>DeepSeek refused this tradeoff. Their bet: instead of deleting heads, <strong>compress all the information into a tiny latent vector, then regrow it on demand</strong>. Every head gets its own unique K and V &mdash; reconstructed from a shared seed. They called it <strong>Multi-head Latent Attention</strong> (MLA).</p>
+
+<h3>The Seed That Grows a Better Tree</h3>
+
+<p>Think of a 512-dimensional latent vector as a seed that contains the DNA of a full tree. The full tree is 16,384 dimensions &mdash; 128 heads, each with 128-dimensional K and V vectors. You do not store the tree. You store the seed. When you need the tree during attention, you grow it with an up-projection matrix. Every tree grown from the same seed is identical.</p>
+
+<p>But here is the part that surprised everyone: <strong>the seed grows a better tree than the original.</strong></p>
+
+<p>The ablation studies in the <a href="https://arxiv.org/abs/2405.04434">DeepSeek-V2 paper</a> (Appendix D) dropped a quiet bombshell:</p>
+
+<div class="vs">
+  <div class="vs-card">
+    <h4>GQA Result</h4>
+    <p>Performs <strong>worse</strong> than standard MHA. Deletion costs quality. You are throwing away information.</p>
+  </div>
+  <div class="vs-card">
+    <h4>MLA Result</h4>
+    <p>Performs <strong>better</strong> than standard MHA &mdash; while using a KV cache equivalent to GQA with only 2.25 groups.</p>
+  </div>
+</div>
+
+<p>The compressed version <em>outperforms</em> the uncompressed original. This is not supposed to happen.</p>
+
+<p>The hypothesis, supported by research on the singular value structure of neural network weight matrices: <strong>low-rank compression acts as a regularizer</strong>. Neural networks develop a small number of very large singular values &mdash; these carry generalizable knowledge. And a long tail of small ones &mdash; these carry memorization noise. By forcing attention through a low-rank bottleneck, MLA prevents the model from memorizing noise. It learns only what generalizes.</p>
+
+<p>As one <a href="https://planetbanatt.net/articles/mla.html">analysis</a> put it: &ldquo;we are essentially ignoring the nuisance space. We <em>only</em> want to learn things which are <em>likely generalizable</em>.&rdquo;</p>
+
+<div class="power hack">
+  <div class="power-label">The Reframe</div>
+  <p>MLA is not a cost-cutting measure that sacrifices quality. It is a <strong>quality improvement</strong> that happens to also save 93% of memory.</p>
+</div>
+
+<h3>The RoPE Problem</h3>
+
+<p>There was a catch. Rotary Position Embeddings (RoPE) &mdash; the standard way modern LLMs encode <em>where</em> a token sits in a sequence &mdash; work by rotating K and V vectors based on position <em>before</em> they are cached. But MLA compresses K and V into the latent vector <em>before</em> RoPE would apply. The full K vectors do not exist at the moment you need to rotate them. You cannot rotate what has not been decompressed yet.</p>
+
+<p>The fix was elegant: <strong>split each attention head into two components</strong>.</p>
+
+<pre><span class="label">Decoupled RoPE</span><code><span class="cm">// Content: compressed, carries "what"</span>
+<span class="ty">c_kv</span> = <span class="fn">W_down</span>(h_t)             <span class="cm">// 5120 -> 512 dims   (CACHED)</span>
+<span class="ty">K_content</span> = <span class="fn">W_up_k</span>(c_kv)       <span class="cm">// 512 -> 128 heads x 128 dims</span>
+<span class="ty">V</span>         = <span class="fn">W_up_v</span>(c_kv)       <span class="cm">// 512 -> 128 heads x 128 dims</span>
+
+<span class="cm">// Position: tiny, uncompressed, carries "where"</span>
+<span class="ty">K_pos</span> = <span class="fn">RoPE</span>(<span class="fn">W_kr</span>(h_t))        <span class="cm">// 5120 -> 64 dims    (CACHED)</span>
+
+<span class="cm">// Final key per head</span>
+<span class="ty">K</span> = <span class="fn">concat</span>(K_content, K_pos)    <span class="cm">// 128 + 64 = 192 effective dims</span>
+
+<span class="cm">// Total cached per token per layer: 512 + 64 = 576 values</span>
+<span class="cm">// Down from 32,768. A 98.2% reduction.</span></code></pre>
+
+<p>Content flows through the compression bottleneck. Position bypasses it entirely &mdash; a tiny 64-dimensional vector that gets its own RoPE treatment. The kicker: the positional key component is <strong>shared across all 128 heads</strong> (MQA-style for position only), while each head gets its own unique content reconstruction from the latent. Position is universal. Meaning is per-head.</p>
+
+<p>The query side is compressed too, though the query latent is not cached (it is used immediately and discarded):</p>
+
+<details>
+  <summary>Full MLA Data Flow (DeepSeek-V2 Dimensions)</summary>
+  <div>
+    <p><strong>Dimensions:</strong> d_model = 5,120. Heads = 128. Head dim = 128. KV compression dim = 512. Query compression dim = 1,536. RoPE dim = 64.</p>
+
+    <p><strong>Building the cache</strong> (per token):</p>
+    <pre><code><span class="cm">// Input token embedding: h_t (5,120 dims)</span>
+
+<span class="cm">// 1. Compress K+V into one latent</span>
+<span class="ty">c_kv</span> = <span class="fn">W_DKV</span>(h_t)           <span class="cm">// 5120 -> 512</span>
+
+<span class="cm">// 2. Compute RoPE key separately</span>
+<span class="ty">k_rope</span> = <span class="fn">RoPE</span>(<span class="fn">W_KR</span>(h_t))   <span class="cm">// 5120 -> 64</span>
+
+<span class="cm">// CACHED: [c_kv (512), k_rope (64)] = 576 values</span></code></pre>
+
+    <p><strong>Computing attention</strong> (reading from cache):</p>
+    <pre><code><span class="cm">// Decompress K and V from latent</span>
+<span class="ty">K_content</span> = <span class="fn">W_UK</span>(c_kv)       <span class="cm">// 512 -> 128 heads x 128 dims</span>
+<span class="ty">V</span>         = <span class="fn">W_UV</span>(c_kv)       <span class="cm">// 512 -> 128 heads x 128 dims</span>
+<span class="ty">K_full</span>    = <span class="fn">concat</span>(K_content, k_rope)  <span class="cm">// per head: 192 dims</span>
+
+<span class="cm">// Query (also compressed, but not cached)</span>
+<span class="ty">c_q</span>      = <span class="fn">W_DQ</span>(h_t)        <span class="cm">// 5120 -> 1536</span>
+<span class="ty">Q</span>        = <span class="fn">W_UQ</span>(c_q)        <span class="cm">// 1536 -> 128 heads x 128 dims</span>
+<span class="ty">Q_rope</span>   = <span class="fn">RoPE</span>(<span class="fn">W_QR</span>(c_q))  <span class="cm">// 1536 -> 128 heads x 64 dims</span>
+<span class="ty">Q_full</span>   = <span class="fn">concat</span>(Q, Q_rope) <span class="cm">// per head: 192 dims</span>
+
+<span class="cm">// Standard attention: Q_full @ K_full^T -> softmax -> @ V</span></code></pre>
+
+    <p>Every head gets <strong>unique</strong> K, V, and Q vectors &mdash; all reconstructed from the shared latent. This is what makes MLA different from GQA: GQA forces heads to use <em>identical</em> K/V (mere copies). MLA gives each head its own unique reconstruction. More expressive. More parameters used per inference step. But less data moved from memory.</p>
+  </div>
+</details>
+
+<h3>The Waterfall</h3>
+
+<p>Watch the data flow. Standard attention stores a wide river of values per token. GQA narrows it to a stream. MLA compresses it to a trickle &mdash; then expands it back to full width on demand. Drag the sequence length slider and watch the cache sizes diverge.</p>
+
+<!-- ── VISUALIZATION 3: Compression Waterfall ── -->
+<div class="viz-container">
+  <span class="diagram-label">Interactive &mdash; The Compression Waterfall</span>
+  <svg id="viz-waterfall" viewBox="0 0 760 340"></svg>
+  <div class="viz-controls">
+    <div>
+      <label>Tokens in Context</label>
+      <input type="range" id="viz-wf-seq" min="1024" max="131072" value="32768" step="1024">
+      <span class="val" id="viz-wf-seq-val">32K</span>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+    var W = 760, H = 340;
+    var svg = d3.select('#viz-waterfall');
+
+    var configs = [
+        { label: 'Standard MHA',  values: 32768, color: '#ff3344', desc: '128h x 128d x 2 (K+V)', layers: 60 },
+        { label: 'GQA-8',         values: 4096,  color: '#ff8800', desc: '8 groups x 128d x 2',    layers: 60 },
+        { label: 'MLA',           values: 576,   color: '#aa44ff', desc: '512 latent + 64 RoPE',   layers: 60 }
+    ];
+
+    function fmt(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+        if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + ' MB';
+        return (bytes / 1073741824).toFixed(1) + ' GB';
+    }
+
+    function fmtTokens(n) {
+        return n >= 1000 ? (n/1000).toFixed(n >= 10000 ? 0 : 1) + 'K' : n.toString();
+    }
+
+    function draw(seqLen) {
+        svg.selectAll('*').remove();
+        var colW = 200, startX = 50, startY = 30;
+        var maxVals = configs[0].values;
+        var maxStreamH = 170;
+
+        configs.forEach(function(cfg, ci) {
+            var cx = startX + ci * (colW + 40);
+            var frac = cfg.values / maxVals;
+            var streamW = Math.max(6, frac * 130);
+            var streamX = cx + colW / 2 - streamW / 2;
+
+            // Label
+            svg.append('text').attr('x', cx + colW / 2).attr('y', startY)
+                .text(cfg.label)
+                .attr('fill', cfg.color).attr('font-family', 'JetBrains Mono, monospace')
+                .attr('font-size', 12).attr('text-anchor', 'middle').attr('font-weight', 600);
+
+            svg.append('text').attr('x', cx + colW / 2).attr('y', startY + 16)
+                .text(cfg.desc)
+                .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
+                .attr('font-size', 8).attr('text-anchor', 'middle');
+
+            // Stream rectangle
+            var streamY = startY + 30;
+            svg.append('rect').attr('x', streamX).attr('y', streamY)
+                .attr('width', streamW).attr('height', maxStreamH)
+                .attr('fill', cfg.color).attr('opacity', 0.15).attr('rx', 3);
+
+            // Fill bars
+            var nBars = Math.min(20, Math.max(4, Math.floor(seqLen / 6000)));
+            for (var b = 0; b < nBars; b++) {
+                var by = streamY + (b / nBars) * maxStreamH;
+                svg.append('rect').attr('x', streamX + 1).attr('y', by)
+                    .attr('width', streamW - 2).attr('height', maxStreamH / nBars - 1)
+                    .attr('fill', cfg.color).attr('opacity', 0.08 + (b / nBars) * 0.25).attr('rx', 1);
+            }
+
+            // Values per token
+            svg.append('text').attr('x', cx + colW / 2).attr('y', streamY + maxStreamH + 20)
+                .text(cfg.values.toLocaleString() + ' values/token/layer')
+                .attr('fill', cfg.color).attr('font-family', 'JetBrains Mono, monospace')
+                .attr('font-size', 9).attr('text-anchor', 'middle');
+
+            // Total cache size
+            var totalBytes = cfg.values * seqLen * cfg.layers * 2;
+            var sizeStr = fmt(totalBytes);
+            var isOOM = totalBytes > 80 * 1073741824;
+
+            svg.append('text').attr('x', cx + colW / 2).attr('y', streamY + maxStreamH + 42)
+                .text('Cache: ' + sizeStr)
+                .attr('fill', isOOM ? '#ff3344' : '#e8e8f0')
+                .attr('font-family', 'JetBrains Mono, monospace')
+                .attr('font-size', 12).attr('text-anchor', 'middle').attr('font-weight', 600);
+
+            if (isOOM) {
+                svg.append('text').attr('x', cx + colW / 2).attr('y', streamY + maxStreamH + 58)
+                    .text('EXCEEDS 80 GB GPU')
+                    .attr('fill', '#ff3344').attr('font-family', 'JetBrains Mono, monospace')
+                    .attr('font-size', 9).attr('text-anchor', 'middle');
+            }
+        });
+
+        // Reduction arrows between columns
+        var arrowY = startY + 30 + maxStreamH / 2;
+        for (var i = 0; i < 2; i++) {
+            var ax = startX + (i + 1) * (colW + 40) - 25;
+            var ratio = configs[i].values / configs[i + 1].values;
+            svg.append('text').attr('x', ax).attr('y', arrowY - 4)
+                .text(ratio.toFixed(ratio < 10 ? 1 : 0) + 'x')
+                .attr('fill', '#e8e8f0').attr('font-family', 'JetBrains Mono, monospace')
+                .attr('font-size', 12).attr('text-anchor', 'middle').attr('font-weight', 600);
+            svg.append('text').attr('x', ax).attr('y', arrowY + 12)
+                .text('smaller \u2192')
+                .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
+                .attr('font-size', 8).attr('text-anchor', 'middle');
+        }
+    }
+
+    d3.select('#viz-wf-seq').on('input', function() {
+        var v = +this.value;
+        d3.select('#viz-wf-seq-val').text(fmtTokens(v));
+        draw(v);
+    });
+
+    draw(32768);
+})();
+</script>
+
+<h3>The Weight Absorption Trick</h3>
+
+<p>There is one more piece of elegance in the MLA design. At inference time, the up-projection matrices that decompress the latent vector can be <strong>fused into the next matrix in the pipeline</strong>. There is no nonlinearity between the decompression and the attention score computation, so instead of:</p>
+
+<pre><span class="label">Naive</span><code>output = <span class="fn">W_next</span> @ (<span class="fn">W_up_k</span> @ c_kv)   <span class="cm">// two matrix multiplies</span></code></pre>
+
+<p>DeepSeek precomputes:</p>
+
+<pre><span class="label">Fused</span><code><span class="ty">W_fused</span> = <span class="fn">W_next</span> @ <span class="fn">W_up_k</span>           <span class="cm">// done once, offline</span>
+output = <span class="ty">W_fused</span> @ c_kv               <span class="cm">// done per token, one multiply</span></code></pre>
+
+<p>This eliminates the decompression step entirely during inference. The latent vector is used directly &mdash; you never actually reconstruct the full K and V in memory. The 576-dimensional compressed vector goes straight into a fused kernel. This is why MLA can require 4x more <em>theoretical</em> arithmetic while being faster in practice: the extra FLOPs happen in dense matmuls that the GPU eats for breakfast, while the memory savings from never materializing 16,384 dimensions are enormous.</p>
+
+<p>The same insight again: memory movement, not arithmetic, is the real cost.</p>
+
+<h3>The Lightning Indexer</h3>
+
+<p>MLA compresses <em>what</em> you store per token. But at 128K tokens, even compressed attention is O(L<sup>2</sup>). DeepSeek added a second compression on top: <strong>Dynamic Sparse Attention</strong> (DSA).</p>
+
+<p>Think of it as a scout on horseback. The scout &mdash; a tiny FP8 model, dirt cheap to run &mdash; surveys the entire battlefield of 128K past tokens. It scores every one with a lightweight dot-product and learned weights. Then it reports back: &ldquo;These 2,048 positions matter. Ignore the rest.&rdquo; The full MLA attention engages only those 2,048 tokens with full precision.</p>
+
+<p>Attend to <strong>1.6%</strong> of context. Get statistically identical quality:</p>
+
+<table>
+  <thead>
+    <tr><th>Benchmark</th><th>Dense Attention</th><th>DSA (2,048 tokens)</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>MMLU-Pro</td><td>85.0</td><td>85.0</td></tr>
+    <tr><td>GPQA Diamond</td><td colspan="2">Within noise (&plusmn;0.5 points)</td></tr>
+    <tr><td>SWE-bench Multilingual</td><td>57.8</td><td>57.9</td></tr>
+    <tr><td>Per-token GPU cost</td><td>1.0x</td><td><strong>~0.5x</strong></td></tr>
+  </tbody>
+</table>
+
+<p>The training was two-phase. First: freeze the main model and train only the indexer to match dense attention patterns using KL divergence loss (2.1B tokens, learning rate 1.0e-3). The indexer learns to predict where full attention would look. Second: unfreeze everything and train end-to-end with the indexer selecting tokens (943.7B tokens, learning rate 7.3e-6, 15,000 steps of 480 sequences at 128K tokens each). The model and the indexer co-adapt &mdash; the model learns to rely on the indexer&rsquo;s selections, and the indexer learns what the model actually needs.</p>
+
+<p>Reducing from 2,048 to 1,024 selected tokens shows only ~0.3 point degradation across benchmarks. The selection is robust. The indexer has learned to find semantic needles in massive haystacks.</p>
+
+<p>MLA + DSA together: <strong>28x</strong> fewer values per token, <strong>62x</strong> fewer tokens attended. What was &ldquo;impossible at 128K&rdquo; became &ldquo;practical and cheap.&rdquo;</p>
+
+<div class="power purple">
+  <div class="power-label">Adoption Watch</div>
+  <p>MLA is spreading. Kimi K2 scaled it to 1 trillion parameters. GLM-5 paired it with DSA. <a href="https://arxiv.org/abs/2502.07864">TransMLA</a> (NeurIPS 2025 Spotlight) showed you can retrofit MLA onto any GQA model post-training. Western frontier labs &mdash; Meta, Google, Anthropic &mdash; remain on GQA. The question is not <em>whether</em> MLA will become the new standard. It is <em>when</em>.</p>
+</div>
+
+</section>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     CHAPTER 4 — THE OLDEST TRICK IN THE BOOK
+     ════════════════════════════════════════════════════════════════════ -->
+<section id="ch4">
+<h2>04 // The Oldest Trick in the Book</h2>
+
+<p class="drop-cap">Tri Dao arrived at Stanford as an undergrad planning to study economics. He took a few math classes during his first week, fell in love, and pivoted to a math major. He took ML and convex optimization courses (with Stephen Boyd), which pulled him into research. By the time he started his PhD in Chris Re&rsquo;s Hazy Research lab, co-advised by Stefano Ermon, he was deep in structured matrices &mdash; butterfly factorizations, compact linear maps, the kind of pure theory that wins awards at ICML and makes certain professors very happy.</p>
+
+<p>His early work was elegant. &ldquo;Learning Fast Algorithms for Linear Transforms Using Butterfly Factorizations&rdquo; (ICML 2019) showed how to discover efficient matrix decompositions. The theory was beautiful. The FLOP counts were impressive.</p>
+
+<p>But when he tried to make those algorithms <em>actually fast on GPUs</em>, the theory did not translate. His algorithms should have been faster by the FLOP count. The hardware said otherwise. A matrix multiply with 50% fewer FLOPs ran at the same speed &mdash; or slower &mdash; than the naive version. The gap between arithmetic complexity and wall-clock time haunted him.</p>
+
+<p>What he was missing, he later realized, was <strong>systems-level insight</strong>. Specifically, he did not understand GPU memory hierarchies. The theory counted operations. The hardware cared about data movement. These were not the same thing, and the difference was enormous.</p>
+
+<p>Then he noticed something the entire ML community was ignoring.</p>
+
+<h3>The Heretical Question</h3>
+
+<p>In 2020&ndash;2021, the field was obsessed with <strong>approximate attention</strong> &mdash; sparse attention, linear attention, Linformer, Performer. The pitch was always the same: attention is O(N<sup>2</sup>), so let us reduce the FLOPs. But Dao kept noticing: &ldquo;Approximate attention methods often do not achieve wall-clock speedup.&rdquo; They reduced theoretical compute and ran <em>no faster</em>.</p>
+
+<p>Because attention is not compute-bound. It is <strong>memory-bound</strong>.</p>
+
+<p>Standard attention computes Q&times;K<sup>T</sup> to produce an N&times;N score matrix. It writes that matrix to HBM. Reads it back. Applies softmax. Writes it to HBM again. Multiplies by V. Writes the output to HBM. That is <strong>four round trips</strong> of an N&times;N matrix through the 2 TB/s bottleneck, per layer, per head.</p>
+
+<p>For a sequence of 8,192 tokens, the attention matrix has 67 million entries. At FP16, that is 128 MB per head per layer, times four round trips. The GPU&rsquo;s 20 MB of fast SRAM sits empty while gigabytes shuttle back and forth through the mail slot.</p>
+
+<p>Dao&rsquo;s insight came from an unlikely source: <strong>1980s database literature</strong>. Out-of-core algorithms &mdash; techniques designed for processing data that does not fit in RAM by minimizing disk I/O. Same idea, different memory hierarchy. HBM is the new disk. SRAM is the new RAM. The principle was decades old. Nobody in ML had applied it.</p>
+
+<p>From Dao&rsquo;s <a href="https://www.latent.space/p/flashattention">Latent Space interview</a>: &ldquo;In hindsight, a lot of the ideas have already been there in the literature. And I would say it was somehow at the intersection of both machine learning and systems. And you kind of needed ideas from both sides.&rdquo;</p>
+
+<div class="power">
+  <div class="power-label">The Principle</div>
+  <p>Stop counting FLOPs. Start counting memory trips. The GPU can compute 16x faster than it can read (312 TFLOPS matmul vs. 19.5 TFLOPS non-matmul on A100). If you do more arithmetic but fewer memory round-trips, you win.</p>
+</div>
+
+<h3>The Online Softmax Puzzle</h3>
+
+<p>Here is the problem that almost killed the idea. Softmax needs the <strong>maximum value</strong> across all attention scores for numerical stability:</p>
+
+<pre><span class="label">Softmax</span><code><span class="fn">softmax</span>(x_i) = <span class="fn">exp</span>(x_i - <span class="fn">max</span>(x)) / <span class="fn">sum</span>(<span class="fn">exp</span>(x_j - <span class="fn">max</span>(x)))</code></pre>
+
+<p>If you are processing the attention matrix in tiles &mdash; small blocks that fit in SRAM &mdash; you have not seen all the scores yet. The max might be in a tile you have not processed. How do you compute a function that needs global information with only local data?</p>
+
+<p>The answer came from a 2018 paper by Maxim Milakov and Natalia Gimelshein at NVIDIA: <a href="https://arxiv.org/abs/1805.02867">&ldquo;Online normalizer calculation for softmax.&rdquo;</a> You keep two running values: a running maximum, and a running sum of exponentials. When a new tile arrives with a bigger max, you <strong>rescale everything you have computed so far</strong>. One multiplication corrects all previous work.</p>
+
+<p>It is like adjusting your grading curve mid-exam. A new highest score appears, and you retroactively recalculate everyone else&rsquo;s percentile &mdash; without re-reading their papers. The correction is <em>exact</em>. Not an approximation. Bit-identical to the standard computation.</p>
+
+<pre><span class="label">Online Softmax</span><code>m = <span class="nm">-inf</span>                          <span class="cm">// running max</span>
+l = <span class="nm">0</span>                              <span class="cm">// running sum of exp()</span>
+
+<span class="kw">for each</span> tile <span class="kw">in</span> attention_scores:
+    m_new = <span class="fn">max</span>(m, <span class="fn">max</span>(tile))       <span class="cm">// update running max</span>
+    l = l * <span class="fn">exp</span>(m - m_new)           <span class="cm">// rescale old sum (one multiply!)</span>
+      + <span class="fn">sum</span>(<span class="fn">exp</span>(tile - m_new))      <span class="cm">// add new tile's contribution</span>
+    m = m_new
+
+<span class="cm">// Final: exp(score - m) / l   for each score</span>
+<span class="cm">// Exact. Bit-identical. No approximation.</span></code></pre>
+
+<p>This is the mathematical foundation that makes FlashAttention possible. Without online softmax, you cannot tile attention, because you need all scores before computing any output. With it, you process tile by tile, update two scalars, and never look back.</p>
+
+<p>The Milakov and Gimelshein paper benchmarked a 1.3x speedup on softmax alone. A modest result. But its true legacy is enabling an entirely new paradigm for attention computation. The authors probably did not anticipate that their numerical trick would underpin the fastest attention implementation on Earth four years later. Good infrastructure work often looks modest at publication time and world-changing in retrospect.</p>
+
+<h3>Three Generations</h3>
+
+<h4>FlashAttention v1 (May 2022)</h4>
+
+<p><a href="https://arxiv.org/abs/2205.14135">Tri Dao, Daniel Fu, Stefano Ermon, Atri Rudra, Christopher Re.</a> The word &ldquo;exact&rdquo; appeared prominently in the title: <em>&ldquo;Fast and Memory-Efficient <strong>Exact</strong> Attention with IO-Awareness.&rdquo;</em> This was not another approximation. The approach had three components:</p>
+
+<ol style="margin: 0.5rem 0 1rem 1.5rem; font-size: 0.95rem; line-height: 1.6;">
+  <li><strong>Tile the computation</strong> so the attention score matrix is never fully materialized. Load small blocks of Q, K, V into SRAM, compute attention for that block entirely in fast memory, and write only the final output O back to HBM.</li>
+  <li><strong>Use online softmax</strong> to process tiles incrementally, keeping only a running max and running sum as state.</li>
+  <li><strong>Recompute in the backward pass</strong> instead of storing the attention matrices for backpropagation. This trades ~25% more FLOPs for 10&ndash;20x less memory. The memory savings are enormous; the compute cost is modest because the extra FLOPs are dense matmuls that GPUs handle efficiently.</li>
+</ol>
+
+<p>The result: memory usage drops from O(N<sup>2</sup>) to O(N) in sequence length. The attention matrix that would have been 128 MB per head at 8K tokens is never stored. Instead, the same information is recomputed on the fly from Q, K, V as needed. A 25% increase in compute buys a <strong>10&ndash;20x decrease in memory</strong>. FLOPs are cheap; memory trips are expensive.</p>
+
+<p>Results: <strong>2&ndash;4x wall-clock speedup</strong> over standard PyTorch attention, 10&ndash;20x memory reduction, bit-identical outputs. The magic word &ldquo;exact&rdquo; was critical for adoption &mdash; nobody had to worry about quality degradation. Every other fast attention method was an approximation. FlashAttention was the real thing, just organized differently.</p>
+
+<p>Adoption was swift and broad. MLPerf training 2.0 (June 2022): fastest BERT training used FlashAttention. MosaicML trained BERT 2.7x faster. Within a year, it was integrated into PyTorch, Hugging Face transformers, Microsoft DeepSpeed, and xFormers. Every major open model adopted it.</p>
+
+<p>But Dao knew he had left performance on the table. GPU utilization was only about <strong>30%</strong> on A100. The remaining 70% was wasted. Not by the algorithm&rsquo;s logic, but by how work was distributed across the GPU&rsquo;s parallel processors.</p>
+
+<h4>FlashAttention v2 (July 2023)</h4>
+
+<p><a href="https://arxiv.org/abs/2307.08691">Tri Dao, sole author.</a> The paper identified four specific bottlenecks in FA1 and fixed each one.</p>
+
+<p><strong>Problem 1: Too many non-matmul FLOPs.</strong> On A100, matrix multiply (matmul) runs at 312 TFLOPS, but non-matmul operations run at only 19.5 TFLOPS &mdash; a 16x gap. FA1 had too much bookkeeping overhead: bounds checking, causal masking, softmax rescaling. These ate into the time that should have been spent on matmuls.</p>
+
+<p><strong>Problem 2: Wrong loop order.</strong> FA1 looped over K/V blocks in the outer loop and Q blocks in the inner loop. This meant each thread block only processed a <em>slice</em> of the output, requiring expensive synchronization to combine partial results across blocks.</p>
+
+<p><strong>Fix: Swap the loops.</strong> Q blocks in the outer loop, K/V in the inner. Now each thread block produces a <em>complete</em> output tile &mdash; no cross-block synchronization needed.</p>
+
+<p><strong>Problem 3: Bad warp partitioning.</strong> FA1 used a &ldquo;sliced-K&rdquo; scheme &mdash; split K and V across 4 warps, keep Q shared. After each warp computed its slice of QK<sup>T</sup>, all warps had to write to shared memory, synchronize, and sum their partial results. This inter-warp communication was a bottleneck.</p>
+
+<p><strong>Fix: Split Q across warps instead.</strong> Each warp computes its own slice of the output using shared K and V. No inter-warp communication through shared memory. Each warp independently multiplies its Q slice with K<sup>T</sup>, then with V.</p>
+
+<p>Same GPU. Same algorithm. <strong>2x faster</strong>, just by rearranging how the work is distributed across warps and thread blocks. Utilization jumped from ~30% to <strong>50&ndash;73%</strong>. On A100: 230 TFLOPS (up from 124). On H100 (without Hopper-specific features): 335 TFLOPS.</p>
+
+<p>The lesson: in GPU programming, <em>how you partition the work</em> matters as much as <em>what work you do</em>. The algorithm was the same. The data was the same. The hardware was the same. Only the mapping of work to warps changed, and performance doubled.</p>
+
+<h4>FlashAttention v3 (July 2024)</h4>
+
+<p><a href="https://arxiv.org/abs/2407.08608">Tri Dao and Jay Shah.</a> Designed specifically for H100 Hopper. FA2 only achieved 35% utilization on H100 &mdash; the new chip had powerful features (WGMMA, TMA, FP8) that FA2 simply did not use. FA3 is a <strong>hardware co-design story</strong>: the algorithm evolves with the chip.</p>
+
+<p><strong>Warp specialization</strong>: Different warps do different jobs. &ldquo;Producer&rdquo; warps load data via Hopper&rsquo;s Tensor Memory Accelerator (dedicated hardware for HBM-to-SRAM transfers, freeing up warps). &ldquo;Consumer&rdquo; warps run WGMMA matrix multiplies. They work asynchronously &mdash; computation and data movement overlap.</p>
+
+<p><strong>Pingpong scheduling</strong>: Two warpgroups alternate like a relay race. While warpgroup A does its matrix multiplies, warpgroup B does its softmax. Then swap. Neither stalls the pipeline. FA2 ran them sequentially within each thread block.</p>
+
+<p><strong>FP8 with incoherent processing</strong>: H100 doubles throughput in FP8 (1,978 TFLOPS vs 989 in FP16). But naive FP8 quantization destroys attention quality. The problem: a few outlier values in Q and K dominate the attention pattern, and FP8&rsquo;s narrow dynamic range clips them. The result: the model stops attending to the right tokens.</p>
+
+<p>The fix is mathematically beautiful. Multiply both Q and K by a random orthogonal matrix M (implemented as a Hadamard transform with random sign flips). Since M is orthogonal:</p>
+
+<pre><span class="label">Incoherent Processing</span><code><span class="cm">// The orthogonal property ensures correctness:</span>
+(Q &times; M) &times; (K &times; M)<span class="pp">^T</span> = Q &times; M &times; M<span class="pp">^T</span> &times; K<span class="pp">^T</span>
+                        = Q &times; I &times; K<span class="pp">^T</span>        <span class="cm">// M &times; M^T = I</span>
+                        = Q &times; K<span class="pp">^T</span>            <span class="cm">// unchanged!</span>
+
+<span class="cm">// But the multiplication SPREADS outliers across all dimensions,</span>
+<span class="cm">// making the distribution uniform and FP8-friendly.</span>
+<span class="cm">// The Hadamard transform runs in O(d log d), not O(d^2),</span>
+<span class="cm">// and fuses with rotary embeddings for zero extra cost.</span></code></pre>
+
+<p>With 0.1% outlier entries, incoherent processing reduces FP8 quantization error by <strong>2.6x</strong>. You get double the throughput of FP16 with negligible quality loss.</p>
+
+<p>FA3 performance: up to <strong>740 TFLOPS</strong> in FP16 (75% H100 utilization). In FP8: close to <strong>1.2 petaFLOPS</strong>. That is 1,200 trillion operations per second on a single chip.</p>
+
+<div class="power">
+  <div class="power-label">The Arc</div>
+  <p>FA1: respect the memory hierarchy (tile + recompute). FA2: respect the warp structure (partition work correctly). FA3: respect the specific chip (Hopper async, pingpong, FP8). One principle &mdash; IO-awareness &mdash; applied deeper into the hardware each generation.</p>
+</div>
+
+<!-- ── VISUALIZATION: FA Generation Utilization ── -->
+<div class="viz-container">
+  <span class="diagram-label">FlashAttention Generations &mdash; GPU Utilization</span>
+  <svg id="viz-fa-gens" viewBox="0 0 760 220"></svg>
+</div>
+
+<script>
+(function() {
+    var W = 760, H = 220;
+    var svg = d3.select('#viz-fa-gens');
+    var gens = [
+        { name: 'Standard\nPyTorch', util: 12, tflops: 37, color: '#ff3344', year: '< 2022', fix: 'No IO-awareness' },
+        { name: 'Flash\nAttention v1', util: 30, tflops: 124, color: '#ff8800', year: 'May 2022', fix: 'Tiling + online softmax' },
+        { name: 'Flash\nAttention v2', util: 72, tflops: 230, color: '#ffdd00', year: 'Jul 2023', fix: '+ Loop swap + warp fix' },
+        { name: 'Flash\nAttention v3', util: 75, tflops: 740, color: '#00ff88', year: 'Jul 2024', fix: '+ Hopper async + FP8' }
+    ];
+
+    var barW = 120, gapX = 40, startX = 60, startY = 30;
+    var maxH = 130;
+
+    gens.forEach(function(g, i) {
+        var x = startX + i * (barW + gapX);
+        var barH = (g.util / 100) * maxH;
+        var barY = startY + maxH - barH;
+
+        // Bar
+        svg.append('rect').attr('x', x).attr('y', barY).attr('width', barW).attr('height', barH)
+            .attr('fill', g.color).attr('opacity', 0.3).attr('rx', 3);
+        svg.append('rect').attr('x', x).attr('y', barY).attr('width', barW).attr('height', barH)
+            .attr('fill', 'none').attr('stroke', g.color).attr('stroke-width', 1).attr('rx', 3);
+
+        // Utilization %
+        svg.append('text').attr('x', x + barW / 2).attr('y', barY - 8)
+            .text(g.util + '% util')
+            .attr('fill', g.color).attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 12).attr('text-anchor', 'middle').attr('font-weight', 600);
+
+        // TFLOPS inside bar
+        if (barH > 25) {
+            svg.append('text').attr('x', x + barW / 2).attr('y', barY + barH / 2 + 4)
+                .text(g.tflops + ' TFLOPS')
+                .attr('fill', g.color).attr('font-family', 'JetBrains Mono, monospace')
+                .attr('font-size', 9).attr('text-anchor', 'middle').attr('opacity', 0.8);
+        }
+
+        // Name below
+        var lines = g.name.split('\n');
+        lines.forEach(function(line, li) {
+            svg.append('text').attr('x', x + barW / 2).attr('y', startY + maxH + 18 + li * 13)
+                .text(line)
+                .attr('fill', '#e8e8f0').attr('font-family', 'JetBrains Mono, monospace')
+                .attr('font-size', 10).attr('text-anchor', 'middle');
+        });
+
+        // Year
+        svg.append('text').attr('x', x + barW / 2).attr('y', startY + maxH + 48)
+            .text(g.year)
+            .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 9).attr('text-anchor', 'middle');
+
+        // What changed
+        svg.append('text').attr('x', x + barW / 2).attr('y', startY + maxH + 62)
+            .text(g.fix)
+            .attr('fill', g.color).attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 8).attr('text-anchor', 'middle').attr('opacity', 0.6);
+
+        // Arrow between bars
+        if (i > 0) {
+            var arrowX = x - gapX / 2;
+            var speedup = (gens[i].tflops / gens[i-1].tflops).toFixed(1);
+            svg.append('text').attr('x', arrowX).attr('y', startY + maxH / 2)
+                .text(speedup + 'x')
+                .attr('fill', '#e8e8f0').attr('font-family', 'JetBrains Mono, monospace')
+                .attr('font-size', 10).attr('text-anchor', 'middle').attr('font-weight', 600);
+            svg.append('text').attr('x', arrowX).attr('y', startY + maxH / 2 + 14)
+                .text('\u2192')
+                .attr('fill', '#6a6a7e').attr('font-size', 14).attr('text-anchor', 'middle');
+        }
+    });
+})();
+</script>
+
+<h3>See It</h3>
+
+<p>Standard attention writes the full N&times;N matrix to HBM, reads it back, processes it, writes it back again. FlashAttention tiles the work into SRAM and never materializes the full matrix. Watch how the memory transfer gap widens as you increase sequence length.</p>
+
+<!-- ── VISUALIZATION 4: Naive vs Flash Attention ── -->
+<div class="viz-container">
+  <span class="diagram-label">Interactive &mdash; Standard vs Flash Attention Memory Transfers</span>
+  <svg id="viz-flash" viewBox="0 0 760 380"></svg>
+  <div class="viz-controls">
+    <div>
+      <label>Sequence Length</label>
+      <input type="range" id="viz-flash-seq" min="512" max="32768" value="2048" step="512">
+      <span class="val" id="viz-flash-seq-val">2,048</span>
+    </div>
+    <div id="viz-flash-ratio" style="color: var(--green); font-size: 12px;"></div>
+  </div>
+</div>
+
+<script>
+(function() {
+    var W = 760, H = 380;
+    var svg = d3.select('#viz-flash');
+    var d = 128; // head dim
+
+    function fmt(gb) {
+        if (gb < 0.001) return (gb * 1024 * 1024).toFixed(0) + ' KB';
+        if (gb < 1) return (gb * 1024).toFixed(1) + ' MB';
+        return gb.toFixed(2) + ' GB';
+    }
+
+    function draw(N) {
+        svg.selectAll('*').remove();
+        var halfW = 330, leftX = 40, rightX = leftX + halfW + 50;
+        var topY = 30;
+
+        // ── LEFT: Standard Attention ──
+        svg.append('text').attr('x', leftX + halfW / 2).attr('y', topY)
+            .text('Standard Attention')
+            .attr('fill', '#ff3344').attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 13).attr('text-anchor', 'middle').attr('font-weight', 600);
+
+        // N x N matrix visualization
+        var matSize = Math.min(150, halfW - 60);
+        var matX = leftX + (halfW - matSize) / 2;
+        var matY = topY + 25;
+
+        svg.append('rect').attr('x', matX).attr('y', matY)
+            .attr('width', matSize).attr('height', matSize)
+            .attr('fill', 'rgba(255,51,68,0.12)').attr('stroke', '#ff3344').attr('stroke-width', 1).attr('rx', 3);
+
+        // Grid lines
+        var gridN = Math.min(12, Math.max(4, Math.floor(N / 512)));
+        for (var i = 1; i < gridN; i++) {
+            var p = matX + (i / gridN) * matSize;
+            svg.append('line').attr('x1', p).attr('y1', matY).attr('x2', p).attr('y2', matY + matSize)
+                .attr('stroke', '#ff3344').attr('stroke-width', 0.3).attr('opacity', 0.25);
+            var q = matY + (i / gridN) * matSize;
+            svg.append('line').attr('x1', matX).attr('y1', q).attr('x2', matX + matSize).attr('y2', q)
+                .attr('stroke', '#ff3344').attr('stroke-width', 0.3).attr('opacity', 0.25);
+        }
+
+        svg.append('text').attr('x', matX + matSize / 2).attr('y', matY + matSize / 2 + 4)
+            .text((N/1000).toFixed(1) + 'K \u00d7 ' + (N/1000).toFixed(1) + 'K')
+            .attr('fill', '#ff3344').attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 11).attr('text-anchor', 'middle').attr('opacity', 0.8);
+
+        svg.append('text').attr('x', matX + matSize / 2).attr('y', matY + matSize + 16)
+            .text('Full matrix in HBM (slow)')
+            .attr('fill', '#ff3344').attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 9).attr('text-anchor', 'middle').attr('opacity', 0.6);
+
+        // Standard HBM bytes: 4 round trips of N*N (FP16) + Q,K,V,O = 2*N*d each
+        var standardBytes = (4 * N * N * 2) + (4 * N * d * 2);
+        var standardGB = standardBytes / 1073741824;
+
+        svg.append('text').attr('x', leftX + halfW / 2).attr('y', matY + matSize + 42)
+            .text('HBM I/O: ' + fmt(standardGB))
+            .attr('fill', '#ff3344').attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 12).attr('text-anchor', 'middle').attr('font-weight', 600);
+
+        svg.append('text').attr('x', leftX + halfW / 2).attr('y', matY + matSize + 60)
+            .text('Grows as N\u00b2 (quadratic)')
+            .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 9).attr('text-anchor', 'middle');
+
+        // ── RIGHT: FlashAttention ──
+        svg.append('text').attr('x', rightX + halfW / 2).attr('y', topY)
+            .text('FlashAttention')
+            .attr('fill', '#00ff88').attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 13).attr('text-anchor', 'middle').attr('font-weight', 600);
+
+        // SRAM tiles
+        var tileSize = 24;
+        var tilesPerRow = Math.min(6, Math.max(3, Math.floor(Math.sqrt(N / 400))));
+        var tileAreaW = tilesPerRow * (tileSize + 5);
+        var tileAreaH = tilesPerRow * (tileSize + 5);
+        var tileStartX = rightX + (halfW - tileAreaW) / 2;
+        var tileStartY = matY + (matSize - tileAreaH) / 2;
+
+        for (var r = 0; r < tilesPerRow; r++) {
+            for (var c = 0; c < tilesPerRow; c++) {
+                var tx = tileStartX + c * (tileSize + 5);
+                var ty = tileStartY + r * (tileSize + 5);
+                svg.append('rect').attr('x', tx).attr('y', ty)
+                    .attr('width', tileSize).attr('height', tileSize)
+                    .attr('fill', 'rgba(0,255,136,0.12)').attr('stroke', '#00ff88')
+                    .attr('stroke-width', 0.5).attr('rx', 2);
+            }
+        }
+
+        svg.append('text').attr('x', rightX + halfW / 2).attr('y', matY + matSize + 16)
+            .text('Tiles in SRAM (fast, 19 TB/s)')
+            .attr('fill', '#00ff88').attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 9).attr('text-anchor', 'middle').attr('opacity', 0.6);
+
+        // Flash HBM bytes: ~2 reads (Q,K,V) + 1 write (O) of N*d each
+        var flashBytes = (3 * N * d * 2) + (N * d * 2); // Q+K+V read, O write
+        var flashGB = flashBytes / 1073741824;
+
+        svg.append('text').attr('x', rightX + halfW / 2).attr('y', matY + matSize + 42)
+            .text('HBM I/O: ' + fmt(flashGB))
+            .attr('fill', '#00ff88').attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 12).attr('text-anchor', 'middle').attr('font-weight', 600);
+
+        svg.append('text').attr('x', rightX + halfW / 2).attr('y', matY + matSize + 60)
+            .text('Grows as N (linear)')
+            .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 9).attr('text-anchor', 'middle');
+
+        // Savings summary
+        var ratio = standardGB / Math.max(flashGB, 0.000001);
+        svg.append('text').attr('x', W / 2).attr('y', H - 45)
+            .text('Flash saves ' + ratio.toFixed(0) + 'x memory I/O at ' + (N >= 1000 ? (N/1000).toFixed(N >= 10000 ? 0 : 1) + 'K' : N) + ' tokens')
+            .attr('fill', '#e8e8f0').attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 13).attr('text-anchor', 'middle').attr('font-weight', 600);
+
+        svg.append('text').attr('x', W / 2).attr('y', H - 22)
+            .text('Standard grows as N\u00b2. Flash grows as N. Same output. Bit-identical.')
+            .attr('fill', '#6a6a7e').attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 10).attr('text-anchor', 'middle');
+
+        d3.select('#viz-flash-ratio').text(ratio.toFixed(0) + 'x fewer memory trips');
+    }
+
+    d3.select('#viz-flash-seq').on('input', function() {
+        var v = +this.value;
+        d3.select('#viz-flash-seq-val').text(v >= 1000 ? (v/1000).toFixed(v >= 10000 ? 0 : 1) + 'K' : v);
+        draw(v);
+    });
+
+    draw(2048);
+})();
+</script>
+
+<h3>FlashDecoding: The Missing Piece</h3>
+
+<p>FlashAttention was designed for <strong>training</strong> &mdash; long sequences, large batches, all queries processed in parallel. During inference decode (generating one token at a time), the situation is completely different:</p>
+
+<p>Query length = 1. Batch size often = 1. But the KV cache can be very long &mdash; thousands to millions of tokens.</p>
+
+<p>FA parallelizes over query blocks and batch &times; heads. With query length 1 and batch 1, only <code>num_heads</code> thread blocks launch. On an A100 with 108 streaming multiprocessors: if you have 32 heads, <strong>76 SMs sit completely idle</strong>. GPU utilization: less than 1%.</p>
+
+<p><a href="https://crfm.stanford.edu/2023/10/12/flashdecoding.html">FlashDecoding</a> (October 2023, Stanford CRFM) adds parallelism over the <strong>KV sequence length</strong> dimension. The recipe: split the KV cache into chunks along the sequence dimension, compute attention of the single query against each chunk in parallel using FlashAttention (each chunk stores one extra scalar: the log-sum-exp), then combine the chunks&rsquo; results using those log-sum-exp values for correct rescaling. The same online softmax math that makes FA possible also makes this split-and-merge exact.</p>
+
+<p>Results: up to <strong>8x faster</strong> end-to-end generation for long sequences (on CodeLLaMA-34B, 512 to 64K tokens). The attention kernel itself: up to <strong>50x speedup</strong> over FA2 in the decode setting. And a crucial property: runtime stays <strong>roughly constant</strong> as sequence length scales from 512 to 64K, while FA2 without FlashDecoding scales linearly. This is because the parallelism over KV length means more tokens = more chunks = more SMs utilized, which compensates for the increased work per token.</p>
+
+<p>FlashDecoding completed the FlashAttention story. FA made training fast. FA2 made it efficient. FlashDecoding made inference fast. Together, they cover the full lifecycle: you train with FA2, and you serve with FlashDecoding. The underlying math is the same &mdash; online softmax and tiling &mdash; but the parallelism strategy flips: training parallelizes over query length (long sequences), decode parallelizes over KV length (long context windows).</p>
+
+<details>
+  <summary>The Full FlashAttention Integration Timeline</summary>
+  <div>
+    <p><strong>June 2022</strong>: MLPerf training 2.0 &mdash; fastest BERT training uses FlashAttention. <strong>2022-2023</strong>: Integrated into PyTorch <code>nn.Transformer</code>, Hugging Face transformers, Microsoft DeepSpeed, xFormers. <strong>2023-2024</strong>: Every major open model adopts it &mdash; LLaMA, Falcon, MPT, Mistral, Qwen. MosaicML trains BERT 2.7x faster using FA. NVIDIA integrates FA techniques into their own BERT implementation. The community calls it &ldquo;a rare paradigm shift.&rdquo;</p>
+    <p>Dao&rsquo;s emphasis on releasing quality, usable code alongside the paper drove adoption. The <a href="https://github.com/Dao-AILab/flash-attention">flash-attention repository</a> was as valuable as the research itself.</p>
+  </div>
+</details>
+
+</section>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     CHAPTER 5 — THE SAME PERSON
+     ════════════════════════════════════════════════════════════════════ -->
+<section id="ch5">
+<h2>05 // The Same Person</h2>
+
+<p class="drop-cap">MLA changes what you store. FlashAttention changes how you compute. They are orthogonal. They compose multiplicatively.</p>
+
+<p>Consider DeepSeek-V2 at 128K context. Without any optimization: the KV cache alone is 480 GB, and the attention matrix per head per layer is 128K &times; 128K = 16 billion entries. The cache does not fit in any GPU. The attention matrix does not fit in any memory on Earth at full precision.</p>
+
+<p>With MLA: the cache shrinks to ~8 GB. That fits on one GPU. With FlashAttention: the attention matrix never materializes at all &mdash; it is computed tile-by-tile in SRAM. With DSA: only 2,048 of the 128K tokens are attended, reducing the effective attention from 128K &times; 128K to 128K &times; 2,048. Three optimizations, three orders of magnitude, and they compose cleanly because they attack different layers of the problem.</p>
+
+<h3>Two Revolutions, One Principle</h3>
+
+<p>The deeper thread is that both revolutions stem from the same insight: <strong>memory movement, not arithmetic, is the real cost</strong>.</p>
+
+<p>MQA and GQA reduce the bytes you must <em>read</em> from the KV cache per decode step. MLA compresses those bytes further &mdash; and improves quality in the process. FlashAttention reduces the bytes you must <em>write and re-read</em> for the attention computation itself. Different layers of the same problem. Different solutions that stack cleanly.</p>
+
+<p>And then something remarkable happened. The same person who made attention fast went on to question whether attention was necessary at all.</p>
+
+<p>In December 2023 &mdash; just months after FlashAttention-2 &mdash; Tri Dao and Albert Gu published <a href="https://arxiv.org/abs/2312.00752"><strong>Mamba</strong></a>: a selective state space model that processes sequences in linear time instead of quadratic. Mamba is <em>not</em> attention. It is a fundamentally different computation &mdash; a hardware-aware parallel scan that replaces the attention matrix entirely. But the engineering philosophy is identical: do not materialize large intermediate states in HBM, keep computation in SRAM, recompute in the backward pass instead of storing.</p>
+
+<p>From the Mamba paper: the hardware-aware design &ldquo;uses principles similar to the FlashAttention techniques.&rdquo;</p>
+
+<p>IO-awareness is not an attention trick. It is a way of thinking about computation on modern hardware. When Dao moved from attention to an entirely different model architecture, the same principle applied. The insight outlives the algorithm. And it suggests that whatever comes after Transformers &mdash; whether SSMs, linear attention hybrids, or something nobody has imagined yet &mdash; will be fast not because of fewer FLOPs, but because of fewer memory trips.</p>
+
+<p>Mamba achieved <strong>5x higher inference throughput</strong> than Transformers and scaled linearly to million-length sequences. Not because it does less computation &mdash; the parallel scan is not trivially cheap &mdash; but because it never materializes the equivalent of an N&times;N attention matrix. The bottleneck was never the arithmetic. It was always the mail slot.</p>
+
+<div class="power wild">
+  <div class="power-label">The Thread</div>
+  <p>Tri Dao&rsquo;s career arc traces the evolution of the field itself. Structured matrices (theory) &rarr; FlashAttention (making attention fast) &rarr; Mamba (asking whether we need attention at all). Each step applied the same IO-aware principle deeper. This sets up Part VI of The Efficiency Papers: <em>What If Attention Is Wrong?</em></p>
+</div>
+
+<h3>The Full Stack</h3>
+
+<p>These optimizations do not exist in isolation. In production inference systems, they stack with other techniques:</p>
+
+<table>
+  <thead>
+    <tr><th>Technique</th><th>What It Does</th><th>How It Stacks</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>MLA / GQA</strong></td>
+      <td>Compresses KV cache per token</td>
+      <td>Fewer bytes to read per decode step</td>
+    </tr>
+    <tr>
+      <td><strong>FlashAttention</strong></td>
+      <td>Tiles attention in SRAM</td>
+      <td>Fewer HBM round-trips for Q&times;K<sup>T</sup>&times;V</td>
+    </tr>
+    <tr>
+      <td><strong>KV Cache Quantization</strong></td>
+      <td>Stores cache in INT8 / FP8</td>
+      <td>2x smaller cache on top of MLA/GQA compression</td>
+    </tr>
+    <tr>
+      <td><strong>PagedAttention</strong> (vLLM)</td>
+      <td>Virtual-memory paging for KV cache</td>
+      <td>Eliminates fragmentation, more sequences fit in GPU</td>
+    </tr>
+    <tr>
+      <td><strong>Speculative Decoding</strong></td>
+      <td>Draft model proposes, large model verifies</td>
+      <td>Smaller KV cache = room for draft model tokens</td>
+    </tr>
+    <tr>
+      <td><strong>DSA</strong></td>
+      <td>Selects which tokens to attend to</td>
+      <td>62x fewer tokens touched per decode step</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Each optimization attacks a different layer of the problem. Together, they have made it possible to serve 70-billion-parameter models with 128K context windows on hardware that, three years ago, could barely handle 7B at 2K tokens.</p>
+
+<h3>A Concrete Receipt</h3>
+
+<p>To make the stacking tangible, consider a real scenario: serving Qwen 2.5 72B at 32K context with batch size 4.</p>
+
+<div class="diagram">
+  <span class="diagram-label">The Attention Tax Receipt</span>
+  <pre><code>
+  <span class="st">Qwen 2.5 72B  |  32K context  |  batch = 4  |  FP16</span>
+  <span class="cm">----------------------------------------------------</span>
+  Model weights (FP16)              <span class="nm">144.0 GB</span>
+  Activations                       <span class="nm">  ~2.0 GB</span>
+  KV Cache (GQA-8, 32K x bs=4)     <span class="nm"> 40.0 GB</span>
+  <span class="cm">----------------------------------------------------</span>
+  TOTAL                             <span class="nm">186.0 GB</span>
+
+  <span class="cm">KV Cache % of total:                21.5%</span>
+  <span class="cm">At 128K context, same batch:       ~65%  </span>
+  <span class="cm">At 128K context, batch=8:          OUT OF MEMORY</span>
+
+  <span class="st">With INT8 KV quantization:</span>        <span class="nm"> 20.0 GB</span> cache (halved)
+  <span class="st">If this were MLA instead:</span>         <span class="nm">  ~2.5 GB</span> cache (93% smaller)
+  <span class="st">MLA + DSA:</span>                         attend to <span class="nm">1.6%</span> of context
+  </code></pre>
+</div>
+
+<p>The receipt makes the &ldquo;tax&rdquo; metaphor literal. And it shows why these optimizations are not academic curiosities &mdash; they are the difference between &ldquo;we need 3 A100s&rdquo; and &ldquo;we need 1.&rdquo; At cloud GPU prices of $2&ndash;4 per GPU-hour, that is tens of thousands of dollars per day for a busy inference service. Cut the GPU count by 2x and you just saved your company more money annually than most ML teams&rsquo; entire compute budget.</p>
+
+<p>This is why these papers matter beyond academia. MQA was not published at a conference. FlashAttention was a CUDA kernel. GQA was a simple idea about weight averaging. MLA was a matrix factorization. None of them changed what the model <em>does</em> &mdash; they changed what it <em>costs</em>. And in the economics of inference, cost determines who can ship a product and who cannot.</p>
+
+<h3>The Interactions</h3>
+
+<p>A few composition patterns worth noting:</p>
+
+<p><strong>MLA + FlashAttention</strong>: MLA compresses the KV cache, so each FlashAttention tile loads less data per token. The attention matrix itself (which FA tiles) is smaller in effective dimensions (192 vs 128 per head with decoupled RoPE), but the total memory footprint is dramatically reduced. They compose multiplicatively on memory.</p>
+
+<p><strong>GQA + KV cache quantization</strong>: GQA reduces the number of KV heads from 32 to 8 (4x smaller cache). INT8 quantization halves each value. Together: 8x smaller cache. At 128K context for Qwen 72B, that takes the cache from ~40 GB to ~5 GB. The model plus cache now fits on a single A100 with room to spare for batching.</p>
+
+<p><strong>DSA + speculative decoding</strong>: DSA shrinks the effective context from 128K to 2K tokens. Speculative decoding uses a small draft model to propose multiple tokens, then verifies them in one pass of the large model. Smaller effective context means the verification pass is faster. The draft model&rsquo;s KV cache is tiny. They stack cleanly.</p>
+
+<p><strong>PagedAttention + everything</strong>: vLLM&rsquo;s PagedAttention manages KV cache memory with virtual-memory-style paging, eliminating the 60&ndash;80% memory waste from pre-allocation. It works with any cache format &mdash; GQA, MLA, quantized, whatever. It is an orthogonal optimization that multiplies the effective batch size by reducing fragmentation.</p>
+
+</section>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     CHAPTER 6 — WHAT'S NEXT
+     ════════════════════════════════════════════════════════════════════ -->
+<section id="ch6">
+<h2>06 // What&rsquo;s Next</h2>
+
+<p class="drop-cap">The attention tax has not been eliminated. It has been restructured.</p>
+
+<p>MLA compresses it. FlashAttention pays it faster. DSA avoids most of it entirely. But the fundamental cost &mdash; reading memory to generate tokens &mdash; remains. It is built into the physics of silicon. The speed of light limits how fast you can move data. The distance between compute units and memory grows with every chip generation. More transistors mean more compute per square millimeter, but the wires connecting them to memory do not get shorter. They get <em>longer</em>, because the chip is bigger, and the memory stacks sit farther from the compute clusters.</p>
+
+<p>The &ldquo;memory wall,&rdquo; as Wulf and McKee named it in 1995, is not a temporary engineering problem waiting for the next process node. It is a permanent constraint rooted in physics: the energy to move a bit of data across a chip is roughly 100x the energy to do a floating-point operation on it. Every generation of hardware shifts the bottleneck slightly, and every generation of optimizers must push against it anew.</p>
+
+<p>The work we have traced in this article represents the field learning this lesson &mdash; that memory matters more than math &mdash; in different ways and at different levels of the stack:</p>
+
+<div class="diagram">
+  <span class="diagram-label">Paper Timeline</span>
+
+  <div class="timeline-item">
+    <span class="timeline-year">2018</span>
+    <div class="timeline-body"><strong>Online Softmax</strong> &mdash; Milakov &amp; Gimelshein (NVIDIA). Single-pass softmax with running max and sum. The mathematical enabler nobody knew they needed. <a href="https://arxiv.org/abs/1805.02867">arXiv:1805.02867</a></div>
+  </div>
+
+  <div class="timeline-item">
+    <span class="timeline-year">2019</span>
+    <div class="timeline-body"><strong>Multi-Query Attention</strong> &mdash; Noam Shazeer. Share one K/V across all query heads. 7 pages, no co-authors, never published at a conference. Ignored for 3.5 years. <a href="https://arxiv.org/abs/1911.02150">arXiv:1911.02150</a></div>
+  </div>
+
+  <div class="timeline-item">
+    <span class="timeline-year">2022</span>
+    <div class="timeline-body"><strong>PaLM</strong> &mdash; Google (Chowdhery et al.). 540B parameters, first major model with MQA. Shazeer co-authored. Proved MQA works at frontier scale. <a href="https://arxiv.org/abs/2204.02311">arXiv:2204.02311</a></div>
+  </div>
+
+  <div class="timeline-item">
+    <span class="timeline-year">2022</span>
+    <div class="timeline-body"><strong>FlashAttention v1</strong> &mdash; Tri Dao, Fu, Ermon, Rudra, Re. Tiled, exact, IO-aware attention. 2&ndash;4x faster, O(N) memory. Changed the infrastructure landscape. <a href="https://arxiv.org/abs/2205.14135">arXiv:2205.14135</a></div>
+  </div>
+
+  <div class="timeline-item">
+    <span class="timeline-year">2023</span>
+    <div class="timeline-body"><strong>GQA</strong> &mdash; Ainslie et al. (Google). Grouped KV sharing + 5% uptrain conversion. The compromise that became the industry standard. EMNLP 2023. <a href="https://arxiv.org/abs/2305.13245">arXiv:2305.13245</a></div>
+  </div>
+
+  <div class="timeline-item">
+    <span class="timeline-year">2023</span>
+    <div class="timeline-body"><strong>FlashAttention v2</strong> &mdash; Tri Dao. Swapped loop order, fixed warp partitioning. 2x faster than v1, 70% A100 utilization. <a href="https://arxiv.org/abs/2307.08691">arXiv:2307.08691</a></div>
+  </div>
+
+  <div class="timeline-item">
+    <span class="timeline-year">2023</span>
+    <div class="timeline-body"><strong>FlashDecoding</strong> &mdash; Stanford CRFM. Split-K over KV sequence length for decode. Up to 8x faster generation. <a href="https://crfm.stanford.edu/2023/10/12/flashdecoding.html">CRFM Blog</a></div>
+  </div>
+
+  <div class="timeline-item">
+    <span class="timeline-year">2023</span>
+    <div class="timeline-body"><strong>Mamba</strong> &mdash; Gu &amp; Dao. Selective state space model, linear time. Same IO-awareness principle, no attention at all. <a href="https://arxiv.org/abs/2312.00752">arXiv:2312.00752</a></div>
+  </div>
+
+  <div class="timeline-item">
+    <span class="timeline-year">2024</span>
+    <div class="timeline-body"><strong>DeepSeek-V2 + MLA</strong> &mdash; DeepSeek. Low-rank KV compression, 93% cache reduction, quality improves through regularization. <a href="https://arxiv.org/abs/2405.04434">arXiv:2405.04434</a></div>
+  </div>
+
+  <div class="timeline-item">
+    <span class="timeline-year">2024</span>
+    <div class="timeline-body"><strong>FlashAttention v3</strong> &mdash; Dao &amp; Shah. Hopper co-design: warp specialization, pingpong scheduling, FP8 with incoherent processing. 1.2 PFLOPS. <a href="https://arxiv.org/abs/2407.08608">arXiv:2407.08608</a></div>
+  </div>
+
+  <div class="timeline-item">
+    <span class="timeline-year">2025</span>
+    <div class="timeline-body"><strong>DeepSeek V3.2 + DSA</strong> &mdash; Lightning indexer selects 2,048 from 128K tokens. Sparse + compressed + tiled = practical long-context inference. <a href="https://arxiv.org/abs/2512.02556">arXiv:2512.02556</a></div>
+  </div>
+
+  <div class="timeline-item">
+    <span class="timeline-year">2025</span>
+    <div class="timeline-body"><strong>TransMLA</strong> &mdash; Ant Group (Ling 2.5). Retrofit MLA onto any GQA model post-training. NeurIPS 2025 Spotlight. <a href="https://arxiv.org/abs/2502.07864">arXiv:2502.07864</a></div>
+  </div>
+</div>
+
+<p>The story has a shape. First, researchers attacked the KV cache by reducing what gets stored &mdash; MQA (2019, ignored), GQA (2023, adopted instantly), MLA (2024, proving compression improves quality). Then they attacked the attention computation by reducing memory transfers &mdash; FlashAttention across three generations, each one co-designing the algorithm with the hardware. Then they attacked the number of tokens attended &mdash; DSA selecting 1.6% of context with no quality loss.</p>
+
+<p>At each step, the gains composed. At each step, the remaining bottleneck shrank and revealed the next one. And at each step, the key insight was the same: <strong>move less data, not do less math</strong>.</p>
+
+<p>The human stories rhyme too. Noam Shazeer published MQA as a 7-page solo preprint and left Google before anyone cared &mdash; his idea became the industry standard while he was at a chatbot startup. Tri Dao arrived at Stanford to study economics, fell into math, discovered that his theoretical results did not translate to real GPUs, and brought database techniques from the 1980s to the most important computation of the 2020s. DeepSeek, constrained by U.S. export controls to H800 chips with crippled interconnect, turned that constraint into MLA &mdash; an architecture that does not just match the unconstrained alternative, it <em>beats</em> it.</p>
+
+<p>The pattern repeats: the best optimizations did not come from throwing more hardware at the problem. They came from thinking harder about what the hardware was actually doing. From counting memory trips instead of FLOPs. From respecting the hierarchy instead of pretending it does not exist.</p>
+
+<p>There is something almost poetic about it. The attention mechanism was designed as a way for models to <em>remember</em> &mdash; to look back at everything that came before and decide what matters. The attention tax is the cost of that memory. And the solutions we have traced are all, in different ways, about being smarter about <em>what to remember and how to retrieve it</em>. MLA says: store a compressed sketch, not the full memory. FlashAttention says: when you do need to look, do it systematically instead of rummaging through the whole warehouse. DSA says: you do not need to look at everything. Most of the past does not matter for this particular question.</p>
+
+<p>The same ideas, applied to the model itself instead of its memory, lead to the next question.</p>
+
+<p>Making attention faster does not help if the <em>weights themselves</em> do not fit in memory.</p>
+
+<p>A 72-billion-parameter model in full precision is 144 GB. Your GPU &mdash; if you are lucky enough to have an RTX 4090 &mdash; has 24 GB. Even a datacenter A100 has 80 GB. The model does not fit. You could split it across multiple GPUs &mdash; expensive, complex, latency-inducing. Or you could ask a different question entirely.</p>
+
+<p>What if each parameter did not need 16 bits? What if 4 bits were enough? What if you could throw away <strong>75% of those bits</strong> &mdash; and the model barely notices?</p>
+
+<p>The attention tax was the first bottleneck the field hit at scale. It was solved &mdash; or at least restructured &mdash; by two complementary ideas: compress what you store (MQA &rarr; GQA &rarr; MLA), and compute smarter with what remains (FlashAttention). The second bottleneck is the weights themselves. And the same principle &mdash; that not all bits are created equal, that most information lives in a surprisingly small subspace &mdash; applies there too.</p>
+
+<div class="power">
+  <div class="power-label">Part II &mdash; Fewer Bits, Same Brain</div>
+  <p>What if you could throw away 75% of a model&rsquo;s bits and it barely notices? Part II traces the story of quantization: from the GPTQ paper that made 4-bit inference practical, through AWQ&rsquo;s insight that 1% of weights matter more than the other 99%, to the extreme 2-bit frontier where quality finally breaks. The same question, applied to the other half of GPU memory.</p>
+</div>
+
+</section>
+
+</div><!-- .content -->
+
+<!-- ── Scroll Spy ── -->
+<script>
+(function() {
+    var sections = document.querySelectorAll('section[id]');
+    var navLinks = document.querySelectorAll('nav a[href^="#"]');
+    var observer = new IntersectionObserver(function(entries) {
+        entries.forEach(function(entry) {
+            if (entry.isIntersecting) {
+                navLinks.forEach(function(a) { a.classList.remove('active'); });
+                var active = document.querySelector('nav a[href="#' + entry.target.id + '"]');
+                if (active) active.classList.add('active');
+            }
+        });
+    }, { rootMargin: '-20% 0px -70% 0px' });
+    sections.forEach(function(s) { observer.observe(s); });
+})();
+</script>
+
+</body>
+</html>

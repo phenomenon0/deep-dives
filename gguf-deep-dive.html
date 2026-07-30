@@ -722,7 +722,7 @@
       <div class="subtitle">
         You search HuggingFace for Qwen3-8B. The results page shows GGUF, AWQ, EXL2 &mdash; three downloads, same model, completely different internals. One is a single self-describing binary. One is a directory of safetensors with external configs. One carries a per-column error map that lets you dial precision to the tenth of a bit. This article opens all three.<span class="blink">_</span>
       </div>
-      <div class="series-kicker">The Efficiency Papers &mdash; Prologue</div>
+      <div class="series-kicker">The Efficiency Papers &mdash; Prologue &middot; 4 April 2026</div>
     </div>
 
     <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -744,7 +744,7 @@
       </p>
       <p style="font-style:italic;color:var(--text-dim);margin-bottom:1.5rem;">Three ecosystems. Three design philosophies. One question: what is actually inside the file you downloaded?</p>
 
-      <p class="drop-cap">In February 2023, Meta&rsquo;s LLaMA weights leaked. Within a week, a Bulgarian developer named Georgi Gerganov had the model running on a MacBook &mdash; no Python, no PyTorch, pure C. His project, <code>llama.cpp</code>, needed a file format. The first attempt, GGML, broke constantly. Five months later he replaced it with <strong style="color:var(--green)">GGUF</strong>: a single self-describing binary. Architecture, tokenizer, quantization, weights &mdash; one file, no sidecar configs. That bet turned <code>llama.cpp</code> into the engine behind <span class="popup-link" data-popup="ollama">Ollama</span>, <span class="popup-link" data-popup="lmstudio">LM Studio</span>, and most of the local AI ecosystem.</p>
+      <p class="drop-cap">In February 2023, Meta&rsquo;s LLaMA weights leaked. Within a week, a Bulgarian developer named Georgi Gerganov had the model running on a MacBook &mdash; no Python, no PyTorch, pure C. His project, <code>llama.cpp</code>, needed a file format. The first attempt, GGML, broke constantly. Five months later he replaced it with <strong style="color:var(--green)">GGUF</strong>: a single self-describing binary. Architecture, tokenizer, quantization, weights &mdash; one file, no sidecar configs. That bet turned <code>llama.cpp</code> into the engine behind Ollama, LM Studio, and most of the local AI ecosystem.</p>
 
       <p>But Gerganov was not the only one building. From MIT&rsquo;s Han Lab came <strong style="color:var(--orange)">AWQ</strong> &mdash; a quantization algorithm that stores its outputs as standard HuggingFace safetensors. No self-describing header, but native to vLLM and the GPU serving stack. From the ExLlamaV2 project came <strong style="color:var(--cyan)">EXL2</strong> &mdash; same safetensors packaging, but with a <code>measurement.json</code> that maps reconstruction error per column, enabling precision to the tenth of a bit. Three bets on the same problem:</p>
 
@@ -1047,7 +1047,7 @@
       <ul style="margin:0.8rem 0 0.8rem 1.5rem;line-height:1.8;">
         <li><strong>Group size</strong> (64 or 128): Smaller groups = better quality, more overhead. 128 is the default; 64 appears on some careful quantizations.</li>
         <li><strong>Kernel compatibility</strong>: Some uploads specify &ldquo;Marlin&rdquo; or &ldquo;GEMM&rdquo; in the name. Marlin is a fast GPU kernel for 4-bit inference &mdash; it does not change the quantization, only the runtime speed. GEMM is the default, slower kernel.</li>
-        <li><strong>Quantizer</strong>: AutoAWQ (community standard) vs. vLLM&rsquo;s built-in quantizer vs. HuggingFace&rsquo;s integration. All produce compatible files; quality differences are marginal.</li>
+        <li><strong>Quantizer</strong>: <code>llm-compressor</code> (vLLM&rsquo;s official tool, now the standard) or AutoAWQ (the original community tool). Both produce compatible files.</li>
       </ul>
 
       <p>When you see <code>Qwen3-8B-AWQ</code> on HuggingFace with no further qualifiers, it is almost certainly 4-bit, group 128, GEMM kernel. The lack of variety is a feature: AWQ optimises for one sweet spot rather than offering a menu.</p>
@@ -1139,17 +1139,20 @@
 
       <p class="drop-cap">Each format has its own path from HuggingFace to running inference.</p>
 
-      <h3>GGUF &mdash; Ollama</h3>
+      <h3>GGUF &mdash; llama.cpp / Ollama</h3>
 
-      <p>The fastest path. One command, no Python, no GPU drivers.</p>
+      <p><code>llama.cpp</code> is the runtime that created GGUF. Ollama wraps it with a friendlier interface.</p>
 
-<pre><span class="label">Terminal</span><code><span class="cm"># Download + run in one command</span>
+<pre><span class="label">Terminal</span><code><span class="cm"># Ollama — one command, zero setup</span>
 <span class="fn">ollama</span> run qwen3:8b
 
 <span class="cm"># Or pull a specific quant from HuggingFace</span>
-<span class="fn">ollama</span> run hf.co/bartowski/Qwen3-8B-GGUF:Q4_K_M</code></pre>
+<span class="fn">ollama</span> run hf.co/bartowski/Qwen3-8B-GGUF:Q4_K_M
 
-      <p>Ollama reads the header, builds the graph from metadata, loads tensors via <code>mmap</code>, and starts generating. CPU, Apple Silicon, or NVIDIA GPU &mdash; same command.</p>
+<span class="cm"># llama.cpp directly — more control, same engine</span>
+<span class="fn">llama-cli</span> -m Qwen3-8B-Q4_K_M.gguf -p "Hello" -n 128</code></pre>
+
+      <p>Both read the GGUF header, build the graph from metadata, and load tensors via <code>mmap</code>. CPU, Apple Silicon, or NVIDIA GPU &mdash; same binary. Ollama adds model management and an API; <code>llama.cpp</code> gives you direct control.</p>
 
       <h3>AWQ &mdash; vLLM</h3>
 
@@ -1609,7 +1612,7 @@
       { name:'Q4_0', family:'Legacy', bpw:4.50, color:'#ffdd00', size27b:'~15.2 GB', fits:'16GB GPU / 24GB Mac', quality:'Decent',
         desc:'The original 4-bit quantization. Simple blocks of 32 weights with one FP16 scale each. No double quantization, no sub-blocks.',
         when:'Never. Use Q4_K_S or Q4_K_M instead. Q4_0 exists for backwards compatibility and benchmarks.',
-        eureka:'Q4_0 and Q4_K_S use similar storage but Q4_K\'s double quantization produces measurably better quality. There is no reason to choose Q4_0 in 2025.', star:true },
+        eureka:'Q4_0 and Q4_K_S use similar storage but Q4_K\'s double quantization produces measurably better quality. There is no reason to choose Q4_0 in 2026.', star:true },
       { name:'IQ4_XS', family:'I-quant', bpw:4.46, color:'#00ff88', size27b:'~15.1 GB', fits:'16GB GPU / 24GB Mac', quality:'Good+',
         desc:'4-bit codebook quantization with importance matrix. Non-linear value mapping tuned to each layer\'s weight distribution. 8% smaller than Q4_K_M with comparable quality.',
         when:'You want Q4_K_M quality in a smaller file — or you are bandwidth-constrained (downloading over slow connections, deploying to edge).',

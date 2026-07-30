@@ -1,0 +1,2337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Making It Fit &mdash; The Efficiency Papers, Part I-A</title>
+  <link rel="canonical" href="https://femiadeniran.com/deep-dives/efficiency-papers-1a-making-it-fit.html">
+  <meta property="og:title" content="Making It Fit — The Efficiency Papers, Part I-A">
+  <meta property="og:description" content="Your GPU has 24 GB. The model needs 144 GB. Interactive visualizations showing how FlashAttention, quantization, and GGML closed the gap.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://femiadeniran.com/deep-dives/efficiency-papers-1a-making-it-fit.html">
+  <meta property="og:site_name" content="Femi Adeniran">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Making It Fit — The Efficiency Papers, Part I-A">
+  <meta name="twitter:description" content="Your GPU has 24 GB. The model needs 144 GB. Interactive visualizations showing how FlashAttention, quantization, and GGML closed the gap.">
+  <meta name="author" content="Femi Adeniran">
+<meta name="description" content="Your GPU has 24 GB. The model needs 144 GB. Interactive visualizations showing how FlashAttention, quantization, and GGML closed the gap.">
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<link
+  href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+  rel="stylesheet"
+>
+<style>
+:root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --white: #e8e8f0;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+}
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 3rem; }
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+}
+
+body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.03) 2px,
+        rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+}
+
+/* ── Navigation ── */
+nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 1000;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 1.5rem;
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+}
+nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    transition: color 0.2s, text-shadow 0.2s;
+    padding: 0.3rem 0;
+}
+nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+nav a.active { color: var(--green); text-shadow: 0 0 12px rgba(0,255,136,0.4); }
+.nav-title {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 0.5rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.25);
+    flex-shrink: 0;
+}
+
+/* ── Content container ── */
+.content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+}
+
+/* ── Hero ── */
+.hero {
+    text-align: center;
+    padding: 4rem 0 5rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4rem;
+}
+.hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3rem;
+    font-weight: 600;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+}
+.subtitle {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 640px;
+    margin: 0 auto;
+}
+.series-kicker {
+    margin-top: 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+/* ── Glitch text ── */
+.glitch { position: relative; display: inline-block; }
+.glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    inset: 0;
+    width: 100%; height: 100%;
+}
+.glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 3s infinite linear alternate-reverse;
+    clip-path: inset(0 0 80% 0);
+}
+.glitch::after {
+    color: var(--magenta);
+    animation: glitch-2 2.5s infinite linear alternate-reverse;
+    clip-path: inset(80% 0 0 0);
+}
+.blink { display: inline-block; animation: blink 1s step-end infinite; color: var(--green); }
+@keyframes blink { 50% { opacity: 0; } }
+@keyframes glitch-1 {
+    0%, 90% { transform: translate(0); }
+    92% { transform: translate(-3px, 1px); }
+    94% { transform: translate(3px, -1px); }
+    96% { transform: translate(-2px, 2px); }
+    100% { transform: translate(0); }
+}
+@keyframes glitch-2 {
+    0%, 88% { transform: translate(0); }
+    90% { transform: translate(2px, -1px); }
+    93% { transform: translate(-3px, 2px); }
+    96% { transform: translate(1px, -2px); }
+    100% { transform: translate(0); }
+}
+
+/* ── Typography ── */
+section { margin-bottom: 5rem; padding-top: 1rem; }
+
+h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: var(--green);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: 0.02em;
+}
+h3 {
+    font-size: 1.25rem;
+    color: var(--cyan);
+    margin: 2.5rem 0 1rem;
+    font-weight: 600;
+}
+h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 2rem 0 0.8rem;
+}
+p { margin-bottom: 1rem; }
+strong { color: var(--white); }
+em { color: var(--text); }
+a { color: var(--cyan); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ── Code ── */
+code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.15em 0.4em;
+}
+pre {
+    position: relative;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    margin: 1.2rem 0;
+}
+pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+}
+.cm { color: var(--text-dim); }
+.kw { color: var(--magenta); }
+.ty { color: var(--cyan); }
+.st { color: var(--green); }
+.nm { color: var(--yellow); }
+.fn { color: var(--blue); }
+.pp { color: var(--orange); }
+
+.label {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.8rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+}
+
+/* ── Diagram / diagram-label ── */
+.diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+}
+.diagram pre { border: none; margin: 0; padding: 0; background: none; font-size: 12.5px; line-height: 1.45; }
+.diagram-label {
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    margin-bottom: 0.8rem;
+}
+
+/* ── Power boxes ── */
+.power {
+    border-left: 3px solid var(--green-dim);
+    background: rgba(0,255,136,0.04);
+    padding: 1rem 1.2rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+}
+.power p { font-size: 0.88rem; line-height: 1.6; margin-bottom: 0; }
+.power.danger { border-left-color: var(--red); background: rgba(255,51,68,0.04); }
+.power.hack { border-left-color: var(--magenta); background: rgba(255,0,170,0.04); }
+.power.wild { border-left-color: var(--orange); background: rgba(255,136,0,0.04); }
+.power.zen { border-left-color: var(--cyan); background: rgba(0,221,255,0.04); }
+.power.purple { border-left-color: var(--purple); background: rgba(170,68,255,0.04); }
+
+.power-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--green);
+    margin-bottom: 0.5rem;
+}
+.power.danger .power-label { color: var(--red); }
+.power.hack .power-label { color: var(--magenta); }
+.power.wild .power-label { color: var(--orange); }
+.power.zen .power-label { color: var(--cyan); }
+.power.purple .power-label { color: var(--purple); }
+
+/* ── Tables ── */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.92rem;
+}
+th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--green);
+    text-align: left;
+    padding: 0.6rem 0.8rem;
+    border-bottom: 2px solid var(--border);
+}
+td {
+    padding: 0.5rem 0.8rem;
+    border-bottom: 1px solid var(--border);
+}
+tr:hover td { background: rgba(0,255,136,0.03); }
+
+/* ── VS cards ── */
+.vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+}
+.vs-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem 1.1rem;
+}
+.vs-card h4 { margin-top: 0; }
+
+/* ── Viz containers ── */
+.viz-container {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+}
+.viz-container svg { width: 100%; height: auto; display: block; }
+.viz-controls {
+    display: flex;
+    gap: 1.5rem;
+    margin-top: 1rem;
+    align-items: center;
+    flex-wrap: wrap;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+}
+.viz-controls label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--cyan);
+    display: block;
+    margin-bottom: 0.3rem;
+}
+.viz-controls select, .viz-controls input[type="range"] {
+    background: var(--bg-code);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 0.3rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    border-radius: 4px;
+}
+.viz-controls input[type="range"] {
+    width: 140px;
+    accent-color: var(--green);
+}
+.viz-controls .val {
+    color: var(--green);
+    font-size: 13px;
+}
+.viz-controls button {
+    background: var(--green-dim);
+    color: var(--bg);
+    border: none;
+    padding: 0.4rem 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    border-radius: 4px;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    transition: background 0.15s;
+}
+.viz-controls button:hover { background: var(--green); }
+.viz-controls button.active {
+    background: var(--green);
+    color: var(--bg);
+    box-shadow: 0 0 12px rgba(0,255,136,0.3);
+}
+.viz-controls button.secondary {
+    background: var(--border);
+    color: var(--text);
+}
+.viz-controls button.secondary:hover { background: var(--border-glow); }
+.viz-controls button.secondary.active {
+    background: var(--cyan);
+    color: var(--bg);
+    box-shadow: 0 0 12px rgba(0,221,255,0.3);
+}
+
+.ticker {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--green);
+    text-shadow: 0 0 8px rgba(0,255,136,0.3);
+}
+
+/* ── Fit result ── */
+.fit-result {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.4rem;
+    font-weight: 600;
+    text-align: center;
+    padding: 0.5rem;
+    margin-top: 0.5rem;
+}
+.fit-yes { color: var(--green); text-shadow: 0 0 12px rgba(0,255,136,0.4); }
+.fit-tight { color: var(--yellow); text-shadow: 0 0 12px rgba(255,221,0,0.3); }
+.fit-no { color: var(--red); text-shadow: 0 0 12px rgba(255,51,68,0.4); }
+
+/* ── Timeline ── */
+.timeline-item {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.2rem;
+    align-items: flex-start;
+}
+.timeline-year {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--magenta);
+    min-width: 72px;
+    flex-shrink: 0;
+    padding-top: 0.15rem;
+}
+.timeline-body {
+    font-size: 0.9rem;
+    line-height: 1.55;
+    border-left: 2px solid var(--border);
+    padding-left: 1rem;
+}
+.timeline-body strong { color: var(--cyan); }
+
+/* ── Details / collapsibles ── */
+details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1.2rem 0;
+}
+summary {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--green);
+    padding: 0.8rem 1.2rem;
+    cursor: pointer;
+}
+details[open] summary { border-bottom: 1px solid var(--border); }
+details > div { padding: 1rem 1.2rem; }
+
+/* ── Tabbed panels ── */
+.tab-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1.5rem 0;
+    overflow: hidden;
+}
+.tab-panel input[type="radio"] { display: none; }
+.tab-nav {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+}
+.tab-nav label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    padding: 0.6rem 1.2rem;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.tab-nav label:hover { color: var(--green); }
+.tab-body { display: none; padding: 1.2rem 1.4rem; }
+.tab-body p { font-size: 0.92rem; line-height: 1.6; }
+.tab-body p:last-child { margin-bottom: 0; }
+.tab-body table { font-size: 0.85rem; }
+.tab-body table th { font-size: 10px; }
+
+/* Tab activation — FlashAttention */
+#fa-tab1:checked ~ .tab-nav label[for="fa-tab1"],
+#fa-tab2:checked ~ .tab-nav label[for="fa-tab2"],
+#fa-tab3:checked ~ .tab-nav label[for="fa-tab3"] {
+    color: var(--green);
+    border-bottom-color: var(--green);
+}
+#fa-tab1:checked ~ .tab-body.fa-body1,
+#fa-tab2:checked ~ .tab-body.fa-body2,
+#fa-tab3:checked ~ .tab-body.fa-body3 { display: block; }
+
+/* Tab activation — Outliers */
+#outlier-tab1:checked ~ .tab-nav label[for="outlier-tab1"],
+#outlier-tab2:checked ~ .tab-nav label[for="outlier-tab2"] {
+    color: var(--orange);
+    border-bottom-color: var(--orange);
+}
+#outlier-tab1:checked ~ .tab-body.outlier-body1,
+#outlier-tab2:checked ~ .tab-body.outlier-body2 { display: block; }
+
+/* Tab activation — Surgeons */
+#surgeon-tab1:checked ~ .tab-nav label[for="surgeon-tab1"],
+#surgeon-tab2:checked ~ .tab-nav label[for="surgeon-tab2"],
+#surgeon-tab3:checked ~ .tab-nav label[for="surgeon-tab3"] {
+    color: var(--purple);
+    border-bottom-color: var(--purple);
+}
+#surgeon-tab1:checked ~ .tab-body.surgeon-body1,
+#surgeon-tab2:checked ~ .tab-body.surgeon-body2,
+#surgeon-tab3:checked ~ .tab-body.surgeon-body3 { display: block; }
+
+/* ── Responsive ── */
+@media (max-width: 700px) {
+    body { font-size: 16px; }
+    nav { font-size: 9px; gap: 0.7rem; }
+    .content { padding: 3rem 0.8rem 4rem; }
+    .hero h1 { font-size: 2rem; }
+    .vs { grid-template-columns: 1fr; }
+    pre { font-size: 10.5px; padding: 0.7rem; }
+    .diagram { padding: 1rem; }
+    .power { padding: 0.6rem 0.8rem; }
+    .viz-container { padding: 1rem; }
+    .viz-controls { gap: 0.8rem; font-size: 10px; }
+    .viz-controls button { padding: 0.3rem 0.8rem; font-size: 10px; }
+    .viz-controls input[type="range"] { width: 100px; }
+    .tab-nav label { padding: 0.5rem 0.8rem; font-size: 9px; }
+    .tab-body { padding: 0.8rem 1rem; }
+    .tab-body p { font-size: 0.85rem; }
+}
+</style>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     NAV
+     ════════════════════════════════════════════════════════════════════ -->
+<nav>
+  <span class="nav-title">&gt;_ Making It Fit</span>
+  <a href="#ch1">01 Memory Wall</a>
+  <a href="#ch2">02 FlashAttention</a>
+  <a href="#ch3">03 Outliers</a>
+  <a href="#ch4">04 Surgeons</a>
+  <a href="#ch5">05 Revolution</a>
+  <a href="#ch6">06 Frontier</a>
+</nav>
+
+<div class="content">
+
+<!-- ════════════════════════════════════════════════════════════════════
+     HERO
+     ════════════════════════════════════════════════════════════════════ -->
+<div class="hero">
+  <h1><span class="glitch" data-text="MAKING IT FIT">MAKING IT FIT</span></h1>
+  <div class="subtitle">
+    Your GPU has 24 GB. The model needs 144 GB.
+    These papers closed the gap.<span class="blink">_</span>
+  </div>
+  <div class="series-kicker">The Efficiency Papers &mdash; Part I-A</div>
+</div>
+
+<div class="power zen" style="margin-top: 2rem;">
+<div class="power-label">Continuing the thread</div>
+<p>
+This picks up from our <a href="inference-engine-deep-dive.html">inference engine deep dive</a>. Start there if you want to understand what happens inside a transformer block &mdash; embedding, attention, FFN, sampling. This article is about making that machinery <strong>fit on your hardware</strong>.
+</p>
+</div>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     CHAPTER 1 — THE MEMORY WALL
+     ════════════════════════════════════════════════════════════════════ -->
+<section id="ch1">
+<h2>01 // The Memory Wall</h2>
+
+<p>
+Every token you generate means reading the entire KV cache. At Qwen 72B with 32K context, that is <strong>10 GB of reads &mdash; for one word</strong>. Your GPU spends 95% of its time waiting for data, not computing. The compute cores can do 312 trillion operations per second, but they are fed through a 2 TB/s straw. The straw is the bottleneck.
+</p>
+
+<p>
+And every token makes the cache bigger. The visualization below shows what that looks like as context grows.
+</p>
+
+<!-- ─── VIZ: KV Cache Growing ─── -->
+<div class="viz-container">
+  <span class="diagram-label">The KV Cache Growing &mdash; click tokens or toggle models</span>
+  <svg id="viz-kvcache" viewBox="0 0 760 340" style="width:100%; height:auto;"></svg>
+  <div class="viz-controls">
+    <button class="secondary active" data-kv-model="gpt2">GPT-2 124M</button>
+    <button class="secondary" data-kv-model="qwen7b">Qwen 7B</button>
+    <button class="secondary" data-kv-model="qwen72b">Qwen 72B</button>
+    <button id="kv-add-token">+ Token</button>
+    <button id="kv-auto">Auto</button>
+    <button id="kv-reset" class="secondary">Reset</button>
+    <span style="margin-left:auto; color:var(--text-dim); font-size:11px;">
+      Tokens: <span class="val" id="kv-token-count">0</span>
+      &nbsp;|&nbsp; KV Cache: <span class="val" id="kv-cache-size">0 MB</span>
+    </span>
+  </div>
+</div>
+
+<p>
+Now watch the two phases of inference. Prefill processes your entire prompt at once &mdash; big matrix multiplies, GPU fully lit. Decode generates one token at a time &mdash; tiny vector operations, GPU mostly dark.
+</p>
+
+<!-- ─── VIZ: Prefill vs Decode ─── -->
+<div class="viz-container">
+  <span class="diagram-label">Prefill vs Decode &mdash; two universes of GPU utilization</span>
+  <svg id="viz-prefill-decode" viewBox="0 0 760 280" style="width:100%; height:auto;"></svg>
+</div>
+
+<div class="power zen">
+<div class="power-label">The arithmetic gap</div>
+<p>
+The GPU can multiply 16x faster than it can read. During decode, it reads everything and multiplies almost nothing. Arithmetic intensity during prefill: ~150 ops/byte. During decode: ~1 op/byte. The GPU is a sports car stuck in a parking lot.
+</p>
+</div>
+
+</section>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     CHAPTER 2 — FLASHATTENTION
+     ════════════════════════════════════════════════════════════════════ -->
+<section id="ch2">
+<h2>02 // FlashAttention</h2>
+
+<p>
+You have seen the memory wall. Now look at where most of that memory goes. During attention, the model computes a score between every pair of tokens &mdash; an N&times;N matrix. At 8,192 tokens, that is 67 million entries. Standard attention writes this entire matrix to GPU main memory, reads it back for softmax, then writes it again. Four trips through the bottleneck for a single attention layer. Multiply by 80 layers and you see the problem.
+</p>
+
+<p>
+In 2022, Tri Dao showed you could avoid materializing that matrix entirely &mdash; and get the <strong>exact same answer</strong>.
+</p>
+
+<p>
+The left panel below shows standard attention materializing the full matrix in slow HBM. The right shows Flash processing tiles in fast SRAM. Drag the sequence length slider and watch quadratic memory blow up while Flash stays linear.
+</p>
+
+<!-- ─── VIZ: Standard vs Flash Attention ─── -->
+<div class="viz-container">
+  <span class="diagram-label">Standard vs Flash Attention &mdash; memory usage comparison</span>
+  <svg id="viz-std-vs-flash" viewBox="0 0 760 380" style="width:100%; height:auto;"></svg>
+  <div class="viz-controls">
+    <div>
+      <label>Sequence Length</label>
+      <input type="range" id="flash-seq-len" min="8" max="512" step="8" value="32">
+      <span class="val" id="flash-seq-val">32</span>
+    </div>
+    <button id="flash-animate">Animate</button>
+    <span style="margin-left:auto; color:var(--text-dim); font-size:11px;">
+      Standard: <span class="val" id="flash-std-mem">---</span>
+      &nbsp;|&nbsp; Flash: <span class="val" id="flash-flash-mem">---</span>
+    </span>
+  </div>
+</div>
+
+<!-- ─── VIZ: The Tiling Loop ─── -->
+<div class="viz-container">
+  <span class="diagram-label">The Tiling Loop &mdash; step through FlashAttention's algorithm</span>
+  <svg id="viz-tiling" viewBox="0 0 760 380" style="width:100%; height:auto;"></svg>
+  <div class="viz-controls">
+    <button id="tiling-step">Step</button>
+    <button id="tiling-auto">Auto</button>
+    <button id="tiling-reset" class="secondary">Reset</button>
+    <span style="margin-left:auto; color:var(--text-dim); font-size:11px;">
+      Step: <span class="val" id="tiling-step-num">0</span> / 4
+      &nbsp;|&nbsp; HBM reads: <span class="val" id="tiling-hbm">0</span> bytes
+    </span>
+  </div>
+</div>
+
+<!-- ─── Tabbed Panel: FlashAttention Deep Dive ─── -->
+<div class="tab-panel">
+  <input type="radio" name="fa-tabs" id="fa-tab1" checked>
+  <input type="radio" name="fa-tabs" id="fa-tab2">
+  <input type="radio" name="fa-tabs" id="fa-tab3">
+  <div class="tab-nav">
+    <label for="fa-tab1">Why It Works</label>
+    <label for="fa-tab2">Three Generations</label>
+    <label for="fa-tab3">The Aha</label>
+  </div>
+  <div class="tab-body fa-body1">
+    <p>
+    Imagine adding up a column of 1,000 numbers. The naive way: write all 1,000 on a whiteboard, then sum them. FlashAttention's way: keep a running total on a Post-it note, reading numbers one at a time. Same answer. The whiteboard is never needed.
+    </p>
+    <p>
+    The catch is that softmax needs the <strong>maximum</strong> of all values first. FlashAttention keeps a running maximum. When it finds a bigger number, it retroactively corrects everything with one multiplication. Like adjusting a grading curve mid-exam &mdash; one correction fixes all previous scores.
+    </p>
+  </div>
+  <div class="tab-body fa-body2">
+    <table>
+      <thead>
+        <tr><th></th><th>FA1 (2022)</th><th>FA2 (2023)</th><th>FA3 (2024)</th></tr>
+      </thead>
+      <tbody>
+        <tr><td style="color:var(--cyan)">Target GPU</td><td>A100</td><td>A100</td><td>H100</td></tr>
+        <tr><td style="color:var(--cyan)">Utilization</td><td style="color:var(--yellow)">30%</td><td style="color:var(--green)">73%</td><td style="color:var(--green)">75%</td></tr>
+        <tr><td style="color:var(--cyan)">Key change</td><td>Tiling + online softmax</td><td>Swapped loop order + causal skip</td><td>Warp specialization + async</td></tr>
+        <tr><td style="color:var(--cyan)">Speedup</td><td>2-4&times;</td><td>2&times; over FA1</td><td>1.5-2&times; over FA2</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="tab-body fa-body3">
+    <p>
+    FlashAttention computes <strong>more</strong> total arithmetic than standard attention. It recomputes some values instead of storing them. But it is faster because memory trips &mdash; not arithmetic &mdash; are the bottleneck. Doing extra math is free when the GPU is waiting for data anyway.
+    </p>
+    <p>
+    This is the central insight of every optimization in this article: <strong>trade compute for memory access</strong>. The GPU has compute to spare. What it lacks is bandwidth.
+    </p>
+  </div>
+</div>
+
+<div class="power">
+<div class="power-label">Zero approximation</div>
+<p>
+FlashAttention does not approximate anything. It computes the exact same answer, just without the memory waste. The principle never changed across three generations. The depth of application did.
+</p>
+</div>
+
+</section>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     CHAPTER 3 — THE OUTLIER DISCOVERY
+     ════════════════════════════════════════════════════════════════════ -->
+<section id="ch3">
+<h2>03 // The Outlier Discovery</h2>
+
+<p>
+In 2022, Tim Dettmers tried to run transformers in INT8. Small models worked fine. At 6.7 billion parameters, something broke. Every layer suddenly coordinated on the same 6 dimensions for extreme values &mdash; 100x larger than normal. These are not noise. They are how the model steers attention. Clip them, and it forgets how to focus.
+</p>
+
+<p>
+The visualization below shows a weight matrix. Most values are small (blue). But a few columns are bright red &mdash; outliers. Toggle the controls to see what happens when you clip them versus handling them intelligently.
+</p>
+
+<!-- ─── VIZ: The Emergent Outliers ─── -->
+<div class="viz-container">
+  <span class="diagram-label">Emergent Outliers &mdash; the phase transition at 6.7B parameters</span>
+  <svg id="viz-outliers" viewBox="0 0 760 400" style="width:100%; height:auto;"></svg>
+  <div class="viz-controls">
+    <button class="secondary active" data-outlier="normal">Original</button>
+    <button class="secondary" data-outlier="clip">Clip Outliers</button>
+    <button class="secondary" data-outlier="llmint8">LLM.int8()</button>
+    <button class="secondary" data-outlier="small">Show at 1B</button>
+    <button class="secondary" data-outlier="big">Show at 6.7B</button>
+    <span style="margin-left:auto; color:var(--text-dim); font-size:11px;">
+      Quality: <span class="val" id="outlier-quality">100%</span>
+    </span>
+  </div>
+</div>
+
+<!-- ─── Tabbed Panel: Outlier Deep Dive ─── -->
+<div class="tab-panel">
+  <input type="radio" name="outlier-tabs" id="outlier-tab1" checked>
+  <input type="radio" name="outlier-tabs" id="outlier-tab2">
+  <div class="tab-nav">
+    <label for="outlier-tab1">What Are Outliers?</label>
+    <label for="outlier-tab2">The Fix</label>
+  </div>
+  <div class="tab-body outlier-body1">
+    <p>
+    In a typical transformer layer, most activation values hover between -1 and +1. But 6-7 channels carry values of 50-100. These channels are the model's steering system &mdash; they control which tokens get attended to and how strongly. They are not bugs. They are the most important features the model learned.
+    </p>
+    <p>
+    Below 6.7B parameters, outliers appear randomly and scatter across different channels each layer. Above that threshold, something snaps: the same columns light up in every layer. The model spontaneously develops a privileged coordinate system. Quantize those coordinates and the whole model breaks.
+    </p>
+  </div>
+  <div class="tab-body outlier-body2">
+    <p>
+    LLM.int8() is elegant: do not try to fit outliers into the INT8 grid. Just do not quantize them. Keep the 0.1% of values that are outliers in full FP16 precision. Quantize everything else to INT8. The model uses half the memory and loses nothing.
+    </p>
+    <p>
+    The implementation is a matrix decomposition. Split every hidden state into two paths: the 6 outlier columns go through an FP16 matmul, the remaining 4,090 columns go through INT8. Sum the results. Two matmuls instead of one, but 99.9% of the work is in INT8.
+    </p>
+  </div>
+</div>
+
+<div class="power wild">
+<div class="power-label">The phase transition</div>
+<p>
+Dettmers did not just solve a quantization problem. He discovered that large transformers spontaneously develop a privileged coordinate system &mdash; 6 dimensions out of thousands that control everything. This was the first evidence that scale changes the internal structure of the model, not just its accuracy.
+</p>
+</div>
+
+</section>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     CHAPTER 4 — THE WEIGHT SURGEONS
+     ════════════════════════════════════════════════════════════════════ -->
+<section id="ch4">
+<h2>04 // The Weight Surgeons</h2>
+
+<p>
+Three groups independently asked the same question: which weights can you round without killing the model? They found three different answers. GPTQ sweeps column by column, redistributing error via the Hessian. SmoothQuant transfers difficulty from spiky activations to smooth weights. AWQ protects the 1% of weights that activations actually <em>use</em>.
+</p>
+
+<p>
+Click each method below to see how it transforms the same weight matrix. Watch the quality readout.
+</p>
+
+<!-- ─── VIZ: Three Scalpels ─── -->
+<div class="viz-container">
+  <span class="diagram-label">Three Scalpels &mdash; four methods, one weight matrix</span>
+  <svg id="viz-surgeons" viewBox="0 0 760 340" style="width:100%; height:auto;"></svg>
+  <div class="viz-controls" id="surgeon-controls">
+    <button class="secondary active" data-surgeon="fp16">Original FP16</button>
+    <button class="secondary" data-surgeon="gptq">GPTQ</button>
+    <button class="secondary" data-surgeon="smoothquant">SmoothQuant</button>
+    <button class="secondary" data-surgeon="awq">AWQ</button>
+    <span style="margin-left:auto; color:var(--text-dim); font-size:11px;">
+      Perplexity: <span class="val" id="surgeon-ppl">6.57</span> <span style="color:var(--text-dim)">(FP16 baseline: 6.57)</span>
+    </span>
+  </div>
+</div>
+
+<!-- ─── Tabbed Panel: Weight Surgeons Deep Dive ─── -->
+<div class="tab-panel">
+  <input type="radio" name="surgeon-tabs" id="surgeon-tab1" checked>
+  <input type="radio" name="surgeon-tabs" id="surgeon-tab2">
+  <input type="radio" name="surgeon-tabs" id="surgeon-tab3">
+  <div class="tab-nav">
+    <label for="surgeon-tab1">GPTQ: The Hessian Surgeon</label>
+    <label for="surgeon-tab2">SmoothQuant: The Seesaw</label>
+    <label for="surgeon-tab3">AWQ: The Activation Lens</label>
+  </div>
+  <div class="tab-body surgeon-body1">
+    <p>
+    Which weights, if rounded, cause the most damage? The Hessian (second derivative of loss) tells you. GPTQ quantizes column by column, and each column's rounding error gets redistributed to the columns that have not been quantized yet. Later columns absorb earlier mistakes.
+    </p>
+    <p>
+    The sweep moves left to right through the weight matrix. By the time it reaches the last column, accumulated corrections have spread the error thin across thousands of parameters. A 175B model quantizes in 4 GPU hours. The result: 3-4 bit weights with perplexity within 0.05 of the original.
+    </p>
+  </div>
+  <div class="tab-body surgeon-body2">
+    <p>
+    Activations are spiky. Weights are smooth. SmoothQuant transfers the difficulty: divide activations by a per-channel scale, multiply weights by the same scale. The math is identical. But now both fit cleanly into INT8.
+    </p>
+    <p>
+    Like pouring water from a tall narrow glass into a wide flat one. Same volume, different shape. The tall glass (activations with outliers) overflows the INT8 range. The flat glass (smoothed activations) fits perfectly. One offline calibration pass finds the scales. Inference runs entirely in INT8.
+    </p>
+  </div>
+  <div class="tab-body surgeon-body3">
+    <p>
+    The experiment that changed everything: protect the top 1% of weights selected by <em>weight magnitude</em> &rarr; perplexity 22.37 (terrible). Protect the top 1% selected by <em>activation magnitude</em> &rarr; perplexity 11.36 (near-perfect). The weights that matter are not the biggest. They are the ones the model actually uses.
+    </p>
+    <p>
+    AWQ scales up the important channels before quantization so they get more of the INT4 grid. No mixed precision needed, no special kernels for outlier paths. Just a per-channel multiply that makes the right weights louder before the rounding happens.
+    </p>
+  </div>
+</div>
+
+<div class="power purple">
+<div class="power-label">The shared insight</div>
+<p>
+Three groups, three methods, one lesson: the weights that <em>look</em> important are not the weights that <em>are</em> important. What the model uses matters more than what the model stores.
+</p>
+</div>
+
+</section>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     CHAPTER 5 — THE GGML REVOLUTION
+     ════════════════════════════════════════════════════════════════════ -->
+<section id="ch5">
+<h2>05 // The GGML Revolution</h2>
+
+<p>
+GPTQ, SmoothQuant, and AWQ are research tools &mdash; they prove what is possible. But running a quantized model on your laptop requires something else entirely: a runtime that understands block quantization at the hardware level, can be compiled on any platform, and does not need a GPU at all. That is what one person built.
+</p>
+
+<p>
+March 2023. LLaMA leaks. Seven days later, Georgi Gerganov &mdash; a Bulgarian medical physicist who called himself "a non-AI-believer" &mdash; has it running on a MacBook. Quantized to 4 bits. No GPU. His C library now powers Ollama, LM Studio, GPT4All, and every local AI tool you have heard of.
+</p>
+
+<p>
+His innovation: block quantization. Instead of one scale for the whole tensor, give every 32 weights their own scale. Then quantize the scales themselves. Then use calibration data to give important weights more bits. Click through the levels below.
+</p>
+
+<!-- ─── VIZ: Block Quantization Anatomy ─── -->
+<div class="viz-container">
+  <span class="diagram-label">Block Quantization Anatomy &mdash; click to zoom in</span>
+  <svg id="viz-blocks" viewBox="0 0 760 300" style="width:100%; height:auto;"></svg>
+  <div class="viz-controls">
+    <button class="active" data-block-level="tensor" id="block-level-tensor">Tensor</button>
+    <button class="secondary" data-block-level="superblock" id="block-level-superblock">Superblock</button>
+    <button class="secondary" data-block-level="subblock" id="block-level-subblock">Sub-block</button>
+    <span style="margin-left:auto; color:var(--text-dim); font-size:11px;">
+      Bits/weight: <span class="val" id="block-bpw">4.89</span>
+      &nbsp;|&nbsp; 8B model: <span class="val" id="block-size">4.58 GiB</span>
+    </span>
+  </div>
+</div>
+
+<!-- ─── VIZ: Does It Fit? Calculator ─── -->
+<div class="viz-container">
+  <span class="diagram-label">Does It Fit? &mdash; the calculator</span>
+  <div id="viz-fit"></div>
+  <div class="viz-controls">
+    <div>
+      <label>Model</label>
+      <select id="fit-model">
+        <option value="gpt2">GPT-2 (124M)</option>
+        <option value="qwen7b" selected>Qwen 2.5 7B</option>
+        <option value="qwen72b">Qwen 2.5 72B</option>
+        <option value="dsv3">DeepSeek-V3 (671B)</option>
+      </select>
+    </div>
+    <div>
+      <label>Precision</label>
+      <select id="fit-precision">
+        <option value="16">FP16 (16-bit)</option>
+        <option value="8">INT8 (8-bit)</option>
+        <option value="4" selected>INT4 (4-bit)</option>
+        <option value="2">2-bit</option>
+      </select>
+    </div>
+    <div>
+      <label>GPU</label>
+      <select id="fit-gpu">
+        <option value="12">RTX 3060 (12 GB)</option>
+        <option value="24" selected>RTX 4090 (24 GB)</option>
+        <option value="80">A100 (80 GB)</option>
+      </select>
+    </div>
+  </div>
+  <div id="fit-result" class="fit-result"></div>
+</div>
+
+<div class="power">
+<div class="power-label">The constraint-driven thesis</div>
+<p>
+Not having access to GPU clusters drove more innovation than having them. Google, Meta, and OpenAI had unlimited compute but built inference systems that <em>required</em> unlimited compute. Gerganov had a MacBook and built something that ran on everything. The constraint was the advantage.
+</p>
+</div>
+
+</section>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     CHAPTER 6 — THE RADICAL FRONTIER
+     ════════════════════════════════════════════════════════════════════ -->
+<section id="ch6">
+<h2>06 // The Radical Frontier</h2>
+
+<p>
+What if every weight was -1, 0, or +1? No multiplication &mdash; just addition. Microsoft's BitNet proved a 2B ternary model uses 0.4 GB and runs at human reading speed on CPU. Six times less memory, twelve times less energy, within 2% of full-precision quality.
+</p>
+
+<p>
+And the most important lesson in this article: AWQ without the right kernel runs <strong>slower</strong> than no quantization at all. The Marlin kernel makes it 10.9x faster. Math without engineering is just theory. Watch:
+</p>
+
+<!-- ─── VIZ: The Kernel Gap ─── -->
+<div class="viz-container">
+  <span class="diagram-label">The Kernel Gap &mdash; same algorithm, different execution</span>
+  <svg id="viz-kernel-gap" viewBox="0 0 760 220" style="width:100%; height:auto;"></svg>
+  <div class="viz-controls">
+    <button id="kernel-animate">Animate</button>
+    <button id="kernel-reset" class="secondary">Reset</button>
+  </div>
+</div>
+
+<div class="power danger">
+<div class="power-label">The kernel lesson</div>
+<p>
+The algorithm is not the bottleneck. The execution is. AWQ's math compresses the model beautifully. But with the default kernel, inference is 7x slower than FP16. Marlin transforms the same model from 0.15x to 1.61x FP16 speed. A 10.9x improvement from the CUDA kernel alone. Mathematical elegance is worthless without the right execution engine.
+</p>
+</div>
+
+<p>
+Your gaming PC can run a 72B model. Q4_K_M in GGUF format, running through llama.cpp, loaded in Ollama. No internet, no API costs, no data leaving your machine. <strong>Part I-B asks: what happens when ten thousand people try to do that at the same time?</strong>
+</p>
+
+</section>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     PAPER TIMELINE
+     ════════════════════════════════════════════════════════════════════ -->
+<section id="papers" style="margin-bottom: 3rem;">
+<h2>Paper Timeline</h2>
+
+<div class="timeline-item">
+  <span class="timeline-year">2018</span>
+  <div class="timeline-body">
+    <strong><a href="https://arxiv.org/abs/1805.02867">Online Softmax</a></strong> &mdash; Milakov &amp; Gimelshein (NVIDIA)
+  </div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">May 2022</span>
+  <div class="timeline-body">
+    <strong><a href="https://arxiv.org/abs/2205.14135">FlashAttention</a></strong> &mdash; Dao et al. (Stanford)
+  </div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">Aug 2022</span>
+  <div class="timeline-body">
+    <strong><a href="https://arxiv.org/abs/2208.07339">LLM.int8()</a></strong> &mdash; Dettmers et al. (UW)
+  </div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">Sep 2022</span>
+  <div class="timeline-body">
+    <strong>ggml + whisper.cpp</strong> &mdash; Gerganov (Sofia)
+  </div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">Oct 2022</span>
+  <div class="timeline-body">
+    <strong><a href="https://arxiv.org/abs/2210.17323">GPTQ</a></strong> &mdash; Frantar et al. (IST Austria)
+  </div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">Nov 2022</span>
+  <div class="timeline-body">
+    <strong><a href="https://arxiv.org/abs/2211.10438">SmoothQuant</a></strong> &mdash; Xiao et al. (MIT)
+  </div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">Mar 2023</span>
+  <div class="timeline-body">
+    <strong><a href="https://github.com/ggml-org/llama.cpp">llama.cpp</a></strong> &mdash; Gerganov. 7 days after the LLaMA leak.
+  </div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">Jun 2023</span>
+  <div class="timeline-body">
+    <strong><a href="https://arxiv.org/abs/2306.00978">AWQ</a></strong> &mdash; Lin et al. (MIT). MLSys 2024 Best Paper.
+  </div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">Jul 2023</span>
+  <div class="timeline-body">
+    <strong><a href="https://arxiv.org/abs/2307.08691">FlashAttention-2</a></strong> &mdash; Dao (Stanford). 230 TFLOPS.
+  </div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">Feb 2024</span>
+  <div class="timeline-body">
+    <strong><a href="https://arxiv.org/abs/2402.17764">BitNet b1.58</a></strong> &mdash; Ma et al. (Microsoft)
+  </div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">Jul 2024</span>
+  <div class="timeline-body">
+    <strong><a href="https://arxiv.org/abs/2407.08608">FlashAttention-3</a></strong> &mdash; Dao &amp; Shah. 740 TFLOPS.
+  </div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">Aug 2024</span>
+  <div class="timeline-body">
+    <strong><a href="https://arxiv.org/abs/2408.11743">Marlin</a></strong> &mdash; Frantar et al. 10.9x kernel speedup.
+  </div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">NeurIPS 24</span>
+  <div class="timeline-body">
+    <strong><a href="https://arxiv.org/abs/2401.18079">KVQuant</a></strong> &mdash; Hooper et al. 3-bit KV cache. 1M tokens on one A100.
+  </div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">Apr 2025</span>
+  <div class="timeline-body">
+    <strong><a href="https://huggingface.co/microsoft/bitnet-b1.58-2B-4T">BitNet b1.58 2B4T</a></strong> &mdash; Microsoft. First open ternary LLM.
+  </div>
+</div>
+<div class="timeline-item">
+  <span class="timeline-year">Feb 2026</span>
+  <div class="timeline-body">
+    <strong><a href="https://huggingface.co/blog/ggml-joins-hf">ggml joins Hugging Face</a></strong> &mdash; Gerganov and team. MIT-licensed.
+  </div>
+</div>
+
+</section>
+
+</div><!-- end .content -->
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     SCRIPTS — D3 VISUALIZATIONS
+     ════════════════════════════════════════════════════════════════════ -->
+<script>
+// ────────────────────────────────────────
+// Shared
+// ────────────────────────────────────────
+const C = {
+  bg: '#0a0a0f', card: '#12121a', code: '#0e0e16',
+  border: '#1e1e2e', borderGlow: '#2a2a4a',
+  text: '#c8c8d4', dim: '#6a6a7e', white: '#e8e8f0',
+  green: '#00ff88', greenDim: '#00aa55',
+  cyan: '#00ddff', magenta: '#ff00aa', orange: '#ff8800',
+  red: '#ff3344', yellow: '#ffdd00', blue: '#4488ff', purple: '#aa44ff'
+};
+const mono = "'JetBrains Mono', monospace";
+
+
+// ════════════════════════════════════════
+// VIZ 1: KV Cache Growing
+// ════════════════════════════════════════
+(function() {
+  const W = 760, H = 340;
+  const svg = d3.select('#viz-kvcache');
+  const margin = { t: 40, r: 20, b: 60, l: 20 };
+
+  const models = {
+    gpt2:    { name: 'GPT-2 124M',   layers: 12, kvHeads: 12, headDim: 64,  vram: [4,8,12,24,80], color: C.green },
+    qwen7b:  { name: 'Qwen 7B',      layers: 28, kvHeads: 4,  headDim: 128, vram: [4,8,12,24,80], color: C.cyan },
+    qwen72b: { name: 'Qwen 72B',     layers: 80, kvHeads: 8,  headDim: 128, vram: [4,8,12,24,80], color: C.orange }
+  };
+
+  let currentModel = 'gpt2';
+  let tokens = 0;
+  let autoTimer = null;
+  const maxTokens = 4096;
+
+  function kvPerToken(m) {
+    return 2 * m.layers * m.kvHeads * m.headDim * 2; // bytes (FP16)
+  }
+
+  function draw() {
+    svg.selectAll('*').remove();
+    const m = models[currentModel];
+    const bytesPerTok = kvPerToken(m);
+    const totalBytes = tokens * bytesPerTok;
+    const totalMB = totalBytes / (1024 * 1024);
+    const totalGB = totalBytes / (1024 * 1024 * 1024);
+
+    // Update readouts
+    d3.select('#kv-token-count').text(tokens);
+    d3.select('#kv-cache-size').text(
+      totalGB >= 1 ? totalGB.toFixed(2) + ' GB' : totalMB.toFixed(1) + ' MB'
+    );
+
+    const layersToShow = Math.min(m.layers, 12);
+    const layerH = 16;
+    const layerGap = 3;
+    const stackH = layersToShow * (layerH + layerGap);
+    const stackY = margin.t;
+    const barMaxW = W - margin.l - margin.r - 180;
+    const barX = margin.l + 80;
+
+    // Title
+    svg.append('text').attr('x', W/2).attr('y', 22)
+      .attr('text-anchor', 'middle').attr('fill', C.dim)
+      .attr('font-family', mono).attr('font-size', 10)
+      .attr('letter-spacing', '0.08em')
+      .text(m.name.toUpperCase() + ' — KV CACHE PER LAYER');
+
+    // Layer bars
+    const maxBytesPerLayer = 2 * m.kvHeads * m.headDim * 2 * maxTokens;
+    const scale = d3.scaleLinear().domain([0, maxBytesPerLayer]).range([0, barMaxW]);
+
+    for (let i = 0; i < layersToShow; i++) {
+      const y = stackY + i * (layerH + layerGap);
+      const layerBytes = tokens * 2 * m.kvHeads * m.headDim * 2;
+      const bw = Math.max(0, scale(layerBytes));
+
+      // Label
+      svg.append('text').attr('x', barX - 8).attr('y', y + layerH / 2 + 4)
+        .attr('text-anchor', 'end').attr('fill', C.dim)
+        .attr('font-family', mono).attr('font-size', 9)
+        .text('Layer ' + i);
+
+      // Background
+      svg.append('rect').attr('x', barX).attr('y', y)
+        .attr('width', barMaxW).attr('height', layerH)
+        .attr('fill', C.card).attr('stroke', C.border).attr('rx', 2);
+
+      // Fill
+      if (bw > 0) {
+        svg.append('rect').attr('x', barX).attr('y', y)
+          .attr('width', bw).attr('height', layerH)
+          .attr('fill', m.color).attr('opacity', 0.5).attr('rx', 2);
+      }
+    }
+
+    if (m.layers > layersToShow) {
+      svg.append('text').attr('x', barX - 8).attr('y', stackY + layersToShow * (layerH + layerGap) + 10)
+        .attr('text-anchor', 'end').attr('fill', C.dim)
+        .attr('font-family', mono).attr('font-size', 9)
+        .text('... +' + (m.layers - layersToShow) + ' more');
+    }
+
+    // GPU Memory Bar
+    const gpuBarY = H - 55;
+    const gpuVrams = [
+      { label: 'RTX 3060', gb: 12, color: C.dim },
+      { label: 'RTX 4090', gb: 24, color: C.green },
+      { label: 'A100',     gb: 80, color: C.cyan }
+    ];
+    const maxGpuGB = 80;
+    const gpuScale = d3.scaleLinear().domain([0, maxGpuGB]).range([0, barMaxW]);
+
+    svg.append('text').attr('x', barX).attr('y', gpuBarY - 8)
+      .attr('fill', C.dim).attr('font-family', mono).attr('font-size', 9)
+      .text('GPU VRAM USAGE');
+
+    // GPU background
+    svg.append('rect').attr('x', barX).attr('y', gpuBarY)
+      .attr('width', barMaxW).attr('height', 24)
+      .attr('fill', C.card).attr('stroke', C.border).attr('rx', 3);
+
+    // KV cache fill on GPU bar
+    const kvFillW = Math.min(gpuScale(totalGB), barMaxW);
+    const overflows = totalGB > 24;
+    svg.append('rect').attr('x', barX).attr('y', gpuBarY)
+      .attr('width', kvFillW).attr('height', 24)
+      .attr('fill', overflows ? C.red : m.color).attr('opacity', 0.5).attr('rx', 3);
+
+    // GPU capacity markers
+    gpuVrams.forEach(gpu => {
+      const x = barX + gpuScale(gpu.gb);
+      svg.append('line').attr('x1', x).attr('x2', x)
+        .attr('y1', gpuBarY - 3).attr('y2', gpuBarY + 27)
+        .attr('stroke', gpu.color).attr('stroke-width', 1.5).attr('stroke-dasharray', '3,2');
+      svg.append('text').attr('x', x).attr('y', gpuBarY + 40)
+        .attr('text-anchor', 'middle').attr('fill', gpu.color)
+        .attr('font-family', mono).attr('font-size', 8)
+        .text(gpu.label + ' (' + gpu.gb + ' GB)');
+    });
+
+    // OOM label
+    if (overflows) {
+      svg.append('text').attr('x', barX + barMaxW / 2).attr('y', gpuBarY + 16)
+        .attr('text-anchor', 'middle').attr('fill', C.red)
+        .attr('font-family', mono).attr('font-size', 13).attr('font-weight', 600)
+        .text('OUT OF MEMORY');
+    }
+  }
+
+  draw();
+
+  // Model toggle
+  document.querySelectorAll('[data-kv-model]').forEach(btn => {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('[data-kv-model]').forEach(b => b.classList.remove('active'));
+      this.classList.add('active');
+      currentModel = this.dataset.kvModel;
+      tokens = 0;
+      draw();
+    });
+  });
+
+  d3.select('#kv-add-token').on('click', () => {
+    const step = tokens < 64 ? 1 : tokens < 512 ? 16 : 64;
+    if (tokens < maxTokens) { tokens = Math.min(tokens + step, maxTokens); draw(); }
+  });
+
+  d3.select('#kv-reset').on('click', () => {
+    if (autoTimer) { clearInterval(autoTimer); autoTimer = null; d3.select('#kv-auto').text('Auto'); }
+    tokens = 0; draw();
+  });
+
+  d3.select('#kv-auto').on('click', function() {
+    if (autoTimer) { clearInterval(autoTimer); autoTimer = null; this.textContent = 'Auto'; return; }
+    this.textContent = 'Stop';
+    tokens = 0;
+    autoTimer = setInterval(() => {
+      const step = tokens < 64 ? 1 : tokens < 512 ? 16 : 64;
+      tokens = Math.min(tokens + step, maxTokens);
+      if (tokens >= maxTokens) { clearInterval(autoTimer); autoTimer = null; d3.select('#kv-auto').text('Auto'); }
+      draw();
+    }, 80);
+  });
+})();
+
+
+// ════════════════════════════════════════
+// VIZ 2: Prefill vs Decode
+// ════════════════════════════════════════
+(function() {
+  const W = 760, H = 280;
+  const svg = d3.select('#viz-prefill-decode');
+  const panelW = 340, panelH = 170;
+  const gap = 40;
+  const startX = (W - 2 * panelW - gap) / 2;
+  const startY = 50;
+
+  // Title
+  svg.append('text').attr('x', W/2).attr('y', 25)
+    .attr('text-anchor', 'middle').attr('fill', C.dim)
+    .attr('font-family', mono).attr('font-size', 10)
+    .attr('letter-spacing', '0.08em').text('TWO PHASES OF INFERENCE');
+
+  // Prefill panel
+  const px = startX, py = startY;
+  svg.append('text').attr('x', px + panelW/2).attr('y', py - 8)
+    .attr('text-anchor', 'middle').attr('fill', C.green)
+    .attr('font-family', mono).attr('font-size', 11).attr('font-weight', 600)
+    .text('PREFILL (compute-bound)');
+
+  // GPU cores grid for prefill — mostly green (active)
+  const cols = 16, rows = 8;
+  const cw = (panelW - 10) / cols, ch = (panelH - 10) / rows;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const active = Math.random() > 0.08;
+      svg.append('rect')
+        .attr('x', px + 5 + c * cw).attr('y', py + 5 + r * ch)
+        .attr('width', cw - 1.5).attr('height', ch - 1.5).attr('rx', 1)
+        .attr('fill', active ? C.green : C.card)
+        .attr('opacity', active ? 0.6 + Math.random() * 0.3 : 0.3);
+    }
+  }
+  svg.append('text').attr('x', px + panelW/2).attr('y', py + panelH + 18)
+    .attr('text-anchor', 'middle').attr('fill', C.green)
+    .attr('font-family', mono).attr('font-size', 10)
+    .text('~150 ops/byte  |  matrix x matrix');
+  svg.append('rect').attr('x', px).attr('y', py).attr('width', panelW).attr('height', panelH)
+    .attr('fill', 'none').attr('stroke', C.green).attr('stroke-width', 1.5).attr('rx', 4).attr('opacity', 0.4);
+
+  // Decode panel
+  const dx = startX + panelW + gap;
+  svg.append('text').attr('x', dx + panelW/2).attr('y', py - 8)
+    .attr('text-anchor', 'middle').attr('fill', C.red)
+    .attr('font-family', mono).attr('font-size', 11).attr('font-weight', 600)
+    .text('DECODE (memory-bound)');
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const active = Math.random() > 0.93;
+      svg.append('rect')
+        .attr('x', dx + 5 + c * cw).attr('y', py + 5 + r * ch)
+        .attr('width', cw - 1.5).attr('height', ch - 1.5).attr('rx', 1)
+        .attr('fill', active ? C.orange : C.card)
+        .attr('opacity', active ? 0.7 : 0.15);
+    }
+  }
+  svg.append('text').attr('x', dx + panelW/2).attr('y', py + panelH + 18)
+    .attr('text-anchor', 'middle').attr('fill', C.red)
+    .attr('font-family', mono).attr('font-size', 10)
+    .text('~1 op/byte  |  vector x matrix');
+  svg.append('rect').attr('x', dx).attr('y', py).attr('width', panelW).attr('height', panelH)
+    .attr('fill', 'none').attr('stroke', C.red).attr('stroke-width', 1.5).attr('rx', 4).attr('opacity', 0.4);
+
+  // Utilization bars
+  const barY = py + panelH + 30;
+  svg.append('rect').attr('x', px).attr('y', barY).attr('width', panelW * 0.92).attr('height', 10)
+    .attr('fill', C.green).attr('opacity', 0.5).attr('rx', 3);
+  svg.append('text').attr('x', px + panelW * 0.92 + 5).attr('y', barY + 9)
+    .attr('fill', C.green).attr('font-family', mono).attr('font-size', 9).text('92% util');
+
+  svg.append('rect').attr('x', dx).attr('y', barY).attr('width', panelW * 0.02).attr('height', 10)
+    .attr('fill', C.red).attr('opacity', 0.7).attr('rx', 3);
+  svg.append('rect').attr('x', dx).attr('y', barY).attr('width', panelW).attr('height', 10)
+    .attr('fill', C.card).attr('rx', 3).attr('opacity', 0.3);
+  svg.append('rect').attr('x', dx).attr('y', barY).attr('width', panelW * 0.02).attr('height', 10)
+    .attr('fill', C.red).attr('opacity', 0.7).attr('rx', 3);
+  svg.append('text').attr('x', dx + panelW * 0.02 + 8).attr('y', barY + 9)
+    .attr('fill', C.red).attr('font-family', mono).attr('font-size', 9).text('~2% util');
+})();
+
+
+// ════════════════════════════════════════
+// VIZ 3: Standard vs Flash Attention
+// ════════════════════════════════════════
+(function() {
+  const W = 760, H = 380;
+  const svg = d3.select('#viz-std-vs-flash');
+  const margin = { t: 40, r: 30, b: 50, l: 65 };
+  const iw = W - margin.l - margin.r;
+  const ih = H - margin.t - margin.b;
+  const g = svg.append('g').attr('transform', `translate(${margin.l},${margin.t})`);
+
+  const x = d3.scaleLinear().range([0, iw]);
+  const y = d3.scaleLinear().range([ih, 0]);
+  const xAxisG = g.append('g').attr('transform', `translate(0,${ih})`);
+  const yAxisG = g.append('g');
+
+  const naiveLine = d3.line().x(d => x(d.s)).y(d => y(d.n)).curve(d3.curveMonotoneX);
+  const flashLine = d3.line().x(d => x(d.s)).y(d => y(d.f)).curve(d3.curveMonotoneX);
+  const naiveArea = d3.area().x(d => x(d.s)).y0(ih).y1(d => y(d.n)).curve(d3.curveMonotoneX);
+  const flashArea = d3.area().x(d => x(d.s)).y0(ih).y1(d => y(d.f)).curve(d3.curveMonotoneX);
+
+  const naiveAreaPath = g.append('path').attr('fill', C.red).attr('opacity', 0.08);
+  const flashAreaPath = g.append('path').attr('fill', C.green).attr('opacity', 0.08);
+  const naivePath = g.append('path').attr('fill', 'none').attr('stroke', C.red).attr('stroke-width', 2.5);
+  const flashPath = g.append('path').attr('fill', 'none').attr('stroke', C.green).attr('stroke-width', 2.5);
+
+  // Legend
+  const leg = svg.append('g').attr('transform', `translate(${margin.l + 15}, ${margin.t + 8})`);
+  leg.append('rect').attr('width', 14).attr('height', 3).attr('fill', C.red);
+  leg.append('text').attr('x', 20).attr('y', 4).attr('fill', C.red)
+    .attr('font-family', mono).attr('font-size', 10).text('Standard (quadratic HBM)');
+  leg.append('rect').attr('width', 14).attr('height', 3).attr('fill', C.green).attr('y', 18);
+  leg.append('text').attr('x', 20).attr('y', 22).attr('fill', C.green)
+    .attr('font-family', mono).attr('font-size', 10).text('Flash (linear HBM)');
+
+  svg.append('text').attr('x', 12).attr('y', margin.t - 10).attr('fill', C.dim)
+    .attr('font-family', mono).attr('font-size', 9).text('HBM I/O (MB)');
+  svg.append('text').attr('x', W/2).attr('y', H - 4).attr('text-anchor', 'middle')
+    .attr('fill', C.dim).attr('font-family', mono).attr('font-size', 9).text('SEQUENCE LENGTH');
+
+  const readoutNaive = g.append('text').attr('fill', C.red)
+    .attr('font-family', mono).attr('font-size', 12).attr('text-anchor', 'end');
+  const readoutFlash = g.append('text').attr('fill', C.green)
+    .attr('font-family', mono).attr('font-size', 12).attr('text-anchor', 'end');
+  const readoutRatio = g.append('text').attr('fill', C.yellow)
+    .attr('font-family', mono).attr('font-size', 11).attr('text-anchor', 'end');
+
+  function update() {
+    const seqMax = +d3.select('#flash-seq-len').property('value');
+    d3.select('#flash-seq-val').text(seqMax);
+
+    x.domain([8, seqMax]);
+    const dh = 128;
+    const SRAM = 192 * 1024;
+    const seqs = d3.range(8, seqMax + 1, Math.max(4, Math.floor((seqMax - 8) / 60)));
+    if (seqs[seqs.length-1] !== seqMax) seqs.push(seqMax);
+
+    const data = seqs.map(s => {
+      const naive = (4 * s * s * 2 + 4 * s * dh * 2) / 1e6; // MB
+      const tiles = Math.ceil(s * dh * 2 / SRAM);
+      const flash = (2 * s * dh * 2 * (1 + tiles * 0.05) + s * dh * 2) / 1e6;
+      return { s, n: naive, f: flash };
+    });
+
+    const maxY = d3.max(data, d => d.n) * 1.1 || 1;
+    y.domain([0, maxY]);
+
+    xAxisG.call(d3.axisBottom(x).ticks(6).tickFormat(d => d >= 1000 ? (d/1000)+'K' : d))
+      .selectAll('text').attr('fill', C.dim).attr('font-family', mono).attr('font-size', 9);
+    xAxisG.selectAll('.domain, .tick line').attr('stroke', C.border);
+
+    yAxisG.call(d3.axisLeft(y).ticks(5).tickFormat(d => d < 0.01 ? '' : d < 1 ? d.toFixed(2) : d.toFixed(0)))
+      .selectAll('text').attr('fill', C.dim).attr('font-family', mono).attr('font-size', 9);
+    yAxisG.selectAll('.domain, .tick line').attr('stroke', C.border);
+
+    naiveAreaPath.datum(data).attr('d', naiveArea);
+    flashAreaPath.datum(data).attr('d', flashArea);
+    naivePath.datum(data).attr('d', naiveLine);
+    flashPath.datum(data).attr('d', flashLine);
+
+    const last = data[data.length - 1];
+    readoutNaive.attr('x', iw - 5).attr('y', Math.max(y(last.n) - 5, 20))
+      .text(`Standard: ${last.n < 1 ? (last.n * 1024).toFixed(0) + ' KB' : last.n.toFixed(1) + ' MB'}`);
+    readoutFlash.attr('x', iw - 5).attr('y', Math.min(y(last.f) + 16, ih - 5))
+      .text(`Flash: ${last.f < 1 ? (last.f * 1024).toFixed(0) + ' KB' : last.f.toFixed(2) + ' MB'}`);
+
+    const ratio = last.n / Math.max(last.f, 0.001);
+    readoutRatio.attr('x', iw - 5).attr('y', ih / 2 + 4)
+      .text(`${ratio.toFixed(0)}x less I/O`);
+
+    d3.select('#flash-std-mem').text(last.n < 1 ? (last.n * 1024).toFixed(0) + ' KB' : last.n.toFixed(1) + ' MB');
+    d3.select('#flash-flash-mem').text(last.f < 1 ? (last.f * 1024).toFixed(0) + ' KB' : last.f.toFixed(2) + ' MB');
+  }
+
+  d3.select('#flash-seq-len').on('input', update);
+
+  let animTimer = null;
+  d3.select('#flash-animate').on('click', function() {
+    if (animTimer) { clearInterval(animTimer); animTimer = null; this.textContent = 'Animate'; return; }
+    this.textContent = 'Stop';
+    const slider = d3.select('#flash-seq-len');
+    slider.property('value', 8);
+    animTimer = setInterval(() => {
+      let v = +slider.property('value');
+      v += 8;
+      if (v > 512) { clearInterval(animTimer); animTimer = null; d3.select('#flash-animate').text('Animate'); return; }
+      slider.property('value', v);
+      update();
+    }, 80);
+  });
+
+  update();
+})();
+
+
+// ════════════════════════════════════════
+// VIZ 4: Tiling Loop Step-by-Step
+// ════════════════════════════════════════
+(function() {
+  const W = 760, H = 380;
+  const svg = d3.select('#viz-tiling');
+  const N = 8, T = 2;
+  const cellSize = 36;
+  const matOx = 30, matOy = 45;
+
+  // Generate score values
+  const rng = () => (Math.random() * 4 - 0.5).toFixed(1);
+  const scores = Array.from({length: N}, () => Array.from({length: N}, () => +rng()));
+
+  // Title
+  svg.append('text').attr('x', matOx).attr('y', 22)
+    .attr('fill', C.dim).attr('font-family', mono).attr('font-size', 10)
+    .text(N + 'x' + N + ' ATTENTION MATRIX — TILE SIZE ' + T + 'x' + T);
+
+  // Labels
+  for (let i = 0; i < N; i++) {
+    svg.append('text').attr('x', matOx - 6).attr('y', matOy + i * cellSize + cellSize/2 + 4)
+      .attr('text-anchor', 'end').attr('fill', C.dim)
+      .attr('font-family', mono).attr('font-size', 8).text('Q' + i);
+    svg.append('text').attr('x', matOx + i * cellSize + cellSize/2).attr('y', matOy - 6)
+      .attr('text-anchor', 'middle').attr('fill', C.dim)
+      .attr('font-family', mono).attr('font-size', 8).text('K' + i);
+  }
+
+  // Draw cells
+  const cells = [];
+  for (let r = 0; r < N; r++) {
+    cells[r] = [];
+    for (let c = 0; c < N; c++) {
+      const g = svg.append('g');
+      g.append('rect')
+        .attr('x', matOx + c * cellSize).attr('y', matOy + r * cellSize)
+        .attr('width', cellSize - 2).attr('height', cellSize - 2)
+        .attr('fill', C.card).attr('stroke', C.border).attr('rx', 2);
+      g.append('text')
+        .attr('x', matOx + c * cellSize + cellSize/2 - 1)
+        .attr('y', matOy + r * cellSize + cellSize/2 + 3)
+        .attr('text-anchor', 'middle').attr('fill', C.dim)
+        .attr('font-family', mono).attr('font-size', 9).text(scores[r][c].toFixed(1));
+      cells[r][c] = g;
+    }
+  }
+
+  // Side panel
+  const panelX = matOx + N * cellSize + 30;
+  const panelY = matOy;
+  const stepLabel = svg.append('text').attr('x', panelX).attr('y', panelY)
+    .attr('fill', C.green).attr('font-family', mono).attr('font-size', 12);
+  const infoLines = [];
+  for (let i = 0; i < 10; i++) {
+    infoLines.push(
+      svg.append('text').attr('x', panelX).attr('y', panelY + 22 + i * 16)
+        .attr('fill', C.text).attr('font-family', mono).attr('font-size', 9)
+    );
+  }
+
+  // Stats
+  const statsY = panelY + 190;
+  svg.append('text').attr('x', panelX).attr('y', statsY)
+    .attr('fill', C.cyan).attr('font-family', mono).attr('font-size', 9).text('RUNNING STATS:');
+  const mText = svg.append('text').attr('x', panelX).attr('y', statsY + 16)
+    .attr('fill', C.orange).attr('font-family', mono).attr('font-size', 9);
+  const lText = svg.append('text').attr('x', panelX).attr('y', statsY + 30)
+    .attr('fill', C.cyan).attr('font-family', mono).attr('font-size', 9);
+  const rescaleText = svg.append('text').attr('x', panelX).attr('y', statsY + 48)
+    .attr('fill', C.yellow).attr('font-family', mono).attr('font-size', 11).attr('opacity', 0);
+
+  // HBM bar
+  const hbmBarY = H - 35;
+  svg.append('text').attr('x', matOx).attr('y', hbmBarY)
+    .attr('fill', C.dim).attr('font-family', mono).attr('font-size', 9).text('HBM READS');
+  svg.append('rect').attr('x', matOx + 80).attr('y', hbmBarY - 10)
+    .attr('width', 200).attr('height', 14).attr('fill', C.border).attr('rx', 3);
+  const hbmBarFill = svg.append('rect').attr('x', matOx + 80).attr('y', hbmBarY - 10)
+    .attr('width', 0).attr('height', 14).attr('fill', C.green).attr('rx', 3).attr('opacity', 0.7);
+  const hbmLabel = svg.append('text').attr('x', matOx + 290).attr('y', hbmBarY)
+    .attr('fill', C.green).attr('font-family', mono).attr('font-size', 10);
+
+  const tiles = [];
+  for (let qr = 0; qr < N; qr += T)
+    for (let kc = 0; kc < N; kc += T)
+      tiles.push([qr, kc]);
+
+  let step = 0, hbmReads = 0;
+  let mVals = Array(N).fill(-Infinity);
+  let lVals = Array(N).fill(0);
+
+  function resetState() {
+    step = 0; hbmReads = 0;
+    mVals = Array(N).fill(-Infinity);
+    lVals = Array(N).fill(0);
+    for (let r = 0; r < N; r++)
+      for (let c = 0; c < N; c++)
+        cells[r][c].select('rect').attr('fill', C.card).attr('stroke', C.border);
+    stepLabel.text('Ready — click Step');
+    infoLines.forEach(l => l.text(''));
+    mText.text('m = [' + Array(N).fill('-inf').join(', ') + ']');
+    lText.text('l = [' + Array(N).fill('0').join(', ') + ']');
+    rescaleText.attr('opacity', 0);
+    hbmBarFill.attr('width', 0);
+    hbmLabel.text('0 bytes');
+    d3.select('#tiling-hbm').text('0');
+    d3.select('#tiling-step-num').text('0');
+  }
+
+  function doStep() {
+    if (step >= tiles.length) { resetState(); return; }
+    const [qr, kc] = tiles[step];
+
+    // Dim previous
+    for (let r = 0; r < N; r++)
+      for (let c = 0; c < N; c++) {
+        const rect = cells[r][c].select('rect');
+        if (rect.attr('fill') !== C.card)
+          rect.attr('fill', C.code).attr('stroke', C.cyan).attr('stroke-opacity', 0.3);
+      }
+
+    // Highlight current tile
+    let needsRescale = false;
+    for (let r = qr; r < qr + T; r++) {
+      const oldM = mVals[r];
+      let tileMax = -Infinity;
+      for (let c = kc; c < kc + T; c++) {
+        cells[r][c].select('rect')
+          .attr('fill', 'rgba(0,255,136,0.15)')
+          .attr('stroke', C.green).attr('stroke-opacity', 1);
+        if (scores[r][c] > tileMax) tileMax = scores[r][c];
+      }
+      const newM = Math.max(oldM, tileMax);
+      if (oldM > -Infinity && newM > oldM) needsRescale = true;
+      const correction = oldM > -Infinity ? Math.exp(oldM - newM) : 0;
+      let newL = lVals[r] * correction;
+      for (let c = kc; c < kc + T; c++) newL += Math.exp(scores[r][c] - newM);
+      mVals[r] = newM;
+      lVals[r] = newL;
+    }
+
+    hbmReads += T * 2 * 4;
+    hbmBarFill.transition().duration(300).attr('width', Math.min(200, hbmReads * 0.8));
+    hbmLabel.text(hbmReads + ' bytes');
+    d3.select('#tiling-hbm').text(hbmReads);
+
+    stepLabel.text(`Tile ${step + 1}: Q[${qr}:${qr+T}] x K[${kc}:${kc+T}]`);
+    infoLines[0].text(`Load Q, K, V tile into SRAM`).attr('fill', C.text);
+    infoLines[1].text(`Compute local scores`).attr('fill', C.yellow);
+
+    if (needsRescale) {
+      infoLines[3].text('NEW MAX — RESCALE!').attr('fill', C.yellow);
+      infoLines[4].text('O = exp(m_old - m_new) * O + P*V').attr('fill', C.yellow);
+      rescaleText.text('RESCALE!').attr('opacity', 1)
+        .transition().duration(1200).attr('opacity', 0);
+      for (let r = qr; r < qr + T; r++)
+        for (let c = kc; c < kc + T; c++)
+          cells[r][c].select('rect').attr('fill', 'rgba(255,221,0,0.25)').attr('stroke', C.yellow);
+    } else {
+      infoLines[3].text('Accumulate into output').attr('fill', C.text);
+      infoLines[4].text('');
+    }
+
+    mText.text('m = [' + mVals.map(v => v === -Infinity ? '-inf' : v.toFixed(1)).join(', ') + ']');
+    lText.text('l = [' + lVals.map(v => v.toFixed(2)).join(', ') + ']');
+
+    step++;
+    d3.select('#tiling-step-num').text(step);
+
+    if (step === tiles.length) {
+      infoLines[6].text('All tiles done!').attr('fill', C.green);
+      infoLines[7].text('O = O / l  (normalize)').attr('fill', C.green);
+      infoLines[8].text('Bit-identical to full matrix.').attr('fill', C.green);
+    }
+  }
+
+  d3.select('#tiling-step').on('click', doStep);
+  d3.select('#tiling-reset').on('click', resetState);
+
+  let autoTimer = null;
+  d3.select('#tiling-auto').on('click', function() {
+    if (autoTimer) { clearInterval(autoTimer); autoTimer = null; this.textContent = 'Auto'; return; }
+    this.textContent = 'Stop';
+    resetState();
+    autoTimer = setInterval(() => {
+      if (step >= tiles.length) { clearInterval(autoTimer); autoTimer = null; d3.select('#tiling-auto').text('Auto'); return; }
+      doStep();
+    }, 1000);
+  });
+
+  resetState();
+})();
+
+
+// ════════════════════════════════════════
+// VIZ 5: Emergent Outliers
+// ════════════════════════════════════════
+(function() {
+  const W = 760, H = 400;
+  const svg = d3.select('#viz-outliers');
+  const rows = 24, cols = 40;
+  const cw = (W - 40) / cols, ch = (H - 100) / rows;
+  const ox = 20, oy = 40;
+
+  const outlierCols = [5, 12, 19, 26, 33, 38];
+  const rng = d3.randomNormal(0, 0.3);
+  let matrixData = [];
+  let currentState = 'big'; // default to 6.7B
+
+  function generateMatrix(mode) {
+    matrixData = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        let isO = false;
+        if (mode === 'big') {
+          isO = outlierCols.includes(c);
+        } else if (mode === 'small') {
+          isO = Math.random() < 0.03; // scattered randomly
+        }
+        matrixData.push({
+          r, c,
+          val: isO ? (rng() * 20 - 50) : rng(),
+          isOutlier: isO
+        });
+      }
+    }
+  }
+
+  generateMatrix('big');
+
+  const title = svg.append('text').attr('x', ox).attr('y', 22)
+    .attr('fill', C.dim).attr('font-family', mono).attr('font-size', 10);
+
+  const cellsGroup = svg.append('g');
+  let cellRects;
+
+  // Quality meter
+  const meterX = ox, meterY = H - 40;
+  svg.append('text').attr('x', meterX).attr('y', meterY)
+    .attr('fill', C.dim).attr('font-family', mono).attr('font-size', 9).text('MODEL QUALITY');
+  const meterBg = svg.append('rect').attr('x', meterX + 100).attr('y', meterY - 10)
+    .attr('width', 300).attr('height', 14).attr('fill', C.border).attr('rx', 3);
+  const meterFill = svg.append('rect').attr('x', meterX + 100).attr('y', meterY - 10)
+    .attr('width', 300).attr('height', 14).attr('fill', C.green).attr('rx', 3).attr('opacity', 0.7);
+  const meterLabel = svg.append('text').attr('x', meterX + 410).attr('y', meterY)
+    .attr('fill', C.green).attr('font-family', mono).attr('font-size', 11);
+
+  function drawCells() {
+    cellsGroup.selectAll('*').remove();
+    cellRects = cellsGroup.selectAll('.cell').data(matrixData).enter()
+      .append('rect').attr('class', 'cell')
+      .attr('x', d => ox + d.c * cw).attr('y', d => oy + d.r * ch)
+      .attr('width', cw - 0.5).attr('height', ch - 0.5).attr('rx', 1);
+  }
+
+  function applyMode(mode) {
+    let quality = 100;
+    let titleStr = '';
+
+    if (mode === 'normal' || mode === 'big') {
+      titleStr = mode === 'big' ? 'WEIGHT MATRIX AT 6.7B — OUTLIERS COORDINATE ON SAME COLUMNS' : 'ORIGINAL WEIGHT MATRIX';
+      quality = 100;
+      cellRects.transition().duration(400)
+        .attr('fill', d => {
+          if (d.isOutlier) return C.red;
+          const v = Math.abs(d.val);
+          return d3.interpolateBlues(0.15 + Math.min(v, 1) * 0.5);
+        })
+        .attr('opacity', d => d.isOutlier ? 0.9 : 0.55);
+    } else if (mode === 'clip') {
+      titleStr = 'CLIP OUTLIERS — CATASTROPHIC QUALITY LOSS';
+      quality = 20;
+      cellRects.transition().duration(400)
+        .attr('fill', d => {
+          if (d.isOutlier) return C.card;
+          const v = Math.abs(d.val);
+          return d3.interpolateBlues(0.15 + Math.min(v, 1) * 0.5);
+        })
+        .attr('opacity', d => d.isOutlier ? 0.15 : 0.55);
+    } else if (mode === 'llmint8') {
+      titleStr = 'LLM.INT8() — OUTLIER COLUMNS FP16, REST INT8';
+      quality = 99.9;
+      cellRects.transition().duration(400)
+        .attr('fill', d => {
+          if (d.isOutlier) return C.yellow;
+          return d3.interpolateBlues(0.25 + Math.abs(d.val) * 0.4);
+        })
+        .attr('opacity', d => d.isOutlier ? 1 : 0.5);
+    } else if (mode === 'small') {
+      titleStr = 'AT 1B PARAMETERS — OUTLIERS SCATTERED, NO COORDINATION';
+      quality = 100;
+      generateMatrix('small');
+      drawCells();
+      cellRects.attr('fill', d => {
+        if (d.isOutlier) return C.orange;
+        const v = Math.abs(d.val);
+        return d3.interpolateBlues(0.15 + Math.min(v, 1) * 0.5);
+      }).attr('opacity', d => d.isOutlier ? 0.7 : 0.55);
+    }
+
+    title.text(titleStr);
+    d3.select('#outlier-quality').text(quality + '%')
+      .style('color', quality > 90 ? C.green : C.red);
+    meterFill.transition().duration(400)
+      .attr('width', 300 * quality / 100)
+      .attr('fill', quality > 90 ? C.green : C.red);
+    meterLabel.text(quality + '%').attr('fill', quality > 90 ? C.green : C.red);
+
+    // Restore to 6.7B matrix if going back from small
+    if (mode !== 'small' && currentState === 'small') {
+      generateMatrix('big');
+      drawCells();
+      // Re-apply the current mode
+      if (mode === 'normal' || mode === 'big') {
+        cellRects.attr('fill', d => {
+          if (d.isOutlier) return C.red;
+          return d3.interpolateBlues(0.15 + Math.min(Math.abs(d.val), 1) * 0.5);
+        }).attr('opacity', d => d.isOutlier ? 0.9 : 0.55);
+      }
+    }
+    currentState = mode;
+  }
+
+  drawCells();
+  applyMode('big');
+
+  document.querySelectorAll('[data-outlier]').forEach(btn => {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('[data-outlier]').forEach(b => b.classList.remove('active'));
+      this.classList.add('active');
+      applyMode(this.dataset.outlier);
+    });
+  });
+})();
+
+
+// ════════════════════════════════════════
+// VIZ 6: Three Scalpels (Weight Surgeons)
+// ════════════════════════════════════════
+(function() {
+  const W = 760, H = 340;
+  const svg = d3.select('#viz-surgeons');
+  const rows = 16, cols = 48;
+  const cw = (W - 40) / cols, ch = (H - 80) / rows;
+  const ox = 20, oy = 40;
+
+  const rng = d3.randomNormal(0, 0.3);
+  const outlierCols = [7, 15, 23, 31, 39, 44];
+  const activCols = [3, 7, 12, 19, 23, 28, 33, 39, 44];
+  const matrix = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const isO = outlierCols.includes(c);
+      matrix.push({ r, c, val: isO ? (rng() * 20 - 50) : rng(), isO });
+    }
+  }
+
+  const title = svg.append('text').attr('x', ox).attr('y', 22)
+    .attr('fill', C.dim).attr('font-family', mono).attr('font-size', 10);
+
+  const cells = svg.selectAll('.cell').data(matrix).enter()
+    .append('rect').attr('class', 'cell')
+    .attr('x', d => ox + d.c * cw).attr('y', d => oy + d.r * ch)
+    .attr('width', cw - 0.5).attr('height', ch - 0.5).attr('rx', 1);
+
+  // Activation histogram above the matrix (for SmoothQuant)
+  const histGroup = svg.append('g').attr('opacity', 0);
+
+  const modes = {
+    fp16() {
+      title.text('ORIGINAL FP16 — ALL COLORS SMOOTH');
+      d3.select('#surgeon-ppl').text('6.57');
+      histGroup.attr('opacity', 0);
+      cells.transition().duration(500)
+        .attr('fill', d => {
+          const v = Math.abs(d.isO ? d.val / 50 : d.val);
+          return d3.interpolateViridis(0.2 + Math.min(v, 1) * 0.6);
+        }).attr('opacity', 0.7);
+    },
+    gptq() {
+      title.text('GPTQ — COLUMN-BY-COLUMN SWEEP, ERROR RIPPLES RIGHT');
+      d3.select('#surgeon-ppl').text('6.63');
+      histGroup.attr('opacity', 0);
+      cells.transition().duration(500)
+        .attr('fill', d => {
+          const p = d.c / cols;
+          if (p < 0.6) return d3.interpolateGreens(0.25 + Math.abs(d.val) * 0.4);
+          if (p < 0.65) return C.yellow;
+          return d3.interpolateBlues(0.2 + Math.abs(d.val) * 0.3);
+        }).attr('opacity', 0.7);
+    },
+    smoothquant() {
+      title.text('SMOOTHQUANT — DIFFICULTY MIGRATED FROM ACTIVATIONS TO WEIGHTS');
+      d3.select('#surgeon-ppl').text('6.61');
+      histGroup.attr('opacity', 1);
+      cells.transition().duration(500)
+        .attr('fill', d => {
+          const v = Math.min(1, Math.max(-1, d.isO ? d.val / 10 : d.val * 1.3));
+          return d3.interpolatePurples(0.15 + Math.abs(v) * 0.65);
+        }).attr('opacity', 0.75);
+    },
+    awq() {
+      title.text('AWQ — ACTIVATION-SELECTED CHANNELS SCALED UP');
+      d3.select('#surgeon-ppl').text('6.63');
+      histGroup.attr('opacity', 0);
+      cells.transition().duration(500)
+        .attr('fill', d => activCols.includes(d.c) ? C.green :
+          d3.interpolateBlues(0.2 + Math.abs(d.val) * 0.3))
+        .attr('opacity', d => activCols.includes(d.c) ? 1 : 0.45);
+    }
+  };
+
+  d3.selectAll('#surgeon-controls button').on('click', function() {
+    const s = this.dataset.surgeon; if (!s) return;
+    d3.selectAll('#surgeon-controls button').classed('active', false);
+    d3.select(this).classed('active', true);
+    modes[s]();
+  });
+  modes.fp16();
+})();
+
+
+// ════════════════════════════════════════
+// VIZ 7: Block Quantization Anatomy (Zoomable)
+// ════════════════════════════════════════
+(function() {
+  const W = 760, H = 300;
+  const svg = d3.select('#viz-blocks');
+  const g = svg.append('g');
+
+  function drawTensor() {
+    g.selectAll('*').remove();
+    const ox = 20, oy = 30;
+    const stripH = 50;
+    const stripW = W - 40;
+    const numRegions = 12;
+    const rw = stripW / numRegions;
+
+    svg.selectAll('.level-title').remove();
+    svg.append('text').attr('class', 'level-title').attr('x', ox).attr('y', 20)
+      .attr('fill', C.dim).attr('font-family', mono).attr('font-size', 10)
+      .text('WEIGHT TENSOR — DIFFERENT REGIONS GET DIFFERENT PRECISION');
+
+    const regionColors = [
+      { label: 'attn_v', color: C.green, bits: 'Q5_K' },
+      { label: 'attn_q', color: C.blue, bits: 'Q4_K' },
+      { label: 'attn_k', color: C.blue, bits: 'Q4_K' },
+      { label: 'attn_o', color: C.blue, bits: 'Q4_K' },
+      { label: 'ffn_gate', color: C.blue, bits: 'Q4_K' },
+      { label: 'ffn_up', color: C.blue, bits: 'Q4_K' },
+      { label: 'ffn_down', color: C.green, bits: 'Q6_K' },
+      { label: 'attn_v', color: C.green, bits: 'Q5_K' },
+      { label: 'attn_q', color: C.blue, bits: 'Q4_K' },
+      { label: 'ffn_gate', color: C.blue, bits: 'Q4_K' },
+      { label: 'ffn_up', color: C.blue, bits: 'Q4_K' },
+      { label: 'ffn_down', color: C.green, bits: 'Q6_K' }
+    ];
+
+    regionColors.forEach((reg, i) => {
+      const x = ox + i * rw;
+      g.append('rect').attr('x', x).attr('y', oy)
+        .attr('width', rw - 2).attr('height', stripH)
+        .attr('fill', reg.color).attr('opacity', 0.4).attr('rx', 2)
+        .attr('stroke', reg.color).attr('stroke-width', 0.5);
+      g.append('text').attr('x', x + rw/2).attr('y', oy + stripH/2 + 4)
+        .attr('text-anchor', 'middle').attr('fill', C.white)
+        .attr('font-family', mono).attr('font-size', 7).text(reg.bits);
+      g.append('text').attr('x', x + rw/2).attr('y', oy + stripH + 14)
+        .attr('text-anchor', 'middle').attr('fill', C.dim)
+        .attr('font-family', mono).attr('font-size', 6)
+        .attr('transform', `rotate(-30, ${x + rw/2}, ${oy + stripH + 14})`)
+        .text(reg.label);
+    });
+
+    // Legend
+    g.append('text').attr('x', ox).attr('y', oy + stripH + 50)
+      .attr('fill', C.green).attr('font-family', mono).attr('font-size', 9)
+      .text('Q5_K/Q6_K = sensitive tensors (higher precision)');
+    g.append('text').attr('x', ox).attr('y', oy + stripH + 66)
+      .attr('fill', C.blue).attr('font-family', mono).attr('font-size', 9)
+      .text('Q4_K = bulk tensors (standard precision)');
+    g.append('text').attr('x', ox).attr('y', oy + stripH + 86)
+      .attr('fill', C.dim).attr('font-family', mono).attr('font-size', 9)
+      .text('Click "Superblock" to zoom into a region');
+
+    d3.select('#block-bpw').text('4.89');
+    d3.select('#block-size').text('4.58 GiB');
+  }
+
+  function drawSuperblock() {
+    g.selectAll('*').remove();
+    svg.selectAll('.level-title').remove();
+    svg.append('text').attr('class', 'level-title').attr('x', 20).attr('y', 20)
+      .attr('fill', C.dim).attr('font-family', mono).attr('font-size', 10)
+      .text('SUPERBLOCK (256 WEIGHTS) — 8 SUB-BLOCKS');
+
+    const sw = W - 50, sh = H - 60;
+    const ox = 20, oy = 35;
+
+    // Superblock border
+    g.append('rect').attr('x', ox).attr('y', oy).attr('width', sw).attr('height', sh)
+      .attr('fill', 'none').attr('stroke', C.cyan).attr('stroke-width', 2).attr('rx', 5);
+
+    // Super-scale headers
+    g.append('rect').attr('x', ox + 4).attr('y', oy + 4).attr('width', 110).attr('height', 22)
+      .attr('fill', C.magenta).attr('opacity', 0.5).attr('rx', 3);
+    g.append('text').attr('x', ox + 59).attr('y', oy + 19)
+      .attr('text-anchor', 'middle').attr('fill', C.white)
+      .attr('font-family', mono).attr('font-size', 8).text('FP16 super-scale');
+
+    g.append('rect').attr('x', ox + 120).attr('y', oy + 4).attr('width', 100).attr('height', 22)
+      .attr('fill', C.purple).attr('opacity', 0.4).attr('rx', 3);
+    g.append('text').attr('x', ox + 170).attr('y', oy + 19)
+      .attr('text-anchor', 'middle').attr('fill', C.white)
+      .attr('font-family', mono).attr('font-size', 8).text('FP16 super-min');
+
+    g.append('text').attr('x', ox + sw - 8).attr('y', oy + 19)
+      .attr('text-anchor', 'end').attr('fill', C.cyan).attr('opacity', 0.6)
+      .attr('font-family', mono).attr('font-size', 8).text('SUPERBLOCK (256 WEIGHTS)');
+
+    // 8 sub-blocks
+    const sbw = (sw - 20) / 8, sby = oy + 32, sbh = sh - 50;
+    const colors = [C.green, C.blue, C.blue, C.green, C.green, C.blue, C.blue, C.green];
+    const labels = ['Q6_K','Q4_K','Q4_K','Q6_K','Q6_K','Q4_K','Q4_K','Q6_K'];
+
+    for (let b = 0; b < 8; b++) {
+      const bx = ox + 10 + b * sbw;
+      g.append('rect').attr('x', bx).attr('y', sby)
+        .attr('width', sbw - 3).attr('height', sbh)
+        .attr('fill', 'none').attr('stroke', colors[b]).attr('opacity', 0.4).attr('rx', 3);
+
+      g.append('rect').attr('x', bx + 2).attr('y', sby + 2)
+        .attr('width', sbw - 7).attr('height', 14)
+        .attr('fill', C.orange).attr('opacity', 0.45).attr('rx', 2);
+      g.append('text').attr('x', bx + (sbw-3)/2).attr('y', sby + 13)
+        .attr('text-anchor', 'middle').attr('fill', C.white)
+        .attr('font-family', mono).attr('font-size', 6.5).text('q-scale');
+
+      const cellW = Math.max(3, (sbw - 10) / 4), cellH = (sbh - 28) / 8;
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 4; c++) {
+          g.append('rect')
+            .attr('x', bx + 2 + c * cellW).attr('y', sby + 19 + r * cellH)
+            .attr('width', Math.max(2, cellW - 1)).attr('height', cellH - 1)
+            .attr('fill', d3.interpolate(C.card, colors[b])(Math.random() * 0.4 + 0.3))
+            .attr('opacity', 0.55).attr('rx', 1);
+        }
+      }
+      g.append('text').attr('x', bx + (sbw-3)/2).attr('y', sby + sbh + 12)
+        .attr('text-anchor', 'middle').attr('fill', colors[b])
+        .attr('font-family', mono).attr('font-size', 7.5).text(labels[b]);
+    }
+  }
+
+  function drawSubblock() {
+    g.selectAll('*').remove();
+    svg.selectAll('.level-title').remove();
+    svg.append('text').attr('class', 'level-title').attr('x', 20).attr('y', 20)
+      .attr('fill', C.dim).attr('font-family', mono).attr('font-size', 10)
+      .text('SUB-BLOCK (32 WEIGHTS) — INDIVIDUAL VALUES');
+
+    const ox = 20, oy = 40;
+    const cellW = (W - 60) / 16, cellH = 50;
+    const scale = 0.0234 * 5; // super_scale * block_scale
+    const weights = Array.from({length: 32}, () => Math.round((Math.random() * 14 - 7)));
+
+    // Scale header
+    g.append('rect').attr('x', ox).attr('y', oy).attr('width', 180).attr('height', 22)
+      .attr('fill', C.orange).attr('opacity', 0.5).attr('rx', 3);
+    g.append('text').attr('x', ox + 90).attr('y', oy + 15)
+      .attr('text-anchor', 'middle').attr('fill', C.white)
+      .attr('font-family', mono).attr('font-size', 9)
+      .text('Scale: ' + scale.toFixed(4) + ' (6-bit quantized)');
+
+    // Weight cells in 2 rows of 16
+    for (let row = 0; row < 2; row++) {
+      for (let col = 0; col < 16; col++) {
+        const i = row * 16 + col;
+        const x = ox + col * cellW;
+        const y = oy + 30 + row * (cellH + 4);
+        const qval = weights[i];
+        const dequant = (scale * qval).toFixed(3);
+        const intensity = Math.abs(qval) / 7;
+
+        g.append('rect').attr('x', x).attr('y', y)
+          .attr('width', cellW - 2).attr('height', cellH)
+          .attr('fill', d3.interpolateBlues(0.15 + intensity * 0.6))
+          .attr('opacity', 0.7).attr('rx', 2)
+          .attr('stroke', C.border);
+
+        g.append('text').attr('x', x + cellW/2 - 1).attr('y', y + 18)
+          .attr('text-anchor', 'middle').attr('fill', C.yellow)
+          .attr('font-family', mono).attr('font-size', 9).attr('font-weight', 600)
+          .text(qval);
+
+        g.append('text').attr('x', x + cellW/2 - 1).attr('y', y + 34)
+          .attr('text-anchor', 'middle').attr('fill', C.dim)
+          .attr('font-family', mono).attr('font-size', 7)
+          .text(dequant);
+      }
+    }
+
+    // Legend
+    g.append('text').attr('x', ox).attr('y', oy + 30 + 2 * (cellH + 4) + 20)
+      .attr('fill', C.yellow).attr('font-family', mono).attr('font-size', 9)
+      .text('Top: 4-bit integer (stored)');
+    g.append('text').attr('x', ox).attr('y', oy + 30 + 2 * (cellH + 4) + 36)
+      .attr('fill', C.dim).attr('font-family', mono).attr('font-size', 9)
+      .text('Bottom: dequantized value (scale x q_val)');
+  }
+
+  drawTensor();
+
+  document.querySelectorAll('[data-block-level]').forEach(btn => {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('[data-block-level]').forEach(b => {
+        b.classList.remove('active');
+        b.classList.add('secondary');
+      });
+      this.classList.add('active');
+      this.classList.remove('secondary');
+      const level = this.dataset.blockLevel;
+      if (level === 'tensor') drawTensor();
+      else if (level === 'superblock') drawSuperblock();
+      else drawSubblock();
+    });
+  });
+})();
+
+
+// ════════════════════════════════════════
+// VIZ 8: Does It Fit? Calculator
+// ════════════════════════════════════════
+(function() {
+  const models = {
+    gpt2:    { name: 'GPT-2 (124M)',       params: 0.124 },
+    qwen7b:  { name: 'Qwen 2.5 7B',        params: 7.6 },
+    qwen72b: { name: 'Qwen 2.5 72B',       params: 72 },
+    dsv3:    { name: 'DeepSeek-V3 (671B)',  params: 671 }
+  };
+
+  const W = 740, H = 180;
+  const svg = d3.select('#viz-fit').append('svg').attr('viewBox', `0 0 ${W} ${H}`);
+  const margin = { t: 25, r: 20, b: 35, l: 20 };
+  const iw = W - margin.l - margin.r;
+  const ih = H - margin.t - margin.b;
+  const g = svg.append('g').attr('transform', `translate(${margin.l},${margin.t})`);
+
+  for (let i = 0; i <= 4; i++) {
+    g.append('line').attr('x1', iw * i/4).attr('x2', iw * i/4)
+      .attr('y1', 0).attr('y2', ih).attr('stroke', C.border).attr('stroke-dasharray', '2,4');
+  }
+
+  const modelBar = g.append('rect').attr('y', 8).attr('height', 36).attr('rx', 4);
+  const modelLabel = g.append('text').attr('y', 31)
+    .attr('fill', C.white).attr('font-family', mono).attr('font-size', 11).attr('text-anchor', 'middle');
+  const gpuBg = g.append('rect').attr('y', 65).attr('height', 36).attr('rx', 4)
+    .attr('fill', C.border).attr('opacity', 0.4);
+  const gpuFill = g.append('rect').attr('y', 65).attr('height', 36).attr('rx', 4)
+    .attr('fill', C.greenDim).attr('opacity', 0.35);
+  const gpuLabel = g.append('text').attr('y', 88)
+    .attr('fill', C.dim).attr('font-family', mono).attr('font-size', 11).attr('text-anchor', 'middle');
+
+  svg.append('text').attr('x', W/2).attr('y', H - 4)
+    .attr('text-anchor', 'middle').attr('fill', C.dim)
+    .attr('font-family', mono).attr('font-size', 9).text('GIGABYTES');
+
+  function update() {
+    const m = models[d3.select('#fit-model').property('value')];
+    const bits = +d3.select('#fit-precision').property('value');
+    const vram = +d3.select('#fit-gpu').property('value');
+    const modelGB = m.params * bits / 8;
+    const overhead = modelGB * 0.2;
+    const totalGB = modelGB + overhead;
+    const maxGB = Math.max(totalGB, vram, 1) * 1.15;
+    const s = d3.scaleLinear().domain([0, maxGB]).range([0, iw]);
+
+    g.selectAll('.tick-label').remove();
+    s.ticks(5).forEach(t => {
+      g.append('text').attr('class', 'tick-label')
+        .attr('x', s(t)).attr('y', ih + 16).attr('text-anchor', 'middle')
+        .attr('fill', C.dim).attr('font-family', mono).attr('font-size', 9)
+        .text(t < 1 ? (t * 1024).toFixed(0) + ' MB' : t.toFixed(0));
+    });
+
+    modelBar.transition().duration(400).attr('x', 0).attr('width', Math.max(s(totalGB), 2));
+    const labelText = totalGB < 1
+      ? `${m.name}: ${(totalGB * 1024).toFixed(0)} MB`
+      : `${m.name}: ${totalGB.toFixed(1)} GB`;
+    modelLabel.transition().duration(400).attr('x', Math.max(s(totalGB) / 2, 80)).text(labelText);
+    gpuBg.attr('x', 0).attr('width', s(vram));
+    gpuFill.transition().duration(400).attr('x', 0).attr('width', s(vram));
+    gpuLabel.attr('x', Math.max(s(vram)/2, 50)).text(`GPU: ${vram} GB VRAM`);
+
+    const fits = totalGB <= vram * 0.85;
+    const tight = totalGB <= vram && !fits;
+    const el = document.getElementById('fit-result');
+
+    if (fits) {
+      el.className = 'fit-result fit-yes';
+      el.textContent = `IT FITS  (${(totalGB / vram * 100).toFixed(0)}% VRAM used)`;
+      modelBar.attr('fill', C.green);
+    } else if (tight) {
+      el.className = 'fit-result fit-tight';
+      el.textContent = `TIGHT FIT  (${(totalGB / vram * 100).toFixed(0)}% VRAM)`;
+      modelBar.attr('fill', C.yellow);
+    } else {
+      el.className = 'fit-result fit-no';
+      el.textContent = `DOES NOT FIT  (need ${totalGB.toFixed(1)} GB — ${(totalGB / vram).toFixed(1)}x your VRAM)`;
+      modelBar.attr('fill', C.red);
+    }
+  }
+
+  d3.selectAll('#fit-model, #fit-precision, #fit-gpu').on('change', update);
+  update();
+})();
+
+
+// ════════════════════════════════════════
+// VIZ 9: The Kernel Gap
+// ════════════════════════════════════════
+(function() {
+  const W = 760, H = 220;
+  const svg = d3.select('#viz-kernel-gap');
+  const margin = { l: 180, r: 100, t: 30, b: 20 };
+  const iw = W - margin.l - margin.r;
+  const barH = 32, barGap = 16;
+
+  const data = [
+    { label: 'FP16 (no quantization)', toks: 461, color: C.dim, labelColor: C.text },
+    { label: 'AWQ (no Marlin)', toks: 68, color: C.red, labelColor: C.red },
+    { label: 'AWQ + Marlin kernel', toks: 741, color: C.green, labelColor: C.green }
+  ];
+
+  const maxToks = 800;
+  const scale = d3.scaleLinear().domain([0, maxToks]).range([0, iw]);
+
+  svg.append('text').attr('x', W/2).attr('y', 18)
+    .attr('text-anchor', 'middle').attr('fill', C.dim)
+    .attr('font-family', mono).attr('font-size', 10)
+    .attr('letter-spacing', '0.08em').text('QWEN 32B ON H200 — TOK/S');
+
+  const bars = data.map((d, i) => {
+    const y = margin.t + i * (barH + barGap);
+
+    svg.append('text').attr('x', margin.l - 10).attr('y', y + barH/2 + 4)
+      .attr('text-anchor', 'end').attr('fill', d.labelColor)
+      .attr('font-family', mono).attr('font-size', 10).text(d.label);
+
+    // Background
+    svg.append('rect').attr('x', margin.l).attr('y', y)
+      .attr('width', iw).attr('height', barH)
+      .attr('fill', C.card).attr('rx', 3);
+
+    // Fill bar (starts at 0 for animation)
+    const bar = svg.append('rect').attr('x', margin.l).attr('y', y)
+      .attr('width', 0).attr('height', barH)
+      .attr('fill', d.color).attr('opacity', 0.6).attr('rx', 3);
+
+    // Value label
+    const valLabel = svg.append('text')
+      .attr('x', margin.l + 5).attr('y', y + barH/2 + 4)
+      .attr('fill', C.white).attr('font-family', mono).attr('font-size', 12)
+      .attr('font-weight', 600).attr('opacity', 0).text(d.toks + ' tok/s');
+
+    return { bar, valLabel, d, y };
+  });
+
+  // FP16 baseline line
+  const baselineX = margin.l + scale(461);
+  svg.append('line')
+    .attr('x1', baselineX).attr('x2', baselineX)
+    .attr('y1', margin.t - 5).attr('y2', margin.t + 3 * (barH + barGap))
+    .attr('stroke', C.yellow).attr('stroke-dasharray', '4,3').attr('opacity', 0.4);
+  svg.append('text').attr('x', baselineX).attr('y', margin.t + 3 * (barH + barGap) + 12)
+    .attr('text-anchor', 'middle').attr('fill', C.yellow).attr('opacity', 0.5)
+    .attr('font-family', mono).attr('font-size', 8).text('FP16 baseline');
+
+  // Multiplier label
+  const multLabel = svg.append('text')
+    .attr('x', margin.l + iw/2).attr('y', margin.t + 2 * (barH + barGap) + barH + 16)
+    .attr('text-anchor', 'middle').attr('fill', C.yellow)
+    .attr('font-family', mono).attr('font-size', 11).attr('font-weight', 600)
+    .attr('opacity', 0).text('10.9x improvement from the kernel alone');
+
+  function animate() {
+    bars.forEach(({ bar, valLabel, d }, i) => {
+      bar.attr('width', 0);
+      valLabel.attr('opacity', 0);
+      bar.transition().delay(i * 600).duration(800).ease(d3.easeCubicOut)
+        .attr('width', scale(d.toks));
+      valLabel.transition().delay(i * 600 + 500).duration(300)
+        .attr('x', margin.l + Math.max(scale(d.toks) + 8, 90))
+        .attr('opacity', 1);
+    });
+    multLabel.attr('opacity', 0)
+      .transition().delay(2200).duration(400).attr('opacity', 1);
+  }
+
+  animate();
+
+  d3.select('#kernel-animate').on('click', animate);
+  d3.select('#kernel-reset').on('click', () => {
+    bars.forEach(({ bar, valLabel }) => {
+      bar.attr('width', 0);
+      valLabel.attr('opacity', 0);
+    });
+    multLabel.attr('opacity', 0);
+  });
+})();
+
+
+// ════════════════════════════════════════
+// Scroll spy for nav
+// ════════════════════════════════════════
+(function() {
+  const sections = document.querySelectorAll('section[id]');
+  const navLinks = document.querySelectorAll('nav a');
+  const obs = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const id = entry.target.id;
+        navLinks.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + id));
+      }
+    });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+  sections.forEach(s => obs.observe(s));
+})();
+</script>
+
+</body>
+</html>

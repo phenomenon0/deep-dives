@@ -1,0 +1,2008 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sparse by Design &mdash; The Efficiency Papers, Part V</title>
+  <link rel="canonical" href="https://femiadeniran.com/deep-dives/efficiency-papers-5-sparse-by-design.html">
+  <meta property="og:title" content="Sparse by Design — The Efficiency Papers, Part V">
+  <meta property="og:description" content="671 billion parameters. 37 billion active. From Jacobs 1991 to DeepSeek-V3, how Mixture of Experts became the most cost-efficient architecture in AI — and why sparsity is a worldview, not a trick.">
+  <meta property="og:type" content="article">
+  <meta property="og:url" content="https://femiadeniran.com/deep-dives/efficiency-papers-5-sparse-by-design.html">
+  <meta property="og:site_name" content="Femi Adeniran">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Sparse by Design — The Efficiency Papers, Part V">
+  <meta name="twitter:description" content="671 billion parameters. 37 billion active. From Jacobs 1991 to DeepSeek-V3, how Mixture of Experts became the most cost-efficient architecture in AI — and why sparsity is a worldview, not a trick.">
+  <meta name="author" content="Femi Adeniran">
+<meta name="description" content="671 billion parameters. 37 billion active. From Jacobs 1991 to DeepSeek-V3, how Mixture of Experts became the most cost-efficient architecture in AI — and why sparsity is a worldview, not a trick.">
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<link
+  href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+  rel="stylesheet"
+>
+<style>
+:root {
+    --bg: #0a0a0f;
+    --bg-card: #12121a;
+    --bg-code: #0e0e16;
+    --border: #1e1e2e;
+    --border-glow: #2a2a4a;
+    --text: #c8c8d4;
+    --text-dim: #6a6a7e;
+    --white: #e8e8f0;
+    --green: #00ff88;
+    --green-dim: #00aa55;
+    --cyan: #00ddff;
+    --magenta: #ff00aa;
+    --orange: #ff8800;
+    --red: #ff3344;
+    --yellow: #ffdd00;
+    --blue: #4488ff;
+    --purple: #aa44ff;
+}
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 3rem; }
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 18px;
+    line-height: 1.7;
+    overflow-x: hidden;
+}
+
+body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.03) 2px,
+        rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+}
+
+nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 1000;
+    background: rgba(10,10,15,0.92);
+    backdrop-filter: blur(16px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.5rem 1.5rem;
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    white-space: nowrap;
+}
+nav a {
+    color: var(--text-dim);
+    text-decoration: none;
+    transition: color 0.2s, text-shadow 0.2s;
+    padding: 0.3rem 0;
+}
+nav a:hover { color: var(--green); text-shadow: 0 0 8px rgba(0,255,136,0.3); }
+nav a.active { color: var(--green); text-shadow: 0 0 12px rgba(0,255,136,0.4); }
+.nav-title {
+    color: var(--green);
+    font-weight: 600;
+    margin-right: 0.5rem;
+    text-shadow: 0 0 10px rgba(0,255,136,0.25);
+    flex-shrink: 0;
+}
+
+.content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 5rem 2rem 6rem;
+}
+
+.hero {
+    text-align: center;
+    padding: 4rem 0 5rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 4rem;
+}
+.hero h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 3rem;
+    font-weight: 600;
+    color: var(--green);
+    text-shadow: 0 0 30px rgba(0,255,136,0.2), 0 0 60px rgba(0,255,136,0.1);
+    margin-bottom: 0.8rem;
+    letter-spacing: -0.02em;
+}
+.subtitle {
+    font-size: 1.1rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 640px;
+    margin: 0 auto;
+}
+.series-kicker {
+    margin-top: 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+}
+
+.glitch { position: relative; display: inline-block; }
+.glitch::before, .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    inset: 0;
+    width: 100%; height: 100%;
+}
+.glitch::before {
+    color: var(--cyan);
+    animation: glitch-1 3s infinite linear alternate-reverse;
+    clip-path: inset(0 0 80% 0);
+}
+.glitch::after {
+    color: var(--magenta);
+    animation: glitch-2 2.5s infinite linear alternate-reverse;
+    clip-path: inset(80% 0 0 0);
+}
+.blink { display: inline-block; animation: blink 1s step-end infinite; color: var(--green); }
+@keyframes blink { 50% { opacity: 0; } }
+@keyframes glitch-1 {
+    0%, 90% { transform: translate(0); }
+    92% { transform: translate(-3px, 1px); }
+    94% { transform: translate(3px, -1px); }
+    96% { transform: translate(-2px, 2px); }
+    100% { transform: translate(0); }
+}
+@keyframes glitch-2 {
+    0%, 88% { transform: translate(0); }
+    90% { transform: translate(2px, -1px); }
+    93% { transform: translate(-3px, 2px); }
+    96% { transform: translate(1px, -2px); }
+    100% { transform: translate(0); }
+}
+
+section { margin-bottom: 5rem; padding-top: 1rem; }
+
+h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.5rem;
+    color: var(--green);
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    text-shadow: 0 0 10px rgba(0,255,136,0.15);
+    letter-spacing: 0.02em;
+}
+h3 {
+    font-size: 1.25rem;
+    color: var(--cyan);
+    margin: 2.5rem 0 1rem;
+    font-weight: 600;
+}
+h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--magenta);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 2rem 0 0.8rem;
+}
+p { margin-bottom: 1rem; }
+strong { color: var(--white); }
+a { color: var(--cyan); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.drop-cap::first-letter {
+    float: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 4rem;
+    line-height: 0.8;
+    padding: 0.1em 0.15em 0 0;
+    color: var(--green);
+    font-weight: 700;
+    text-shadow: 0 0 20px rgba(0,255,136,0.3);
+}
+
+code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85em;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.15em 0.4em;
+}
+pre {
+    position: relative;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.2rem;
+    overflow-x: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    margin: 1.2rem 0;
+}
+pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+    color: var(--text);
+}
+
+.cm { color: var(--text-dim); }
+.kw { color: var(--magenta); }
+.ty { color: var(--cyan); }
+.st { color: var(--green); }
+.nm { color: var(--yellow); }
+.fn { color: var(--blue); }
+.pp { color: var(--orange); }
+
+.label {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.8rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+}
+
+.diagram {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+}
+.diagram pre { border: none; margin: 0; padding: 0; background: none; font-size: 12.5px; line-height: 1.45; }
+.diagram-label {
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    margin-bottom: 0.8rem;
+}
+
+.power {
+    border-left: 3px solid var(--green-dim);
+    background: rgba(0,255,136,0.04);
+    padding: 1rem 1.2rem;
+    margin: 1.5rem 0;
+    border-radius: 0 6px 6px 0;
+}
+.power p { font-size: 0.88rem; line-height: 1.6; margin-bottom: 0; }
+.power.danger { border-left-color: var(--red); background: rgba(255,51,68,0.04); }
+.power.hack { border-left-color: var(--magenta); background: rgba(255,0,170,0.04); }
+.power.wild { border-left-color: var(--orange); background: rgba(255,136,0,0.04); }
+.power.zen { border-left-color: var(--cyan); background: rgba(0,221,255,0.04); }
+.power.purple { border-left-color: var(--purple); background: rgba(170,68,255,0.04); }
+
+.power-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--green);
+    margin-bottom: 0.5rem;
+}
+.power.danger .power-label { color: var(--red); }
+.power.hack .power-label { color: var(--magenta); }
+.power.wild .power-label { color: var(--orange); }
+.power.zen .power-label { color: var(--cyan); }
+.power.purple .power-label { color: var(--purple); }
+
+.vs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin: 1.5rem 0;
+}
+.vs-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem 1.1rem;
+}
+.vs-card h4 { margin-top: 0; }
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2rem 0;
+    font-size: 0.92rem;
+}
+th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--green);
+    text-align: left;
+    padding: 0.6rem 0.8rem;
+    border-bottom: 2px solid var(--border);
+}
+td {
+    padding: 0.5rem 0.8rem;
+    border-bottom: 1px solid var(--border);
+}
+tr:hover td { background: rgba(0,255,136,0.03); }
+
+details {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 1.2rem 0;
+}
+summary {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: var(--green);
+    padding: 0.8rem 1.2rem;
+    cursor: pointer;
+}
+details[open] summary { border-bottom: 1px solid var(--border); }
+details > div { padding: 1rem 1.2rem; }
+
+/* Viz-specific styles */
+.viz-container {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow: hidden;
+}
+.viz-container svg { display: block; }
+
+.viz-controls {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+
+.viz-btn {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.4rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg-code);
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.viz-btn:hover { border-color: var(--green-dim); color: var(--text); }
+.viz-btn.active { border-color: var(--green); color: var(--green); background: rgba(0,255,136,0.08); }
+
+.viz-readout {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 0.8rem;
+    padding: 0.5rem 0.8rem;
+    background: var(--bg-code);
+    border-radius: 4px;
+    border: 1px solid var(--border);
+}
+.viz-readout span { color: var(--green); }
+
+.stack-block {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem 1.2rem;
+    margin: 0.5rem 0;
+    cursor: pointer;
+    transition: all 0.25s;
+}
+.stack-block:hover { border-color: var(--green-dim); }
+.stack-block.selected { border-color: var(--green); background: rgba(0,255,136,0.06); }
+
+.stack-block h4 { margin: 0 0 0.3rem; }
+.stack-block p { font-size: 0.85rem; margin: 0; color: var(--text-dim); }
+
+.cost-bar {
+    height: 32px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    padding-left: 0.8rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--bg);
+    font-weight: 600;
+    margin: 0.4rem 0;
+    transition: width 0.6s ease;
+}
+
+@media (max-width: 700px) {
+    body { font-size: 16px; }
+    nav { font-size: 9px; gap: 0.7rem; }
+    .content { padding: 3rem 0.8rem 4rem; }
+    .hero h1 { font-size: 2rem; }
+    .vs { grid-template-columns: 1fr; }
+    pre { font-size: 10.5px; padding: 0.7rem; }
+    .diagram { padding: 1rem; }
+    .power { padding: 0.6rem 0.8rem; }
+    .viz-container { padding: 1rem; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+    <span class="nav-title">&gt;_ SPARSE</span>
+    <a href="#ch1">The 26-Year Idea</a>
+    <a href="#ch2">Conditional Computation</a>
+    <a href="#ch3">The Routing Problem</a>
+    <a href="#ch4">DeepSeek's Two Moves</a>
+    <a href="#ch5">The Full Stack</a>
+    <a href="#ch6">Sparsity as Worldview</a>
+</nav>
+
+<div class="content">
+
+<div class="hero">
+    <h1><span class="glitch" data-text="SPARSE BY DESIGN">SPARSE BY DESIGN</span></h1>
+    <div class="subtitle">
+        671 billion parameters. 37 billion active. A sentence that sounds like a typo &mdash; and the most cost-efficient model ever trained.<span class="blink">_</span>
+    </div>
+    <div class="series-kicker">The Efficiency Papers &mdash; Part V</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- CHAPTER 1: THE 26-YEAR IDEA                                   -->
+<!-- ============================================================ -->
+<section id="ch1">
+<h2>01 // The 26-Year Idea</h2>
+
+<p class="drop-cap">In 1991, four researchers at the University of Toronto published a nine-page paper about splitting a neural network into specialist sub-networks. Robert Jacobs, Michael Jordan, Steven Nowlan, and Geoffrey Hinton called their system "Adaptive Mixtures of Local Experts." A gating network would look at each input and decide which specialist should handle it. They tested it on vowel discrimination. It worked. Then nothing happened.</p>
+
+<p>Not for a year. Not for five. For <strong>twenty-six years</strong>, the idea sat dormant. The paper &mdash; nine pages in <em>Neural Computation</em>, volume 3, issue 1 &mdash; contained the entire conceptual DNA of what would become the most important scaling technique in modern AI. Three principles, already fully formed in 1991: divide the problem into sub-problems (divide-and-conquer). Let a learned gate decide which specialist handles which input (soft competition). Never activate all the parameters at once (conditional computation). The architecture was right. The world was not.</p>
+
+<h3>The infrastructure gap</h3>
+
+<p>The gap was never about the theory being wrong. MoE requires spreading experts across multiple devices and routing tokens between them. In 1991, there were no GPU clusters. No high-bandwidth interconnects. No frameworks for distributed training. The all-to-all communication pattern that MoE demands &mdash; every token potentially traveling to any device &mdash; accounts for over 40% of total training runtime even on modern hardware. In the 1990s, network bandwidth was orders of magnitude worse.</p>
+
+<p>Then there was the training instability problem. Without careful load balancing, MoE collapses. The gating network develops a preference for one or two experts, sends them more data, they improve faster, the gate sends even more, and the other experts starve. A self-reinforcing death spiral. The solutions &mdash; auxiliary losses, capacity factors, noise injection &mdash; required decades of engineering iteration that hadn't happened yet.</p>
+
+<p>And for most of that gap, nobody needed it. From roughly 2012 to 2017, simply making models bigger and training longer kept working. Dense scaling was easy. AlexNet (2012) proved GPUs could train neural networks. Researchers doubled layer counts, doubled hidden dimensions, added more training data, and watched performance climb. The recipe was simple: more compute, more parameters, better results. When the straightforward path works, nobody explores the clever alternatives. There was no economic pressure to be clever about parameter efficiency.</p>
+
+<p>By 2016, the economics began to shift. Training costs climbed into the millions. GPU clusters grew from dozens to thousands of accelerators. Dense scaling was becoming expensive. A 10x larger model needed 10x more compute, which needed 10x more GPUs, which needed 10x more money. The linear relationship between capability and cost was hitting budgets. Labs began asking: is there a way to get 10x the knowledge without 10x the compute?</p>
+
+<p>At Google, where TPU pods offered the distributed infrastructure that MoE had always needed, the conditions finally aligned for someone to revisit the 1991 idea. The answer to "10x knowledge without 10x compute" was already 25 years old. It just needed the right hardware to prove it.</p>
+
+<div class="power zen">
+    <div class="power-label">The constraint</div>
+    <p>MoE didn't fail in 1991. It was stranded. The idea needed distributed compute, high-bandwidth interconnects, and load-balancing algorithms &mdash; none of which existed until Google's TPU pods arrived two decades later.</p>
+</div>
+
+<h3>Shazeer wakes the giant</h3>
+
+<p>In 2017, Noam Shazeer &mdash; the same researcher who would later invent Multi-Query Attention (Part I of this series) &mdash; published a paper with a title that reads like a dare: "Outrageously Large Neural Networks: The Sparsely-Gated Mixture-of-Experts Layer." The key insight: you can have a 137-billion-parameter model that only activates a tiny fraction of its parameters per input. Shazeer added up to thousands of feed-forward sub-networks, gated by a trainable sparse router with noisy top-k selection. The result was over 1,000x capacity increase with minor computational overhead.</p>
+
+<p>He applied it as MoE layers sandwiched between stacked LSTMs for language modeling and machine translation. The model was tested at scales that sound quaint now &mdash; 68 billion and 137 billion parameters &mdash; but were extraordinary in 2017. For context, GPT-2 (the model that launched a thousand blog posts about AI risk) would have 1.5 billion parameters two years later in 2019. Shazeer's MoE model was 90x larger than GPT-2. But because most of those parameters were dormant for any given input, the actual computational cost per token was comparable to much smaller dense models. This is the MoE promise in one sentence: the knowledge of a giant with the compute cost of a model 10x smaller.</p>
+
+<p>The hardware had finally caught up. Google's internal infrastructure &mdash; TPU pods with high-bandwidth interconnects &mdash; provided exactly the distributed substrate that MoE had always needed. GPU clusters existed elsewhere too. Frameworks could handle distributed training. The 26-year wait was over, and the next seven years would produce more MoE innovation than the preceding three decades combined.</p>
+
+<!-- D3 VIZ: The 26-Year Timeline -->
+<div class="viz-container">
+    <span class="diagram-label">The 26-Year Timeline</span>
+    <div id="timeline-viz"></div>
+    <div class="viz-readout" id="timeline-readout">Hover over a milestone to see details. <span>The idea waited for the hardware.</span></div>
+</div>
+
+<p>Look at the timeline. The right side &mdash; infrastructure milestones &mdash; fills in <em>before</em> the left side can resume. TPU pods in 2015. NVLink in 2016. Only then does Shazeer's paper appear in 2017. The idea didn't evolve slowly. It was frozen, waiting for the physical world to catch up.</p>
+
+<p>Shazeer's paper is worth pausing on because it introduces a trick that every subsequent MoE system inherits: <strong>noisy top-k gating</strong>. The router computes a score for each expert, then adds learned Gaussian noise before selecting the top-k. The noise serves two purposes. During early training, it forces exploration &mdash; tokens visit experts they wouldn't otherwise choose, preventing premature specialization. Later, as the noise scale shrinks, routing stabilizes. It is a remarkably simple idea: randomness as a regularizer for discrete decisions.</p>
+
+<p>The noise also helps with a fundamental tension in MoE training: the routing function is discrete (top-k is a hard selection), but gradient-based optimization requires continuous, differentiable functions. The noise smooths the decision boundary, making it possible for the optimizer to gradually shift tokens between experts rather than making abrupt all-or-nothing switches. Without noise, a token that barely prefers Expert A over Expert B (score 0.501 vs 0.499) would always go to Expert A, starving Expert B of training signal for that token type. With noise, the token sometimes visits Expert B, allowing both experts to learn from it. The noise converts a hard discrete decision into a soft probabilistic one, which is exactly what gradient descent needs to do its job.</p>
+
+<p>The paper also reveals a practical reality that shapes everything that follows. Shazeer trained on a cluster where each expert lives on a different device. Every routing decision is a physical decision: which machine does this token travel to? The compute is cheap &mdash; matrix multiplications are what GPUs are built for. The communication is expensive &mdash; moving tensors across a network is what GPUs are <em>not</em> built for. This tension &mdash; cheap compute, expensive communication &mdash; will define every MoE design for the next seven years.</p>
+
+<p>Consider the numbers. An H800 GPU can perform about 990 TFLOPS of FP8 computation. The same GPU has about 400 GB/s of NVLink bandwidth for inter-GPU communication. A typical MoE expert FFN computation on a small batch might take microseconds. The all-to-all dispatch and combine that surrounds it &mdash; sending tokens to the right GPU, gathering results back &mdash; can take milliseconds. Three orders of magnitude slower. The compute is essentially free compared to the communication.</p>
+
+<p>This ratio is the central engineering challenge of MoE. The architecture insight (conditional computation) is powerful. The systems challenge (communication overhead) is brutal. Every MoE paper since 2017 has been, in some sense, a paper about managing communication costs. GShard used top-2 routing (more communication). Switch Transformer used top-1 (less communication). DeepSeek used FP8 dispatch (smaller tensors) and DualPipe (hidden latency). The innovation trajectory is a war against the network.</p>
+
+</section>
+
+<!-- ============================================================ -->
+<!-- CHAPTER 2: CONDITIONAL COMPUTATION                            -->
+<!-- ============================================================ -->
+<section id="ch2">
+<h2>02 // Conditional Computation</h2>
+
+<p class="drop-cap">Here is the principle that makes everything else in this article possible, and it sounds like cheating: not every parameter needs to fire for every input. You can have a model with 671 billion parameters and only activate 37 billion of them per token. The other 634 billion do nothing. They consume no compute. They generate no gradients for that token. They sit in memory, dormant, waiting for a token that needs them.</p>
+
+<p>A standard transformer runs every token through every weight in the feed-forward network. The FFN is the largest component of each transformer block &mdash; roughly two-thirds of the parameters. MoE replaces that dense FFN with N parallel expert FFNs plus a router. The router examines each token and sends it to its top-k experts. Only those experts activate. The rest sleep.</p>
+
+<p>The result is a strange and powerful decoupling. Total parameters can be massive &mdash; that is the model's <em>knowledge capacity</em>, how much it can store. But per-token compute stays small &mdash; that is the model's <em>active parameters</em>, how much work it does per inference step. A dense 70B model activates 70 billion parameters for every token. A sparse 671B model might activate 37 billion. More knowledge, less work.</p>
+
+<p>Think of it physically. A dense model is a library where you must read every book before answering any question. An MoE model is a library with a librarian at the door who knows which shelf has your answer. The library can be enormous &mdash; millions of books &mdash; but you only ever pull a handful off the shelf. The librarian (the router) is the key innovation. Everything depends on the quality of the routing decision.</p>
+
+<p>The decoupling of knowledge capacity from active compute has a direct economic consequence. In a dense model, doubling quality (roughly) means doubling parameters, which doubles per-token compute, which doubles inference cost. In an MoE model, doubling quality means doubling experts (doubling knowledge capacity) while keeping top-k constant. Per-token compute stays the same. Inference speed stays the same. You only pay more for storage, not for computation. The cost of quality scales with storage, not with compute. This is the fundamental economic advantage of sparsity.</p>
+
+<div class="vs">
+    <div class="vs-card">
+        <h4>Dense Transformer</h4>
+        <p>Every token hits every parameter. A 70B model does 70B FLOPs of work per token. Knowledge capacity = active compute.</p>
+    </div>
+    <div class="vs-card">
+        <h4>Sparse MoE</h4>
+        <p>Each token hits a fraction of parameters. A 671B model does 37B FLOPs per token. Knowledge capacity = 18x active compute.</p>
+    </div>
+</div>
+
+<div class="diagram">
+    <span class="diagram-label">Dense vs Sparse &mdash; One Transformer Layer</span>
+    <pre><code><span class="cm">DENSE (e.g., LLaMA 405B):</span>
+token &rarr; <span class="st">[Attention]</span> &rarr; <span class="fn">[FFN: all 405B params]</span> &rarr; output
+                          <span class="cm">every token, every parameter</span>
+
+<span class="cm">SPARSE MoE (e.g., DeepSeek-V3):</span>
+token &rarr; <span class="st">[Attention]</span> &rarr; <span class="ty">[Router]</span> &rarr; <span class="fn">[Expert 12]</span>  &crarr;
+                                  &rarr; <span class="fn">[Expert 47]</span>  &crarr; <span class="kw">[Combine]</span> &rarr; output
+                                  &rarr; <span class="fn">[Expert 183]</span> &crarr;
+                                  &rarr; <span class="fn">[...5 more]</span>  &crarr;
+                                  &rarr; <span class="pp">[Shared Expert]</span> (always on)
+          <span class="cm">8 of 256 routed + 1 shared = 37B of 671B</span></code></pre>
+</div>
+
+<p>The router is the decision point. It computes a score for each expert &mdash; typically a dot product between the token's representation and each expert's learned centroid &mdash; and selects the top-k. In DeepSeek-V3, k=8. The selected experts process the token in parallel, their outputs are weighted by the router's scores, and the weighted sum becomes the layer's output. The 248 non-selected experts do nothing. Their weights are not loaded, their compute is not consumed. They simply do not participate.</p>
+
+<pre><span class="label">MoE Forward Pass</span><code><span class="cm">// For each token in the sequence:</span>
+<span class="ty">scores</span> = <span class="fn">router</span>(token_hidden_state)  <span class="cm">// [256] affinity scores</span>
+<span class="ty">top_k_indices</span> = <span class="fn">topk</span>(scores, k=<span class="nm">8</span>)  <span class="cm">// select 8 of 256</span>
+<span class="ty">weights</span> = <span class="fn">softmax</span>(scores[top_k_indices])
+
+<span class="ty">output</span> = <span class="nm">0</span>
+<span class="kw">for</span> i <span class="kw">in</span> top_k_indices:
+    output += weights[i] * <span class="fn">expert_ffn</span>[i](token_hidden_state)
+output += <span class="fn">shared_expert</span>(token_hidden_state)  <span class="cm">// always active</span>
+
+<span class="cm">// Total compute: 8 small FFNs + 1 shared FFN</span>
+<span class="cm">// 248 experts: zero compute, zero memory access</span></code></pre>
+
+<h3>GShard: the scale proof</h3>
+
+<p>In 2020, a Google team led by Dmitry Lepikhin and HyoukJoong Lee scaled Transformer-based MoE to 600 billion parameters on 2,048 TPU v3 cores. They called it GShard. Training took under four days.</p>
+
+<p>The efficiency numbers were staggering. Scaling from 37.5B to 600B &mdash; a 16x increase in parameters &mdash; only increased cost from 6 to 22 TPU v3 core-years. That is a 3.6x cost increase for 16x more parameters. Sub-linear scaling. Meanwhile, a 2.3B <em>dense</em> model required 235 core-years and produced <em>lower quality</em> than the 600B MoE. Read that again: the sparse model was 260x larger in total parameters, 10x cheaper to train, and better.</p>
+
+<p>GShard used an alternating pattern: MoE layers at every other transformer block, dense layers in between. This compromise reduced communication overhead but also limited the model's ability to route tokens to specialists at every layer. It also introduced a <strong>capacity factor</strong> &mdash; a multiplier that sets a hard ceiling on how many tokens each expert can accept per batch. The formula: <code>capacity = (tokens_per_batch / num_experts) * capacity_factor</code>. Set the capacity factor too low and tokens get dropped &mdash; literally discarded during training, their loss ignored. Set it too high and you waste compute on padding empty slots. Typical values: 1.0 to 1.25. Another knob to tune, another source of fragility.</p>
+
+<p>Dropped tokens are a jarring concept. During training, some tokens are simply... skipped. Their gradients are never computed. Their patterns are never learned from. At capacity_factor=1.0 with imperfect load balancing, GShard could drop 10-30% of tokens per batch. These tokens still exist in the training data, but the model never sees them. The capacity factor is a safety valve that prevents any single expert from being overwhelmed, at the cost of wasting training data.</p>
+
+<p>GShard proved MoE could scale. But it exposed three problems that would define the next four years of MoE research. First, top-2 routing meant double the communication overhead &mdash; every token travels to two devices instead of one. Second, the capacity factor was an uncomfortable design choice &mdash; an admission that the system couldn't balance itself without hard limits. Third, the auxiliary loss for load balancing competed with the language modeling loss, creating a fundamental tension in the training objective. The scale proof was convincing. The design was not yet elegant.</p>
+
+<h3>Switch Transformer: radical simplification</h3>
+
+<p>In 2021, William Fedus, Barret Zoph, and Noam Shazeer (again &mdash; the same Shazeer who started this in 2017, who will appear in Part I for MQA, and who keeps showing up wherever efficient inference matters) published something counterintuitive. Everyone assumed you needed top-2 routing &mdash; sending each token to at least two experts for quality and stability. Two experts provide redundancy. Two perspectives catch errors. Two is a safety net.</p>
+
+<p>Fedus and colleagues asked: what if you route each token to just <em>one</em>?</p>
+
+<p>They called it the Switch Transformer. Top-1 routing. One expert per token. The benefits cascaded immediately: router computation halved, expert batch sizes halved, communication costs halved. They scaled to 1.6 <em>trillion</em> parameters and achieved a 7x pre-training speedup with the same computational resources.</p>
+
+<p>The paper also solved a practical problem that had blocked large sparse models: numerical precision. Previous MoE implementations required float32 for stability, which doubled memory usage. Switch Transformer introduced <strong>selective precision</strong> &mdash; the router stays in full precision (because small score differences determine routing) while the experts run in bfloat16 (because their outputs are aggregated, smoothing out noise). This idea &mdash; precision matters more for routing decisions than for expert computation &mdash; directly foreshadowed DeepSeek-V3's FP8 strategy three years later.</p>
+
+<p>Switch Transformer also formalized the capacity factor: <code>capacity = (tokens_per_batch / num_experts) * capacity_factor</code>. With a capacity factor of 1.0, each expert handles exactly its fair share. Anything above 1.0 adds buffer. Anything below means tokens get dropped. The formula made the trade-off explicit: you are choosing between wasted compute and lost data.</p>
+
+<div class="power">
+    <div class="power-label">The simplification principle</div>
+    <p>Switch Transformer's lesson: the obvious complexity (top-2 routing, elaborate gating) wasn't necessary. One expert per token. The simpler architecture was faster, cheaper, and just as good per-FLOP. When in doubt, try the simpler routing strategy first.</p>
+</div>
+
+<h3>Mixtral: the open-source proof</h3>
+
+<p>In January 2024, Mistral AI released Mixtral 8x7B &mdash; the first high-quality open-source MoE model. Eight experts per layer, top-2 routing, 47 billion total parameters, 13 billion active. It matched LLaMA 2 70B on most benchmarks with 6x faster inference. It matched or beat GPT-3.5 across every evaluated benchmark. Open weights, Apache 2.0 license.</p>
+
+<p>Mixtral mattered because it proved MoE wasn't just a Google research curiosity. Anyone could download the weights, run the model, and verify the claims. The architecture used MoE at every layer (not alternating like GShard), which meant every feed-forward computation was sparse. Each of the 8 experts was a standard-sized FFN &mdash; the same size as in Mistral 7B. The "8x7B" name is slightly misleading: the model is not 56B parameters because the attention layers are shared across all experts. Total: 47B. Active per token: 13B.</p>
+
+<p>The inference performance was the headline. A 47B-parameter MoE model serving with only 13B active parameters per token runs nearly as fast as a 13B dense model while achieving the quality of a 70B dense model. For users running models locally, this was transformative. You could get 70B-quality responses at 13B-speed on hardware that couldn't handle a 70B dense model at all. MoE's promise &mdash; massive knowledge with affordable compute &mdash; became tangible for the first time outside Google's datacenters.</p>
+
+<p>But Mixtral used the old playbook &mdash; large experts, top-2 routing, auxiliary loss for balancing. The experts were coarse-grained, each one processing a wide variety of token types without fine specialization. It was a proof of concept for the MoE idea at production quality, not an advance in the MoE architecture itself. The innovations would come from a different lab, working under tighter constraints.</p>
+
+<!-- D3 VIZ: Routing Evolution -->
+<div class="viz-container">
+    <span class="diagram-label">Routing Evolution &mdash; Dense vs Sparse</span>
+    <div class="viz-controls">
+        <button class="viz-btn active" onclick="showRoutingMode('dense')">Dense FFN</button>
+        <button class="viz-btn" onclick="showRoutingMode('top2')">Top-2 (GShard)</button>
+        <button class="viz-btn" onclick="showRoutingMode('top1')">Top-1 (Switch)</button>
+        <button class="viz-btn" onclick="showRoutingMode('expert-choice')">Expert Choice</button>
+    </div>
+    <div id="routing-viz"></div>
+    <div class="viz-readout" id="routing-readout">Mode: <span>Dense</span> &mdash; every token activates every expert. Maximum compute, maximum redundancy.</div>
+</div>
+
+<p>Watch how routing evolves. Dense lights up every column for every token &mdash; maximum compute, maximum redundancy. Top-2 (GShard) picks two experts per token, cutting active parameters to 25% of total. Top-1 (Switch Transformer) picks one expert, cutting further to 12.5%. Expert Choice inverts the direction entirely: experts reach down and grab the tokens they want, guaranteeing perfect balance at the cost of per-token determinism.</p>
+
+<p>Each step in this evolution removes one assumption. Dense assumes every parameter is needed for every token &mdash; wrong, MoE showed 5.5% is enough. Top-2 routing assumes you need two expert perspectives for reliability &mdash; wrong, Switch Transformer showed one is enough. Auxiliary losses assume you must penalize the training objective for balance &mdash; wrong, DeepSeek showed a non-gradient bias suffices. Each simplification sounds risky in advance ("surely removing the second expert will degrade quality?") but each time, the simpler approach works as well or better. The pattern is consistent: MoE research has systematically overestimated the complexity needed for good routing.</p>
+
+<p>DeepSeek will eventually question the last remaining assumption: that the balancing mechanism must interfere with the training objective. They will remove the auxiliary loss entirely and replace it with something that doesn't touch the gradient at all.</p>
+
+<details>
+    <summary>The sub-linear scaling math</summary>
+    <div>
+        <p>The economics of MoE come from a mathematical property: total parameters scale linearly with the number of experts, but per-token compute stays constant (determined by top-k, not by total experts). If you double the experts from 128 to 256:</p>
+        <p><strong>Total parameters:</strong> roughly doubles (each new expert adds its FFN weights)</p>
+        <p><strong>Per-token compute:</strong> unchanged (still only k=8 experts fire)</p>
+        <p><strong>Communication cost:</strong> increases slightly (router scores 256 instead of 128, tokens may travel to more distant devices)</p>
+        <p><strong>Memory cost:</strong> increases (all 256 expert weight sets must be stored somewhere)</p>
+        <p>GShard demonstrated this concretely: 16x more parameters for 3.6x more cost. Dense scaling would have required 16x more cost for 16x more parameters. The gap between linear (dense) and sub-linear (sparse) widens as you scale up. This is why MoE becomes <em>more</em> attractive, not less, at extreme scale.</p>
+    </div>
+</details>
+
+</section>
+
+<!-- ============================================================ -->
+<!-- CHAPTER 3: THE ROUTING PROBLEM                                -->
+<!-- ============================================================ -->
+<section id="ch3">
+<h2>03 // The Routing Problem</h2>
+
+<p class="drop-cap">Every MoE system faces the same existential threat, and it starts with something as innocent as a random initialization. The router, initialized randomly, happens to give Expert A a slightly higher score than Expert B for a particular token. Expert A processes that token and updates its weights. Because Expert A has now seen slightly more data than Expert B, it becomes marginally better at processing similar tokens. The router notices. It sends the next similar token to Expert A. Expert A improves again. The feedback loop tightens.</p>
+
+<p>Within a few thousand training steps, the model has collapsed into a dense network wearing an MoE costume &mdash; one or two experts doing all the work, the rest dead weight. Expert A has captured 60% of all tokens. Expert B has 25%. Experts C through H share the remaining 15%, each one barely trained, barely capable, barely alive. You allocated GPU memory for 8 experts but only 2 are learning. The other 6 are dead parameters &mdash; consuming memory, contributing nothing.</p>
+
+<p>The collapse is difficult to detect early and impossible to reverse once established. By the time you notice that Expert A is processing 60% of tokens (if you're monitoring that metric at all), Expert A's weights have been shaped by a fundamentally different data distribution than the other experts. You cannot simply redistribute tokens and expect the starved experts to catch up. Their weights are untrained for the tokens they would now receive. The only option is to restart the training run with different hyperparameters. At the scale of DeepSeek-V3 &mdash; 2,048 GPUs running for weeks &mdash; a failed run wastes millions of dollars.</p>
+
+<p>This is <strong>expert collapse</strong>, and it has killed training runs worth hundreds of thousands of dollars. A training run that collapses mid-way through &mdash; say, at step 200,000 of a 500,000-step schedule &mdash; wastes weeks of GPU time and millions of dollars. You cannot simply restart from the collapse point because the router's weights are already corrupted. You restart from scratch, with a different balancing hyperparameter, and hope.</p>
+
+<div class="power danger">
+    <div class="power-label">The death spiral</div>
+    <p>Popular experts get more tokens. More tokens make them better. Better experts get even more tokens. Without intervention, MoE converges to a system where 90% of parameters are never used. Every major MoE system &mdash; from Shazeer's 2017 paper to Mixtral &mdash; has needed some form of load balancing to survive.</p>
+</div>
+
+<h3>The auxiliary loss trade-off</h3>
+
+<p>The standard fix since Shazeer's original paper: add an auxiliary loss term to the training objective. This loss penalizes imbalanced routing. If one expert gets too many tokens, the loss increases, pushing the router to spread the load. The evolution of this idea maps the evolution of the field: Shazeer (2017) used noisy gating as implicit balancing. GShard (2020) added an explicit auxiliary loss. Switch Transformer (2021) carefully tuned the loss coefficient. ST-MoE (2022) added a router z-loss for numerical stability. Each generation added another patch to the same leaky abstraction.</p>
+
+<p>The problem is fundamental. The auxiliary loss <em>fights</em> the primary training objective. The model is simultaneously trying to learn language <strong>and</strong> balance load. These two objectives have different gradients, and those gradients pull in different directions. Too little auxiliary loss and experts collapse. Too much and the model sacrifices quality to maintain balance. Every practitioner tunes this coefficient by feel, trading off between two opposing forces.</p>
+
+<p>The situation is worse than it sounds. The optimal routing for language modeling is probably <em>not</em> perfectly balanced. Some experts should get more tokens &mdash; because some types of knowledge are more common than others. English grammar appears in nearly every sentence. Quantum physics appears rarely. A perfectly balanced router forces the quantum physics expert to process grammar tokens it shouldn't care about. Balanced routing is not the same as optimal routing.</p>
+
+<pre><span class="label">The Aux Loss Trade-off</span><code><span class="cm">// Standard MoE training loss</span>
+<span class="ty">total_loss</span> = <span class="ty">language_loss</span> + <span class="nm">alpha</span> * <span class="ty">aux_balance_loss</span>
+
+<span class="cm">// alpha too low  -> expert collapse, dead parameters</span>
+<span class="cm">// alpha too high -> balanced routing, degraded quality</span>
+<span class="cm">// alpha just right -> nobody knows, you tune it</span>
+
+<span class="cm">// The aux balance loss (simplified):</span>
+<span class="ty">aux_balance_loss</span> = N * <span class="fn">sum</span>(<span class="ty">fraction_routed_i</span> * <span class="ty">avg_gate_prob_i</span>)
+<span class="cm">// where N = number of experts</span>
+<span class="cm">// Minimized when all experts get equal traffic</span>
+<span class="cm">// But equal traffic ≠ optimal routing</span></code></pre>
+
+<p>Visualize the dilemma. You have two gradient signals pulling on the same router parameters. The language modeling loss says: "route this French token to the French expert, because that is where it will be processed best." The auxiliary balance loss says: "the French expert already has too many tokens this batch, route elsewhere." These gradients collide in the router's weight update. The optimizer takes a step that is a weighted average of the two directions &mdash; partially toward better language modeling, partially toward better balance. The router is being pulled in two directions simultaneously, and the compromise degrades both objectives.</p>
+
+<p>The auxiliary loss coefficient alpha controls the trade-off. Typical values range from 0.01 to 0.1. At alpha=0.01, the balance signal is weak &mdash; experts may still collapse if the language loss strongly prefers certain experts. At alpha=0.1, the balance signal is strong &mdash; the router prioritizes spreading load over choosing the best expert. No value of alpha is optimal because the problem is structural: you are trying to optimize two conflicting objectives with a single set of router weights.</p>
+
+<h3>Expert Choice: the inversion</h3>
+
+<p>In 2022, Yanqi Zhou and colleagues at Google asked a question that seems obvious in retrospect but which nobody had asked in the right way: why do tokens choose experts? What if the direction were reversed?</p>
+
+<p>In their Expert Choice routing, each expert picks its top-k tokens from the batch. The expert examines all available tokens, scores them, and selects the ones it is best equipped to handle. The result: guaranteed perfect balance. Every expert processes exactly the same number of tokens by construction. Important tokens might be claimed by many experts. Trivial tokens by few or none. No capacity factor needed, no tokens dropped.</p>
+
+<p>Expert Choice achieved 2x training convergence speedup over Switch Transformer in their experiments. It also revealed something unexpected: some tokens are naturally processed by many experts (complex, ambiguous tokens that benefit from multiple perspectives) while others are claimed by few or none (simple tokens like punctuation that don't need expert attention). The system discovered variable computation per token &mdash; hard tokens get more compute, easy tokens get less &mdash; without anyone designing that behavior.</p>
+
+<p>But Expert Choice introduced a fundamental limitation: you lose per-token deterministic routing. During autoregressive inference, where you process one token at a time, Expert Choice cannot decide which experts should handle that single token. The "experts choose" paradigm needs a full batch to work. You can train with Expert Choice but you need a different routing strategy at inference time. That mismatch between training and inference is uncomfortable.</p>
+
+<p>By 2023, the routing problem had three imperfect solutions. Auxiliary losses worked but degraded quality. Expert Choice balanced perfectly but couldn't do inference. Noisy gating explored but didn't guarantee balance. The field needed something that balanced load without corrupting the training signal, and worked at both training and inference time.</p>
+
+<details>
+    <summary>The communication wall: why routing is a physical problem</summary>
+    <div>
+        <p>Routing is not just a software decision &mdash; it is a physical one. In a distributed MoE training setup, each expert lives on a specific GPU (or group of GPUs) in the cluster. When the router decides that Token 47 should go to Expert 183, Token 47 must physically travel across the network from its current GPU to Expert 183's GPU.</p>
+        <p>This is the <strong>all-to-all communication</strong> pattern. Every token could potentially go to any expert on any device. On modern hardware, this accounts for over 40% of total training runtime. For DeepSeek-V3 specifically, the computation-to-communication ratio before DualPipe was approximately 1:1 &mdash; half the time computing, half the time moving data.</p>
+        <p>The routing problem is therefore doubly constrained: the router must assign tokens to experts that will produce good outputs (quality) while also keeping the communication pattern efficient (balance). Sending all tokens to the same expert is catastrophic for quality (other experts die) and also for communication (one GPU is overwhelmed while others idle). The routing decision affects both the model's intelligence and the cluster's hardware utilization.</p>
+    </div>
+</details>
+
+</section>
+
+<!-- ============================================================ -->
+<!-- CHAPTER 4: DEEPSEEK'S TWO MOVES                               -->
+<!-- ============================================================ -->
+<section id="ch4">
+<h2>04 // DeepSeek's Two Moves</h2>
+
+<p class="drop-cap">By late 2023, DeepSeek &mdash; a Chinese AI lab backed by the hedge fund High-Flyer, operating under U.S. export restrictions that limited them to H800 GPUs with half the interconnect bandwidth of H100s &mdash; inherited two unsolved problems. Coarse-grained experts wasted capacity. Load balancing destroyed performance.</p>
+
+<p>They solved both. And the solutions are connected by a single idea: <strong>granularity changes everything</strong>. Fine-grained experts are smaller, which means they specialize more sharply, communicate less data per dispatch, and fit more cleanly into a memory budget constrained by export restrictions. The two innovations &mdash; fine-grained segmentation and auxiliary-loss-free balancing &mdash; are published in separate papers but designed as a pair.</p>
+
+<h3>Move 1: 256 tiny experts instead of 8 big ones</h3>
+
+<p>Standard MoE (Mixtral, GShard) uses 8 to 16 large experts. Each expert is a full-sized feed-forward network &mdash; billions of parameters. When a token routes to an expert, it activates the entire FFN, even if only a fraction of that knowledge is relevant. Imagine hiring a full orchestra when you need a violinist. The violinist plays. The trumpets, drums, cellos, and flutes sit idle &mdash; but you still paid for the entire concert hall.</p>
+
+<p>DeepSeek's first paper on the topic, published in January 2024 as "DeepSeekMoE: Towards Ultimate Expert Specialization in Mixture-of-Experts Language Models," proposed fine-grained expert segmentation. The idea: instead of 8 large experts, use 256 small ones. Each expert is 1/m the size of a standard FFN. Activate more of them (8 out of 256 per token) but each is narrower, cheaper to communicate, and more specialized.</p>
+
+<p>The math works out cleanly. If you take a standard FFN with hidden dimension H and split it into m experts, each with hidden dimension H/m, and then activate k=8 of them, the total compute per token is (k/m) times the standard FFN cost. With m=32 (256 experts, each 1/32 the size), activating k=8 gives you 8/32 = 25% of one full FFN equivalent of compute per token. But the total parameter storage is 256/32 = 8x the standard FFN. You get 8x the knowledge capacity for 25% of the per-token compute cost. The remaining 248 experts contribute zero compute for this token. Their knowledge is stored, ready, but dormant.</p>
+
+<p>The actual ratio in DeepSeek-V3 is even more extreme. With 671B total parameters and 37B active, the activation ratio is 5.5%. For every token processed, 94.5% of the model's knowledge sits idle. This sounds wasteful until you remember that the idle knowledge costs only storage (GPU memory), not compute (FLOPs). Storage is cheap. Compute is expensive. Sparsity trades cheap resources for expensive ones &mdash; exactly the trade-off you want.</p>
+
+<p>The insight is that <strong>granularity enables specialization</strong>. With 8 experts, each must be a generalist &mdash; it handles too many different types of knowledge. Consider what happens when you route a French sentence to Expert 3 in an 8-expert system. Expert 3 has also learned some Python, some medical terminology, some legal language. It is a committee pretending to be a specialist. With 256 experts, each can become a true specialist. Expert 47 handles French syntax. Expert 183 handles Python list comprehensions. Expert 12 handles medical terminology. The routing decision becomes more precise because the destinations are more distinct.</p>
+
+<p>Then they added one more piece: a <strong>shared expert</strong>. One expert that is always active for every token, regardless of routing. This shared expert captures common knowledge &mdash; grammar, basic reasoning, frequent patterns &mdash; that every token needs. Think of it as a generalist doctor who handles 80% of cases, with 256 specialist consultants activated on demand for the specific 20% each token requires.</p>
+
+<p>The shared expert solves a subtle redundancy problem. Without it, every routed expert must independently learn basic grammar and common word patterns, wasting capacity on knowledge that should be shared. The shared expert absorbs this common substrate, freeing routed experts to specialize exclusively in their narrow domains. It is a simple architectural decision with outsized impact.</p>
+
+<div class="vs">
+    <div class="vs-card">
+        <h4>Mixtral (Coarse)</h4>
+        <p>8 experts per layer. Top-2 routing. Each expert: full-sized FFN. 47B total, 13B active. Experts must be generalists.</p>
+    </div>
+    <div class="vs-card">
+        <h4>DeepSeek-V3 (Fine)</h4>
+        <p>256 routed experts + 1 shared. Top-8 routing. Each expert: 1/m sized FFN. 671B total, 37B active. Experts can specialize.</p>
+    </div>
+</div>
+
+<p>The validation: DeepSeekMoE-16B matched the performance of LLaMA 2 7B &mdash; a dense model with comparable activated parameters &mdash; at 40% of the compute. The architecture was then tested at 145B scale, confirming that the fine-grained approach held up. By the time DeepSeek-V3 deployed it at 671B with 256 routed experts across 61 transformer layers, the design was battle-tested at three scales.</p>
+
+<h3>What specialization looks like</h3>
+
+<p>Fine-grained experts don't just enable specialization in theory &mdash; you can observe it empirically. When researchers analyze which experts activate for different types of input, patterns emerge. Tokens from Python code consistently activate a different subset of experts than tokens from French prose. Mathematical notation routes to yet another set. The router learns to use the 256-expert vocabulary as a kind of implicit type system, categorizing knowledge by domain without anyone labeling the domains.</p>
+
+<p>The shared expert absorbs the common substrate: articles ("the," "a"), common prepositions, basic verb conjugations, punctuation patterns. These appear in nearly every input regardless of domain. Without the shared expert, this common knowledge would be redundantly duplicated across many routed experts, wasting capacity. The shared expert functions as a deduplication layer &mdash; it extracts the universal and lets the specialists focus on the particular.</p>
+
+<p>This is qualitatively different from the coarse-grained approach. In Mixtral's 8-expert system, each expert processes about 12.5% of all tokens, across all domains. Expert 3 might handle French syntax <em>and</em> Python indentation <em>and</em> medical terminology. It is a generalist committee. In DeepSeek-V3's 256-expert system, each routed expert processes about 3% of tokens on average (8 experts active per token across 256 total). The routing can be surgical: this token goes to the quantum physics expert because it contains "Hamiltonian," not because it was randomly assigned to an overworked generalist.</p>
+
+<p>The combination of 256 fine-grained experts and 1 shared expert also changes the nature of the routing decision. In an 8-expert system, the router must simultaneously handle common knowledge and specialized knowledge &mdash; "should this grammar token go to Expert 1 or Expert 5?" Both are generalists, so the choice doesn't matter much. The routing decision has low information content.</p>
+
+<p>In the fine-grained system, the shared expert handles all grammar, and the router's job simplifies to: "given that the shared expert already captures the basics, which 8 specialists does this specific token need?" The routing decision becomes more meaningful because the base case is already covered. The router is no longer deciding between generalists. It is selecting specialists for a specific job, with the common work already done. This is a more informative routing decision, which means the router can learn more useful patterns from the same training signal.</p>
+
+<p>There is also a resilience benefit. If the router makes a poor routing decision in an 8-expert system &mdash; sending a token to the wrong generalist &mdash; the output quality degrades significantly because that expert handles a large fraction of the token's total computation. If the router makes a poor routing decision in the fine-grained system, one of the 8 selected specialists might be suboptimal, but the shared expert still provides a correct baseline, and the other 7 specialists are likely still relevant. The architecture is more robust to routing errors because no single routing decision controls a large fraction of the output.</p>
+
+<h4>Architecture details (DeepSeek-V3)</h4>
+
+<pre><span class="label">V3 MoE Config</span><code><span class="cm">// Per MoE layer</span>
+<span class="ty">routed_experts</span>   = <span class="nm">256</span>
+<span class="ty">shared_experts</span>   = <span class="nm">1</span>       <span class="cm">// always active</span>
+<span class="ty">top_k</span>            = <span class="nm">8</span>       <span class="cm">// experts activated per token</span>
+<span class="ty">total_params</span>     = <span class="nm">671B</span>
+<span class="ty">active_params</span>    = <span class="nm">37B</span>     <span class="cm">// 5.5% activation ratio</span>
+
+<span class="cm">// Global architecture</span>
+<span class="ty">layers</span>           = <span class="nm">61</span>
+<span class="ty">hidden_dim</span>       = <span class="nm">7168</span>
+<span class="ty">attention_heads</span>  = <span class="nm">128</span>
+<span class="ty">kv_compress_dim</span>  = <span class="nm">512</span>     <span class="cm">// via MLA (Part I)</span></code></pre>
+
+<h3>Move 2: Auxiliary-loss-free load balancing</h3>
+
+<p>Here is the move that changed the economics. DeepSeek looked at the auxiliary loss that every other MoE system used and asked: what if we just... didn't? What if we replaced the loss with something that doesn't interfere with training at all?</p>
+
+<p>The mechanism is deceptively simple:</p>
+
+<p>Each expert <em>i</em> gets a bias term <em>b<sub>i</sub></em>, initialized to zero. The bias is a scalar, not a learned parameter &mdash; it is not part of the model's weights and has no gradient. When the router scores each expert for a given token, the bias is <em>added</em> to the affinity score to determine which experts are selected (top-k). But &mdash; and this is the critical detail, the hinge on which the entire mechanism turns &mdash; the actual <strong>gating weight</strong> (how much that expert's output contributes to the final result) uses the <em>original, unbiased score</em>.</p>
+
+<pre><span class="label">The Bias Trick</span><code><span class="cm">// For each token t and expert i:</span>
+<span class="ty">affinity_i</span>  = <span class="fn">dot</span>(token_embedding, expert_i_centroid)
+<span class="ty">selection_i</span> = <span class="ty">affinity_i</span> + <span class="ty">b_i</span>   <span class="cm">// bias nudges SELECTION</span>
+<span class="ty">weight_i</span>    = <span class="fn">softmax</span>(<span class="ty">affinity_i</span>) <span class="cm">// weight uses PURE affinity</span>
+
+<span class="cm">// After each step, update biases:</span>
+<span class="kw">if</span> expert_i overloaded:  <span class="ty">b_i</span> -= <span class="nm">gamma</span>
+<span class="kw">if</span> expert_i underloaded: <span class="ty">b_i</span> += <span class="nm">gamma</span></code></pre>
+
+<p>The bias changes <em>which</em> experts get picked. It does not corrupt <em>how much</em> each expert's output counts. The router might pick Expert 47 because (affinity + bias) is highest. But Expert 47's contribution to the final output is weighted by affinity alone &mdash; the bias term disappears from the gating weight computation. The model's actual output is identical to what it would produce if it had "naturally" chosen Expert 47 without the bias. Quality preserved, balance achieved.</p>
+
+<p>Contrast this with the auxiliary loss approach. Auxiliary loss adds a competing gradient to the training objective. Two gradients pulling in different directions &mdash; learn language, balance load. The optimizer tries to satisfy both and satisfies neither fully. DeepSeek's bias has <em>no gradient at all</em>. It is adjusted by a simple rule after each step, completely outside backpropagation. The training loss remains pure. The optimizer sees only one objective: learn language.</p>
+
+<p>The subtlety is worth emphasizing because it is easy to miss. The bias affects the <em>selection decision</em>: which experts get picked. It does <em>not</em> affect the <em>value signal</em>: how much each expert's output counts. The gating weight &mdash; the coefficient that determines Expert 47's influence on the final output &mdash; is computed from the raw affinity score, without the bias. So the bias can redirect traffic (preventing collapse) without corrupting the quality of the expert's contribution (preserving training signal). Selection and weighting are decoupled.</p>
+
+<div class="vs">
+    <div class="vs-card">
+        <h4>Auxiliary Loss Approach</h4>
+        <p>Two competing gradients in the optimizer. Language loss pulls one direction, balance loss pulls another. The router's weights are a compromise that fully satisfies neither objective.</p>
+    </div>
+    <div class="vs-card">
+        <h4>Bias Approach</h4>
+        <p>One gradient (language loss only). The bias is a separate, non-gradient adjustment that nudges routing decisions. The optimizer sees a clean, single-objective landscape.</p>
+    </div>
+</div>
+
+<div class="power">
+    <div class="power-label">Why it works</div>
+    <p>The bias is a nudge, not a force. It affects selection (which experts are chosen) but not weighting (how much they contribute). This preserves the purity of the expertise signal while preventing the death spiral of collapse. Zero interference with the training objective. The first solution to expert collapse that costs nothing in model quality.</p>
+</div>
+
+<!-- D3 VIZ: The Bias Trick -->
+<div class="viz-container">
+    <span class="diagram-label">Expert Load Balancing &mdash; The Bias Trick</span>
+    <div class="viz-controls">
+        <button class="viz-btn active" id="bias-off-btn" onclick="toggleBias(false)">Without Bias</button>
+        <button class="viz-btn" id="bias-on-btn" onclick="toggleBias(true)">With Bias</button>
+    </div>
+    <div id="bias-viz"></div>
+    <div class="viz-readout" id="bias-readout">Load balance: <span>---</span> | Dead experts: <span>---</span> | Click a mode to start the simulation.</div>
+</div>
+
+<p>Toggle between the two modes. Without bias, watch expert collapse in real-time &mdash; two or three experts absorb everything while the rest die. The yellow bars are overloaded experts. The red bars are dead experts &mdash; receiving less than 1% of traffic. With bias, all experts stay active, the load spreads evenly, and the dead expert count stays at zero. The small numbers below each bar (visible in "With Bias" mode) show the current bias values: negative for overloaded experts, positive for underloaded ones.</p>
+
+<p>The difference is a single additive term in the routing decision. No auxiliary loss. No competing gradients. No capacity factors. No dropped tokens. Just a bias that nudges the selection toward balance while leaving the quality signal untouched.</p>
+
+<details>
+    <summary>Why the separation of selection and weighting matters</summary>
+    <div>
+        <p>Consider a concrete example. Token "entanglement" has the following affinity scores:</p>
+        <p><code>Expert 12 (physics): 0.85</code><br>
+           <code>Expert 47 (chemistry): 0.72</code><br>
+           <code>Expert 183 (math): 0.68</code><br>
+           <code>Expert 7 (general): 0.65</code></p>
+        <p>Without bias, Expert 12 is selected first (highest score). But Expert 12 is overloaded, with bias = -0.25. After adding bias:</p>
+        <p><code>Expert 12: 0.85 + (-0.25) = 0.60</code> (demoted)<br>
+           <code>Expert 47: 0.72 + 0.10 = 0.82</code> (promoted)</p>
+        <p>Expert 47 gets selected instead. But when computing the output, the weight for Expert 47 uses the <em>original</em> 0.72 score, not 0.82. The model says: "I'm sending you to Expert 47 because it has capacity, but I'm weighting Expert 47's output by how relevant it actually is, ignoring the routing nudge."</p>
+        <p>This separation is why DeepSeek's approach doesn't degrade quality. The gating weights &mdash; which determine how much each expert contributes to the output &mdash; are always based on genuine affinity. The bias only changes which experts get to participate, not how much they matter.</p>
+    </div>
+</details>
+
+</section>
+
+<!-- ============================================================ -->
+<!-- CHAPTER 5: THE FULL STACK                                     -->
+<!-- ============================================================ -->
+<section id="ch5">
+<h2>05 // The Full Stack</h2>
+
+<p class="drop-cap">DeepSeek-V3 did not invent most of the ideas in this article. MoE came from Jacobs in 1991. Latent attention compression existed in DeepSeek-V2. FP8 training had been studied for years. Multi-token prediction was a known technique. What DeepSeek did was <em>combine</em> them into a system where each innovation compensates for the weaknesses of the others. The genius is in the composition, not in any single component.</p>
+
+<p>This is a systems engineering achievement, not a singular research breakthrough. Each technique was published, understood, and available to anyone. MLA was in DeepSeek-V2. FP8 training had been studied at smaller scales. Multi-token prediction was a known technique from Meta and others. DualPipe builds on standard pipeline parallelism ideas. The insight was not any one of these components. The insight was that they fit together &mdash; that MLA's memory savings create room for MoE's 256 experts, that FP8's reduced precision makes DualPipe's double-parameter requirement affordable, that MTP's speculative decoding turns MoE's natural structure into an inference accelerator.</p>
+
+<p>The analogy is an engine, not a breakthrough. An engine does not depend on any single revolutionary part. It depends on every part being precisely designed to work with every other part. The camshaft timing matches the piston stroke. The fuel injection matches the compression ratio. Change one part without adjusting the others and the engine fails. DeepSeek-V3 is an engine. Remove any one piece and the economics collapse.</p>
+
+<table>
+    <thead>
+        <tr>
+            <th>Technique</th>
+            <th>What It Gives</th>
+            <th>What It Costs</th>
+            <th>What Compensates</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td><strong>MLA</strong></td>
+            <td>93% KV cache reduction</td>
+            <td>Added attention complexity</td>
+            <td>FP8 keeps compute fast</td>
+        </tr>
+        <tr>
+            <td><strong>MoE</strong></td>
+            <td>671B knowledge, 37B compute</td>
+            <td>All-to-all communication overhead</td>
+            <td>DualPipe hides the latency</td>
+        </tr>
+        <tr>
+            <td><strong>FP8</strong></td>
+            <td>~2x throughput, lower memory</td>
+            <td>Precision loss risk</td>
+            <td>Selective precision (router in BF16)</td>
+        </tr>
+        <tr>
+            <td><strong>MTP</strong></td>
+            <td>Richer training signal + speculative decoding</td>
+            <td>14B extra parameters</td>
+            <td>MoE's sparse activation absorbs cost</td>
+        </tr>
+        <tr>
+            <td><strong>DualPipe</strong></td>
+            <td>Overlaps compute and communication</td>
+            <td>Two copies of model parameters</td>
+            <td>FP8 halves the parameter memory</td>
+        </tr>
+    </tbody>
+</table>
+
+<h3>MLA: freeing the memory</h3>
+
+<p>Multi-head Latent Attention, inherited from DeepSeek-V2 and covered in depth in Part I of this series, compresses keys and values into a low-rank latent space &mdash; 512 dimensions down from 7,168. The KV cache shrinks by roughly 93%. This seems like an attention optimization. It is. But in DeepSeek-V3, it serves a second purpose that matters even more.</p>
+
+<p>Why does MLA matter for MoE? Because MoE models have 256 expert weight sets per layer, across 61 layers, that must physically reside in GPU memory. That is an enormous memory footprint. MLA frees the GPU memory that those expert weights need by compressing the attention cache. Without MLA, you simply cannot fit 256 fine-grained experts on H800s alongside a functional KV cache. The two innovations are co-dependent: MLA makes MoE physically possible at this scale.</p>
+
+<p>MLA also improves MoE serving economics. MoE models are designed to serve many users simultaneously &mdash; that is the whole point of high-throughput inference. Each user's context requires a KV cache. With standard multi-head attention on a 671B model, that cache would be prohibitive. MLA makes high-throughput multi-user serving economically viable.</p>
+
+<h3>FP8: halving the arithmetic</h3>
+
+<p>DeepSeek-V3 is the first model to validate FP8 training at extreme scale &mdash; 671 billion parameters. The numbers behind FP8: E4M3 format gives you 4 exponent bits and 3 mantissa bits. That is a dynamic range of about 240 and a precision of roughly 1 part in 8. For context, BF16 gives about 1 part in 128. You are sacrificing 16x precision. The question is: does it matter?</p>
+
+<p>The answer depends on <em>where</em> you apply it. DeepSeek's insight, echoing Switch Transformer's selective precision from three years earlier: the router must stay in BF16 because routing decisions are numerically sensitive. A score difference of 0.001 can change which expert is selected, which changes the entire computation. The experts themselves tolerate FP8 because their outputs are combined by gating weights, smoothing out quantization noise through aggregation.</p>
+
+<p>The selective precision map is detailed and deliberate:</p>
+
+<table>
+    <thead>
+        <tr><th>Component</th><th>Precision</th><th>Why</th></tr>
+    </thead>
+    <tbody>
+        <tr><td>Embedding layer</td><td>BF16</td><td>Token representations must be accurate</td></tr>
+        <tr><td>Output head</td><td>BF16</td><td>Final logits determine token selection</td></tr>
+        <tr><td>Router / gating</td><td>BF16</td><td>Small score differences change routing</td></tr>
+        <tr><td>Normalization</td><td>FP32</td><td>Running statistics need high precision</td></tr>
+        <tr><td>Attention operators</td><td>BF16</td><td>Softmax is precision-sensitive</td></tr>
+        <tr><td>Expert FFNs</td><td>FP8</td><td>Outputs aggregated, noise averages out</td></tr>
+        <tr><td>Activation dispatch</td><td>FP8</td><td>Halves cross-node communication bytes</td></tr>
+        <tr><td>Optimizer states</td><td>BF16</td><td>Momentum and variance need precision</td></tr>
+    </tbody>
+</table>
+
+<p>This is not "FP8 training" in the naive sense. It is a precision budget allocated according to each component's sensitivity to quantization noise. The most precision-sensitive components (router, normalization, output head) keep full precision. The most volume-heavy components (expert FFNs, activation dispatch) use FP8. The boundary is drawn exactly where the cost-quality trade-off changes slope.</p>
+
+<p>Validation: relative loss error versus BF16 baseline stayed below 0.25% throughout 14.8 trillion tokens of training. Activations are cached and dispatched in FP8, which has a critical secondary effect: it reduces all-to-all communication volume for MoE. When tokens travel between devices to reach their assigned experts, they travel as FP8 tensors instead of BF16 tensors. Half the bytes. Half the communication time. One precision decision, two payoffs.</p>
+
+<h3>MTP: double-duty prediction</h3>
+
+<p>Standard language model training predicts one token ahead: given tokens 1 through N, predict token N+1. DeepSeek-V3 adds a separate 14B-parameter module that simultaneously predicts token N+2. This is Multi-Token Prediction, and it serves two distinct purposes.</p>
+
+<p>During training, predicting further ahead forces the model to build deeper internal representations. If you only predict one token ahead, you can sometimes succeed with shallow pattern matching &mdash; "the" is likely after "in" regardless of broader context. Predicting two tokens ahead requires understanding the actual structure of the sentence. The MTP loss weight starts at 0.3 for the first 10 trillion tokens, then decreases to 0.1 as the model matures. The richer training signal is most valuable early, when representations are still forming.</p>
+
+<p>During inference, the MTP module enables speculative decoding. The model drafts two tokens at once, then verifies them in a single forward pass. If the speculative tokens are correct (which they often are, since the model was trained to predict them), you get nearly double throughput for free. The MTP module is essentially a built-in draft model &mdash; no need for a separate smaller model to generate candidates. One module, two purposes, zero wasted parameters.</p>
+
+<p>The MTP architecture is designed to be removable. The main model (671B) can operate independently at inference time without the MTP module (14B). This means the MTP module is purely additive during training &mdash; it improves the main model's representations through the multi-token prediction signal &mdash; and optional during inference. If you want maximum throughput, you enable speculative decoding. If you want minimum memory, you drop the MTP module. The design gives you the option without forcing the cost.</p>
+
+<h3>DualPipe: hiding the communication wall</h3>
+
+<p>With 256 experts spread across nodes, every MoE layer requires all-to-all communication: dispatch tokens to the right experts, gather results back. For DeepSeek-V3, this creates a roughly 1:1 computation-to-communication ratio &mdash; half the training time is spent moving data, not computing. On H800s with their restricted interconnect bandwidth, this ratio is even worse.</p>
+
+<p>DualPipe is a bidirectional pipeline parallelism algorithm that exploits a key observation: attention computation and MoE communication use different hardware resources. Attention uses the tensor cores. All-to-all dispatch uses the network interface. They can happen simultaneously if you schedule them correctly.</p>
+
+<p>DualPipe divides each processing step into four components: attention, all-to-all dispatch, MLP (expert computation), all-to-all combine. While one set of micro-batches does forward computation (attention + MLP), another simultaneously handles backward communication (all-to-all dispatch and combine). Micro-batches feed from both ends of the pipeline &mdash; bidirectional scheduling.</p>
+
+<p>The resource allocation is precise. Only 20 streaming multiprocessors (out of ~132 on an H800) are dedicated to communication. Those 20 SMs are enough to saturate both InfiniBand and NVLink bandwidth. The remaining 112 SMs compute. The result: near-zero effective communication overhead. The pipeline bubble formula &mdash; <code>(PP/2 - 1)(F&B + B - 3W)</code> &mdash; is significantly smaller than standard pipeline parallelism. Peak activation memory is approximately <code>(PP+1)/PP</code> times baseline, which is near 1x overhead for reasonable pipeline depths.</p>
+
+<p>DualPipe requires two copies of model parameters for bidirectional scheduling. This sounds expensive &mdash; two copies of 671B parameters? &mdash; until you realize two things. First, FP8 halved the per-copy memory, so two FP8 copies take the same space as one BF16 copy. Second, the alternative (no DualPipe) means 40-50% of training time is spent waiting for communication, which would more than double the training cost from $5.6M to roughly $11M. Storing an extra copy for $0 (net) versus wasting $5M on idle compute is not a hard trade-off. The innovations compensate for each other, again.</p>
+
+<div class="power hack">
+    <div class="power-label">The constraint that created the innovation</div>
+    <p>DeepSeek had H800s, not H100s. Half the interconnect bandwidth. Every optimization in this stack &mdash; DualPipe, FP8 dispatch, MLA memory savings &mdash; was born from that constraint. The $5.576M training cost is not a miracle of genius. It is what happens when hardware limitations force every component to justify its existence.</p>
+</div>
+
+<p>The compensation relationships are what make this a system rather than a collection of parts. MoE creates a communication bottleneck (all-to-all dispatch across nodes). DualPipe hides that communication behind computation. But DualPipe needs two copies of model parameters, which doubles memory. FP8 halves parameter memory, making two copies affordable. FP8 risks precision loss, but MLA's compressed representations are more tolerant of quantization noise. MTP adds 14B parameters and extra training compute, but MoE's sparse activation absorbs the cost &mdash; the extra parameters are small relative to 671B, and the sparse compute budget has headroom.</p>
+
+<p>Remove MLA, and the expert weights don't fit in memory. Remove FP8, and DualPipe's double-parameter requirement breaks the memory budget. Remove DualPipe, and communication overhead eats 40-50% of training time, roughly doubling the cost to $11M+. Remove MTP, and you lose the speculative decoding that makes inference competitive with dense models. The system holds together or falls apart as a unit.</p>
+
+<p>This is why DeepSeek-V3 is hard to replicate by cherry-picking individual innovations. You cannot take "just the MoE" and bolt it onto a different model. The MoE works at this scale because MLA made room for 256 expert weight sets. The MoE is affordable because FP8 halved the arithmetic and DualPipe hid the communication. The system was designed as a system. Each component assumes the others exist.</p>
+
+<h3>Training stability at scale</h3>
+
+<p>DeepSeek reports that the entire 14.8-trillion-token pre-training run completed without a single irrecoverable loss spike or rollback. This is remarkable for a 671B MoE model in FP8. For context, the original GPT-4 training reportedly required multiple restarts due to loss spikes. LLaMA 3.1's training involved checkpoint restarts. Large-scale training instability is the norm, not the exception.</p>
+
+<p>Several design choices contribute to DeepSeek-V3's stability. The auxiliary-loss-free balancing prevents the router from oscillating between conflicting gradients (a known source of training instability in MoE). The selective precision keeps the router in BF16, avoiding the numerical instability that FP8 would introduce in routing decisions. The shared expert provides a stable baseline of computation that every token receives, regardless of routing noise &mdash; even if the router makes a poor decision for a particular token, the shared expert provides a floor of quality that prevents catastrophic individual predictions.</p>
+
+<p>Stability at scale is not a glamorous property, but it is an economic one. A training run that requires restarts wastes the GPU hours between the last checkpoint and the failure point. For a 2,048-GPU cluster running at $2/GPU-hour, every hour of wasted training costs $4,096. A restart from a checkpoint 10 hours back costs $41,000 in wasted compute alone, not counting the lost training progress. A major loss spike that requires restarting from a checkpoint 24 hours back costs $98,000.</p>
+
+<p>Zero restarts over a 56-day training run is worth millions in saved waste. The DeepSeek team's meticulous approach to precision boundaries, load balancing, and gradient purity paid dividends not just in model quality but in training reliability. The cheapest GPU hour is the one you never waste. In a world where a single training run costs millions and takes months, reliability is itself a form of efficiency.</p>
+
+<!-- D3 VIZ: The Compensation Loop -->
+<div class="viz-container">
+    <span class="diagram-label">The Compensation Loop &mdash; Click a component</span>
+    <div id="stack-viz"></div>
+    <div id="stack-detail" class="viz-readout" style="min-height: 60px;">Click any component to see what it solves, what it costs, and which other components depend on it.</div>
+</div>
+
+<h3>The token's journey through DeepSeek-V3</h3>
+
+<p>Follow a single token through the full stack to see how the innovations interact. The token "entanglement" arrives at layer 30 of 61:</p>
+
+<div class="diagram">
+    <span class="diagram-label">One Token, One Layer &mdash; Precision and Component Map</span>
+    <pre><code><span class="cm">1. Embedding lookup</span>              [<span class="ty">BF16</span>]
+<span class="cm">2. MLA attention</span>
+   &rarr; compress Q into 1,536-dim  [<span class="ty">BF16</span>]
+   &rarr; compress KV into 512-dim   [<span class="ty">BF16</span>]   <span class="cm">&larr; 93% cache savings</span>
+   &rarr; attention computation      [<span class="ty">BF16</span>]
+   &rarr; router stays full prec.    [<span class="ty">BF16</span>]   <span class="cm">&larr; routing is precision-sensitive</span>
+
+<span class="cm">3. MoE routing</span>
+   &rarr; score 256 experts          [<span class="ty">BF16</span>]   <span class="cm">&larr; affinity + bias for selection</span>
+   &rarr; select top-8               [<span class="ty">BF16</span>]   <span class="cm">&larr; weights use affinity ONLY</span>
+   &rarr; always include shared exp. [<span class="ty">BF16</span>]
+
+<span class="cm">4. All-to-all dispatch</span>
+   &rarr; pack activations            [<span class="pp">FP8</span>]   <span class="cm">&larr; halves communication bytes</span>
+   &rarr; send to expert devices     [<span class="pp">FP8</span>]   <span class="cm">&larr; overlapped by DualPipe</span>
+
+<span class="cm">5. Expert FFN computation</span>
+   &rarr; 8 small experts process    [<span class="pp">FP8</span>]   <span class="cm">&larr; quantization tolerable</span>
+   &rarr; shared expert processes    [<span class="pp">FP8</span>]
+
+<span class="cm">6. All-to-all combine</span>
+   &rarr; gather results back        [<span class="pp">FP8</span>]   <span class="cm">&larr; overlapped by DualPipe</span>
+   &rarr; weighted sum of outputs    [<span class="ty">BF16</span>]
+
+<span class="cm">7. MTP head (training only)</span>
+   &rarr; predict next+1 token       [<span class="ty">BF16</span>]
+   &rarr; speculative draft (infer.) [<span class="ty">BF16</span>]</code></pre>
+</div>
+
+<p>Notice the precision boundaries. Everything that affects routing decisions stays in BF16 or higher. Everything that involves bulk data movement or expert computation drops to FP8. The router is the most precision-sensitive component in the entire model &mdash; a score difference of 0.001 can change which 8 of 256 experts fire, completely altering the computation. The experts themselves are the most precision-tolerant &mdash; their outputs are combined by weighted sum across 8 experts plus the shared expert, which averages out quantization noise through aggregation.</p>
+
+<p>This is the same insight that Switch Transformer discovered in 2021 (router in full precision, experts in lower precision), carried to its logical conclusion. Switch Transformer went from FP32 to BF16. DeepSeek-V3 goes from BF16 to FP8. Each step halves the precision and halves the memory and communication cost. The principle is the same: precision follows sensitivity, and sensitivity is highest at the routing decision.</p>
+
+<h3>DualPipe: a visual intuition</h3>
+
+<div class="diagram">
+    <span class="diagram-label">DualPipe Scheduling &mdash; One Training Step</span>
+    <pre><code><span class="cm">Standard Pipeline (half the time is wasted on communication):</span>
+<span class="st">[ Attention ]</span> <span class="pp">[ AllToAll ]</span> <span class="fn">[ MLP ]</span> <span class="pp">[ AllToAll ]</span> <span class="st">[ Attention ]</span> <span class="pp">[ AllToAll ]</span> <span class="fn">[ MLP ]</span> ...
+              <span class="cm">^^^ idle compute ^^^      ^^^ idle compute ^^^</span>
+
+<span class="cm">DualPipe (communication hidden behind computation):</span>
+<span class="st">[ Attn-fwd  ]</span> <span class="fn">[ MLP-fwd  ]</span> <span class="st">[ Attn-fwd  ]</span> <span class="fn">[ MLP-fwd  ]</span>  <span class="cm">&lt; compute</span>
+  <span class="pp">[ A2A-bwd ]</span>   <span class="pp">[ A2A-bwd ]</span>   <span class="pp">[ A2A-bwd ]</span>   <span class="pp">[ A2A-bwd ]</span>  <span class="cm">&lt; comms (20 SMs)</span>
+<span class="cm">              ^^^ overlap ^^^     ^^^ overlap ^^^</span></code></pre>
+</div>
+
+<p>In the standard pipeline, compute waits for communication and communication waits for compute. They take turns, and each wastes time while the other works. In DualPipe, they happen simultaneously on different hardware resources. The 20 SMs dedicated to communication are enough to saturate both InfiniBand and NVLink bandwidth &mdash; those 20 SMs run custom all-to-all kernels, hand-tuned for the specific cross-node expert dispatch and combine operations that MoE requires.</p>
+
+<p>The remaining 112 SMs never stop computing. They process attention, expert FFNs, normalization, and all the arithmetic that makes the model learn. The all-to-all overhead that consumed 40-50% of training time in standard MoE implementations? Hidden behind computation that was happening anyway. The wall clock time is determined entirely by the slower of (compute, communication). With DualPipe, compute is always slower. Communication is free.</p>
+
+<h3>The $5.576M model</h3>
+
+<p>The final training run: 2.788 million H800 GPU hours at an estimated $2 per GPU hour. Pre-training on 14.8 trillion tokens: $5.328M. Context extension: $238K. Post-training: $10K. Total: <strong>$5.576 million</strong>.</p>
+
+<p>For comparison, LLaMA 3.1 405B reportedly consumed 30.8 million H100 GPU hours. DeepSeek-V3 used 11x fewer GPU hours. The benchmark comparison is striking: DeepSeek-V3 scores higher on MATH-500 (90.2 vs 73.8), higher on HumanEval-Mul (82.6 vs 77.3), and competitive on MMLU (87.1 vs 88.6). It also outperformed GPT-4o and Claude 3.5 Sonnet on code benchmarks. The strongest open-source base model at the time of its release, trained for roughly one-tenth the cost of its closest competitor.</p>
+
+<p>The important caveat: $5.576M excludes R&D costs. Prior research, ablation experiments, failed training runs, architecture search &mdash; none of that is counted. The true cost of arriving at the DeepSeek-V3 recipe is higher. But the final run cost is what matters for reproducibility and for the economics of the field. Anyone with 2,048 H800s and $5.6M could train this model from the published recipe. That is a fundamentally different economic regime from the $100M+ training runs at frontier labs.</p>
+
+<p>The per-trillion-token cost tells the infrastructure story: 180,000 H800 GPU hours per trillion tokens, or about 3.7 days on the 2,048-GPU cluster. Pre-training consumed 14.8 trillion tokens across the full 2,048-GPU cluster. Context extension (from base context to longer sequences) added another 119,000 GPU hours. Post-training (alignment, RLHF) was negligible: 5,000 GPU hours, about $10K. The cost structure reveals where the value is created: 95.6% of all GPU hours go to pre-training. Context extension accounts for 4.3%. Post-training is 0.2%.</p>
+
+<p>This cost breakdown has implications for the broader field. If pre-training is 95% of the cost, then pre-training efficiency is the only lever that matters at scale. The MoE architecture, FP8 precision, DualPipe overlap &mdash; all of these are pre-training optimizations. Post-training (RLHF, instruction tuning) is comparatively cheap regardless of the architecture. The expensive decisions happen before any human feedback enters the picture.</p>
+
+<p>It also means the cost comparison with competitors is predominantly about pre-training. LLaMA 3.1 405B's 30.8M GPU hours are almost entirely pre-training. DeepSeek-V3's 2.788M GPU hours are almost entirely pre-training. The 11x gap is a pre-training efficiency gap, driven by the MoE architecture (sparse activation means fewer FLOPs per token), FP8 training (fewer bytes per FLOP), and DualPipe (fewer wasted cycles per training step).</p>
+
+<p>Each optimization compounds. The sparse activation ratio means only 5.5% of weights participate per token. FP8 halves the per-weight compute and memory. DualPipe recovers the communication overhead that MoE introduces. Taken together, the cost per token of training data processed drops dramatically compared to a dense BF16 model with equivalent benchmark scores. This compounding is why the gap is 11x and not 2x or 3x. No single optimization accounts for the full difference. The system-level composition of five techniques, each providing a multiplicative improvement, produces the headline number.</p>
+
+<!-- D3 VIZ: Cost Comparison -->
+<div class="viz-container">
+    <span class="diagram-label">Training Cost &mdash; GPU Hours Comparison</span>
+    <div id="cost-viz"></div>
+</div>
+
+<div class="diagram">
+    <span class="diagram-label">DeepSeek-V3 Training Cost Breakdown</span>
+    <pre><code><span class="cm">Stage                GPU Hours (H800)    Cost ($2/hr)    % of Total</span>
+<span class="cm">---------------------------------------------------------------------</span>
+<span class="st">Pre-training         2,664,000           $5,328,000      95.6%</span>
+<span class="ty">Context extension      119,000             $238,000       4.3%</span>
+<span class="fn">Post-training            5,000              $10,000       0.2%</span>
+<span class="cm">---------------------------------------------------------------------</span>
+<span class="kw">Total                2,788,000           $5,576,000     100.0%</span>
+
+<span class="cm">Pre-training details:</span>
+  <span class="nm">14.8 trillion</span> tokens
+  <span class="nm">180,000</span> H800 GPU-hrs per trillion tokens
+  <span class="nm">2,048</span> H800 GPUs in cluster
+  <span class="nm">~56 days</span> continuous training</code></pre>
+</div>
+
+<table>
+    <thead>
+        <tr>
+            <th>Metric</th>
+            <th>DeepSeek-V3</th>
+            <th>LLaMA 3.1 405B</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr><td>Total parameters</td><td>671B (sparse)</td><td>405B (dense)</td></tr>
+        <tr><td>Active parameters</td><td>37B</td><td>405B</td></tr>
+        <tr><td>Training GPU hours</td><td>2.788M (H800)</td><td>30.8M (H100)</td></tr>
+        <tr><td>Estimated cost</td><td>$5.576M</td><td>$60M+</td></tr>
+        <tr><td>MMLU</td><td>87.1</td><td>88.6</td></tr>
+        <tr><td>MATH-500</td><td><strong>90.2</strong></td><td>73.8</td></tr>
+        <tr><td>HumanEval-Mul</td><td><strong>82.6</strong></td><td>77.3</td></tr>
+        <tr><td>GSM8K</td><td>89.3</td><td><strong>96.8</strong></td></tr>
+    </tbody>
+</table>
+
+<p>The benchmarks tell a nuanced story. LLaMA 3.1 405B wins on GSM8K (grade-school math) and edges ahead on MMLU (general knowledge). DeepSeek-V3 dominates on MATH-500 (advanced mathematics, +16.4 points) and HumanEval-Mul (multilingual code, +5.3 points). The sparse model appears to specialize: its fine-grained experts may enable sharper performance on tasks that require deep, narrow expertise &mdash; exactly the kind of knowledge that benefits from having 256 specialist sub-networks rather than a single dense FFN.</p>
+
+<p>The pattern is suggestive. Tasks that require broad, shallow knowledge (MMLU, GSM8K) favor the dense model slightly. Tasks that require deep, specialized knowledge (advanced math, code generation across multiple languages) favor the sparse model significantly. This aligns with the MoE thesis: 256 experts can encode more specialized knowledge than a single dense FFN, and the router can find the right specialist for the right token. The model's structure mirrors the structure of the knowledge it encodes &mdash; narrow expertise stored in narrow experts, broad knowledge stored in the shared expert.</p>
+
+<p>This has implications for future scaling. If you want a model that is better at everything, you might need to scale the dense baseline (LLaMA approach). If you want a model that is dramatically better at specialized tasks &mdash; advanced math, niche programming languages, domain-specific science &mdash; you might be better served by adding more fine-grained experts. The scaling strategy depends on whether your users need breadth or depth.</p>
+
+<details>
+    <summary>Full benchmark table (DeepSeek-V3-Base)</summary>
+    <div>
+        <table>
+            <thead><tr><th>Benchmark</th><th>Score</th></tr></thead>
+            <tbody>
+                <tr><td>MMLU</td><td>87.1</td></tr>
+                <tr><td>MMLU-Pro</td><td>64.4</td></tr>
+                <tr><td>C-Eval</td><td>90.1</td></tr>
+                <tr><td>GSM8K</td><td>89.3</td></tr>
+                <tr><td>MATH</td><td>61.6</td></tr>
+                <tr><td>MATH-500</td><td>90.2</td></tr>
+                <tr><td>HumanEval</td><td>65.2</td></tr>
+                <tr><td>HumanEval-Mul</td><td>82.6</td></tr>
+                <tr><td>LiveCodeBench-Base</td><td>19.4</td></tr>
+                <tr><td>BBH</td><td>87.5</td></tr>
+            </tbody>
+        </table>
+    </div>
+</details>
+
+</section>
+
+<!-- ============================================================ -->
+<!-- CHAPTER 6: SPARSITY AS WORLDVIEW                              -->
+<!-- ============================================================ -->
+<section id="ch6">
+<h2>06 // Sparsity as Worldview</h2>
+
+<p class="drop-cap">Mixture of Experts is not just an architecture trick. It is a principle about how intelligence should be organized: not everything needs to activate for every input. A model can store 18x more knowledge than any single token ever uses. The efficiency comes from conditional computation &mdash; not from doing less computation overall, but from doing the <em>right</em> computation for each input. The model knows more. It just doesn't think about all of it at once.</p>
+
+<p>This is a fundamentally different philosophy from the dense scaling era, and the difference has economic consequences. Dense scaling says: throw more parameters at the problem and activate all of them. Every token pays the full cost, regardless of whether the question is about quantum mechanics or the word "the." Doubling the model's knowledge doubles the per-token compute. The cost of intelligence scales linearly with knowledge.</p>
+
+<p>Sparse scaling says: throw more parameters at the problem and activate only what matters. The word "the" gets cheap, fast routing through common-knowledge experts. A question about quantum entanglement activates the physics specialists. Doubling the model's knowledge (adding 256 more experts) does <em>not</em> double the per-token compute (still only k=8 fire). The cost of intelligence grows sub-linearly with knowledge. Same ambition, radically different economics.</p>
+
+<p>DeepSeek-V3 stores 671 billion parameters of knowledge &mdash; medical terminology next to Python syntax next to French grammar next to quantum mechanics &mdash; and for each token, a router selects the 37 billion parameters that are relevant. The rest sleep. The activation ratio is 5.5%. Ninety-four and a half percent of the model's knowledge is dormant for any given token. That is not waste. That is efficiency.</p>
+
+<p>The numbers tell the story of a field learning to be less wasteful. The 26-year gap from Jacobs 1991 to Shazeer 2017 was about infrastructure. The explosion since then &mdash; GShard (2020), Switch Transformer (2021), Expert Choice (2022), DeepSeekMoE (2024), DeepSeek-V3 (2024) &mdash; was about refinement. Top-2 routing to top-1. Sixteen experts to 256. Auxiliary loss to no loss at all. Each paper removed one source of waste, one unnecessary computation, one redundant parameter activation.</p>
+
+<p>There is a broader lesson here about the relationship between constraint and innovation. DeepSeek operated under U.S. export restrictions that limited them to H800 GPUs &mdash; hardware with half the interconnect bandwidth of the H100s available to American labs. Every innovation in this article &mdash; fine-grained experts that reduce per-expert communication volume, bias-based balancing that doesn't waste gradient compute, FP8 dispatch that halves communication bytes, DualPipe that hides whatever communication remains &mdash; was shaped by that constraint.</p>
+
+<p>The $5.576M training cost is not a miracle. It is what happens when you cannot afford to waste anything. When your interconnect bandwidth is halved, you must find a way to halve your communication volume (FP8 dispatch) and hide the remaining latency (DualPipe). When your GPU memory is constrained, you must compress your KV cache (MLA) and reduce your weight precision (FP8). When you cannot simply buy more hardware, you must extract more value from every FLOP you already have (MoE, MTP).</p>
+
+<p>Necessity was the author of this architecture. The export restriction intended to slow Chinese AI development forced DeepSeek to optimize relentlessly. Every wasted byte, every idle cycle, every unnecessary computation became a target. The techniques they developed are not specific to H800s. They would make H100 training cheaper too. American labs with unrestricted H100 access could apply the same stack and achieve even lower costs, because the optimizations compound with higher base bandwidth. The irony may be lasting: the constraint that was supposed to create an advantage for American AI may have produced a playbook that makes all AI training cheaper, everywhere.</p>
+
+<h3>The scaling lesson</h3>
+
+<p>The MoE timeline encodes a pattern that repeats across this entire series. A good idea appears decades before its time (Jacobs 1991, like Hopfield networks in the 1980s, like attention in the early 2000s). The idea waits for hardware. Hardware arrives. A flurry of refinement begins. Each refinement removes one source of waste. The end state is always simpler than the intermediate steps suggested it would be.</p>
+
+<p>GShard needed 2,048 experts and top-2 routing. Switch Transformer showed top-1 was enough. Expert Choice showed you could invert the routing direction entirely. DeepSeekMoE showed 256 tiny experts beat 8 large ones. DeepSeek-V3 showed you could drop the auxiliary loss entirely. Each step <em>removed</em> complexity. The most advanced MoE system is also the simplest in some ways: pure language modeling loss, a single bias term for balancing, and a shared expert for common knowledge. No capacity factors. No z-losses. No noisy gating.</p>
+
+<table>
+    <thead>
+        <tr>
+            <th>Year</th>
+            <th>System</th>
+            <th>Total Params</th>
+            <th>Routing</th>
+            <th>Balance Method</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr><td>1991</td><td>Jacobs et al.</td><td>~thousands</td><td>Soft gating</td><td>None</td></tr>
+        <tr><td>2017</td><td>Shazeer et al.</td><td>137B</td><td>Noisy top-k</td><td>Noise injection</td></tr>
+        <tr><td>2020</td><td>GShard</td><td>600B</td><td>Top-2</td><td>Auxiliary loss</td></tr>
+        <tr><td>2021</td><td>Switch Transformer</td><td>1.6T</td><td>Top-1</td><td>Auxiliary loss + capacity factor</td></tr>
+        <tr><td>2022</td><td>Expert Choice</td><td>8B (test)</td><td>Expert-selects-token</td><td>Structural guarantee</td></tr>
+        <tr><td>2024</td><td>Mixtral 8x7B</td><td>47B</td><td>Top-2</td><td>Auxiliary loss</td></tr>
+        <tr><td>2024</td><td>DeepSeekMoE</td><td>16B / 145B</td><td>Top-8 of 256</td><td>Auxiliary loss</td></tr>
+        <tr><td>2024</td><td>DeepSeek-V3</td><td>671B</td><td>Top-8 of 256 + shared</td><td>Bias term (no aux loss)</td></tr>
+    </tbody>
+</table>
+
+<details>
+    <summary>The H800 constraint and what it taught</summary>
+    <div>
+        <p>The H800 is a modified H100 designed for export to China under U.S. Department of Commerce restrictions. The key difference: NVLink bandwidth is capped at 400 GB/s (vs 900 GB/s on the H100), and the chips cannot use the same high-speed NVSwitch interconnect fabrics available domestically. For MoE training, where all-to-all communication is the primary bottleneck, this is a devastating limitation &mdash; roughly half the interconnect bandwidth.</p>
+        <p>Every innovation in DeepSeek-V3's training stack responds to this constraint:</p>
+        <p><strong>FP8 dispatch:</strong> reduces communication bytes by 50% (compensating for 50% less bandwidth)</p>
+        <p><strong>DualPipe:</strong> hides whatever communication time remains behind computation</p>
+        <p><strong>Fine-grained experts:</strong> smaller expert activations mean smaller tensors traveling between devices</p>
+        <p><strong>Custom all-to-all kernels:</strong> hand-tuned to minimize SM usage for communication (20 SMs vs potentially 40+ with generic implementations)</p>
+        <p>The irony: the export restriction intended to slow Chinese AI development may have forced DeepSeek to develop more efficient training techniques than would have been necessary with unrestricted H100 access. Constraint bred innovation. The techniques DeepSeek developed are not H800-specific &mdash; they would make H100 training cheaper too.</p>
+    </div>
+</details>
+
+<h3>The papers, in order</h3>
+
+<p><a href="https://direct.mit.edu/neco/article/3/1/79/5560/Adaptive-Mixtures-of-Local-Experts">Jacobs, Jordan, Nowlan, Hinton (1991)</a> &mdash; "Adaptive Mixtures of Local Experts." The seed. Divide, gate, specialize. Demonstrated on vowel discrimination. Dormant for 26 years.</p>
+
+<p><a href="https://arxiv.org/abs/1701.06538">Shazeer et al. (2017)</a> &mdash; "Outrageously Large Neural Networks." Revived MoE with sparsely-gated layers on LSTMs. 137B parameters, >1000x capacity. The resurrection.</p>
+
+<p><a href="https://arxiv.org/abs/2006.16668">Lepikhin, Lee et al. (2020)</a> &mdash; GShard. 600B parameters on 2,048 TPUs. Sub-linear cost scaling. The scale proof.</p>
+
+<p><a href="https://arxiv.org/abs/2101.03961">Fedus, Zoph, Shazeer (2021)</a> &mdash; Switch Transformers. Top-1 routing. 1.6T parameters. 7x speedup. The simplification.</p>
+
+<p><a href="https://arxiv.org/abs/2202.09368">Zhou et al. (2022)</a> &mdash; Expert Choice routing. Experts choose tokens, not vice versa. 2x convergence. The inversion.</p>
+
+<p><a href="https://arxiv.org/abs/2401.04088">Mistral AI (2024)</a> &mdash; Mixtral 8x7B. First open-source high-quality MoE. 47B total, 13B active. Matched LLaMA 2 70B at 6x speed.</p>
+
+<p><a href="https://arxiv.org/abs/2401.06066">DeepSeek (2024)</a> &mdash; DeepSeekMoE. Fine-grained experts (256 small vs 8 large). Shared expert trick. Matched LLaMA 2 7B at 40% compute.</p>
+
+<p><a href="https://arxiv.org/abs/2412.19437">DeepSeek (2024)</a> &mdash; DeepSeek-V3. Auxiliary-loss-free balancing. Full-stack integration. 671B parameters, $5.576M training cost. The synthesis.</p>
+
+<h3>The open question</h3>
+
+<p>MoE makes the FFN sparse. Only 8 of 256 expert sub-networks fire per token. But the attention layer remains dense. Every token still attends to every other token in its context window &mdash; O(n&sup2;) comparisons for a sequence of length n. For a 128K context window, that is 16.4 billion comparisons per token per layer. The attention layer does not know about sparsity. It does not route. It does not specialize. It computes the full pairwise attention matrix every time.</p>
+
+<p>The sparsity revolution has so far stopped at the FFN boundary. The question is whether it can cross into attention. What if you could apply the same principle &mdash; not every computation is necessary for every input &mdash; to the attention mechanism itself? What if most of those 16.4 billion comparisons are redundant, and a smarter routing policy could skip them?</p>
+
+<p>The precedent is encouraging. At every stage of MoE's development, the field overestimated the amount of computation needed. Dense transformers activate every parameter. MoE showed you could activate 5.5%. Top-2 routing was considered necessary for quality. Top-1 turned out to be enough. Auxiliary losses seemed unavoidable for stability. A simple bias term replaced them with zero quality cost. Capacity factors seemed necessary to prevent overflow. Fine-grained experts made them unnecessary. Each time, less computation and less mechanism sufficed.</p>
+
+<p>If that pattern holds &mdash; and three decades of evidence suggests it does &mdash; the full attention matrix may be the next density assumption to fall. Every token comparing against every other token, O(n&sup2;) comparisons, quadratic cost. The sparsity principle says: most of those comparisons are probably redundant. A smarter routing policy could skip them. Part VI explores that frontier.</p>
+
+<div class="power purple">
+    <div class="power-label">Forward</div>
+    <p>MoE questions density at the FFN level. But what about attention itself? Every token still compares against every other token &mdash; O(n&sup2;) comparisons, quadratic cost, the same bottleneck we started this series with. What if attention could be sparse too? What if you didn't need O(n&sup2;) comparisons at all? Part VI asks: what if attention is wrong?</p>
+</div>
+
+</section>
+
+</div><!-- end .content -->
+
+<!-- ============================================================ -->
+<!-- SCROLL SPY                                                    -->
+<!-- ============================================================ -->
+<script>
+(function() {
+    const navLinks = document.querySelectorAll('nav a');
+    const sections = document.querySelectorAll('section[id]');
+
+    function onScroll() {
+        let current = '';
+        sections.forEach(s => {
+            if (window.scrollY >= s.offsetTop - 120) current = s.id;
+        });
+        navLinks.forEach(a => {
+            a.classList.toggle('active', a.getAttribute('href') === '#' + current);
+        });
+    }
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+})();
+</script>
+
+<!-- ============================================================ -->
+<!-- VIZ 1: THE 26-YEAR TIMELINE                                   -->
+<!-- ============================================================ -->
+<script>
+(function() {
+    const container = document.getElementById('timeline-viz');
+    const readout = document.getElementById('timeline-readout');
+    const w = Math.min(container.parentElement.clientWidth - 48, 760);
+    const h = 520;
+    const margin = { top: 30, right: 30, bottom: 30, left: 30 };
+
+    const svg = d3.select(container).append('svg')
+        .attr('width', w)
+        .attr('height', h)
+        .attr('viewBox', `0 0 ${w} ${h}`);
+
+    const papers = [
+        { year: 1991, label: 'Jacobs et al.', desc: 'Adaptive Mixtures of Local Experts. The seed paper. Vowel discrimination with specialist sub-networks. Published in Neural Computation vol 3.', color: '#00ff88' },
+        { year: 2017, label: 'Shazeer et al.', desc: 'Outrageously Large Neural Networks: The Sparsely-Gated MoE Layer. 137B params, >1000x capacity on LSTM layers. ICLR 2017.', color: '#00ff88' },
+        { year: 2020, label: 'GShard', desc: '600B parameters on 2,048 TPU v3 cores. Sub-linear scaling: 16x params for 3.6x cost. Top-2 routing. ICLR 2021.', color: '#00ff88' },
+        { year: 2021, label: 'Switch Transformer', desc: '1.6T params, top-1 routing, 7x pre-training speedup. First large sparse model in bfloat16. JMLR 2022.', color: '#00ff88' },
+        { year: 2022, label: 'Expert Choice', desc: 'Experts choose tokens instead of vice versa. Guaranteed perfect load balance. 2x convergence over Switch. NeurIPS 2022.', color: '#00ff88' },
+        { year: 2024, label: 'DeepSeekMoE', desc: '256 fine-grained experts + 1 shared expert. 16B model matched LLaMA 2 7B at 40% compute. ACL 2024.', color: '#00ff88' },
+        { year: 2024.5, label: 'DeepSeek-V3', desc: '671B params, 37B active. Aux-loss-free balancing via bias trick. Full-stack: MLA+MoE+FP8+MTP+DualPipe. $5.576M. Dec 2024.', color: '#00ddff' },
+    ];
+
+    const infra = [
+        { year: 2012, label: 'AlexNet / GPU era', desc: 'Krizhevsky proves GPUs can train neural networks. CUDA ecosystem begins. Single-GPU training becomes standard.', color: '#ff8800' },
+        { year: 2015, label: 'TPU v1', desc: 'Google deploys first custom ML accelerator. 92 TOPS int8. Distributed training at scale becomes viable.', color: '#ff8800' },
+        { year: 2016, label: 'NVLink 1.0', desc: 'High-bandwidth GPU-to-GPU interconnect. 80 GB/s bidirectional. Multi-GPU training without PCIe bottleneck.', color: '#ff8800' },
+        { year: 2018, label: 'TPU v3 pods', desc: '2,048 cores per pod, 420 TFLOPS per chip, liquid-cooled. The hardware that makes GShard possible.', color: '#ff8800' },
+        { year: 2020, label: 'A100 + NVSwitch', desc: '600 GB/s NVLink 3.0, multi-instance GPU. Dense interconnect fabric enables efficient all-to-all.', color: '#ff8800' },
+        { year: 2023, label: 'H100 / H800', desc: '900 GB/s NVLink (H100), 400 GB/s (H800 export-restricted). 990 TFLOPS FP8. The DeepSeek constraint.', color: '#ff8800' },
+    ];
+
+    const yScale = d3.scaleLinear().domain([1989, 2026]).range([margin.top, h - margin.bottom]);
+    const midX = w / 2;
+
+    // Central axis
+    svg.append('line')
+        .attr('x1', midX).attr('x2', midX)
+        .attr('y1', margin.top).attr('y2', h - margin.bottom)
+        .attr('stroke', '#1e1e2e').attr('stroke-width', 2);
+
+    // Year ticks
+    [1991, 1995, 2000, 2005, 2010, 2015, 2017, 2020, 2022, 2024].forEach(yr => {
+        const y = yScale(yr);
+        svg.append('text')
+            .attr('x', midX).attr('y', y)
+            .attr('text-anchor', 'middle')
+            .attr('fill', '#3a3a4e')
+            .attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 9)
+            .text(yr);
+    });
+
+    // Gap shading
+    svg.append('rect')
+        .attr('x', midX - 60).attr('width', 120)
+        .attr('y', yScale(1992)).attr('height', yScale(2016) - yScale(1992))
+        .attr('fill', 'rgba(255,51,68,0.05)')
+        .attr('rx', 4);
+
+    svg.append('text')
+        .attr('x', midX).attr('y', yScale(2001))
+        .attr('text-anchor', 'middle')
+        .attr('fill', '#ff3344')
+        .attr('font-family', 'JetBrains Mono, monospace')
+        .attr('font-size', 10)
+        .attr('opacity', 0.6)
+        .text('26-YEAR GAP');
+
+    svg.append('text')
+        .attr('x', midX).attr('y', yScale(2005))
+        .attr('text-anchor', 'middle')
+        .attr('fill', '#ff3344')
+        .attr('font-family', 'Source Serif 4, serif')
+        .attr('font-size', 9)
+        .attr('font-style', 'italic')
+        .attr('opacity', 0.4)
+        .text('No GPU clusters. No interconnects.');
+
+    svg.append('text')
+        .attr('x', midX).attr('y', yScale(2008))
+        .attr('text-anchor', 'middle')
+        .attr('fill', '#ff3344')
+        .attr('font-family', 'Source Serif 4, serif')
+        .attr('font-size', 9)
+        .attr('font-style', 'italic')
+        .attr('opacity', 0.4)
+        .text('Dense scaling still works.');
+
+    // Papers (left side)
+    papers.forEach((p, i) => {
+        const y = yScale(p.year);
+        const xEnd = midX - 15;
+        const xStart = midX - 140;
+        const g = svg.append('g').style('cursor', 'pointer');
+
+        g.append('line')
+            .attr('x1', xEnd).attr('x2', xStart + 5)
+            .attr('y1', y).attr('y2', y)
+            .attr('stroke', p.color).attr('stroke-width', 1).attr('opacity', 0.4);
+
+        g.append('circle')
+            .attr('cx', xEnd).attr('cy', y).attr('r', 5)
+            .attr('fill', p.color).attr('opacity', 0.8);
+
+        g.append('text')
+            .attr('x', xStart).attr('y', y + 4)
+            .attr('text-anchor', 'end')
+            .attr('fill', p.color)
+            .attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 10)
+            .attr('font-weight', 500)
+            .text(p.label);
+
+        g.on('mouseover', () => {
+            readout.innerHTML = `<span style="color:${p.color}">${Math.floor(p.year)}</span> &mdash; ${p.desc}`;
+        }).on('mouseout', () => {
+            readout.innerHTML = 'Hover over a milestone to see details. <span>The idea waited for the hardware.</span>';
+        });
+    });
+
+    // Infrastructure (right side)
+    infra.forEach((p, i) => {
+        const y = yScale(p.year);
+        const xStart = midX + 15;
+        const xEnd = midX + 140;
+        const g = svg.append('g').style('cursor', 'pointer');
+
+        g.append('line')
+            .attr('x1', xStart).attr('x2', xEnd - 5)
+            .attr('y1', y).attr('y2', y)
+            .attr('stroke', p.color).attr('stroke-width', 1).attr('opacity', 0.4);
+
+        g.append('circle')
+            .attr('cx', xStart).attr('cy', y).attr('r', 5)
+            .attr('fill', p.color).attr('opacity', 0.8);
+
+        g.append('text')
+            .attr('x', xEnd).attr('y', y + 4)
+            .attr('text-anchor', 'start')
+            .attr('fill', p.color)
+            .attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 10)
+            .attr('font-weight', 500)
+            .text(p.label);
+
+        g.on('mouseover', () => {
+            readout.innerHTML = `<span style="color:${p.color}">${p.year}</span> &mdash; ${p.desc}`;
+        }).on('mouseout', () => {
+            readout.innerHTML = 'Hover over a milestone to see details. <span>The idea waited for the hardware.</span>';
+        });
+    });
+
+    // Legend
+    svg.append('text').attr('x', midX - 80).attr('y', h - 8)
+        .attr('text-anchor', 'end').attr('fill', '#00ff88')
+        .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
+        .text('MoE PAPERS');
+    svg.append('text').attr('x', midX + 80).attr('y', h - 8)
+        .attr('text-anchor', 'start').attr('fill', '#ff8800')
+        .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
+        .text('INFRASTRUCTURE');
+})();
+</script>
+
+<!-- ============================================================ -->
+<!-- VIZ 2: ROUTING EVOLUTION                                      -->
+<!-- ============================================================ -->
+<script>
+(function() {
+    const container = document.getElementById('routing-viz');
+    const readout = document.getElementById('routing-readout');
+    const w = Math.min(container.parentElement.clientWidth - 48, 760);
+    const h = 320;
+
+    const svg = d3.select(container).append('svg')
+        .attr('width', w).attr('height', h)
+        .attr('viewBox', `0 0 ${w} ${h}`);
+
+    const nTokens = 8;
+    const nExperts = 8;
+    const tokenW = 40, tokenH = 24;
+    const expertW = 50, expertH = 160;
+    const tokensY = 20;
+    const expertsY = 100;
+    const tokenSpacing = (w - 60) / nTokens;
+    const expertSpacing = (w - 60) / nExperts;
+
+    function tokenX(i) { return 30 + i * tokenSpacing + tokenSpacing / 2; }
+    function expertX(i) { return 30 + i * expertSpacing + expertSpacing / 2; }
+
+    const modes = {
+        dense: { desc: 'Dense &mdash; every token activates every expert. Maximum compute, maximum redundancy.', gen: () => {
+            const links = [];
+            for (let t = 0; t < nTokens; t++) for (let e = 0; e < nExperts; e++) links.push([t, e]);
+            return links;
+        }},
+        top2: { desc: 'Top-2 (GShard) &mdash; each token routes to 2 experts. 75% less compute than dense.', gen: () => {
+            const links = [];
+            for (let t = 0; t < nTokens; t++) {
+                const e1 = t % nExperts;
+                const e2 = (t * 3 + 1) % nExperts;
+                links.push([t, e1]);
+                if (e1 !== e2) links.push([t, e2]);
+            }
+            return links;
+        }},
+        top1: { desc: 'Top-1 (Switch) &mdash; each token routes to 1 expert. Half the communication of top-2.', gen: () => {
+            const links = [];
+            for (let t = 0; t < nTokens; t++) links.push([t, (t * 3 + 2) % nExperts]);
+            return links;
+        }},
+        'expert-choice': { desc: 'Expert Choice &mdash; experts choose their preferred tokens. Guaranteed perfect balance.', gen: () => {
+            const links = [];
+            for (let e = 0; e < nExperts; e++) {
+                const t1 = e % nTokens;
+                const t2 = (e + 3) % nTokens;
+                links.push([t1, e]);
+                if (t1 !== t2) links.push([t2, e]);
+            }
+            return links;
+        }}
+    };
+
+    // Draw static elements
+    const tokenLabels = ['The', 'cat', 'sat', 'on', 'the', 'warm', 'red', 'mat'];
+    const tokenGroup = svg.append('g');
+    const expertGroup = svg.append('g');
+    const linkGroup = svg.append('g');
+
+    for (let t = 0; t < nTokens; t++) {
+        tokenGroup.append('rect')
+            .attr('x', tokenX(t) - tokenW/2).attr('y', tokensY)
+            .attr('width', tokenW).attr('height', tokenH)
+            .attr('rx', 3)
+            .attr('fill', 'none').attr('stroke', '#00ddff').attr('stroke-width', 1);
+        tokenGroup.append('text')
+            .attr('x', tokenX(t)).attr('y', tokensY + tokenH/2 + 4)
+            .attr('text-anchor', 'middle')
+            .attr('fill', '#00ddff')
+            .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 10)
+            .text(tokenLabels[t]);
+    }
+
+    for (let e = 0; e < nExperts; e++) {
+        expertGroup.append('rect')
+            .attr('class', 'expert-rect')
+            .attr('data-idx', e)
+            .attr('x', expertX(e) - expertW/2).attr('y', expertsY)
+            .attr('width', expertW).attr('height', expertH)
+            .attr('rx', 4)
+            .attr('fill', 'rgba(0,255,136,0.05)').attr('stroke', '#1e1e2e').attr('stroke-width', 1);
+        expertGroup.append('text')
+            .attr('x', expertX(e)).attr('y', expertsY + expertH + 18)
+            .attr('text-anchor', 'middle')
+            .attr('fill', '#6a6a7e')
+            .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 9)
+            .text(`E${e}`);
+    }
+
+    // Stats display
+    const statsText = svg.append('text')
+        .attr('x', w - 10).attr('y', h - 8)
+        .attr('text-anchor', 'end')
+        .attr('fill', '#6a6a7e')
+        .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 10);
+
+    // Expert load counters
+    const loadTexts = [];
+    for (let e = 0; e < nExperts; e++) {
+        const lt = svg.append('text')
+            .attr('x', expertX(e)).attr('y', expertsY + expertH/2)
+            .attr('text-anchor', 'middle')
+            .attr('fill', '#00ff88')
+            .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 11)
+            .attr('font-weight', 600)
+            .attr('opacity', 0.7)
+            .text('');
+        loadTexts.push(lt);
+    }
+
+    function renderMode(mode) {
+        const links = modes[mode].gen();
+        readout.innerHTML = 'Mode: <span>' + modes[mode].desc + '</span>';
+
+        // Count connections per expert
+        const expertLoads = new Array(nExperts).fill(0);
+        links.forEach(([t, e]) => expertLoads[e]++);
+        const totalActivations = links.length;
+        const pctOfDense = ((totalActivations / (nTokens * nExperts)) * 100).toFixed(0);
+
+        statsText.text(`${totalActivations} activations (${pctOfDense}% of dense)`);
+
+        // Reset experts
+        svg.selectAll('.expert-rect')
+            .attr('fill', 'rgba(0,255,136,0.05)')
+            .attr('stroke', '#1e1e2e');
+
+        // Mark active experts with load indication
+        const activeExperts = new Set(links.map(l => l[1]));
+        activeExperts.forEach(e => {
+            const intensity = Math.min(expertLoads[e] / nTokens, 1);
+            svg.select(`.expert-rect[data-idx="${e}"]`)
+                .attr('fill', `rgba(0,255,136,${0.05 + intensity * 0.2})`)
+                .attr('stroke', '#00ff88');
+        });
+
+        // Update load counters
+        loadTexts.forEach((lt, e) => {
+            if (expertLoads[e] > 0) {
+                lt.text(expertLoads[e]).attr('opacity', 0.7);
+            } else {
+                lt.text('-').attr('opacity', 0.3).attr('fill', '#ff3344');
+            }
+        });
+
+        // Draw links
+        linkGroup.selectAll('*').remove();
+        links.forEach(([t, e], i) => {
+            const x1 = tokenX(t), y1 = tokensY + tokenH;
+            const x2 = expertX(e), y2 = expertsY;
+
+            linkGroup.append('line')
+                .attr('x1', x1).attr('y1', y1)
+                .attr('x2', x1).attr('y2', y1)
+                .attr('stroke', mode === 'expert-choice' ? '#ff8800' : '#00ff88')
+                .attr('stroke-width', 1.5)
+                .attr('opacity', 0)
+                .transition()
+                .delay(i * 40)
+                .duration(300)
+                .attr('x2', x2).attr('y2', y2)
+                .attr('opacity', 0.5);
+        });
+    }
+
+    window.showRoutingMode = function(mode) {
+        document.querySelectorAll('#routing-viz').forEach(() => {
+            container.parentElement.querySelectorAll('.viz-btn').forEach(b => b.classList.remove('active'));
+        });
+        event.target.classList.add('active');
+        renderMode(mode);
+    };
+
+    renderMode('dense');
+})();
+</script>
+
+<!-- ============================================================ -->
+<!-- VIZ 3: THE BIAS TRICK                                         -->
+<!-- ============================================================ -->
+<script>
+(function() {
+    const container = document.getElementById('bias-viz');
+    const readout = document.getElementById('bias-readout');
+    const w = Math.min(container.parentElement.clientWidth - 48, 760);
+    const h = 340;
+
+    const svg = d3.select(container).append('svg')
+        .attr('width', w).attr('height', h)
+        .attr('viewBox', `0 0 ${w} ${h}`);
+
+    const nExperts = 16;
+    const barWidth = (w - 80) / nExperts - 4;
+    const maxBarH = 260;
+    const baseY = h - 40;
+
+    let biasMode = false;
+    let loads = new Array(nExperts).fill(1 / nExperts);
+    let biases = new Array(nExperts).fill(0);
+    let animFrame = null;
+    let step = 0;
+
+    // Draw bars
+    const bars = [];
+    const biasTexts = [];
+    for (let i = 0; i < nExperts; i++) {
+        const x = 40 + i * (barWidth + 4);
+        const bar = svg.append('rect')
+            .attr('x', x).attr('y', baseY)
+            .attr('width', barWidth).attr('height', 0)
+            .attr('rx', 2)
+            .attr('fill', '#00ff88');
+        bars.push(bar);
+
+        svg.append('text')
+            .attr('x', x + barWidth/2).attr('y', baseY + 16)
+            .attr('text-anchor', 'middle')
+            .attr('fill', '#6a6a7e')
+            .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 8)
+            .text(i);
+
+        const bt = svg.append('text')
+            .attr('x', x + barWidth/2).attr('y', baseY - 5)
+            .attr('text-anchor', 'middle')
+            .attr('fill', '#6a6a7e')
+            .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 7)
+            .text('');
+        biasTexts.push(bt);
+    }
+
+    // Reference line (perfect balance)
+    const refH = maxBarH / nExperts * 2;
+    svg.append('line')
+        .attr('x1', 35).attr('x2', w - 5)
+        .attr('y1', baseY - refH).attr('y2', baseY - refH)
+        .attr('stroke', '#4488ff').attr('stroke-width', 1)
+        .attr('stroke-dasharray', '4,3').attr('opacity', 0.4);
+    svg.append('text')
+        .attr('x', 34).attr('y', baseY - refH - 4)
+        .attr('text-anchor', 'end')
+        .attr('fill', '#4488ff').attr('opacity', 0.5)
+        .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 8)
+        .text('ideal');
+
+    function simulate() {
+        step++;
+        const gamma = 0.003;
+        const rich_get_richer = 0.02;
+
+        if (!biasMode) {
+            // Without bias: rich-get-richer dynamics
+            const noise = loads.map((l, i) => l + (Math.random() - 0.45) * rich_get_richer * (1 + l * 3));
+            const sum = noise.reduce((a, b) => a + Math.max(b, 0.001), 0);
+            loads = noise.map(n => Math.max(n, 0.001) / sum);
+        } else {
+            // With bias: balanced routing
+            const affinities = loads.map((l, i) => {
+                const raw = l + (Math.random() - 0.45) * rich_get_richer * (1 + l * 2);
+                return Math.max(raw, 0.001);
+            });
+            // Apply bias to selection
+            const selected = affinities.map((a, i) => a + biases[i]);
+            const sum = selected.reduce((a, b) => a + Math.max(b, 0.001), 0);
+            loads = selected.map(s => Math.max(s, 0.001) / sum);
+
+            // Update biases
+            const avg = 1 / nExperts;
+            biases = biases.map((b, i) => {
+                if (loads[i] > avg * 1.2) return b - gamma;
+                if (loads[i] < avg * 0.8) return b + gamma;
+                return b;
+            });
+        }
+
+        // Render
+        const maxLoad = Math.max(...loads);
+        const deadCount = loads.filter(l => l < 0.01).length;
+        const balanceCoeff = 1 - d3.deviation(loads) / d3.mean(loads);
+
+        bars.forEach((bar, i) => {
+            const barH = (loads[i] / maxLoad) * maxBarH;
+            const isDead = loads[i] < 0.01;
+            bar.transition().duration(80)
+                .attr('y', baseY - barH)
+                .attr('height', barH)
+                .attr('fill', isDead ? '#ff3344' : loads[i] > 0.15 ? '#ffdd00' : '#00ff88');
+        });
+
+        if (biasMode) {
+            biasTexts.forEach((bt, i) => {
+                bt.text(biases[i].toFixed(2)).attr('fill', biases[i] > 0 ? '#00ff88' : biases[i] < 0 ? '#ff3344' : '#6a6a7e');
+            });
+        } else {
+            biasTexts.forEach(bt => bt.text(''));
+        }
+
+        readout.innerHTML = `Load balance: <span>${Math.max(0, balanceCoeff).toFixed(3)}</span> | Dead experts: <span style="color:${deadCount > 0 ? '#ff3344' : '#00ff88'}">${deadCount}</span> | Step: <span>${step}</span>`;
+
+        animFrame = setTimeout(simulate, 100);
+    }
+
+    window.toggleBias = function(on) {
+        biasMode = on;
+        document.getElementById('bias-off-btn').classList.toggle('active', !on);
+        document.getElementById('bias-on-btn').classList.toggle('active', on);
+
+        // Reset
+        loads = new Array(nExperts).fill(1 / nExperts);
+        biases = new Array(nExperts).fill(0);
+        step = 0;
+
+        if (animFrame) clearTimeout(animFrame);
+        simulate();
+    };
+
+    // Start automatically
+    toggleBias(false);
+})();
+</script>
+
+<!-- ============================================================ -->
+<!-- VIZ 4: THE COMPENSATION LOOP (FULL STACK)                     -->
+<!-- ============================================================ -->
+<script>
+(function() {
+    const container = document.getElementById('stack-viz');
+    const detail = document.getElementById('stack-detail');
+    const w = Math.min(container.parentElement.clientWidth - 48, 760);
+    const h = 340;
+
+    const svg = d3.select(container).append('svg')
+        .attr('width', w).attr('height', h)
+        .attr('viewBox', `0 0 ${w} ${h}`);
+
+    const components = [
+        {
+            id: 'mla', label: 'MLA', color: '#00ddff',
+            x: w * 0.15, y: 80,
+            gives: 'Compresses KV cache by 93%, freeing GPU memory',
+            costs: 'Added complexity to attention computation',
+            enables: ['moe'],
+            enabledBy: ['fp8'],
+            detail: 'Multi-head Latent Attention projects K/V into 512-dim latent space (down from 7,168). This frees the memory that 256 expert weight sets need.'
+        },
+        {
+            id: 'moe', label: 'MoE', color: '#00ff88',
+            x: w * 0.5, y: 50,
+            gives: '671B knowledge capacity with only 37B active compute',
+            costs: 'All-to-all communication overhead (~1:1 comp:comm ratio)',
+            enables: [],
+            enabledBy: ['mla', 'fp8', 'dualpipe'],
+            detail: '256 routed experts + 1 shared expert per layer. Top-8 routing with auxiliary-loss-free bias balancing. 5.5% activation ratio.'
+        },
+        {
+            id: 'fp8', label: 'FP8', color: '#ff8800',
+            x: w * 0.85, y: 80,
+            gives: '~2x throughput, halved weight memory and communication volume',
+            costs: 'Risk of precision loss and training instability',
+            enables: ['moe', 'mla', 'dualpipe'],
+            enabledBy: [],
+            detail: 'E4M3 format with tile-wise quantization. Router stays in BF16 (routing decisions are precision-sensitive). Experts tolerate FP8. Relative loss vs BF16: <0.25%.'
+        },
+        {
+            id: 'mtp', label: 'MTP', color: '#aa44ff',
+            x: w * 0.3, y: 240,
+            gives: 'Richer training signal + speculative decoding at inference',
+            costs: '14B extra parameters, extra training compute',
+            enables: [],
+            enabledBy: ['moe'],
+            detail: 'Separate 14B module predicts one additional future token. Dual-use: forces better representations during training, enables 2x inference throughput via speculative decoding.'
+        },
+        {
+            id: 'dualpipe', label: 'DualPipe', color: '#ff00aa',
+            x: w * 0.7, y: 240,
+            gives: 'Overlaps compute and communication for near-zero overhead',
+            costs: 'Requires two copies of model parameters',
+            enables: ['moe'],
+            enabledBy: ['fp8'],
+            detail: 'Bidirectional pipeline parallelism. 20 SMs handle all communication (out of ~132). Forward compute on one micro-batch overlaps backward communication on another. Designed for H800 bandwidth constraints.'
+        }
+    ];
+
+    // Draw dependency arrows
+    const arrows = [];
+    components.forEach(src => {
+        src.enables.forEach(tgtId => {
+            const tgt = components.find(c => c.id === tgtId);
+            arrows.push({ src, tgt });
+        });
+    });
+
+    const defs = svg.append('defs');
+    defs.append('marker')
+        .attr('id', 'arrowhead')
+        .attr('viewBox', '0 0 10 7')
+        .attr('refX', 10).attr('refY', 3.5)
+        .attr('markerWidth', 8).attr('markerHeight', 6)
+        .attr('orient', 'auto')
+        .append('polygon')
+        .attr('points', '0 0, 10 3.5, 0 7')
+        .attr('fill', '#3a3a4e');
+
+    arrows.forEach(({ src, tgt }) => {
+        svg.append('line')
+            .attr('class', `dep-line dep-${src.id} dep-${tgt.id}`)
+            .attr('x1', src.x).attr('y1', src.y)
+            .attr('x2', tgt.x).attr('y2', tgt.y)
+            .attr('stroke', '#2a2a4a').attr('stroke-width', 1.5)
+            .attr('marker-end', 'url(#arrowhead)')
+            .attr('opacity', 0.4);
+    });
+
+    // Draw component nodes
+    components.forEach(c => {
+        const g = svg.append('g').style('cursor', 'pointer');
+
+        g.append('circle')
+            .attr('cx', c.x).attr('cy', c.y).attr('r', 32)
+            .attr('fill', 'rgba(18,18,26,0.9)')
+            .attr('stroke', c.color).attr('stroke-width', 2)
+            .attr('class', `node-circle node-${c.id}`);
+
+        g.append('text')
+            .attr('x', c.x).attr('y', c.y + 4)
+            .attr('text-anchor', 'middle')
+            .attr('fill', c.color)
+            .attr('font-family', 'JetBrains Mono, monospace')
+            .attr('font-size', 12).attr('font-weight', 600)
+            .text(c.label);
+
+        g.on('click', () => {
+            // Highlight this node
+            svg.selectAll('.node-circle').attr('stroke-width', 2).attr('filter', '');
+            svg.select(`.node-${c.id}`).attr('stroke-width', 3);
+
+            // Highlight related arrows
+            svg.selectAll('.dep-line').attr('opacity', 0.15).attr('stroke', '#2a2a4a');
+            svg.selectAll(`.dep-${c.id}`).attr('opacity', 0.8).attr('stroke', c.color);
+
+            detail.innerHTML = `<div style="margin-bottom:4px"><span style="color:${c.color};font-weight:600">${c.label}</span></div>` +
+                `<div style="font-size:13px;line-height:1.5">${c.detail}</div>` +
+                `<div style="margin-top:6px;font-size:11px"><span style="color:#00ff88">Gives:</span> ${c.gives}</div>` +
+                `<div style="font-size:11px"><span style="color:#ff3344">Costs:</span> ${c.costs}</div>`;
+        });
+
+        g.on('mouseover', () => {
+            svg.select(`.node-${c.id}`).transition().duration(150).attr('r', 36);
+        }).on('mouseout', () => {
+            svg.select(`.node-${c.id}`).transition().duration(150).attr('r', 32);
+        });
+    });
+
+    // Cost comparison below
+    const costY = h - 30;
+    const costBarMaxW = w - 100;
+
+    // DeepSeek bar
+    const dsW = costBarMaxW * (5.576 / 65);
+    svg.append('rect')
+        .attr('x', 50).attr('y', costY - 12)
+        .attr('width', 0).attr('height', 14).attr('rx', 3)
+        .attr('fill', '#00ff88')
+        .transition().duration(800).attr('width', dsW);
+    svg.append('text')
+        .attr('x', 50 + dsW + 8).attr('y', costY)
+        .attr('fill', '#00ff88')
+        .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 10)
+        .text('DeepSeek-V3: $5.6M');
+
+    // LLaMA bar
+    const llamaW = costBarMaxW * (60 / 65);
+    svg.append('rect')
+        .attr('x', 50).attr('y', costY + 6)
+        .attr('width', 0).attr('height', 14).attr('rx', 3)
+        .attr('fill', '#ff3344').attr('opacity', 0.7)
+        .transition().duration(800).delay(200).attr('width', llamaW);
+    svg.append('text')
+        .attr('x', 50 + llamaW + 8).attr('y', costY + 18)
+        .attr('fill', '#ff3344')
+        .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 10)
+        .text('LLaMA 3.1 405B: ~$60M+');
+})();
+</script>
+
+<!-- ============================================================ -->
+<!-- VIZ 5: COST COMPARISON (detailed)                             -->
+<!-- ============================================================ -->
+<script>
+(function() {
+    const container = document.getElementById('cost-viz');
+    const w = Math.min(container.parentElement.clientWidth - 48, 760);
+    const h = 200;
+
+    const svg = d3.select(container).append('svg')
+        .attr('width', w).attr('height', h)
+        .attr('viewBox', `0 0 ${w} ${h}`);
+
+    const data = [
+        { label: 'DeepSeek-V3', hours: 2.788, cost: 5.576, color: '#00ff88' },
+        { label: 'LLaMA 3.1 405B', hours: 30.8, cost: 60, color: '#ff3344' }
+    ];
+
+    const maxHours = 35;
+    const barH = 36;
+    const startX = 160;
+    const maxW = w - startX - 80;
+
+    data.forEach((d, i) => {
+        const y = 40 + i * 70;
+        const barW = (d.hours / maxHours) * maxW;
+
+        svg.append('text')
+            .attr('x', startX - 12).attr('y', y + barH/2 + 4)
+            .attr('text-anchor', 'end')
+            .attr('fill', d.color)
+            .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 12)
+            .attr('font-weight', 500)
+            .text(d.label);
+
+        svg.append('rect')
+            .attr('x', startX).attr('y', y)
+            .attr('width', 0).attr('height', barH)
+            .attr('rx', 4).attr('fill', d.color).attr('opacity', 0.8)
+            .transition().duration(1000).delay(i * 200)
+            .attr('width', barW);
+
+        svg.append('text')
+            .attr('x', startX + barW + 10).attr('y', y + 14)
+            .attr('fill', d.color)
+            .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 11)
+            .attr('opacity', 0)
+            .transition().delay(800 + i * 200).duration(300).attr('opacity', 1)
+            .selection()
+            .text(`${d.hours}M GPU-hrs`);
+
+        svg.append('text')
+            .attr('x', startX + barW + 10).attr('y', y + 30)
+            .attr('fill', '#6a6a7e')
+            .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 10)
+            .attr('opacity', 0)
+            .transition().delay(800 + i * 200).duration(300).attr('opacity', 1)
+            .selection()
+            .text(`~$${d.cost}M`);
+    });
+
+    // Ratio callout
+    svg.append('text')
+        .attr('x', w/2).attr('y', h - 15)
+        .attr('text-anchor', 'middle')
+        .attr('fill', '#ffdd00')
+        .attr('font-family', 'JetBrains Mono, monospace').attr('font-size', 13)
+        .attr('font-weight', 600)
+        .attr('opacity', 0)
+        .transition().delay(1400).duration(400).attr('opacity', 1)
+        .selection()
+        .text('11x fewer GPU hours. Competitive benchmarks.');
+})();
+</script>
+
+</body>
+</html>
